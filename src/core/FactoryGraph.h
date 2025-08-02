@@ -4,10 +4,14 @@
 
 #ifndef FACTORYGRAPH_H
 #define FACTORYGRAPH_H
+#include <iostream>
 #include <vector>
 
 #include "Connection.h"
 #include "Node.h"
+#include "Recipe.h"
+#include "Resource.h"
+#include "../utils/GameDataLoader.h"
 
 class FactoryGraph {
 public:
@@ -21,10 +25,14 @@ public:
     void clear();
     void printGraph() const;
 
+    static bool loadGameData(const std::string& jsonFile);
 
+
+    static GameDataLoader::GameData game_data;
 private:
     std::vector<Node> nodes; // List of nodes in the graph
     std::vector<Connection> connections; // List of connections between nodes
+
 
     int next_node_id = 0; // Unique ID for the next node to be added
 };

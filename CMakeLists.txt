@@ -14,5 +14,7 @@ add_executable(factory_planner src/main.cpp
         src/utils/JsonLoader.cpp
         src/utils/JsonLoader.h
         src/core/Recipe.h
-        src/core/Resource.h)
+        src/core/Resource.h
+        src/utils/GameDataLoader.cpp
+        src/utils/GameDataLoader.h)
 
