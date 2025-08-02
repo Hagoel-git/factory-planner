@@ -1,20 +1,65 @@
-//
-// Created by hagoel on 8/1/25.
-//
 #include "JsonLoader.h"
-
 #include <fstream>
 #include <iostream>
+#include <unordered_map>
 
-void parseJson() {
-    std::ifstream f("../data/satisfactory.json");
-    json data = json::parse(f);
-    if (data.is_null()) {
-        throw std::runtime_error("Failed to parse JSON data");
+json JsonLoader::loadFromFile(const std::string& filePath) {
+    std::ifstream file(filePath);
+    if (!file.is_open()) {
+        throw std::runtime_error("Could not open JSON file: " + filePath);
     }
-    std::cout << "JSON data parsed successfully!" << std::endl;
-    // Example of accessing data
-    for (const auto& item : data) {
-        std::cout << "Item: " << item.dump(4) << std::endl; // Pretty print each item
+
+    json data;
+    file >> data;
+    return data;
+}
+
+bool JsonLoader::validateSchema(const json& data) {
+    return data.contains("items") && data.contains("recipes");
+}
+
+Resource JsonLoader::parseResource(const json& itemJson, int id) {
+    Resource res;
+    res.id = id;
+    res.name = itemJson.value("name", "");
+    return res;
+}
+
+Recipe JsonLoader::parseRecipe(
+    const json& recipeJson,
+    int id,
+    const std::unordered_map<std::string, int>& keyNameToId)
+{
+    Recipe recipe;
+    recipe.id = id;
+    recipe.name = recipeJson.value("name", "");
+    recipe.time = recipeJson.value("time", 1.0);
+
+    if (recipeJson.contains("ingredients")) {
+        for (const auto& pair : recipeJson["ingredients"]) {
+            const std::string& key = pair[0];
+            double amount = pair[1];
+            auto it = keyNameToId.find(key);
+            if (it != keyNameToId.end()) {
+                recipe.ingredients[it->second] = amount;
+            } else {
+                std::cerr << "Warning: Unknown ingredient key_name: " << key << std::endl;
+            }
+        }
     }
+
+    if (recipeJson.contains("products")) {
+        for (const auto& pair : recipeJson["products"]) {
+            const std::string& key = pair[0];
+            double amount = pair[1];
+            auto it = keyNameToId.find(key);
+            if (it != keyNameToId.end()) {
+                recipe.products[it->second] = amount;
+            } else {
+                std::cerr << "Warning: Unknown product key_name: " << key << std::endl;
+            }
+        }
+    }
+
+    return recipe;
 }
