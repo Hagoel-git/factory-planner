@@ -13,7 +13,7 @@ class FactoryGraph {
 public:
     int addNode(const std::string& name, NodeType type, int key_id);
     Node* getNode(int id);
-    const std::vector<Node>& getNodes() const;
+    [[nodiscard]] const std::vector<Node>& getNodes() const;
 
     void addConnection(int from_node_id, int to_node_id, int resource_id, double max_flow);
     [[nodiscard]] const std::vector<Connection>& getConnections() const;

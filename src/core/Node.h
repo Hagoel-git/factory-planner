@@ -5,6 +5,7 @@
 #ifndef NODE_H
 #define NODE_H
 #include <string>
+#include <unordered_map>
 
 #include "../common/NodeType.h"
 
@@ -13,10 +14,14 @@ struct Node {
     NodeType type;
 
     int id;
-    int key_id;
-    int selected_recipe_id; // if node is processor; -1 if not
+    int key_id;             // machine type (Constructor, Assembler, etc.)
+    int selected_recipe_id; // -1 if not selected
 
+    double machine_count;
     double power_usage = 0.0; // in MW
+
+    std::unordered_map<int, double> resource_input;  // resource_id -> amount
+    std::unordered_map<int, double> resource_output; // resource_id -> amount
 
     Node() = default;
     Node(std::string name, NodeType type, int id, int key_id)
