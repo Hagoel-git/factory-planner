@@ -11,8 +11,8 @@ add_executable(factory_planner src/main.cpp
         src/core/Connection.h
         src/core/FactoryGraph.h
         src/core/FactoryGraph.cpp
-        src/core/Calculator.cpp
-        src/core/Calculator.h
         src/utils/JsonLoader.cpp
-        src/utils/JsonLoader.h)
+        src/utils/JsonLoader.h
+        src/core/Recipe.h
+        src/core/Resource.h)
 
