@@ -25,6 +25,15 @@ GameDataLoader::GameData GameDataLoader::loadGameData(const std::string &jsonFil
 
         ++resource_id_counter;
     }
+    for (const auto& itemJson : raw["fluids"]) {
+        std::string key = itemJson.value("key_name", "");
+        keyNameToId[key] = resource_id_counter;
+
+        Resource res = JsonLoader::parseResource(itemJson, resource_id_counter);
+        data.resources.push_back(res);
+
+        ++resource_id_counter;
+    }
 
     // Parse recipes
     int recipeId = 0;
