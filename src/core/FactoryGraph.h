@@ -25,10 +25,11 @@ public:
     void clear();
     void printGraph() const;
 
-    static bool loadGameData(const std::string& jsonFile);
+    bool loadGameData(const std::string& jsonFile);
 
+    std::vector<int> findFinalNodes();
 
-    static GameDataLoader::GameData game_data;
+    GameDataLoader::GameData game_data;
 private:
     std::vector<Node> nodes; // List of nodes in the graph
     std::vector<Connection> connections; // List of connections between nodes

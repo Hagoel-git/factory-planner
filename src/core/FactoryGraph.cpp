@@ -5,8 +5,7 @@
 #include "FactoryGraph.h"
 
 #include <iostream>
-
-GameDataLoader::GameData FactoryGraph::game_data;
+#include <unordered_set>
 
 int FactoryGraph::addNode(const std::string &name, NodeType type, int key_id) {
     int id = next_node_id++;
@@ -47,6 +46,21 @@ bool FactoryGraph::loadGameData(const std::string &jsonFile) {
         std::cerr << "Error loading game data: " << e.what() << std::endl;
         return false;
     }
+}
+
+std::vector<int> FactoryGraph::findFinalNodes() {
+    std::unordered_set<int> nodes_with_outgoing_connections;
+    for (const auto &conn : connections) {
+        nodes_with_outgoing_connections.insert(conn.from);
+    }
+
+    std::vector<int> final_nodes;
+    for (const auto &node : nodes) {
+        if (nodes_with_outgoing_connections.find(node.id) == nodes_with_outgoing_connections.end()) {
+            final_nodes.push_back(node.id);
+        }
+    }
+    return final_nodes;
 }
 
 void FactoryGraph::printGraph() const {
