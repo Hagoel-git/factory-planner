@@ -41,7 +41,10 @@ Recipe JsonLoader::parseRecipe(
             double amount = pair[1];
             auto it = keyNameToId.find(key);
             if (it != keyNameToId.end()) {
-                recipe.ingredients[it->second] = amount;
+                RecipePort port;
+                port.resource_id = it->second;
+                port.amount = amount;
+                recipe.input_ports.push_back(port);
             } else {
                 std::cerr << "Warning: Unknown ingredient key_name: " << key << std::endl;
             }
@@ -54,7 +57,10 @@ Recipe JsonLoader::parseRecipe(
             double amount = pair[1];
             auto it = keyNameToId.find(key);
             if (it != keyNameToId.end()) {
-                recipe.products[it->second] = amount;
+                RecipePort port;
+                port.resource_id = it->second;
+                port.amount = amount;
+                recipe.output_ports.push_back(port);
             } else {
                 std::cerr << "Warning: Unknown product key_name: " << key << std::endl;
             }

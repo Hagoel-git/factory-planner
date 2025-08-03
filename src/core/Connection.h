@@ -6,18 +6,16 @@
 #define CONNECTION_H
 
 struct Connection {
-    int from;  // ID of the node this connection originates from
-    int to;    // ID of the node this connection points to
+    int from_node;  // ID of the node this connection originates from
+    int to_node;    // ID of the node this connection points to
+    int from_port;  // Port number on the originating node
+    int to_port;    // Port number on the destination node
     int resource_id;
 
-    double flow_rate = 0.0;
-    double max_flow = -1;       // Maximum flow capacity of this connection
     bool is_bottleneck = false;
 
-    Connection(int from, int to, int resource)
-        : from(from),
-          to(to),
-          resource_id(resource) {}
+    Connection(int from_node, int to_node, int from_port, int to_port, int resource_id)
+        : from_node(from_node), to_node(to_node), from_port(from_port), to_port(to_port), resource_id(resource_id) {}
 };
 
 #endif //CONNECTION_H

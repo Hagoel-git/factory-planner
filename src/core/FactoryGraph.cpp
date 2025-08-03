@@ -7,11 +7,46 @@
 #include <iostream>
 #include <unordered_set>
 
-int FactoryGraph::addNode(const std::string &name, NodeType type, int key_id) {
+int FactoryGraph::addNode(const std::string &name, NodeType type, int key_id, int recipe_id) {
     int id = next_node_id++;
     nodes.emplace_back(name, type, id, key_id);
+    setNodeRecipe(id, recipe_id);
     return id;
 }
+
+bool FactoryGraph::setNodeRecipe(int node_id, int recipe_id) {
+    Node* node = getNode(node_id);
+    if (!node) {
+        std::cerr << "Node with ID " << node_id << " does not exist." << std::endl;
+        return false; // Node does not exist
+    }
+    if (recipe_id > game_data.recipes.size()) {
+        return false;
+    }
+    const Recipe& recipe = game_data.recipes[recipe_id];
+    node->selected_recipe_id = recipe_id;
+    node->output_rates.resize(recipe.getOutputPortCount());
+    node->input_rates.resize(recipe.getInputPortCount());
+    node->required_output_rates.resize(recipe.getOutputPortCount());
+    node->required_input_rates.resize(recipe.getInputPortCount());
+    return true;
+}
+
+bool FactoryGraph::setNodeDemand(int node_id, int output_port, double demand) {
+    Node* node = getNode(node_id);
+    if (!node) {
+        std::cerr << "Node with ID " << node_id << " does not exist." << std::endl;
+        return false;
+    }
+
+    int recipe_id = node->selected_recipe_id;
+    const Recipe& recipe = game_data.recipes[recipe_id];
+
+    if (output_port >= recipe.getOutputPortCount()) return false;
+    node->output_rates[output_port] = demand;
+    return true;
+}
+
 
 Node *FactoryGraph::getNode(int id) {
     if (id < 0 || id >= static_cast<int>(nodes.size())) {
@@ -24,8 +59,8 @@ const std::vector<Node> &FactoryGraph::getNodes() const {
     return nodes;
 }
 
-void FactoryGraph::addConnection(int from_node_id, int to_node_id, int resource_id, double max_flow) {
-    connections.emplace_back(from_node_id, to_node_id, resource_id);
+void FactoryGraph::addConnection(int from_node_id, int to_node_id, int from_port, int to_port, int resource_id) {
+    connections.emplace_back(from_node_id, to_node_id, from_port, to_port, resource_id);
 }
 
 const std::vector<Connection> &FactoryGraph::getConnections() const {
@@ -51,7 +86,7 @@ bool FactoryGraph::loadGameData(const std::string &jsonFile) {
 std::vector<int> FactoryGraph::findFinalNodes() {
     std::unordered_set<int> nodes_with_outgoing_connections;
     for (const auto &conn : connections) {
-        nodes_with_outgoing_connections.insert(conn.from);
+        nodes_with_outgoing_connections.insert(conn.from_node);
     }
 
     std::vector<int> final_nodes;
@@ -65,15 +100,18 @@ std::vector<int> FactoryGraph::findFinalNodes() {
 
 void FactoryGraph::printGraph() const {
     for (const auto &node: nodes) {
-        std::cout << "Node ID: " << node.id << ", Name: " << node.name
-                << ", Type: " << toString(node.type) << ", Key ID: " << node.key_id << std::endl;
+        node.print();
+        Recipe recipe = game_data.recipes[node.selected_recipe_id];
+        std::cout << "Recipe ID: " << recipe.id << ", Name: " << recipe.name
+                  << ", Time: " << recipe.time << " seconds" << std::endl;
+        std::cout << "----------------------------------------" << std::endl;
     }
     for (const auto &conn: connections) {
-        std::cout << "Connection from Node ID: " << conn.from
-                << " to Node ID: " << conn.to
+        std::cout << "Connection from Node ID: " << conn.from_node
+                << " to Node ID: " << conn.to_node
+                << " from Port: " << conn.from_port
+                << " to Port: " << conn.to_port
                 << ", Resource ID: " << conn.resource_id
-                << ", Max Flow: " << conn.max_flow
-                << ", Actual Flow: " << conn.flow_rate
                 << ", Is Bottleneck: " << (conn.is_bottleneck ? "Yes" : "No") << std::endl;
     }
 }

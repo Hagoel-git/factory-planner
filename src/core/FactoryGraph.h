@@ -15,11 +15,13 @@
 
 class FactoryGraph {
 public:
-    int addNode(const std::string& name, NodeType type, int key_id);
+    int addNode(const std::string& name, NodeType type, int key_id, int recipe_id);
+    bool setNodeRecipe(int node_id, int recipe_id);
+    bool setNodeDemand(int node_id, int output_port, double demand);
     Node* getNode(int id);
     [[nodiscard]] const std::vector<Node>& getNodes() const;
 
-    void addConnection(int from_node_id, int to_node_id, int resource_id, double max_flow);
+    void addConnection(int from_node_id, int to_node_id, int from_port, int to_port, int resource_id);
     [[nodiscard]] const std::vector<Connection>& getConnections() const;
 
     void clear();
