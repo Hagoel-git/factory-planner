@@ -2,7 +2,9 @@
 
 #include "core/FactoryGraph.h"
 #include "utils/JsonLoader.h"
-int main(int, char **) {
+#include "utils/LpSolver.h"
+
+int main(int argc, char** argv) {
     std::cout << "Program started successfully!" << std::endl;
     FactoryGraph graph;
     graph.loadGameData("../data/satisfactory.json");
@@ -28,5 +30,11 @@ int main(int, char **) {
         }
     }
     std::cout << std::endl;
+    std::cout << std::endl;
+    std::cout << std::endl;
+    std::cout << std::endl;
+    std::cout << std::endl;
+
+    LPSolver::RunAllExamples(argc, argv);
     return 0;
 }
