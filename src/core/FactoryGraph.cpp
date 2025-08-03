@@ -43,7 +43,7 @@ bool FactoryGraph::setNodeDemand(int node_id, int output_port, double demand) {
     const Recipe& recipe = game_data.recipes[recipe_id];
 
     if (output_port >= recipe.getOutputPortCount()) return false;
-    node->output_rates[output_port] = demand;
+    node->required_output_rates[output_port] = demand;
     return true;
 }
 
@@ -59,8 +59,38 @@ const std::vector<Node> &FactoryGraph::getNodes() const {
     return nodes;
 }
 
-void FactoryGraph::addConnection(int from_node_id, int to_node_id, int from_port, int to_port, int resource_id) {
-    connections.emplace_back(from_node_id, to_node_id, from_port, to_port, resource_id);
+bool FactoryGraph::isValidConnection(int from_node_id, int to_node_id, int from_port, int to_port) {
+    Node* from_node = getNode(from_node_id);
+    Node* to_node = getNode(to_node_id);
+
+    if (!from_node || !to_node) {
+        std::cerr << "Invalid node ID(s) in connection." << std::endl;
+        return false; // Invalid node ID
+    }
+
+    Recipe from_recipe = game_data.recipes[from_node->selected_recipe_id];
+    Recipe to_recipe = game_data.recipes[to_node->selected_recipe_id];
+
+    if (from_port >= from_recipe.getInputPortCount() || to_port >= to_recipe.getOutputPortCount()) {
+        std::cerr << "Invalid port number(s) in connection." << std::endl;
+        return false; // Invalid port number
+    }
+
+    // Check if the connection is valid based on resource compatibility
+    return from_recipe.getOutputPortResourceId(from_port) == to_recipe.getInputPortResourceId(to_port);
+}
+
+
+bool FactoryGraph::addConnection(int from_node_id, int to_node_id, int from_port, int to_port) {
+    if (!isValidConnection(from_node_id, to_node_id, from_port, to_port)) {
+        std::cerr << "Invalid connection from Node ID " << from_node_id << " to Node ID " << to_node_id
+                  << " on ports " << from_port << " to " << to_port << "." << std::endl;
+        return false; // Invalid connection
+    }
+    Node* from_node = getNode(from_node_id);
+    Recipe* from_recipe = &game_data.recipes[from_node->selected_recipe_id];
+    connections.emplace_back(from_node_id, to_node_id, from_port, to_port, from_recipe->getOutputPortResourceId(from_port));
+    return true; // Connection added successfully
 }
 
 const std::vector<Connection> &FactoryGraph::getConnections() const {

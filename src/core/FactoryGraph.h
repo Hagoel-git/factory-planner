@@ -21,7 +21,8 @@ public:
     Node* getNode(int id);
     [[nodiscard]] const std::vector<Node>& getNodes() const;
 
-    void addConnection(int from_node_id, int to_node_id, int from_port, int to_port, int resource_id);
+    bool isValidConnection(int from_node_id, int to_node_id, int from_port, int to_port);
+    bool addConnection(int from_node_id, int to_node_id, int from_port, int to_port);
     [[nodiscard]] const std::vector<Connection>& getConnections() const;
 
     void clear();
