@@ -24,6 +24,7 @@ public:
 
     int addPort(int resource_id);
     Port* getPort(int id);
+    [[nodiscard]] const std::vector<Port>& getPorts() const;
     bool setPortDemand(int port_id, double demand);
 
     void clear();
