@@ -7,6 +7,7 @@
 
 struct Port {
     double rate = 0.0; // Rate of the port, e.g., how much resource it can handle per second
+    double user_constraint = -1.0; // User-defined constraint for the port, -1 means no constraint
     int id;
     int resource_id; // ID of the resource associated with this port
 

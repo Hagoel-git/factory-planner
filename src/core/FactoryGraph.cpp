@@ -92,6 +92,10 @@ Port *FactoryGraph::getPort(int id) {
     return &ports[id];
 }
 
+const std::vector<Port> &FactoryGraph::getPorts() const {
+    return ports;
+}
+
 bool FactoryGraph::setPortDemand(int port_id, double demand) {
     Port *port = getPort(port_id);
     if (!port) {
@@ -99,7 +103,7 @@ bool FactoryGraph::setPortDemand(int port_id, double demand) {
         return false;
     }
 
-    port->rate = demand;
+    port->user_constraint = demand;
     return true;
 }
 
