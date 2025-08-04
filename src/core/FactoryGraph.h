@@ -9,6 +9,7 @@
 
 #include "Connection.h"
 #include "Node.h"
+#include "Port.h"
 #include "Recipe.h"
 #include "Resource.h"
 #include "../utils/GameDataLoader.h"
@@ -17,27 +18,29 @@ class FactoryGraph {
 public:
     int addNode(const std::string& name, NodeType type, int key_id, int recipe_id);
     bool setNodeRecipe(int node_id, int recipe_id);
-    bool setNodeDemand(int node_id, int output_port, double demand);
+    bool setPortDemand(int port_id, double demand);
     Node* getNode(int id);
     [[nodiscard]] const std::vector<Node>& getNodes() const;
 
-    bool isValidConnection(int from_node_id, int to_node_id, int from_port, int to_port);
-    bool addConnection(int from_node_id, int to_node_id, int from_port, int to_port);
+    bool isValidConnection(int from_port, int to_port);
+    bool addConnection(int from_port, int to_port);
     [[nodiscard]] const std::vector<Connection>& getConnections() const;
 
+    Port* getPort(int id);
+
     void clear();
-    void printGraph() const;
+    void printGraph();
 
     bool loadGameData(const std::string& jsonFile);
-
-    std::vector<int> findFinalNodes();
 
     GameDataLoader::GameData game_data;
 private:
     std::vector<Node> nodes; // List of nodes in the graph
-    std::vector<Connection> connections; // List of connections between nodes
+    std::vector<Port> ports; // List of ports
+    std::vector<Connection> connections; // List of connections between ports
 
 
     int next_node_id = 0; // Unique ID for the next node to be added
+    int next_port_id = 0;
 };
 #endif //FACTORYGRAPH_H

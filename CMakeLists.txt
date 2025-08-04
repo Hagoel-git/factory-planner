@@ -21,7 +21,8 @@ add_executable(factory_planner src/main.cpp
         src/utils/GameDataLoader.cpp
         src/utils/GameDataLoader.h
         src/utils/LpSolver.cpp
-        src/utils/LpSolver.h)
+        src/utils/LpSolver.h
+        src/core/Port.h)
 
 target_link_libraries(factory_planner
         ortools
