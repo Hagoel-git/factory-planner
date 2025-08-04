@@ -5,6 +5,7 @@
 #ifndef NODE_H
 #define NODE_H
 #include <string>
+#include <iostream>
 #include <unordered_map>
 
 #include "Recipe.h"

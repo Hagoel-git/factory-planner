@@ -9,12 +9,12 @@ int main(int argc, char** argv) {
     FactoryGraph graph;
     graph.loadGameData("../data/satisfactory.json");
 
-    graph.addNode("Miner", NodeType::PRODUCER, 0, 0); // todo: add ore extractions to recipes
-    graph.addNode("Assembler", NodeType::PROCESSOR, 2, 0);
-    graph.addNode("Assembler", NodeType::PROCESSOR, 2, 12);
+    graph.addNode("Miner", NodeType::PRODUCER, 0, graph.getGameData().getIdByRecipeName("Iron Ore"));
+    graph.addNode("Assembler", NodeType::PROCESSOR, 2, graph.getGameData().getIdByRecipeName("Iron Ingot"));
+    graph.addNode("Assembler", NodeType::PROCESSOR, 2, graph.getGameData().getIdByRecipeName("Iron Plate"));
 
-    graph.addConnection(1,2);
-    graph.addConnection(3,4);
+    graph.addConnection(0,1);
+    graph.addConnection(2,3);
 
     graph.setPortDemand(4, 60.0); // Set demand for port 4
 

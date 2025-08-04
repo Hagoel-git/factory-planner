@@ -28,13 +28,11 @@ bool FactoryGraph::setNodeRecipe(int node_id, int recipe_id) {
     node->output_ports.resize(recipe.getOutputPortCount());
     node->input_ports.resize(recipe.getInputPortCount());
     for (int i = 0; i < recipe.getInputPortCount(); ++i) {
-        int port_id = next_port_id++;
-        ports.emplace_back(port_id, recipe.getInputPortResourceId(i));
+        int port_id = addPort(recipe.getInputPortResourceId(i));
         node->input_ports[i] = port_id;
     }
     for (int i = 0; i < recipe.getOutputPortCount(); ++i) {
-        int port_id = next_port_id++;
-        ports.emplace_back(port_id, recipe.getOutputPortResourceId(i));
+        int port_id = addPort(recipe.getOutputPortResourceId(i));
         node->output_ports[i] = port_id;
     }
     return true;
@@ -81,6 +79,12 @@ const std::vector<Connection> &FactoryGraph::getConnections() const {
 }
 
 
+int FactoryGraph::addPort(int resource_id) {
+    int port_id = next_port_id++;
+    ports.emplace_back(port_id, resource_id);
+    return port_id; // Return the ID of the newly created port
+}
+
 Port *FactoryGraph::getPort(int id) {
     if (id < 0 || id >= static_cast<int>(ports.size())) {
         return nullptr; // Invalid ID
@@ -99,14 +103,6 @@ bool FactoryGraph::setPortDemand(int port_id, double demand) {
     return true;
 }
 
-
-void FactoryGraph::clear() {
-    nodes.clear();
-    ports.clear();
-    connections.clear();
-    next_node_id = 0; // Reset the node ID counter
-}
-
 bool FactoryGraph::loadGameData(const std::string &jsonFile) {
     try {
         game_data = GameDataLoader::loadGameData(jsonFile);
@@ -116,6 +112,15 @@ bool FactoryGraph::loadGameData(const std::string &jsonFile) {
         return false;
     }
 }
+
+
+void FactoryGraph::clear() {
+    nodes.clear();
+    ports.clear();
+    connections.clear();
+    next_node_id = 0; // Reset the node ID counter
+}
+
 
 void FactoryGraph::printGraph() {
     for (const auto &node: nodes) {

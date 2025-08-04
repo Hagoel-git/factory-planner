@@ -18,6 +18,23 @@ public:
         std::string gameName;
         std::vector<Resource> resources;
         std::vector<Recipe> recipes;
+
+        int getIdByResourceName(const std::string &name) const {
+            for (const auto &resource : resources) {
+                if (resource.name == name) {
+                    return resource.id;
+                }
+            }
+            return -1; // Resource not found
+        }
+        int getIdByRecipeName(const std::string &name) const {
+            for (const auto &recipe : recipes) {
+                if (recipe.name == name) {
+                    return recipe.id;
+                }
+            }
+            return -1; // Recipe not found
+        }
     };
 
     static GameData loadGameData(const std::string &jsonFile);
