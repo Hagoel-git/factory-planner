@@ -16,7 +16,7 @@ int main(int argc, char** argv) {
     graph.addConnection(1,2);
     graph.addConnection(3,4);
 
-    graph.setPortDemand(2, 60.0); // Set demand for the first node's output port
+    graph.setPortDemand(4, 60.0); // Set demand for port 4
 
     graph.printGraph();
     std::cout << std::endl;
