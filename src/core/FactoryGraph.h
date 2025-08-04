@@ -22,6 +22,7 @@ public:
     bool addConnection(int from_port, int to_port);
     [[nodiscard]] const std::vector<Connection>& getConnections() const;
 
+    int addPort(int resource_id);
     Port* getPort(int id);
     bool setPortDemand(int port_id, double demand);
 
@@ -29,7 +30,9 @@ public:
     void printGraph();
 
     bool loadGameData(const std::string& jsonFile);
-
+    GameDataLoader::GameData getGameData() const {
+        return game_data;
+    }
 private:
     GameDataLoader::GameData game_data;
 

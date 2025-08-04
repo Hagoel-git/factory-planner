@@ -1027,6 +1027,36 @@
     ],
     "recipes": [
         {
+            "name": "Iron Ore",
+            "key_name": "iron-ore",
+            "category": "mineral",
+            "time": 1,
+            "ingredients": [],
+            "products": [
+                ["iron-ore", 1]
+            ]
+        },
+        {
+            "name": "Copper Ore",
+            "key_name": "copper-ore",
+            "category": "mineral",
+            "time": 1,
+            "ingredients": [],
+            "products": [
+                ["copper-ore", 1]
+            ]
+        },
+        {
+            "name": "Coal",
+            "key_name": "coal",
+            "category": "mineral",
+            "time": 1,
+            "ingredients": [],
+            "products": [
+                ["coal", 1]
+            ]
+        },
+        {
             "name": "Iron Ingot",
             "key_name": "iron-ingot",
             "category": "smelting1",

@@ -8,16 +8,16 @@
 #include <vector>
 
 struct RecipePort {
-    int resource_id; // ID of the resource
     double amount; // Amount of the resource required or produced
+    int resource_id; // ID of the resource
 };
 
 struct Recipe {
     std::vector<RecipePort> input_ports;
     std::vector<RecipePort> output_ports;
-    int id; // Unique identifier for the recipe
     std::string name; // Name of the recipe
     double time; // Time taken to complete the recipe in seconds
+    int id; // Unique identifier for the recipe
 
     int getInputPortCount() const {
         return static_cast<int>(input_ports.size());
