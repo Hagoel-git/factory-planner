@@ -48,7 +48,7 @@ private:
 
     void addAllConstraints(const FactoryGraph &factory_graph);
     void addRecipeConstraints(const Node &node, const Recipe &recipe);
-    void addConnectionConstraints(const Connection &connection);
+    void addConnectionConstraints(const FactoryGraph &factory_graph);
 };
 
 
