@@ -13,28 +13,18 @@ int main(int argc, char** argv) {
     graph.addNode("Assembler", NodeType::PROCESSOR, 2, 0);
     graph.addNode("Assembler", NodeType::PROCESSOR, 2, 12);
 
-    graph.addConnection(0,1,0,0);
-    graph.addConnection(1,2,0,0);
+    graph.addConnection(1,2);
+    graph.addConnection(3,4);
 
-    graph.setNodeDemand(2, 0, 60.0); // Set demand for the first node's output port
+    graph.setPortDemand(2, 60.0); // Set demand for the first node's output port
 
     graph.printGraph();
-    std::cout << std::endl << "Final nodes: ";
-    auto final_nodes = graph.findFinalNodes();
-    for (int node_id : final_nodes) {
-        Node* node = graph.getNode(node_id);
-        if (node) {
-            std::cout << node->name << " (ID: " << node->id << ") ";
-        } else {
-            std::cout << "Invalid node ID: " << node_id << " ";
-        }
-    }
     std::cout << std::endl;
     std::cout << std::endl;
     std::cout << std::endl;
     std::cout << std::endl;
     std::cout << std::endl;
 
-    LPSolver::RunAllExamples(argc, argv);
+    LPSolver::RunAllExamples();
     return 0;
 }
