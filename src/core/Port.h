@@ -11,6 +11,7 @@ struct Port {
     int resource_id; // ID of the resource associated with this port
 
     Port(int id, int resource_id)
-        : id(id), resource_id(resource_id) {}
+        : id(id), resource_id(resource_id) {
+    }
 };
 #endif //PORT_H

@@ -9,7 +9,7 @@
 
 struct RecipePort {
     int resource_id; // ID of the resource
-    double amount;   // Amount of the resource required or produced
+    double amount; // Amount of the resource required or produced
 };
 
 struct Recipe {
@@ -22,6 +22,7 @@ struct Recipe {
     int getInputPortCount() const {
         return static_cast<int>(input_ports.size());
     }
+
     int getOutputPortCount() const {
         return static_cast<int>(output_ports.size());
     }
@@ -29,6 +30,7 @@ struct Recipe {
     int getInputPortResourceId(int port) const {
         return port < input_ports.size() ? input_ports[port].resource_id : -1;
     }
+
     int getOutputPortResourceId(int port) const {
         return port < output_ports.size() ? output_ports[port].resource_id : -1;
     }

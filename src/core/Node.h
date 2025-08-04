@@ -15,7 +15,7 @@ struct Node {
     NodeType type;
 
     int id;
-    int key_id;             // machine type (Constructor, Assembler, etc.)
+    int key_id; // machine type (Constructor, Assembler, etc.)
     int selected_recipe_id = -1;
 
     double machine_count = 0.0;;
@@ -25,15 +25,16 @@ struct Node {
     std::vector<int> output_ports;
 
     Node() = default;
+
     Node(std::string name, NodeType type, int id, int key_id)
-        : name(std::move(name)), type(type), id(id), key_id(key_id) {}
+        : name(std::move(name)), type(type), id(id), key_id(key_id) {
+    }
 
     void print() const {
         std::cout << "Node ID: " << id << ", Name: " << name << ", Type: " << static_cast<int>(type)
-                  << ", Key ID: " << key_id << ", Recipe ID: " << selected_recipe_id
-                  << ", Machine Count: " << machine_count << ", Power Usage: " << power_usage << " MW" << std::endl;
+                << ", Key ID: " << key_id << ", Recipe ID: " << selected_recipe_id
+                << ", Machine Count: " << machine_count << ", Power Usage: " << power_usage << " MW" << std::endl;
     }
-
 };
 
 #endif //NODE_H

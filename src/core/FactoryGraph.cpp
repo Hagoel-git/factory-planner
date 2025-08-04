@@ -15,7 +15,7 @@ int FactoryGraph::addNode(const std::string &name, NodeType type, int key_id, in
 }
 
 bool FactoryGraph::setNodeRecipe(int node_id, int recipe_id) {
-    Node* node = getNode(node_id);
+    Node *node = getNode(node_id);
     if (!node) {
         std::cerr << "Node with ID " << node_id << " does not exist." << std::endl;
         return false; // Node does not exist
@@ -23,7 +23,7 @@ bool FactoryGraph::setNodeRecipe(int node_id, int recipe_id) {
     if (recipe_id > game_data.recipes.size()) {
         return false;
     }
-    const Recipe& recipe = game_data.recipes[recipe_id];
+    const Recipe &recipe = game_data.recipes[recipe_id];
     node->selected_recipe_id = recipe_id;
     node->output_ports.resize(recipe.getOutputPortCount());
     node->input_ports.resize(recipe.getInputPortCount());
@@ -40,25 +40,6 @@ bool FactoryGraph::setNodeRecipe(int node_id, int recipe_id) {
     return true;
 }
 
-Port *FactoryGraph::getPort(int id) {
-    if (id < 0 || id >= static_cast<int>(ports.size())) {
-        return nullptr; // Invalid ID
-    }
-    return &ports[id];
-}
-
-bool FactoryGraph::setPortDemand(int port_id, double demand) {
-    Port* port = getPort(port_id);
-    if (!port) {
-        std::cerr << "Port with ID " << port_id << " does not exist." << std::endl;
-        return false;
-    }
-
-    port->rate = demand;
-    return true;
-}
-
-
 Node *FactoryGraph::getNode(int id) {
     if (id < 0 || id >= static_cast<int>(nodes.size())) {
         return nullptr; // Invalid ID
@@ -70,21 +51,21 @@ const std::vector<Node> &FactoryGraph::getNodes() const {
     return nodes;
 }
 
+
 bool FactoryGraph::isValidConnection(int from_port, int to_port) {
-    Port* from_port_ptr = getPort(from_port);
-    Port* to_port_ptr = getPort(to_port);
+    Port *from_port_ptr = getPort(from_port);
+    Port *to_port_ptr = getPort(to_port);
     if (!from_port_ptr || !to_port_ptr) {
         std::cerr << "Invalid port IDs: from_port=" << from_port << ", to_port=" << to_port << std::endl;
         return false; // Invalid port IDs
     }
     if (from_port_ptr->resource_id != to_port_ptr->resource_id) {
         std::cerr << "Resource mismatch: from_port resource ID " << from_port_ptr->resource_id
-                  << " does not match to_port resource ID " << to_port_ptr->resource_id << std::endl;
+                << " does not match to_port resource ID " << to_port_ptr->resource_id << std::endl;
         return false; // Resource IDs do not match
     }
     return true; // Valid connection
 }
-
 
 bool FactoryGraph::addConnection(int from_port, int to_port) {
     if (!isValidConnection(from_port, to_port)) {
@@ -98,6 +79,26 @@ bool FactoryGraph::addConnection(int from_port, int to_port) {
 const std::vector<Connection> &FactoryGraph::getConnections() const {
     return connections;
 }
+
+
+Port *FactoryGraph::getPort(int id) {
+    if (id < 0 || id >= static_cast<int>(ports.size())) {
+        return nullptr; // Invalid ID
+    }
+    return &ports[id];
+}
+
+bool FactoryGraph::setPortDemand(int port_id, double demand) {
+    Port *port = getPort(port_id);
+    if (!port) {
+        std::cerr << "Port with ID " << port_id << " does not exist." << std::endl;
+        return false;
+    }
+
+    port->rate = demand;
+    return true;
+}
+
 
 void FactoryGraph::clear() {
     nodes.clear();
@@ -121,25 +122,24 @@ void FactoryGraph::printGraph() {
         node.print();
         Recipe recipe = game_data.recipes[node.selected_recipe_id];
         std::cout << "Recipe ID: " << recipe.id << ", Name: " << recipe.name
-                  << ", Time: " << recipe.time << " seconds" << std::endl;
+                << ", Time: " << recipe.time << " seconds" << std::endl;
         for (const auto &input_port: node.input_ports) {
-            Port* port = getPort(input_port);
+            Port *port = getPort(input_port);
             if (port) {
                 std::cout << "Input Port ID: " << port->id
-                            << ", Resource ID: " << port->resource_id
-                            << ", Rate: " << port->rate << std::endl;
+                        << ", Resource ID: " << port->resource_id
+                        << ", Rate: " << port->rate << std::endl;
             }
         }
         for (const auto &output_port: node.output_ports) {
-            Port* port = getPort(output_port);
+            Port *port = getPort(output_port);
             if (port) {
                 std::cout << "Output Port ID: " << port->id
-                            << ", Resource ID: " << port->resource_id
-                            << ", Rate: " << port->rate << std::endl;
+                        << ", Resource ID: " << port->resource_id
+                        << ", Rate: " << port->rate << std::endl;
             }
         }
         std::cout << "----------------------------------------" << std::endl;
-
     }
     for (const auto &conn: connections) {
         std::cout << " from Port: " << conn.from_port

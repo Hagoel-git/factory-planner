@@ -13,10 +13,10 @@ GameDataLoader::GameData GameDataLoader::loadGameData(const std::string &jsonFil
     }
 
     data.gameName = raw["gameName"].get<std::string>();
-    std::unordered_map<std::string,int> keyNameToId;
+    std::unordered_map<std::string, int> keyNameToId;
 
     int resource_id_counter = 0;
-    for (const auto& itemJson : raw["items"]) {
+    for (const auto &itemJson: raw["items"]) {
         std::string key = itemJson.value("key_name", "");
         keyNameToId[key] = resource_id_counter;
 
@@ -25,7 +25,7 @@ GameDataLoader::GameData GameDataLoader::loadGameData(const std::string &jsonFil
 
         ++resource_id_counter;
     }
-    for (const auto& itemJson : raw["fluids"]) {
+    for (const auto &itemJson: raw["fluids"]) {
         std::string key = itemJson.value("key_name", "");
         keyNameToId[key] = resource_id_counter;
 
@@ -37,7 +37,7 @@ GameDataLoader::GameData GameDataLoader::loadGameData(const std::string &jsonFil
 
     // Parse recipes
     int recipeId = 0;
-    for (const auto& recipeJson : raw["recipes"]) {
+    for (const auto &recipeJson: raw["recipes"]) {
         Recipe recipe = JsonLoader::parseRecipe(recipeJson, recipeId, keyNameToId);
         data.recipes.push_back(recipe);
         ++recipeId;

@@ -12,12 +12,14 @@ using json = nlohmann::json;
 
 class JsonLoader {
 public:
-    static json loadFromFile(const std::string& filePath);
-    static bool validateSchema(const json& data);
+    static json loadFromFile(const std::string &filePath);
 
-    static Resource parseResource(const json& itemJson, int id);
-    static Recipe parseRecipe(const json& recipeJson, int id,
-                              const std::unordered_map<std::string, int>& keyNameToId);
+    static bool validateSchema(const json &data);
+
+    static Resource parseResource(const json &itemJson, int id);
+
+    static Recipe parseRecipe(const json &recipeJson, int id,
+                              const std::unordered_map<std::string, int> &keyNameToId);
 };
 
 #endif // JSONLOADER_H

@@ -20,9 +20,8 @@ public:
         std::vector<Recipe> recipes;
     };
 
-    static GameData loadGameData(const std::string& jsonFile);
+    static GameData loadGameData(const std::string &jsonFile);
 };
-
 
 
 #endif //GAMEDATALOADER_H

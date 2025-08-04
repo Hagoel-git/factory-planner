@@ -12,7 +12,7 @@ enum class NodeType {
     MISC,
 };
 
-inline const char* toString(NodeType type) {
+inline const char *toString(NodeType type) {
     switch (type) {
         case NodeType::PRODUCER: return "Producer";
         case NodeType::PROCESSOR: return "Processor";
