@@ -39,18 +39,24 @@ void FactorySolver::createAllVariables(const FactoryGraph &factory_graph) {
 }
 
 void FactorySolver::addObjectiveFunction(const FactoryGraph &factory_graph) {
+    // Step 1: Identify all ports that have no incoming connections
+    std::unordered_set<int> ports_with_inputs;
+    for (const auto &conn : factory_graph.getConnections()) {
+        ports_with_inputs.insert(conn.to_port);
+    }
+
+    const auto &ports = factory_graph.getPorts();
     operations_research::MPObjective *objective = solver->MutableObjective();
-    // bool producerHasLimit = false;
-    // for (const auto &node: factory_graph.getNodes()) {
-    //     if (node.type == NodeType::PRODUCER && factory_graph.getPorts()[node.output_ports[0]].user_constraint >= 0) {
-    //         producerHasLimit = true;
-    //         break;
-    //     }
-    // }
+
+    for (const auto &port : ports) {
+        // Skip ports that have any incoming connection
+        if (ports_with_inputs.count(port.id)) continue;
+
+        // This port has no incoming connections and is an input — treat as raw
+        objective->SetCoefficient(variables[port.id], 1.0);
+    }
 
     objective->SetMaximization();
-
-    objective->SetCoefficient(variables[0], 1.0); // todo: automatically set the objective based on the factory graph
 }
 
 void FactorySolver::addAllConstraints(const FactoryGraph &factory_graph) {

@@ -19,21 +19,24 @@ int main(int argc, char** argv) {
     graph.addNode("Screw", NodeType::PROCESSOR, 2, graph.getGameData().getIdByRecipeName("Screw"));
     graph.addNode("RIP", NodeType::PROCESSOR, 3, graph.getGameData().getIdByRecipeName("Reinforced Iron Plate"));
 
-    graph.addConnection(0,1);
-    graph.addConnection(2,3);
-    graph.addConnection(2,5);
-    graph.addConnection(6,7);
-    graph.addConnection(4,11);
-    graph.addConnection(8,12);
-    graph.addConnection(6,9);
-    graph.addConnection(10,12);
+    graph.addConnection(1,2);
+    graph.addConnection(3,4);
+    graph.addConnection(3,6);
+    graph.addConnection(7,8);
+    graph.addConnection(5,12);
+    graph.addConnection(9,13);
+    graph.addConnection(7,10);
+    graph.addConnection(11,13);
 
-    //graph.setPortDemand(4, 240.0); // Set demand for port 4
-    graph.setPortDemand(0, 120.0); // Set demand for port 5
+    graph.setPortDemand(14, 10.0);
+    graph.setPortDemand(0, 120.0);
+    graph.setPortDemand(7, 30.0);
+    graph.setPortDemand(9, 30.0);
+    graph.setPortDemand(11, 30.0);
 
     solver.solve(graph);
 
-    graph.printGraph();
+    //graph.printGraph();
     std::cout << std::endl;
     std::cout << std::endl;
     std::cout << std::endl;
