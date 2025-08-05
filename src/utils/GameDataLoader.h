@@ -4,6 +4,7 @@
 
 #ifndef GAMEDATALOADER_H
 #define GAMEDATALOADER_H
+#include <iostream>
 #include <string>
 #include <vector>
 
@@ -33,6 +34,7 @@ public:
                     return recipe.id;
                 }
             }
+            std::cerr << "Recipe not found" << std::endl;
             return -1; // Recipe not found
         }
     };

@@ -58,8 +58,9 @@ bool FactoryGraph::isValidConnection(int from_port, int to_port) {
         return false; // Invalid port IDs
     }
     if (from_port_ptr->resource_id != to_port_ptr->resource_id) {
-        std::cerr << "Resource mismatch: from_port resource ID " << from_port_ptr->resource_id
-                << " does not match to_port resource ID " << to_port_ptr->resource_id << std::endl;
+        auto resource_names = game_data.resources;
+        std::cerr << "Resource mismatch: " << resource_names[from_port_ptr->resource_id].name
+                  << " but expected resource is: " << resource_names[to_port_ptr->resource_id].name;
         return false; // Resource IDs do not match
     }
     return true; // Valid connection
