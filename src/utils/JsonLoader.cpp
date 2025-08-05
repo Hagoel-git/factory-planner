@@ -25,14 +25,30 @@ Resource JsonLoader::parseResource(const json &itemJson, int id) {
     return res;
 }
 
+Machine JsonLoader::parseMachine(const json &machineJson, int id) {
+    Machine machine;
+    machine.id = id;
+    machine.name = machineJson.value("name", "");
+    machine.base_power_usage = machineJson.value("base_power_usage", 0.0);
+    machine.max_somersloop_slots = machineJson.value("max_somersloop_slots", 0);
+    return machine;
+}
+
 Recipe JsonLoader::parseRecipe(
     const json &recipeJson,
     int id,
-    const std::unordered_map<std::string, int> &keyNameToId) {
+    const std::unordered_map<std::string, int> &keyNameToId,
+    const std::unordered_map<std::string, int> &categoryNameToId) {
     Recipe recipe;
     recipe.id = id;
     recipe.name = recipeJson.value("name", "");
     recipe.time = recipeJson.value("time", 1.0);
+    try {
+        recipe.category_id = categoryNameToId.at(recipeJson.value("category", ""));
+    } catch (const std::out_of_range &e) {
+        std::cerr << "Warning: Category not found for recipe " << recipe.name << ": " << e.what() << std::endl;
+        recipe.category_id = -1; // Default to -1 if category not found
+    }
 
     if (recipeJson.contains("ingredients")) {
         for (const auto &pair: recipeJson["ingredients"]) {

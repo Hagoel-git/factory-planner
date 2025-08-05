@@ -13,7 +13,7 @@
 
 class FactoryGraph {
 public:
-    int addNode(const std::string& name, NodeType type, int key_id, int recipe_id);
+    int addNode(const std::string& name, NodeType type, int recipe_id);
     bool setNodeRecipe(int node_id, int recipe_id);
     Node* getNode(int id);
     [[nodiscard]] const std::vector<Node>& getNodes() const;

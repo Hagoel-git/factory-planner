@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <string>
 
+#include "../core/Machine.h"
 #include "../core/Recipe.h"
 #include "../core/Resource.h"
 
@@ -18,8 +19,11 @@ public:
 
     static Resource parseResource(const json &itemJson, int id);
 
+    static Machine parseMachine(const json &machineJson, int id);
+
     static Recipe parseRecipe(const json &recipeJson, int id,
-                              const std::unordered_map<std::string, int> &keyNameToId);
+                              const std::unordered_map<std::string, int> &keyNameToId,
+                              const std::unordered_map<std::string, int> &categoryNameToId);
 };
 
 #endif // JSONLOADER_H

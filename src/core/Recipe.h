@@ -18,6 +18,7 @@ struct Recipe {
     std::string name; // Name of the recipe
     double time; // Time taken to complete the recipe in seconds
     int id; // Unique identifier for the recipe
+    int category_id; // Category ID for the recipe
 
     int getInputPortCount() const {
         return static_cast<int>(input_ports.size());
