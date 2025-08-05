@@ -1031,7 +1031,7 @@
             "key_name": "iron-ore",
             "category": "mineral",
             "time": 1,
-            "ingredients": [],
+            "ingredients": [["iron-ore", 0]],
             "products": [
                 ["iron-ore", 1]
             ]
@@ -1041,7 +1041,7 @@
             "key_name": "copper-ore",
             "category": "mineral",
             "time": 1,
-            "ingredients": [],
+            "ingredients": [["copper-ore", 0]],
             "products": [
                 ["copper-ore", 1]
             ]
@@ -1051,7 +1051,7 @@
             "key_name": "coal",
             "category": "mineral",
             "time": 1,
-            "ingredients": [],
+            "ingredients": [["coal", 0]],
             "products": [
                 ["coal", 1]
             ]
