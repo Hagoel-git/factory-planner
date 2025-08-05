@@ -5,45 +5,47 @@
 #include "utils/JsonLoader.h"
 
 int main(int argc, char** argv) {
+    double exp = 10.0; //stopped on 17
     std::cout << "Program started successfully!" << std::endl;
-    FactoryGraph graph("../data/satisfactory.json");
+    for (int i = 0; i < 100; i++) {
+        FactoryGraph graph("../data/satisfactory.json");
     FactorySolver solver;
-
-    graph.addNode("Miner", NodeType::PRODUCER,  graph.getGameData().getIdByRecipeName("Iron Ore"));
-    graph.addNode("Ingot", NodeType::PROCESSOR, graph.getGameData().getIdByRecipeName("Iron Ingot"));
-    graph.addNode("Plate", NodeType::PROCESSOR,  graph.getGameData().getIdByRecipeName("Iron Plate"));
-    graph.addNode("Rod", NodeType::PROCESSOR,  graph.getGameData().getIdByRecipeName("Iron Rod"));
-    graph.addNode("Screw", NodeType::PROCESSOR, graph.getGameData().getIdByRecipeName("Screw"));
-    graph.addNode("Screw", NodeType::PROCESSOR, graph.getGameData().getIdByRecipeName("Screw"));
-    graph.addNode("RIP", NodeType::PROCESSOR, graph.getGameData().getIdByRecipeName("Reinforced Iron Plate"));
-
-    graph.addConnection(1,2);
-    graph.addConnection(3,4);
-    graph.addConnection(3,6);
-    graph.addConnection(7,8);
-    graph.addConnection(5,12);
-    graph.addConnection(9,13);
-    graph.addConnection(7,10);
-    graph.addConnection(11,13);
-
-    graph.setPortDemand(14, 10.0);
-    graph.setPortDemand(0, 120.0);
-    graph.setPortDemand(7, 30.0);
-    graph.setPortDemand(9, 30.0);
-    graph.setPortDemand(11, 30.0);
-
-    std::cout << graph.getGameData().time_unit << std::endl;
-    std::cout << graph.getGameData().time_unit << std::endl;
-    std::cout << graph.getGameData().time_unit << std::endl;
-    std::cout << graph.getGameData().time_unit << std::endl;
-    std::cout << graph.getGameData().time_unit << std::endl;
-    std::cout << graph.getGameData().time_unit << std::endl;
-
-    for (auto machine : graph.getGameData().machines) {
-        std::cout << "Machine: " << machine.name << ", ID: " << machine.id
-                  << ", Base Power Usage: " << machine.base_power_usage
-                  << ", Max Somersloop Slots: " << machine.max_somersloop_slots << std::endl;
-    }
+    //
+    // graph.addNode("Miner", NodeType::PRODUCER,  graph.getGameData().getIdByRecipeName("Iron Ore"));
+    // graph.addNode("Ingot", NodeType::PROCESSOR, graph.getGameData().getIdByRecipeName("Iron Ingot"));
+    // graph.addNode("Plate", NodeType::PROCESSOR,  graph.getGameData().getIdByRecipeName("Iron Plate"));
+    // graph.addNode("Rod", NodeType::PROCESSOR,  graph.getGameData().getIdByRecipeName("Iron Rod"));
+    // graph.addNode("Screw", NodeType::PROCESSOR, graph.getGameData().getIdByRecipeName("Screw"));
+    // graph.addNode("Screw", NodeType::PROCESSOR, graph.getGameData().getIdByRecipeName("Screw"));
+    // graph.addNode("RIP", NodeType::PROCESSOR, graph.getGameData().getIdByRecipeName("Reinforced Iron Plate"));
+    //
+    // graph.addConnection(1,2);
+    // graph.addConnection(3,4);
+    // graph.addConnection(3,6);
+    // graph.addConnection(7,8);
+    // graph.addConnection(5,12);
+    // graph.addConnection(9,13);
+    // graph.addConnection(7,10);
+    // graph.addConnection(11,13);
+    //
+    // graph.setPortDemand(14, 10.0);
+    // graph.setPortDemand(0, 120.0);
+    // graph.setPortDemand(7, 30.0);
+    // graph.setPortDemand(9, 30.0);
+    // graph.setPortDemand(11, 30.0);
+    //
+    // std::cout << graph.getGameData().time_unit << std::endl;
+    // std::cout << graph.getGameData().time_unit << std::endl;
+    // std::cout << graph.getGameData().time_unit << std::endl;
+    // std::cout << graph.getGameData().time_unit << std::endl;
+    // std::cout << graph.getGameData().time_unit << std::endl;
+    // std::cout << graph.getGameData().time_unit << std::endl;
+    //
+    // for (auto machine : graph.getGameData().machines) {
+    //     std::cout << "Machine: " << machine.name << ", ID: " << machine.id
+    //               << ", Base Power Usage: " << machine.base_power_usage
+    //               << ", Max Somersloop Slots: " << machine.max_somersloop_slots << std::endl;
+    // }
 
     // stress-test with a lot of simple nodes
     for (int i = 0; i < 0; ++i) {
@@ -59,7 +61,7 @@ int main(int argc, char** argv) {
     }
 
     // stress-test with a lot of complex nodes
-    for (int i = 0; i < 1; ++i) {
+    for (int i = 0; i < pow(2,exp); ++i) {
         int quartz_miner = graph.addNode("Quartz Ore", NodeType::PRODUCER,  graph.getGameData().getIdByRecipeName("Raw Quartz"));
         int caterium_miner = graph.addNode("Caterium Ore", NodeType::PRODUCER,  graph.getGameData().getIdByRecipeName("Caterium Ore"));
         int oil_extractor = graph.addNode("Oil Extractor", NodeType::PRODUCER,  graph.getGameData().getIdByRecipeName("Crude Oil"));
@@ -87,17 +89,16 @@ int main(int argc, char** argv) {
         graph.addConnection(graph.getNode(ai_limiter)->output_ports[0], graph.getNode(crystal_oscillator)->input_ports[2]);
 
         graph.setPortDemand(graph.getNode(crystal_oscillator)->output_ports[0], 45.0);
+        graph.setPortDemand(graph.getNode(oil_extractor)->output_ports[0], 1200);
+        graph.setPortDemand(graph.getNode(caterium_miner)->output_ports[0], 780);
     }
 
 
     solver.solve(graph);
+        graph.clear();
+}
 
-    graph.printGraph();
-    std::cout << std::endl;
-    std::cout << std::endl;
-    std::cout << std::endl;
-    std::cout << std::endl;
-    std::cout << std::endl;
+    //graph.printGraph()
 
     //LPSolver::RunAllExamples();
     return 0;

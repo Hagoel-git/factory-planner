@@ -9,17 +9,13 @@ void FactorySolver::solve(FactoryGraph &factory_graph) {
     addObjectiveFunction(factory_graph);
     addAllConstraints(factory_graph);
 
-
-    std::cout << "Number of variables = " << solver->NumVariables() << std::endl;
-    std::cout << "Number of constraints = " << solver->NumConstraints() << std::endl;
-
     const operations_research::MPSolver::ResultStatus result_status = solver->Solve();
 
     if (result_status != operations_research::MPSolver::OPTIMAL) {
         std::cerr << "The problem does not have an optimal solution." << std::endl;
         return;
     }
-    std::cout << "Problem solved in " << solver->wall_time() << " milliseconds" << std::endl;
+    std::cout << solver->wall_time() << std::endl;
 
     // Output the results to factory_graph
     const auto &ports = factory_graph.getPorts();
@@ -28,11 +24,7 @@ void FactorySolver::solve(FactoryGraph &factory_graph) {
         factory_graph.getPort(port.id)->rate = value; // Update the port rate in the factory graph
     }
 
-    // calculate node misc
-    // calculate machine count
-    std::cout << std::endl;
-    std::cout << "Calculating machine counts and outputs for each node:" << std::endl;
-
+    // calculate machine counts and power usage for each node
     const auto &nodes = factory_graph.getNodes();
     for (const auto &node : nodes) {
         const Recipe &recipe = factory_graph.getGameData().recipes.at(node.selected_recipe_id);
@@ -42,6 +34,12 @@ void FactorySolver::solve(FactoryGraph &factory_graph) {
         double power_usage = factory_graph.getGameData().machines[node.machine_id].base_power_usage * machine_count;
         node.power_usage = power_usage;
     }
+
+    // clean up
+    variables.clear();
+    constraints.clear();
+    delete solver;
+    solver = nullptr;
 }
 
 void FactorySolver::createAllVariables(const FactoryGraph &factory_graph) {
