@@ -1057,6 +1057,46 @@
             ]
         },
         {
+            "name": "Limestone",
+            "key_name": "limestone",
+            "category": "mineral",
+            "time": 1,
+            "ingredients": [["limestone", 0]],
+            "products": [
+                ["limestone", 1]
+            ]
+        },
+        {
+            "name": "Caterium Ore",
+            "key_name": "caterium-ore",
+            "category": "mineral",
+            "time": 1,
+            "ingredients": [["caterium-ore", 0]],
+            "products": [
+                ["caterium-ore", 1]
+            ]
+        },
+        {
+            "name": "Raw Quartz",
+            "key_name": "raw-quartz",
+            "category": "mineral",
+            "time": 1,
+            "ingredients": [["raw-quartz", 0]],
+            "products": [
+                ["raw-quartz", 1]
+            ]
+        },
+        {
+            "name": "Crude Oil",
+            "key_name": "crude-oil",
+            "category": "mineral",
+            "time": 1,
+            "ingredients": [["crude-oil", 0]],
+            "products": [
+                ["crude-oil", 1]
+            ]
+        },
+        {
             "name": "Iron Ingot",
             "key_name": "iron-ingot",
             "category": "smelting1",
