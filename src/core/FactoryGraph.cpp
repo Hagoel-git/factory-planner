@@ -109,17 +109,6 @@ bool FactoryGraph::setPortDemand(int port_id, double demand) {
     return true;
 }
 
-bool FactoryGraph::loadGameData(const std::string &jsonFile) {
-    try {
-        game_data = GameDataLoader::loadGameData(jsonFile);
-        return true;
-    } catch (const std::exception &e) {
-        std::cerr << "Error loading game data: " << e.what() << std::endl;
-        return false;
-    }
-}
-
-
 void FactoryGraph::clear() {
     nodes.clear();
     ports.clear();

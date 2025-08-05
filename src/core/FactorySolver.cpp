@@ -25,9 +25,22 @@ void FactorySolver::solve(FactoryGraph &factory_graph) {
     const auto &ports = factory_graph.getPorts();
     for (const auto &port : ports) {
         double value = variables[port.id]->solution_value();
-        std::cout << "Port ID: " << port.id << ", Resource ID: " << port.resource_id
-                  << ", Rate: " << value << std::endl;
         factory_graph.getPort(port.id)->rate = value; // Update the port rate in the factory graph
+    }
+
+    // calculate node misc
+    // calculate machine count
+    std::cout << std::endl;
+    std::cout << "Calculating machine counts and outputs for each node:" << std::endl;
+
+    const auto &nodes = factory_graph.getNodes();
+    for (const auto &node : nodes) {
+        const Recipe &recipe = factory_graph.getGameData().recipes.at(node.selected_recipe_id);
+        double machine_count = ports[node.output_ports.at(0)].rate / (recipe.output_ports.at(0).amount / recipe.time * pow(60, factory_graph.getGameData().time_unit));
+        node.machine_count = machine_count;
+
+        double power_usage = factory_graph.getGameData().machines[node.machine_id].base_power_usage * machine_count;
+        node.power_usage = power_usage;
     }
 }
 

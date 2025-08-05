@@ -6,9 +6,8 @@
 
 int main(int argc, char** argv) {
     std::cout << "Program started successfully!" << std::endl;
-    FactoryGraph graph;
+    FactoryGraph graph("../data/satisfactory.json");
     FactorySolver solver;
-    graph.loadGameData("../data/satisfactory.json");
 
     graph.addNode("Miner", NodeType::PRODUCER,  graph.getGameData().getIdByRecipeName("Iron Ore"));
     graph.addNode("Ingot", NodeType::PROCESSOR, graph.getGameData().getIdByRecipeName("Iron Ingot"));
@@ -32,6 +31,13 @@ int main(int argc, char** argv) {
     graph.setPortDemand(7, 30.0);
     graph.setPortDemand(9, 30.0);
     graph.setPortDemand(11, 30.0);
+
+    std::cout << graph.getGameData().time_unit << std::endl;
+    std::cout << graph.getGameData().time_unit << std::endl;
+    std::cout << graph.getGameData().time_unit << std::endl;
+    std::cout << graph.getGameData().time_unit << std::endl;
+    std::cout << graph.getGameData().time_unit << std::endl;
+    std::cout << graph.getGameData().time_unit << std::endl;
 
     for (auto machine : graph.getGameData().machines) {
         std::cout << "Machine: " << machine.name << ", ID: " << machine.id
