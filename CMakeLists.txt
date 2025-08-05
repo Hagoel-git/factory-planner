@@ -20,8 +20,6 @@ add_executable(factory_planner src/main.cpp
         src/core/Resource.h
         src/utils/GameDataLoader.cpp
         src/utils/GameDataLoader.h
-        src/utils/LpSolver.cpp
-        src/utils/LpSolver.h
         src/core/Port.h
         src/core/FactorySolver.cpp
         src/core/FactorySolver.h)
