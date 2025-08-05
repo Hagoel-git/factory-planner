@@ -19,7 +19,7 @@
 
 class FactorySolver {
 public:
-    void solve(const FactoryGraph &factory_graph);
+    void solve(FactoryGraph &factory_graph);
 
     FactorySolver() {
         std::string solver_name = "GLOP";

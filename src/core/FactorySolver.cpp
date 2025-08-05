@@ -4,7 +4,7 @@
 
 #include "FactorySolver.h"
 
-void FactorySolver::solve(const FactoryGraph &factory_graph) {
+void FactorySolver::solve(FactoryGraph &factory_graph) {
     createAllVariables(factory_graph);
     addObjectiveFunction(factory_graph);
     addAllConstraints(factory_graph);
@@ -20,11 +20,14 @@ void FactorySolver::solve(const FactoryGraph &factory_graph) {
         return;
     }
     std::cout << "Problem solved in " << solver->wall_time() << " milliseconds" << std::endl;
-    std::cout << "Solution: " << std::endl;
-    std::cout << "Objective value = " << solver->Objective().Value() << std::endl;
-    for (const auto &var: variables) {
-        std::cout << var->name() << " = " << var->solution_value()
-                << " (reduced cost: " << var->reduced_cost() << ")" << std::endl;
+
+    // Output the results to factory_graph
+    const auto &ports = factory_graph.getPorts();
+    for (const auto &port : ports) {
+        double value = variables[port.id]->solution_value();
+        std::cout << "Port ID: " << port.id << ", Resource ID: " << port.resource_id
+                  << ", Rate: " << value << std::endl;
+        factory_graph.getPort(port.id)->rate = value; // Update the port rate in the factory graph
     }
 }
 

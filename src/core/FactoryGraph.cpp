@@ -7,9 +7,9 @@
 #include <iostream>
 #include <unordered_set>
 
-int FactoryGraph::addNode(const std::string &name, NodeType type, int key_id, int recipe_id) {
+int FactoryGraph::addNode(const std::string &name, NodeType type, int recipe_id) {
     int id = next_node_id++;
-    nodes.emplace_back(name, type, id, key_id);
+    nodes.emplace_back(name, type, id);
     setNodeRecipe(id, recipe_id);
     return id;
 }
@@ -25,6 +25,7 @@ bool FactoryGraph::setNodeRecipe(int node_id, int recipe_id) {
     }
     const Recipe &recipe = game_data.recipes[recipe_id];
     node->selected_recipe_id = recipe_id;
+    node->machine_id = recipe.category_id;
     node->output_ports.resize(recipe.getOutputPortCount());
     node->input_ports.resize(recipe.getInputPortCount());
     for (int i = 0; i < recipe.getInputPortCount(); ++i) {
@@ -129,9 +130,19 @@ void FactoryGraph::clear() {
 
 void FactoryGraph::printGraph() {
     for (const auto &node: nodes) {
-        node.print();
+        std::cout << "Node ID: " << node.id << ", Name: " << node.name
+                << ", Type: " << toString(node.type)
+                << ", Machine ID: " << node.machine_id
+                << ", Selected Recipe ID: " << node.selected_recipe_id
+                << ", Machine Count: " << node.machine_count
+                << ", Power Usage: " << node.power_usage << " MW" << std::endl;
+        // Machine machine = game_data.machines[node.machine_id];
+        // std::cout << "Machine Base Power Usage: " << machine.base_power_usage
+        //         << " MW, Max Somersloop Slots: " << machine.max_somersloop_slots
+        //         << ", Category ID: " << machine.category_id << std::endl;
         Recipe recipe = game_data.recipes[node.selected_recipe_id];
         std::cout << "Recipe ID: " << recipe.id << ", Name: " << recipe.name
+                << " Category ID: " << recipe.category_id
                 << ", Time: " << recipe.time << " seconds" << std::endl;
         for (const auto &input_port: node.input_ports) {
             Port *port = getPort(input_port);
@@ -150,11 +161,5 @@ void FactoryGraph::printGraph() {
             }
         }
         std::cout << "----------------------------------------" << std::endl;
-    }
-    for (const auto &conn: connections) {
-        std::cout << " from Port: " << conn.from_port
-                << " to Port: " << conn.to_port
-                << ", Resource ID: " << conn.resource_id
-                << ", Is Bottleneck: " << (conn.is_bottleneck ? "Yes" : "No") << std::endl;
     }
 }

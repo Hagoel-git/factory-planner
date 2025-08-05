@@ -44,104 +44,125 @@
             "rate": 600
         }
     ],
-    "buildings": [
+    "machines": [
         {
             "name": "Constructor",
             "key_name": "constructor",
             "category": "crafting1",
-            "power": 4,
-            "somersloop_slots": 1,
+            "base_power_usage": 4,
+            "max_somersloop_slots": 1,
             "max": 1
         },
         {
             "name": "Assembler",
             "key_name": "assembler",
             "category": "crafting2",
-            "power": 15,
-            "somersloop_slots": 2,
+            "base_power_usage": 15,
+            "max_somersloop_slots": 2,
             "max": 2
         },
         {
             "name": "Manufacturer",
             "key_name": "manufacturer",
             "category": "crafting3",
-            "power": 55,
-            "somersloop_slots": 4,
+            "base_power_usage": 55,
+            "max_somersloop_slots": 4,
             "max": 4
         },
         {
             "name": "Smelter",
             "key_name": "smelter",
             "category": "smelting1",
-            "power": 4,
-            "somersloop_slots": 1,
+            "base_power_usage": 4,
+            "max_somersloop_slots": 1,
             "max": 1
         },
         {
             "name": "Foundry",
             "key_name": "foundry",
             "category": "smelting2",
-            "power": 16,
-            "somersloop_slots": 2,
+            "base_power_usage": 16,
+            "max_somersloop_slots": 2,
             "max": 2
         },
         {
             "name": "Refinery",
             "key_name": "oil-refinery",
             "category": "refining",
-            "power": 30,
-            "somersloop_slots": 2,
+            "base_power_usage": 30,
+            "max_somersloop_slots": 2,
             "max": 1
         },
         {
             "name": "Packager",
             "key_name": "packager",
             "category": "packaging",
-            "power": 10,
-            "somersloop_slots": null,
+            "base_power_usage": 10,
+            "max_somersloop_slots": 0,
             "max": 2
         },
         {
             "name": "Blender",
             "key_name": "blender",
             "category": "blending",
-            "power": 75,
-            "somersloop_slots": 4,
+            "base_power_usage": 75,
+            "max_somersloop_slots": 4,
             "max": 4
         },
         {
             "name": "Particle Accelerator",
             "key_name": "accelerator",
             "category": "accelerating",
-            "power": 0,
-            "somersloop_slots": 4,
+            "base_power_usage": 0,
+            "max_somersloop_slots": 4,
             "max": 3
         },
         {
             "name": "Converter",
             "key_name": "converter",
             "category": "converting",
-            "power": 0,
+            "base_power_usage": 0,
             "power_range": [100, 400],
-            "somersloop_slots": 2,
+            "max_somersloop_slots": 2,
             "max": 2
         },
         {
             "name": "Quantum Encoder",
             "key_name": "quantum-encoder",
             "category": "encoding",
-            "power": 0,
+            "base_power_usage": 0,
             "power_range": [0, 2000],
-            "somersloop_slots": 4,
+            "max_somersloop_slots": 4,
             "max": 4
         },
         {
             "name": "Nuclear Power Plant",
             "key_name": "nuclear-power-plant",
             "category": "nuke-reacting",
-            "power": 0,
-            "somersloop_slots": null,
+            "base_power_usage": 0,
+            "max_somersloop_slots": 0,
             "max": 2
+        },
+        {
+            "name": "Miner",
+            "key_name": "miner",
+            "category": "mining",
+            "base_power_usage": 0,
+            "max_somersloop_slots": 0
+        },
+        {
+            "name": "Oil Extractor",
+            "key_name": "oil-extractor",
+            "category": "oil-extracting",
+            "base_power_usage": 0,
+            "max_somersloop_slots": 0
+        },
+        {
+            "name": "Water Extractor",
+            "key_name": "water-extractor",
+            "category": "water-extracting",
+            "base_power_usage": 0,
+            "max_somersloop_slots": 0
         }
     ],
     "miners": [
@@ -1029,7 +1050,7 @@
         {
             "name": "Iron Ore",
             "key_name": "iron-ore",
-            "category": "mineral",
+            "category": "mining",
             "time": 1,
             "ingredients": [["iron-ore", 0]],
             "products": [
@@ -1039,7 +1060,7 @@
         {
             "name": "Copper Ore",
             "key_name": "copper-ore",
-            "category": "mineral",
+            "category": "mining",
             "time": 1,
             "ingredients": [["copper-ore", 0]],
             "products": [
@@ -1049,7 +1070,7 @@
         {
             "name": "Coal",
             "key_name": "coal",
-            "category": "mineral",
+            "category": "mining",
             "time": 1,
             "ingredients": [["coal", 0]],
             "products": [
@@ -1059,7 +1080,7 @@
         {
             "name": "Limestone",
             "key_name": "limestone",
-            "category": "mineral",
+            "category": "mining",
             "time": 1,
             "ingredients": [["limestone", 0]],
             "products": [
@@ -1069,7 +1090,7 @@
         {
             "name": "Caterium Ore",
             "key_name": "caterium-ore",
-            "category": "mineral",
+            "category": "mining",
             "time": 1,
             "ingredients": [["caterium-ore", 0]],
             "products": [
@@ -1079,7 +1100,7 @@
         {
             "name": "Raw Quartz",
             "key_name": "raw-quartz",
-            "category": "mineral",
+            "category": "mining",
             "time": 1,
             "ingredients": [["raw-quartz", 0]],
             "products": [
@@ -1089,7 +1110,7 @@
         {
             "name": "Crude Oil",
             "key_name": "crude-oil",
-            "category": "mineral",
+            "category": "oil-extracting",
             "time": 1,
             "ingredients": [["crude-oil", 0]],
             "products": [
