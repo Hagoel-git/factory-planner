@@ -9,7 +9,7 @@
 #include "Connection.h"
 #include "Node.h"
 #include "Port.h"
-#include "../utils/GameDataLoader.h"
+#include "../common/GameData.h"
 
 class FactoryGraph {
 public:
@@ -30,12 +30,15 @@ public:
     void clear();
     void printGraph();
 
-    bool loadGameData(const std::string& jsonFile);
-    GameDataLoader::GameData getGameData() const {
+    const GameData& getGameData() const {
         return game_data;
     }
+
+    FactoryGraph(const std::string& jsonFile): game_data(jsonFile) {
+    }
+
 private:
-    GameDataLoader::GameData game_data;
+    const GameData game_data;
 
     std::vector<Node> nodes; // List of nodes in the graph
     std::vector<Port> ports; // List of ports

@@ -18,12 +18,11 @@ add_executable(factory_planner src/main.cpp
         src/utils/JsonLoader.h
         src/core/Recipe.h
         src/core/Resource.h
-        src/utils/GameDataLoader.cpp
-        src/utils/GameDataLoader.h
         src/core/Port.h
         src/core/FactorySolver.cpp
         src/core/FactorySolver.h
-        src/core/Machine.h)
+        src/core/Machine.h
+        src/common/GameData.h)
 
 target_link_libraries(factory_planner
         ortools

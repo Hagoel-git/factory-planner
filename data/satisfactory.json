@@ -1,5 +1,6 @@
 {
     "gameName": "Satisfactory",
+    "time_unit": "minutes",
     "belts": [
         {
             "name": "Conveyor Belt",
