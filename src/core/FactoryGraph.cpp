@@ -113,6 +113,7 @@ void FactoryGraph::clear() {
     nodes.clear();
     ports.clear();
     connections.clear();
+    next_port_id = 0; // Reset the port ID counter
     next_node_id = 0; // Reset the node ID counter
 }
 

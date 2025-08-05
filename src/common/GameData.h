@@ -49,6 +49,16 @@ struct GameData {
         return -1; // Recipe not found
     }
 
+    void clear() {
+        gameName.clear();
+        resources.clear();
+        machines.clear();
+        recipes.clear();
+        time_unit = 0; // Reset to default (minutes)
+    }
+
+    ~GameData() = default;
+
     GameData(const std::string jsonFile) {
         json raw = JsonLoader::loadFromFile(jsonFile);
 
@@ -57,8 +67,6 @@ struct GameData {
         }
 
         gameName = raw["gameName"].get<std::string>();
-        std::cout << gameName << std::endl;
-        std::cout << raw["gameName"].get<std::string>() << std::endl;
         std::string t_unit = raw.value("time_unit", "minutes");
         if (t_unit == "hours") {
             time_unit = 2; // hours

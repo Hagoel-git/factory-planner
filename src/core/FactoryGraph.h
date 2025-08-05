@@ -37,6 +37,8 @@ public:
     FactoryGraph(const std::string& jsonFile): game_data(jsonFile) {
     }
 
+    ~FactoryGraph() = default;
+
 private:
     const GameData game_data;
 
