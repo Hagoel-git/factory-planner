@@ -49,7 +49,9 @@ add_executable(factory_planner src/main.cpp
         src/core/Machine.h
         src/common/GameData.h
         src/gui/Application.cpp
-        src/gui/Application.h)
+        src/gui/Application.h
+        src/gui/FactoryNodeEditor.cpp
+        src/gui/FactoryNodeEditor.h)
 
 target_link_libraries(factory_planner
         ortools

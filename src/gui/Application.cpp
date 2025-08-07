@@ -17,6 +17,10 @@ bool Application::Initialize() {
 
     factoryGraph = std::make_unique<FactoryGraph>("../data/satisfactory.json"); // todo: make this configurable
     factorySolver = std::make_unique<FactorySolver>();
+    factoryNodeEditor = std::make_unique<FactoryNodeEditor>();
+    if (!factoryNodeEditor->Initialize()) {
+        return false;
+    }
 
     return true;
 }
@@ -25,11 +29,12 @@ void Application::Run() {
     while (!glfwWindowShouldClose(window)) {
         HandleEvents();
         Update();
-        RenderImGui();
         Render();
 
         glfwSwapBuffers(window);
     }
+
+
 
 }
 
@@ -83,13 +88,9 @@ void Application::Update() {
 }
 
 void Application::Render() {
-    glClear(GL_COLOR_BUFFER_BIT);
+    factoryNodeEditor->Show();
 
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
 }
-
-void Application::RenderImGui() {
-}
-
-

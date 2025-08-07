@@ -7,6 +7,7 @@
 #include <memory>
 #include <GLFW/glfw3.h>
 
+#include "FactoryNodeEditor.h"
 #include "../core/FactoryGraph.h"
 #include "../core/FactorySolver.h"
 
@@ -24,13 +25,13 @@ private:
     GLFWwindow* window;
     std::unique_ptr<FactoryGraph> factoryGraph;
     std::unique_ptr<FactorySolver> factorySolver;
+    std::unique_ptr<FactoryNodeEditor> factoryNodeEditor;
 
     bool InitializeWindow();
     bool InitializeImGui();
     void HandleEvents();
     void Update();
     void Render();
-    void RenderImGui();
 };
 
 
