@@ -72,7 +72,8 @@ bool FactoryGraph::addConnection(int from_port, int to_port) {
         std::cerr << "Invalid connection from port " << from_port << " to " << to_port << "." << std::endl;
         return false; // Invalid connection
     }
-    connections.emplace_back(from_port, to_port, getPort(from_port)->resource_id);
+    int id = next_connection_id++;
+    connections.emplace_back(id, from_port, to_port, getPort(from_port)->resource_id);
     return true; // Connection added successfully
 }
 

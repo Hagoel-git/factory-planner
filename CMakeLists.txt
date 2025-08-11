@@ -82,6 +82,8 @@ set(SRC
 
         src/core/Machine.h
         src/common/GameData.h
+        src/gui/FactoryNodeEditor.cpp
+        src/gui/FactoryNodeEditor.h
 )
 
 add_executable(factory_planner ${SRC})
