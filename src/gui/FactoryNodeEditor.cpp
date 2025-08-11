@@ -148,8 +148,12 @@ for (int i = 0; i < pow(2,5); ++i) {
     if (ed::BeginCreate()) {
         ed::PinId start, end;
         if (ed::QueryNewLink(&start, &end)) {
-            const int startId = FromPinId(start);
-            const int endId = FromPinId(end);
+            int startId = FromPinId(start);
+            int endId = FromPinId(end);
+
+            if (graph.getPort(startId)->isInput) {
+                std::swap(startId, endId); // Ensure start is always output
+            }
 
             // ask the graph if the connection is valid (it knows which is input/output)
             if (!graph.isValidConnection(startId, endId)) {
