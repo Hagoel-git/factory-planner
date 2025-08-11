@@ -10,9 +10,10 @@ struct Port {
     double user_constraint = -1.0; // User-defined constraint for the port, -1 means no constraint
     int id;
     int resource_id; // ID of the resource associated with this port
+    bool isInput;
 
-    Port(int id, int resource_id)
-        : id(id), resource_id(resource_id) {
+    Port(int id, int resource_id, bool isInput)
+        : id(id), resource_id(resource_id), isInput(isInput) {
     }
 };
 #endif //PORT_H
