@@ -19,10 +19,12 @@ public:
     [[nodiscard]] const std::vector<Node>& getNodes() const;
 
     bool isValidConnection(int from_port, int to_port);
+    bool connectionExists(int from_port, int to_port);
     bool addConnection(int from_port, int to_port);
+    bool removeConnection(int from_port, int to_port);
     [[nodiscard]] const std::vector<Connection>& getConnections() const;
 
-    int addPort(int resource_id);
+    int addPort(int resource_id, bool isInput);
     Port* getPort(int id);
     [[nodiscard]] const std::vector<Port>& getPorts() const;
     bool setPortDemand(int port_id, double demand);

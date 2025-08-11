@@ -29,11 +29,11 @@ bool FactoryGraph::setNodeRecipe(int node_id, int recipe_id) {
     node->output_ports.resize(recipe.getOutputPortCount());
     node->input_ports.resize(recipe.getInputPortCount());
     for (int i = 0; i < recipe.getInputPortCount(); ++i) {
-        int port_id = addPort(recipe.getInputPortResourceId(i));
+        int port_id = addPort(recipe.getInputPortResourceId(i), true);
         node->input_ports[i] = port_id;
     }
     for (int i = 0; i < recipe.getOutputPortCount(); ++i) {
-        int port_id = addPort(recipe.getOutputPortResourceId(i));
+        int port_id = addPort(recipe.getOutputPortResourceId(i), false);
         node->output_ports[i] = port_id;
     }
     return true;
@@ -64,7 +64,18 @@ bool FactoryGraph::isValidConnection(int from_port, int to_port) {
                   << " but expected resource is: " << resource_names[to_port_ptr->resource_id].name;
         return false; // Resource IDs do not match
     }
+    if (from_port_ptr->isInput || !to_port_ptr->isInput) {
+        std::cerr << "Invalid connection: from_port " << from_port << " is an input port or to_port " << to_port << " is not an input port." << std::endl;
+        return false; // Invalid connection direction
+    }
     return true; // Valid connection
+}
+
+bool FactoryGraph::connectionExists(int from_port, int to_port) {
+    return std::any_of(connections.begin(), connections.end(),
+        [from_port, to_port](const Connection& conn) {
+            return conn.from_port == from_port && conn.to_port == to_port;
+        });
 }
 
 bool FactoryGraph::addConnection(int from_port, int to_port) {
@@ -77,14 +88,24 @@ bool FactoryGraph::addConnection(int from_port, int to_port) {
     return true; // Connection added successfully
 }
 
+bool FactoryGraph::removeConnection(int from_port, int to_port) {
+    for (auto it = connections.begin(); it != connections.end(); ++it) {
+        if (it->from_port == from_port && it->to_port == to_port) {
+            connections.erase(it);
+            return true;
+        }
+    }
+    return false;
+}
+
 const std::vector<Connection> &FactoryGraph::getConnections() const {
     return connections;
 }
 
 
-int FactoryGraph::addPort(int resource_id) {
+int FactoryGraph::addPort(int resource_id, bool isInput) {
     int port_id = next_port_id++;
-    ports.emplace_back(port_id, resource_id);
+    ports.emplace_back(port_id, resource_id, isInput);
     return port_id; // Return the ID of the newly created port
 }
 

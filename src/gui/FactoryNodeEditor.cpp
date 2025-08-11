@@ -54,6 +54,42 @@ void FactoryNodeEditor::Draw() {
         // Simple convenience: add a default node (you may want a picker popup)
         graph.addNode("New", NodeType::PROCESSOR, 55);
     }
+    if (ImGui::Button("Add MANY nodes")) {
+        // Simple convenience: add a default node (you may want a picker popup)
+
+for (int i = 0; i < pow(2,5); ++i) {
+        int quartz_miner = graph.addNode("Quartz Ore", NodeType::PRODUCER,  graph.getGameData().getIdByRecipeName("Raw Quartz"));
+        int caterium_miner = graph.addNode("Caterium Ore", NodeType::PRODUCER,  graph.getGameData().getIdByRecipeName("Caterium Ore"));
+        int oil_extractor = graph.addNode("Oil Extractor", NodeType::PRODUCER,  graph.getGameData().getIdByRecipeName("Crude Oil"));
+
+        int quartz_crystal = graph.addNode("Quartz Crystal", NodeType::PROCESSOR,  graph.getGameData().getIdByRecipeName("Quartz Crystal"));
+        int caterium_ingot = graph.addNode("Caterium Ingot", NodeType::PROCESSOR,  graph.getGameData().getIdByRecipeName("Caterium Ingot"));
+        int plastic = graph.addNode("Plastic", NodeType::PROCESSOR,  graph.getGameData().getIdByRecipeName("Plastic"));
+        int rubber = graph.addNode("Rubber", NodeType::PROCESSOR,  graph.getGameData().getIdByRecipeName("Rubber"));
+        int fuel = graph.addNode("Fuel", NodeType::PROCESSOR,  graph.getGameData().getIdByRecipeName("Residual Fuel"));
+        int quickwire = graph.addNode("Quickwire", NodeType::PROCESSOR, graph.getGameData().getIdByRecipeName("Quickwire"));
+        int ai_limiter = graph.addNode("AI Limiter", NodeType::PROCESSOR, graph.getGameData().getIdByRecipeName("Alternate: Plastic AI Limiter"));
+        int crystal_oscillator = graph.addNode("Crystal Oscillator", NodeType::PROCESSOR, graph.getGameData().getIdByRecipeName("Alternate: Insulated Crystal Oscillator"));
+
+        graph.addConnection(graph.getNode(quartz_miner)->output_ports[0], graph.getNode(quartz_crystal)->input_ports[0]);
+        graph.addConnection(graph.getNode(caterium_miner)->output_ports[0], graph.getNode(caterium_ingot)->input_ports[0]);
+        graph.addConnection(graph.getNode(oil_extractor)->output_ports[0], graph.getNode(plastic)->input_ports[0]);
+        graph.addConnection(graph.getNode(oil_extractor)->output_ports[0], graph.getNode(rubber)->input_ports[0]);
+        graph.addConnection(graph.getNode(rubber)->output_ports[1], graph.getNode(fuel)->input_ports[0]);
+        graph.addConnection(graph.getNode(plastic)->output_ports[1], graph.getNode(fuel)->input_ports[0]);
+        graph.addConnection(graph.getNode(caterium_ingot)->output_ports[0], graph.getNode(quickwire)->input_ports[0]);
+        graph.addConnection(graph.getNode(plastic)->output_ports[0], graph.getNode(ai_limiter)->input_ports[1]);
+        graph.addConnection(graph.getNode(quickwire)->output_ports[0], graph.getNode(ai_limiter)->input_ports[0]);
+        graph.addConnection(graph.getNode(quartz_crystal)->output_ports[0], graph.getNode(crystal_oscillator)->input_ports[0]);
+        graph.addConnection(graph.getNode(rubber)->output_ports[0], graph.getNode(crystal_oscillator)->input_ports[1]);
+        graph.addConnection(graph.getNode(ai_limiter)->output_ports[0], graph.getNode(crystal_oscillator)->input_ports[2]);
+
+        graph.setPortDemand(graph.getNode(crystal_oscillator)->output_ports[0], 45.0);
+        graph.setPortDemand(graph.getNode(oil_extractor)->output_ports[0], 1200);
+        graph.setPortDemand(graph.getNode(caterium_miner)->output_ports[0], 780);
+    }
+
+    }
     ImGui::SameLine();
     if (ImGui::Button("Fit View")) {
         ed::NavigateToContent();
@@ -71,7 +107,7 @@ void FactoryNodeEditor::Draw() {
     if (first_frame) {
         for (const auto &node : graph.getNodes()) {
             ed::NodeId nodeId = ToNodeId(node.id);
-            ed::SetNodePosition(nodeId, ImVec2(node.id * 100, node.id * 100)); // Simple layout
+            ed::SetNodePosition(nodeId, ImVec2(node.id * 50 % 100000, node.id * 50 % 100000)); // Simple layout
         }
     }
     for (const auto &node: graph.getNodes()) {
@@ -116,11 +152,19 @@ void FactoryNodeEditor::Draw() {
             const int endId = FromPinId(end);
 
             // ask the graph if the connection is valid (it knows which is input/output)
-            if (graph.isValidConnection(startId, endId)) {
-                ed::AcceptNewItem();
-                graph.addConnection(startId, endId);
+            if (!graph.isValidConnection(startId, endId)) {
+                ed::RejectNewItem(ImColor(255, 128, 128), 1.0f); // Reject with red color
             } else {
-                ed::RejectNewItem();
+                const bool connectionExists = graph.connectionExists(startId, endId);
+                const ImColor color = connectionExists ? ImColor(255,128,128) : ImColor(128,255,128);
+
+                if (ed::AcceptNewItem(color, 1.0f)) {
+                    if (connectionExists) {
+                        graph.removeConnection(startId, endId);
+                    } else {
+                        graph.addConnection(startId, endId);
+                    }
+                }
             }
         }
     }
