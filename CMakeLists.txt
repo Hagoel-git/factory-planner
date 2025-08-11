@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 
 add_definitions(-DOR_PROTO_DLL=)
 
-include_directories(${CMAKE_SOURCE_DIR}/third_party)
+include_directories(${CMAKE_SOURCE_DIR}/external)
 
 
 add_executable(factory_planner src/main.cpp
