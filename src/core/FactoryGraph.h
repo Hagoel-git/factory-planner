@@ -48,5 +48,6 @@ private:
 
     int next_node_id = 0; // Unique ID for the next node to be added
     int next_port_id = 0;
+    int next_connection_id = 0; // Unique ID for the next connection to be added
 };
 #endif //FACTORYGRAPH_H
