@@ -8,7 +8,7 @@ int main(int argc, char** argv) {
     double exp = 10.0; //stopped on 17
     std::cout << "Program started successfully!" << std::endl;
     for (int i = 0; i < 100; i++) {
-        FactoryGraph graph("../data/satisfactory.json");
+        FactoryGraph graph("../../data/satisfactory.json");
     FactorySolver solver;
     //
     // graph.addNode("Miner", NodeType::PRODUCER,  graph.getGameData().getIdByRecipeName("Iron Ore"));
