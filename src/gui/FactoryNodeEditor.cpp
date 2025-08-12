@@ -111,7 +111,7 @@ void FactoryNodeEditor::Draw() {
                 if (!p) continue; // Skip invalid ports
                 ed::PinId pinId = ToPinId(p->id);
                 ed::BeginPin(pinId, ed::PinKind::Input);
-                ImGui::Text("<in> %s", graph.getGameData().resources.at(p->resource_id).name.c_str()); // Display resource name
+                ImGui::Text("<%.2f> %s",p->rate ,graph.getGameData().resources.at(p->resource_id).name.c_str()); // Display resource name
                 ed::EndPin();
             } else {
                 ImGui::Text(" "); // Empty space for alignment
@@ -122,7 +122,7 @@ void FactoryNodeEditor::Draw() {
                 if (!p) continue; // Skip invalid ports
                 ed::PinId pinId = ToPinId(p->id);
                 ed::BeginPin(pinId, ed::PinKind::Output);
-                ImGui::Text("%s <out>", graph.getGameData().resources.at(p->resource_id).name.c_str()); // Display resource name
+                ImGui::Text("%s <%.2f>",p->rate, graph.getGameData().resources.at(p->resource_id).name.c_str()); // Display resource name
                 ed::EndPin();
             } else {
                 ImGui::Text(" "); // Empty space for alignment
@@ -232,7 +232,7 @@ void FactoryNodeEditor::Draw() {
             ImGui::Text("Resource ID: %d", port->resource_id);
             ImGui::Text("Is Input: %s", port->isInput ? "Yes" : "No");
             ImGui::Text("Current rate: %.2f", port->rate);
-            ImGui::Text("Demand: %.2f", port->user_constraint);
+            ImGui::Text("Limit: %.2f", port->user_constraint);
             ImGui::Separator();
             static double new_constraint = -1.0;
             ImGui::InputDouble("Rate", &new_constraint, 0.1f, 1.0f, "%.2f");
