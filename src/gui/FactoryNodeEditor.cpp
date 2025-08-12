@@ -1,4 +1,5 @@
 #pragma once
+#define IMGUI_DEFINE_MATH_OPERATORS
 #include "FactoryNodeEditor.h"
 #include "imgui.h"
 #include "imgui_node_editor.h"
@@ -54,42 +55,7 @@ void FactoryNodeEditor::Draw() {
         // Simple convenience: add a default node (you may want a picker popup)
         graph.addNode("New", NodeType::PROCESSOR, 55);
     }
-    if (ImGui::Button("Add MANY nodes")) {
-        // Simple convenience: add a default node (you may want a picker popup)
 
-for (int i = 0; i < pow(2,5); ++i) {
-        int quartz_miner = graph.addNode("Quartz Ore", NodeType::PRODUCER,  graph.getGameData().getIdByRecipeName("Raw Quartz"));
-        int caterium_miner = graph.addNode("Caterium Ore", NodeType::PRODUCER,  graph.getGameData().getIdByRecipeName("Caterium Ore"));
-        int oil_extractor = graph.addNode("Oil Extractor", NodeType::PRODUCER,  graph.getGameData().getIdByRecipeName("Crude Oil"));
-
-        int quartz_crystal = graph.addNode("Quartz Crystal", NodeType::PROCESSOR,  graph.getGameData().getIdByRecipeName("Quartz Crystal"));
-        int caterium_ingot = graph.addNode("Caterium Ingot", NodeType::PROCESSOR,  graph.getGameData().getIdByRecipeName("Caterium Ingot"));
-        int plastic = graph.addNode("Plastic", NodeType::PROCESSOR,  graph.getGameData().getIdByRecipeName("Plastic"));
-        int rubber = graph.addNode("Rubber", NodeType::PROCESSOR,  graph.getGameData().getIdByRecipeName("Rubber"));
-        int fuel = graph.addNode("Fuel", NodeType::PROCESSOR,  graph.getGameData().getIdByRecipeName("Residual Fuel"));
-        int quickwire = graph.addNode("Quickwire", NodeType::PROCESSOR, graph.getGameData().getIdByRecipeName("Quickwire"));
-        int ai_limiter = graph.addNode("AI Limiter", NodeType::PROCESSOR, graph.getGameData().getIdByRecipeName("Alternate: Plastic AI Limiter"));
-        int crystal_oscillator = graph.addNode("Crystal Oscillator", NodeType::PROCESSOR, graph.getGameData().getIdByRecipeName("Alternate: Insulated Crystal Oscillator"));
-
-        graph.addConnection(graph.getNode(quartz_miner)->output_ports[0], graph.getNode(quartz_crystal)->input_ports[0]);
-        graph.addConnection(graph.getNode(caterium_miner)->output_ports[0], graph.getNode(caterium_ingot)->input_ports[0]);
-        graph.addConnection(graph.getNode(oil_extractor)->output_ports[0], graph.getNode(plastic)->input_ports[0]);
-        graph.addConnection(graph.getNode(oil_extractor)->output_ports[0], graph.getNode(rubber)->input_ports[0]);
-        graph.addConnection(graph.getNode(rubber)->output_ports[1], graph.getNode(fuel)->input_ports[0]);
-        graph.addConnection(graph.getNode(plastic)->output_ports[1], graph.getNode(fuel)->input_ports[0]);
-        graph.addConnection(graph.getNode(caterium_ingot)->output_ports[0], graph.getNode(quickwire)->input_ports[0]);
-        graph.addConnection(graph.getNode(plastic)->output_ports[0], graph.getNode(ai_limiter)->input_ports[1]);
-        graph.addConnection(graph.getNode(quickwire)->output_ports[0], graph.getNode(ai_limiter)->input_ports[0]);
-        graph.addConnection(graph.getNode(quartz_crystal)->output_ports[0], graph.getNode(crystal_oscillator)->input_ports[0]);
-        graph.addConnection(graph.getNode(rubber)->output_ports[0], graph.getNode(crystal_oscillator)->input_ports[1]);
-        graph.addConnection(graph.getNode(ai_limiter)->output_ports[0], graph.getNode(crystal_oscillator)->input_ports[2]);
-
-        graph.setPortDemand(graph.getNode(crystal_oscillator)->output_ports[0], 45.0);
-        graph.setPortDemand(graph.getNode(oil_extractor)->output_ports[0], 1200);
-        graph.setPortDemand(graph.getNode(caterium_miner)->output_ports[0], 780);
-    }
-
-    }
     ImGui::SameLine();
     if (ImGui::Button("Fit View")) {
         ed::NavigateToContent();
@@ -98,6 +64,24 @@ for (int i = 0; i < pow(2,5); ++i) {
     if (ImGui::Button("Clear")) {
         graph.clear();
     }
+
+    auto showLabel = [](const char* label, ImColor color)
+    {
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - ImGui::GetTextLineHeight());
+        auto size = ImGui::CalcTextSize(label);
+
+        auto padding = ImGui::GetStyle().FramePadding;
+        auto spacing = ImGui::GetStyle().ItemSpacing;
+
+        ImGui::SetCursorPos(ImGui::GetCursorPos() + ImVec2(spacing.x, -spacing.y));
+
+        auto rectMin = ImGui::GetCursorScreenPos() - padding;
+        auto rectMax = ImGui::GetCursorScreenPos() + size + padding;
+
+        auto drawList = ImGui::GetWindowDrawList();
+        drawList->AddRectFilled(rectMin, rectMax, color, size.y * 0.15f);
+        ImGui::TextUnformatted(label);
+    };
 
     // Begin the node editor canvas
     ed::Begin("FactoryEditor");
@@ -143,13 +127,14 @@ for (int i = 0; i < pow(2,5); ++i) {
         // We assume Connection has fields: id, from_port, to_port
         ed::Link(ToLinkId(c.id), ToPinId(c.from_port), ToPinId(c.to_port));
     }
-
     // --- Handle new links being created interactively ---
     if (ed::BeginCreate()) {
         ed::PinId start, end;
         if (ed::QueryNewLink(&start, &end)) {
             int startId = FromPinId(start);
             int endId = FromPinId(end);
+
+            selected_port_id = startId;
 
             if (graph.getPort(startId)->isInput) {
                 std::swap(startId, endId); // Ensure start is always output
@@ -168,17 +153,90 @@ for (int i = 0; i < pow(2,5); ++i) {
                     } else {
                         graph.addConnection(startId, endId);
                     }
+                } else {
+                    if (connectionExists) {
+                        showLabel("- Remove Link", ImColor(255, 128, 128)); // Show label for removing link
+                    } else {
+                        showLabel("+ Create Link", ImColor(32, 45, 32, 180)); // Show label for creating link
+                    }
                 }
             }
         }
+        if (ed::QueryNewNode(&start)) {
+            selected_port_id = FromPinId(start);
+            showLabel("Create Node", ImColor(32, 45, 32, 180)); // Show label for creating node
+            if (ed::AcceptNewItem(ImColor(255, 255, 255), 0.7f)) {
+                ed::Suspend();
+                ImGui::OpenPopup("Create new node");
+                ed::Resume();
+            }
+        }
+
     }
     ed::EndCreate();
+
+    auto openPopupPosition = ImGui::GetMousePos();
+
+    ed::Suspend();
+    if (ed::ShowNodeContextMenu(&m_contextNodeId)) {
+        ImGui::OpenPopup("Node Context Menu");
+    }
+    if (ed::ShowPinContextMenu(&m_contextPinId)) {
+        ImGui::OpenPopup("Pin Context Menu");
+    }
+    if (ed::ShowLinkContextMenu(&m_contextLinkId)) {
+        ImGui::OpenPopup("Link Context Menu");
+    }
+    if (ed::ShowBackgroundContextMenu()) {
+        ImGui::OpenPopup("Create new node");
+        selected_port_id = -1;
+    }
+    ed::Resume();
+
+    ed::Suspend();
+    if (ImGui::BeginPopup("Create new node")) {
+        auto newNodePos = ImGui::GetMousePos();
+        auto resourceFilter = graph.getGameData().resources.at(graph.getPort(selected_port_id)->resource_id);
+        bool fromInput = graph.getPort(selected_port_id)->isInput;
+        for (const auto& recipe : graph.getGameData().recipes) {
+            if (fromInput) {
+                for (const auto &output : recipe.output_ports) {
+                    if (output.resource_id != resourceFilter.id) continue; // Filter by resource
+                    if (ImGui::Selectable(recipe.name.c_str())) {
+                        int new_node_id = graph.addNode(recipe.name, NodeType::PROCESSOR, recipe.id);
+                        for (int port_id : graph.getNode(new_node_id)->output_ports) {
+                            if (graph.getPort(port_id)->resource_id == output.resource_id) {
+                                graph.addConnection(port_id, selected_port_id); // Connect to the selected input port
+                                break; // Connect only to the first matching output port
+                            }
+                        }
+                        ImGui::CloseCurrentPopup();
+                    }
+                }
+            } else {
+                for (const auto &input : recipe.input_ports) {
+                    if (input.resource_id != resourceFilter.id) continue; // Filter by resource
+                    if (ImGui::Selectable(recipe.name.c_str())) {
+                        int new_node_id = graph.addNode(recipe.name, NodeType::PROCESSOR, recipe.id);
+                        for (int port_id : graph.getNode(new_node_id)->input_ports) {
+                            if (graph.getPort(port_id)->resource_id == input.resource_id) {
+                                graph.addConnection(selected_port_id, port_id); // Connect to the selected output port
+                                break; // Connect only to the first matching input port
+                            }
+                        }
+                        ImGui::CloseCurrentPopup();
+                    }
+                }
+            }
+        }
+        ImGui::EndPopup();
+    }
+    ed::Resume();
 
     if (first_frame) {
         ed::NavigateToContent(0.0f); // Fit view to content on first frame
         first_frame = false; // Reset after first frame
     }
-
 
     ed::End(); // End node editor
     ImGui::End(); // End main window
