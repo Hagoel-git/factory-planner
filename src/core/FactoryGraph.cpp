@@ -15,6 +15,7 @@ int FactoryGraph::addNode(const std::string &name, NodeType type, int recipe_id)
 }
 
 int FactoryGraph::removeNode(int node_id) {
+    std::cout << "Removing node with ID: " << node_id << std::endl;
     auto it = std::find_if(nodes.begin(), nodes.end(),
         [node_id](const Node& node) { return node.id == node_id; });
 
@@ -111,6 +112,7 @@ bool FactoryGraph::addConnection(int from_port, int to_port) {
 }
 
 bool FactoryGraph::removeConnection(int from_port, int to_port) {
+    std::cout << "Removing connection from port " << from_port << " to port " << to_port << std::endl;
     for (auto it = connections.begin(); it != connections.end(); ++it) {
         if (it->from_port == from_port && it->to_port == to_port) {
             connections.erase(it);
@@ -138,6 +140,7 @@ int FactoryGraph::addPort(int resource_id, bool isInput) {
 }
 
 bool FactoryGraph::removePort(int port_id) {
+    std::cout << "Removing port with ID: " << port_id << std::endl;
     auto port_it = std::find_if(ports.begin(), ports.end(),
         [port_id](const Port& port) { return port.id == port_id; });
 
