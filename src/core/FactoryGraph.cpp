@@ -14,6 +14,28 @@ int FactoryGraph::addNode(const std::string &name, NodeType type, int recipe_id)
     return id;
 }
 
+int FactoryGraph::removeNode(int node_id) {
+    auto it = std::find_if(nodes.begin(), nodes.end(),
+        [node_id](const Node& node) { return node.id == node_id; });
+
+    if (it == nodes.end()) {
+        std::cerr << "Node with ID " << node_id << " does not exist." << std::endl;
+        return false;
+    }
+
+    // Remove all associated ports
+    for (int port_id : it->input_ports) {
+        removePort(port_id);
+    }
+    for (int port_id : it->output_ports) {
+        removePort(port_id);
+    }
+
+    // Remove the node
+    nodes.erase(it);
+    return true;
+}
+
 bool FactoryGraph::setNodeRecipe(int node_id, int recipe_id) {
     Node *node = getNode(node_id);
     if (!node) {
@@ -40,10 +62,10 @@ bool FactoryGraph::setNodeRecipe(int node_id, int recipe_id) {
 }
 
 Node *FactoryGraph::getNode(int id) {
-    if (id < 0 || id >= static_cast<int>(nodes.size())) {
-        return nullptr; // Invalid ID
-    }
-    return &nodes[id];
+    auto it = std::find_if(nodes.begin(), nodes.end(),
+        [id](const Node& node) { return node.id == id; });
+
+    return (it != nodes.end()) ? &(*it) : nullptr;
 }
 
 const std::vector<Node> &FactoryGraph::getNodes() const {
@@ -109,11 +131,33 @@ int FactoryGraph::addPort(int resource_id, bool isInput) {
     return port_id; // Return the ID of the newly created port
 }
 
-Port *FactoryGraph::getPort(int id) {
-    if (id < 0 || id >= static_cast<int>(ports.size())) {
-        return nullptr; // Invalid ID
+bool FactoryGraph::removePort(int port_id) {
+    auto port_it = std::find_if(ports.begin(), ports.end(),
+        [port_id](const Port& port) { return port.id == port_id; });
+
+    if (port_it == ports.end()) {
+        return false;
     }
-    return &ports[id];
+
+    // Remove all connections involving this port
+    connections.erase(
+        std::remove_if(connections.begin(), connections.end(),
+            [port_id](const Connection& conn) {
+                return conn.from_port == port_id || conn.to_port == port_id;
+            }),
+        connections.end()
+    );
+
+    // Remove the port
+    ports.erase(port_it);
+    return true;
+}
+
+Port *FactoryGraph::getPort(int id) {
+    auto it = std::find_if(ports.begin(), ports.end(),
+        [id](const Port& port) { return port.id == id; });
+
+    return (it != ports.end()) ? &(*it) : nullptr;
 }
 
 const std::vector<Port> &FactoryGraph::getPorts() const {

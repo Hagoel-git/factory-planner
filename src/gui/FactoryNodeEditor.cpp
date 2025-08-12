@@ -134,7 +134,6 @@ void FactoryNodeEditor::Draw() {
 
     // --- Draw connections ---
     for (const auto &c: graph.getConnections()) {
-        // We assume Connection has fields: id, from_port, to_port
         ed::Link(ToLinkId(c.id), ToPinId(c.from_port), ToPinId(c.to_port));
     }
     // --- Handle new links being created interactively ---
@@ -165,7 +164,7 @@ void FactoryNodeEditor::Draw() {
                     }
                 } else {
                     if (connectionExists) {
-                        showLabel("- Remove Link", ImColor(255, 128, 128)); // Show label for removing link
+                        showLabel("- Remove Link", ImColor(32, 45, 32, 180)); // Show label for removing link
                     } else {
                         showLabel("+ Create Link", ImColor(32, 45, 32, 180)); // Show label for creating link
                     }
@@ -217,7 +216,7 @@ void FactoryNodeEditor::Draw() {
             ImGui::Text("Machine count: %d", node->machine_count);
             ImGui::Separator();
             if (ImGui::MenuItem("Delete Node")) {
-                // todo
+                graph.removeNode(node->id);
             }
         } else {
             ImGui::Text("Unknown node");
@@ -276,7 +275,8 @@ void FactoryNodeEditor::Draw() {
         } else {
             for (const auto& recipe : graph.getGameData().recipes) {
                 if (ImGui::Selectable(recipe.name.c_str())) {
-                    graph.addNode(recipe.name, NodeType::PROCESSOR, recipe.id);
+                    int new_node_id = graph.addNode(recipe.name, NodeType::PROCESSOR, recipe.id);
+                    ed::SetNodePosition(ToNodeId(new_node_id), ImVec2(openPopupPosition.x, openPopupPosition.y));
                     ImGui::CloseCurrentPopup();
                 }
             }
