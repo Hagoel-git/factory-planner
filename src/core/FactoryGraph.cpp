@@ -120,6 +120,12 @@ bool FactoryGraph::removeConnection(int from_port, int to_port) {
     return false;
 }
 
+Connection * FactoryGraph::getConnection(int id) {
+    auto it = std::find_if(connections.begin(), connections.end(),
+        [id](const Connection& conn) { return conn.id == id; });
+    return (it != connections.end()) ? &(*it) : nullptr;
+}
+
 const std::vector<Connection> &FactoryGraph::getConnections() const {
     return connections;
 }
