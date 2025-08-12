@@ -5,6 +5,10 @@
 #include "FactorySolver.h"
 
 void FactorySolver::solve(FactoryGraph &factory_graph) {
+    variables.clear();
+    constraints.clear();
+    solver->Clear(); // Clear any previous state in the solver
+
     createAllVariables(factory_graph);
     addObjectiveFunction(factory_graph);
     addAllConstraints(factory_graph);
@@ -34,10 +38,6 @@ void FactorySolver::solve(FactoryGraph &factory_graph) {
         double power_usage = factory_graph.getGameData().machines[node.machine_id].base_power_usage * machine_count;
         node.power_usage = power_usage;
     }
-
-    // clean up
-    variables.clear();
-    constraints.clear();
 }
 
 void FactorySolver::createAllVariables(const FactoryGraph &factory_graph) {
@@ -46,7 +46,7 @@ void FactorySolver::createAllVariables(const FactoryGraph &factory_graph) {
     for (const auto &port: ports) {
         std::string var_name = "Port_" + std::to_string(port.id);
         operations_research::MPVariable *var = solver->MakeNumVar(0.0, infinity, var_name);
-        variables.push_back(var);
+        variables[port.id] = var;
     }
 }
 

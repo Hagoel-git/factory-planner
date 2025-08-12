@@ -47,7 +47,7 @@ void FactoryNodeEditor::Draw() {
     ImGui::Begin("Factory Editor", nullptr, ImGuiWindowFlags_NoScrollbar);
     auto &io = ImGui::GetIO();
     ImGui::Text("FPS: %.2f (%.2gms)", io.Framerate, io.Framerate ? 1000.0f / io.Framerate : 0.0f);
-
+    ImGui::Text("Nodes: %d, Connections: %d, Ports: %d", graph.getNodes().size(), graph.getConnections().size(), graph.getPorts().size());
     ImGui::Separator();
 
     // Top toolbar
@@ -178,6 +178,7 @@ void FactoryNodeEditor::Draw() {
                 ed::Suspend();
                 ImGui::OpenPopup("Create new node");
                 ed::Resume();
+                m_storedPopupPosition = ImGui::GetMousePosOnOpeningCurrentPopup();
             }
         }
 
@@ -185,27 +186,42 @@ void FactoryNodeEditor::Draw() {
     ed::EndCreate();
 
     if (ed::BeginDelete()) {
+        // Collect all deletions first
+        std::vector<int> nodesToDelete;
+        std::vector<int> linksToDelete;
+
         ed::NodeId nodeId = 0;
         while (ed::QueryDeletedNode(&nodeId)) {
             if (ed::AcceptDeletedItem()) {
-                int id = FromNodeId(nodeId);
-                graph.removeNode(id);
+                nodesToDelete.push_back(FromNodeId(nodeId));
             }
         }
 
         ed::LinkId linkId = 0;
         while (ed::QueryDeletedLink(&linkId)) {
             if (ed::AcceptDeletedItem()) {
-                int id = FromLinkId(linkId);
-                int fromPort = graph.getConnection(id)->from_port;
-                int toPort = graph.getConnection(id)->to_port;
+                linksToDelete.push_back(FromLinkId(linkId));
+            }
+        }
+
+        // Process deletions: links first, then nodes
+        // This ensures we don't try to delete already-removed connections
+        for (int id : linksToDelete) {
+            auto connection = graph.getConnection(id);
+            if (connection != nullptr) {
+                int fromPort = connection->from_port;
+                int toPort = connection->to_port;
                 graph.removeConnection(fromPort, toPort);
             }
         }
+
+        for (int id : nodesToDelete) {
+            graph.removeNode(id);
+        }
+        std::cout << std::endl;
     }
     ed::EndDelete();
 
-    auto openPopupPosition = ImGui::GetMousePos();
 
     ed::Suspend();
     if (ed::ShowNodeContextMenu(&m_contextNodeId)) {
@@ -217,14 +233,18 @@ void FactoryNodeEditor::Draw() {
     if (ed::ShowLinkContextMenu(&m_contextLinkId)) {
         ImGui::OpenPopup("Link Context Menu");
     }
-    if (ed::ShowBackgroundContextMenu()) {
-        ImGui::OpenPopup("Create new node");
-        selected_port_id = -1;
-    }
     ed::Resume();
 
-    ed::Suspend();
+    if (ed::ShowBackgroundContextMenu()) {
+        ed::Suspend();
+        ImGui::OpenPopup("Create new node");
+        selected_port_id = -1;
+        ed::Resume();
+        m_storedPopupPosition = ImGui::GetMousePosOnOpeningCurrentPopup();
+    }
+        // auto newNodePos = ImGui::GetMousePosOnOpeningCurrentPopup();
 
+    ed::Suspend();
     if (ImGui::BeginPopup("Node Context Menu")) {
         auto node = graph.getNode(FromNodeId(m_contextNodeId));
         if (node) {
@@ -234,7 +254,7 @@ void FactoryNodeEditor::Draw() {
             ImGui::Text("Machine ID: %d", node->machine_id);
             ImGui::Text("Selected Recipe ID: %d", node->selected_recipe_id);
             ImGui::Text("Power usage: %.2f MW", node->power_usage);
-            ImGui::Text("Machine count: %d", node->machine_count);
+            ImGui::Text("Machine count: %.2f", node->machine_count);
             ImGui::Separator();
             if (ImGui::MenuItem("Delete Node")) {
                 graph.removeNode(node->id);
@@ -269,14 +289,13 @@ void FactoryNodeEditor::Draw() {
         if (selected_port_id != -1) {
             auto resourceFilter = graph.getGameData().resources.at(graph.getPort(selected_port_id)->resource_id);
             bool fromInput = graph.getPort(selected_port_id)->isInput;
-
             for (const auto& recipe : graph.getGameData().recipes) {
                 const auto& ports = fromInput ? recipe.output_ports : recipe.input_ports;
                 for (const auto& port : ports) {
                     if (port.resource_id == resourceFilter.id) {
                         if (ImGui::Selectable(recipe.name.c_str())) {
                             int new_node_id = graph.addNode(recipe.name, NodeType::PROCESSOR, recipe.id);
-                            ed::SetNodePosition(ToNodeId(new_node_id), ImVec2(openPopupPosition.x, openPopupPosition.y));
+                            ed::SetNodePosition(ToNodeId(new_node_id), m_storedPopupPosition);
                             // Find the corresponding port on the newly created node to connect to
                             const auto& ports_on_new_node = fromInput ? graph.getNode(new_node_id)->output_ports : graph.getNode(new_node_id)->input_ports;
                             for (int new_port_id : ports_on_new_node) {
@@ -297,7 +316,7 @@ void FactoryNodeEditor::Draw() {
             for (const auto& recipe : graph.getGameData().recipes) {
                 if (ImGui::Selectable(recipe.name.c_str())) {
                     int new_node_id = graph.addNode(recipe.name, NodeType::PROCESSOR, recipe.id);
-                    ed::SetNodePosition(ToNodeId(new_node_id), ImVec2(openPopupPosition.x, openPopupPosition.y));
+                    ed::SetNodePosition(ToNodeId(new_node_id), m_storedPopupPosition);
                     ImGui::CloseCurrentPopup();
                 }
             }

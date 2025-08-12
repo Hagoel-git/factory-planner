@@ -25,4 +25,6 @@ public:
     void Draw();
 private:
     int selected_port_id = 0;
+
+    ImVec2 m_storedPopupPosition;
 };

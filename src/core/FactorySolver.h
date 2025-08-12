@@ -39,7 +39,7 @@ private:
     operations_research::MPSolver *solver;
     double infinity = operations_research::MPSolver::infinity();
 
-    std::vector<operations_research::MPVariable *> variables; // position = port id
+    std::unordered_map<int, operations_research::MPVariable *> variables; // position = port id
     std::vector<operations_research::MPConstraint *> constraints; // position = constraint id
 
     void createAllVariables(const FactoryGraph &factory_graph);
