@@ -13,6 +13,7 @@ public:
     FactoryGraph& graph;
     ed::EditorContext* context = nullptr;
     ed::NodeId m_contextNodeId;
+    ed::PinId m_contextPinId;
     ed::LinkId m_contextLinkId;
 
     explicit FactoryNodeEditor(FactoryGraph& g);
@@ -20,4 +21,6 @@ public:
     ~FactoryNodeEditor();
 
     void Draw();
+private:
+    int selected_port_id = 0;
 };
