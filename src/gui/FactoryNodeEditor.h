@@ -1,6 +1,7 @@
 #pragma once
 #include "imgui.h"
 #include "imgui_node_editor.h"
+#include "../core/FactorySolver.h"
 namespace ed = ax::NodeEditor;
 
 #include "../core/FactoryGraph.h"
@@ -11,12 +12,13 @@ namespace ed = ax::NodeEditor;
 class FactoryNodeEditor {
 public:
     FactoryGraph& graph;
+    FactorySolver& solver;
     ed::EditorContext* context = nullptr;
     ed::NodeId m_contextNodeId;
     ed::PinId m_contextPinId;
     ed::LinkId m_contextLinkId;
 
-    explicit FactoryNodeEditor(FactoryGraph& g);
+    FactoryNodeEditor(FactoryGraph& g, FactorySolver& s);
 
     ~FactoryNodeEditor();
 

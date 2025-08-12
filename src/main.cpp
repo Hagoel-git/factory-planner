@@ -53,7 +53,8 @@ int main(int, char**)
 
     // Create our editor instance
     FactoryGraph graph = FactoryGraph("../../data/satisfactory.json");
-    FactoryNodeEditor editor(graph);
+    FactorySolver solver;
+    FactoryNodeEditor editor(graph, solver);
 
     int quartz_miner = graph.addNode("Quartz Ore", NodeType::PRODUCER,  graph.getGameData().getIdByRecipeName("Raw Quartz"));
     int caterium_miner = graph.addNode("Caterium Ore", NodeType::PRODUCER,  graph.getGameData().getIdByRecipeName("Caterium Ore"));
