@@ -196,36 +196,37 @@ void FactoryNodeEditor::Draw() {
     ed::Suspend();
     if (ImGui::BeginPopup("Create new node")) {
         auto newNodePos = ImGui::GetMousePos();
-        auto resourceFilter = graph.getGameData().resources.at(graph.getPort(selected_port_id)->resource_id);
-        bool fromInput = graph.getPort(selected_port_id)->isInput;
-        for (const auto& recipe : graph.getGameData().recipes) {
-            if (fromInput) {
-                for (const auto &output : recipe.output_ports) {
-                    if (output.resource_id != resourceFilter.id) continue; // Filter by resource
-                    if (ImGui::Selectable(recipe.name.c_str())) {
-                        int new_node_id = graph.addNode(recipe.name, NodeType::PROCESSOR, recipe.id);
-                        for (int port_id : graph.getNode(new_node_id)->output_ports) {
-                            if (graph.getPort(port_id)->resource_id == output.resource_id) {
-                                graph.addConnection(port_id, selected_port_id); // Connect to the selected input port
-                                break; // Connect only to the first matching output port
+        if (selected_port_id != -1) {
+            auto resourceFilter = graph.getGameData().resources.at(graph.getPort(selected_port_id)->resource_id);
+            bool fromInput = graph.getPort(selected_port_id)->isInput;
+
+            for (const auto& recipe : graph.getGameData().recipes) {
+                const auto& ports = fromInput ? recipe.output_ports : recipe.input_ports;
+                for (const auto& port : ports) {
+                    if (port.resource_id == resourceFilter.id) {
+                        if (ImGui::Selectable(recipe.name.c_str())) {
+                            int new_node_id = graph.addNode(recipe.name, NodeType::PROCESSOR, recipe.id);
+                            // Find the corresponding port on the newly created node to connect to
+                            const auto& ports_on_new_node = fromInput ? graph.getNode(new_node_id)->output_ports : graph.getNode(new_node_id)->input_ports;
+                            for (int new_port_id : ports_on_new_node) {
+                                if (graph.getPort(new_port_id)->resource_id == resourceFilter.id) {
+                                    // Determine connection direction dynamically
+                                    int source_id = fromInput ? new_port_id : selected_port_id;
+                                    int target_id = fromInput ? selected_port_id : new_port_id;
+                                    graph.addConnection(source_id, target_id);
+                                    break; // Connect to the first available port and stop searching
+                                }
                             }
+                            ImGui::CloseCurrentPopup();
                         }
-                        ImGui::CloseCurrentPopup();
                     }
                 }
-            } else {
-                for (const auto &input : recipe.input_ports) {
-                    if (input.resource_id != resourceFilter.id) continue; // Filter by resource
-                    if (ImGui::Selectable(recipe.name.c_str())) {
-                        int new_node_id = graph.addNode(recipe.name, NodeType::PROCESSOR, recipe.id);
-                        for (int port_id : graph.getNode(new_node_id)->input_ports) {
-                            if (graph.getPort(port_id)->resource_id == input.resource_id) {
-                                graph.addConnection(selected_port_id, port_id); // Connect to the selected output port
-                                break; // Connect only to the first matching input port
-                            }
-                        }
-                        ImGui::CloseCurrentPopup();
-                    }
+            }
+        } else {
+            for (const auto& recipe : graph.getGameData().recipes) {
+                if (ImGui::Selectable(recipe.name.c_str())) {
+                    graph.addNode(recipe.name, NodeType::PROCESSOR, recipe.id);
+                    ImGui::CloseCurrentPopup();
                 }
             }
         }
