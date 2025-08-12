@@ -23,6 +23,7 @@ public:
     bool connectionExists(int from_port, int to_port);
     bool addConnection(int from_port, int to_port);
     bool removeConnection(int from_port, int to_port);
+    Connection* getConnection(int id);
     [[nodiscard]] const std::vector<Connection>& getConnections() const;
 
     int addPort(int resource_id, bool isInput);

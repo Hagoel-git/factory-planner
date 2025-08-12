@@ -184,6 +184,27 @@ void FactoryNodeEditor::Draw() {
     }
     ed::EndCreate();
 
+    if (ed::BeginDelete()) {
+        ed::NodeId nodeId = 0;
+        while (ed::QueryDeletedNode(&nodeId)) {
+            if (ed::AcceptDeletedItem()) {
+                int id = FromNodeId(nodeId);
+                graph.removeNode(id);
+            }
+        }
+
+        ed::LinkId linkId = 0;
+        while (ed::QueryDeletedLink(&linkId)) {
+            if (ed::AcceptDeletedItem()) {
+                int id = FromLinkId(linkId);
+                int fromPort = graph.getConnection(id)->from_port;
+                int toPort = graph.getConnection(id)->to_port;
+                graph.removeConnection(fromPort, toPort);
+            }
+        }
+    }
+    ed::EndDelete();
+
     auto openPopupPosition = ImGui::GetMousePos();
 
     ed::Suspend();
