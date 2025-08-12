@@ -21,8 +21,8 @@ static inline int FromPinId(ed::PinId id) { return (int) (id.Get() - PIN_ID_OFFS
 static inline int FromNodeId(ed::NodeId id) { return (int) (id.Get() - NODE_ID_OFFSET); }
 static inline int FromLinkId(ed::LinkId id) { return (int) (id.Get() - LINK_ID_OFFSET); }
 
-FactoryNodeEditor::FactoryNodeEditor(FactoryGraph &g)
-    : graph(g) {
+FactoryNodeEditor::FactoryNodeEditor(FactoryGraph &g, FactorySolver &s)
+    : graph(g), solver(s) {
     context = ed::CreateEditor();
     ed::SetCurrentEditor(context);
 
@@ -64,6 +64,10 @@ void FactoryNodeEditor::Draw() {
     if (ImGui::Button("Clear")) {
         graph.clear();
     }
+    ImGui::SameLine();
+    if (ImGui::Button("Solve")) {
+        solver.solve(graph);
+    }
 
     auto showLabel = [](const char* label, ImColor color)
     {
@@ -91,7 +95,7 @@ void FactoryNodeEditor::Draw() {
     if (first_frame) {
         for (const auto &node : graph.getNodes()) {
             ed::NodeId nodeId = ToNodeId(node.id);
-            ed::SetNodePosition(nodeId, ImVec2(node.id * 50 % 100000, node.id * 50 % 100000)); // Simple layout
+           // ed::SetNodePosition(nodeId, ImVec2(node.id * 50 % 100000, node.id * 50 % 100000)); // Simple layout
         }
     }
     for (const auto &node: graph.getNodes()) {
@@ -109,15 +113,19 @@ void FactoryNodeEditor::Draw() {
                 ed::BeginPin(pinId, ed::PinKind::Input);
                 ImGui::Text("<in> %s", graph.getGameData().resources.at(p->resource_id).name.c_str()); // Display resource name
                 ed::EndPin();
+            } else {
+                ImGui::Text(" "); // Empty space for alignment
             }
+            ImGui::SameLine();
             if (i < node.output_ports.size()) {
-                ImGui::SameLine();
                 Port *p = graph.getPort(node.output_ports[i]);
                 if (!p) continue; // Skip invalid ports
                 ed::PinId pinId = ToPinId(p->id);
                 ed::BeginPin(pinId, ed::PinKind::Output);
                 ImGui::Text("%s <out>", graph.getGameData().resources.at(p->resource_id).name.c_str()); // Display resource name
                 ed::EndPin();
+            } else {
+                ImGui::Text(" "); // Empty space for alignment
             }
         }
         ImGui::EndGroup(); // End inputs/outputs group
@@ -196,8 +204,48 @@ void FactoryNodeEditor::Draw() {
     ed::Resume();
 
     ed::Suspend();
+
+    if (ImGui::BeginPopup("Node Context Menu")) {
+        auto node = graph.getNode(FromNodeId(m_contextNodeId));
+        if (node) {
+            ImGui::Text("Node ID: %d", node->id);
+            ImGui::Text("Name: %s", node->name.c_str());
+            ImGui::Text("Type: %s", toString(node->type));
+            ImGui::Text("Machine ID: %d", node->machine_id);
+            ImGui::Text("Selected Recipe ID: %d", node->selected_recipe_id);
+            ImGui::Text("Power usage: %.2f MW", node->power_usage);
+            ImGui::Text("Machine count: %d", node->machine_count);
+            ImGui::Separator();
+            if (ImGui::MenuItem("Delete Node")) {
+                // todo
+            }
+        } else {
+            ImGui::Text("Unknown node");
+        }
+        ImGui::EndPopup();
+    }
+
+    if (ImGui::BeginPopup("Pin Context Menu")) {
+        auto port = graph.getPort(FromPinId(m_contextPinId));
+        if (port) {
+            ImGui::Text("Port ID: %d", port->id);
+            ImGui::Text("Resource ID: %d", port->resource_id);
+            ImGui::Text("Is Input: %s", port->isInput ? "Yes" : "No");
+            ImGui::Text("Current rate: %.2f", port->rate);
+            ImGui::Text("Demand: %.2f", port->user_constraint);
+            ImGui::Separator();
+            static double new_constraint = -1.0;
+            ImGui::InputDouble("Rate", &new_constraint, 0.1f, 1.0f, "%.2f");
+            if (ImGui::MenuItem("Set Constraint")) {
+                graph.setPortDemand(port->id, new_constraint);
+            }
+        } else {
+            ImGui::Text("Unknown port");
+        }
+        ImGui::EndPopup();
+    }
+
     if (ImGui::BeginPopup("Create new node")) {
-        auto newNodePos = ImGui::GetMousePos();
         if (selected_port_id != -1) {
             auto resourceFilter = graph.getGameData().resources.at(graph.getPort(selected_port_id)->resource_id);
             bool fromInput = graph.getPort(selected_port_id)->isInput;
@@ -208,6 +256,7 @@ void FactoryNodeEditor::Draw() {
                     if (port.resource_id == resourceFilter.id) {
                         if (ImGui::Selectable(recipe.name.c_str())) {
                             int new_node_id = graph.addNode(recipe.name, NodeType::PROCESSOR, recipe.id);
+                            ed::SetNodePosition(ToNodeId(new_node_id), ImVec2(openPopupPosition.x, openPopupPosition.y));
                             // Find the corresponding port on the newly created node to connect to
                             const auto& ports_on_new_node = fromInput ? graph.getNode(new_node_id)->output_ports : graph.getNode(new_node_id)->input_ports;
                             for (int new_port_id : ports_on_new_node) {
