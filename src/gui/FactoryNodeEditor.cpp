@@ -100,23 +100,25 @@ void FactoryNodeEditor::Draw() {
         ImGui::Text("%s", node.name.c_str());
         ImGui::BeginGroup(); // Group inputs/outputs
         // Draw input pins
-        for (int pid: node.input_ports) {
-            Port *p = graph.getPort(pid);
-            if (!p) continue; // Skip invalid ports
-            ed::PinId pinId = ToPinId(p->id);
-            ed::BeginPin(pinId, ed::PinKind::Input);
-            ImGui::Text("<in> %s", graph.getGameData().resources.at(p->resource_id).name.c_str()); // Display resource name
-            ed::EndPin();
-        }
-        ImGui::SameLine();
-        // Draw output pins
-        for (int pid: node.output_ports) {
-            Port *p = graph.getPort(pid);
-            if (!p) continue; // Skip invalid ports
-            ed::PinId pinId = ToPinId(p->id);
-            ed::BeginPin(pinId, ed::PinKind::Output);
-            ImGui::Text("<out> %s", graph.getGameData().resources.at(p->resource_id).name.c_str()); // Display resource name
-            ed::EndPin();
+        int max_port_count = node.input_ports.size() > node.output_ports.size() ? node.input_ports.size() : node.output_ports.size();
+        for (int i = 0; i < max_port_count; ++i) {
+            if (i < node.input_ports.size()) {
+                Port *p = graph.getPort(node.input_ports[i]);
+                if (!p) continue; // Skip invalid ports
+                ed::PinId pinId = ToPinId(p->id);
+                ed::BeginPin(pinId, ed::PinKind::Input);
+                ImGui::Text("<in> %s", graph.getGameData().resources.at(p->resource_id).name.c_str()); // Display resource name
+                ed::EndPin();
+            }
+            if (i < node.output_ports.size()) {
+                ImGui::SameLine();
+                Port *p = graph.getPort(node.output_ports[i]);
+                if (!p) continue; // Skip invalid ports
+                ed::PinId pinId = ToPinId(p->id);
+                ed::BeginPin(pinId, ed::PinKind::Output);
+                ImGui::Text("%s <out>", graph.getGameData().resources.at(p->resource_id).name.c_str()); // Display resource name
+                ed::EndPin();
+            }
         }
         ImGui::EndGroup(); // End inputs/outputs group
         ed::EndNode();
