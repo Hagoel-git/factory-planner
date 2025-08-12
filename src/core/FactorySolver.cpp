@@ -38,8 +38,6 @@ void FactorySolver::solve(FactoryGraph &factory_graph) {
     // clean up
     variables.clear();
     constraints.clear();
-    delete solver;
-    solver = nullptr;
 }
 
 void FactorySolver::createAllVariables(const FactoryGraph &factory_graph) {
