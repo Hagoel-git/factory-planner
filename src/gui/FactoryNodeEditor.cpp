@@ -23,7 +23,11 @@ static inline int FromLinkId(ed::LinkId id) { return (int) (id.Get() - LINK_ID_O
 
 FactoryNodeEditor::FactoryNodeEditor(FactoryGraph &g, FactorySolver &s)
     : graph(g), solver(s) {
-    context = ed::CreateEditor();
+    ed::Config config;
+    config.SettingsFile = "FactoryEditor.json"; // Save/load settings
+    config.EnableSmoothZoom = true;
+    config.SmoothZoomPower = 1.2f;
+    context = ed::CreateEditor(&config);
     ed::SetCurrentEditor(context);
 
 
@@ -295,7 +299,7 @@ void FactoryNodeEditor::Draw() {
                     if (port.resource_id == resourceFilter.id) {
                         if (ImGui::Selectable(recipe.name.c_str())) {
                             int new_node_id = graph.addNode(recipe.name, NodeType::PROCESSOR, recipe.id);
-                            ed::SetNodePosition(ToNodeId(new_node_id), m_storedPopupPosition);
+                            ed::SetNodePosition(ToNodeId(new_node_id), ed::ScreenToCanvas(m_storedPopupPosition));
                             // Find the corresponding port on the newly created node to connect to
                             const auto& ports_on_new_node = fromInput ? graph.getNode(new_node_id)->output_ports : graph.getNode(new_node_id)->input_ports;
                             for (int new_port_id : ports_on_new_node) {
@@ -316,7 +320,7 @@ void FactoryNodeEditor::Draw() {
             for (const auto& recipe : graph.getGameData().recipes) {
                 if (ImGui::Selectable(recipe.name.c_str())) {
                     int new_node_id = graph.addNode(recipe.name, NodeType::PROCESSOR, recipe.id);
-                    ed::SetNodePosition(ToNodeId(new_node_id), m_storedPopupPosition);
+                    ed::SetNodePosition(ToNodeId(new_node_id), ed::ScreenToCanvas(m_storedPopupPosition));
                     ImGui::CloseCurrentPopup();
                 }
             }
@@ -326,7 +330,7 @@ void FactoryNodeEditor::Draw() {
     ed::Resume();
 
     if (first_frame) {
-        ed::NavigateToContent(0.0f); // Fit view to content on first frame
+        //ed::NavigateToContent(0.0f); // Fit view to content on first frame
         first_frame = false; // Reset after first frame
     }
 
