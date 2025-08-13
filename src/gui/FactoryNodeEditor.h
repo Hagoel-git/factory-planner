@@ -27,4 +27,5 @@ private:
     int selected_port_id = 0;
 
     ImVec2 m_storedPopupPosition;
+    std::vector<int> copyBuffer; // Buffer for copied nodes
 };
