@@ -4,39 +4,48 @@
 
 #include "FactorySolver.h"
 
-void FactorySolver::solve(FactoryGraph &factory_graph) {
+FactorySolver::FactorySolver(const std::string &solver_name) {
+    operations_research::MPSolver::OptimizationProblemType problem_type;
+    if (!operations_research::MPSolver::ParseSolverType(solver_name, &problem_type)) {
+        throw std::invalid_argument("Unknown solver type: " + solver_name);
+    }
+
+    if (!operations_research::MPSolver::SupportsProblemType(problem_type)) {
+        throw std::runtime_error("Problem type not supported for solver: " + solver_name);
+    }
+
+    solver_ = std::make_unique<operations_research::MPSolver>("FactorySolver", problem_type);
+}
+
+
+FactorySolver::SolverResult FactorySolver::solve(FactoryGraph &factory_graph) {
     variables.clear();
     constraints.clear();
-    solver->Clear(); // Clear any previous state in the solver
+    solver_->Clear(); // Clear any previous state in the solver
 
-    createAllVariables(factory_graph);
-    addObjectiveFunction(factory_graph);
-    addAllConstraints(factory_graph);
+    try {
+        createAllVariables(factory_graph);
+        addObjectiveFunction(factory_graph);
+        addAllConstraints(factory_graph);
 
-    const operations_research::MPSolver::ResultStatus result_status = solver->Solve();
+        const auto result_status = solver_->Solve();
+        last_solve_time = solver_->wall_time();
 
-    if (result_status != operations_research::MPSolver::OPTIMAL) {
-        std::cerr << "The problem does not have an optimal solution." << std::endl;
-        return;
-    }
-    std::cout << solver->wall_time() << std::endl;
+        const SolverResult result = convertSolverStatus(result_status);
+        last_solver_status = std::to_string(result_status);
+        std::cout << last_solve_time << std::endl;
+        std::cout << last_solver_status << std::endl;
 
-    // Output the results to factory_graph
-    const auto &ports = factory_graph.getPorts();
-    for (const auto &port : ports) {
-        double value = variables[port.id]->solution_value();
-        factory_graph.getPort(port.id)->rate = value; // Update the port rate in the factory graph
-    }
+        if (result == SolverResult::SUCCESS) {
+            updateFactoryGraph(factory_graph);
+        } else {
+            std::cerr << "Solver failed with status: " << last_solver_status << std::endl;
+        }
 
-    // calculate machine counts and power usage for each node
-    const auto &nodes = factory_graph.getNodes();
-    for (const auto &node : nodes) {
-        const Recipe &recipe = factory_graph.getGameData().recipes.at(node.selected_recipe_id);
-        double machine_count = factory_graph.getPort(node.output_ports.at(0))->rate / (recipe.output_ports.at(0).amount / recipe.time * pow(60, factory_graph.getGameData().time_unit));
-        node.machine_count = machine_count;
-
-        double power_usage = factory_graph.getGameData().machines[node.machine_id].base_power_usage * machine_count;
-        node.power_usage = power_usage;
+        return result;
+    } catch (const std::exception &e) {
+        std::cerr << e.what() << std::endl;
+        return SolverResult::ERROR;
     }
 }
 
@@ -45,7 +54,7 @@ void FactorySolver::createAllVariables(const FactoryGraph &factory_graph) {
     const auto ports = factory_graph.getPorts();
     for (const auto &port: ports) {
         std::string var_name = "Port_" + std::to_string(port.id);
-        operations_research::MPVariable *var = solver->MakeNumVar(0.0, infinity, var_name);
+        operations_research::MPVariable *var = solver_->MakeNumVar(0.0, infinity, var_name);
         variables[port.id] = var;
     }
 }
@@ -58,7 +67,7 @@ void FactorySolver::addObjectiveFunction(const FactoryGraph &factory_graph) {
     }
 
     const auto &ports = factory_graph.getPorts();
-    operations_research::MPObjective *objective = solver->MutableObjective();
+    operations_research::MPObjective *objective = solver_->MutableObjective();
 
     for (const auto &port : ports) {
         // Skip ports that have any incoming connection
@@ -83,7 +92,7 @@ void FactorySolver::addAllConstraints(const FactoryGraph &factory_graph) {
     const auto ports = factory_graph.getPorts();
     for (const auto &port: ports) {
         if (port.user_constraint >= 0) {
-            operations_research::MPConstraint *constraint = solver->MakeRowConstraint(-infinity, port.user_constraint);
+            operations_research::MPConstraint *constraint = solver_->MakeRowConstraint(-infinity, port.user_constraint);
             constraint->SetCoefficient(variables[port.id], 1.0);
             constraints.push_back(constraint);
         }
@@ -96,13 +105,13 @@ void FactorySolver::addAllConstraints(const FactoryGraph &factory_graph) {
 
 void FactorySolver::addRecipeConstraints(const Node &node, const Recipe &recipe) {
     for (int i = 0; i < recipe.getInputPortCount(); ++i) {
-        operations_research::MPConstraint *constraint = solver->MakeRowConstraint(0.0, 0.0);
+        operations_research::MPConstraint *constraint = solver_->MakeRowConstraint(0.0, 0.0);
         constraint->SetCoefficient(variables[node.input_ports[i]], recipe.output_ports[0].amount);
         constraint->SetCoefficient(variables[node.output_ports[0]], -recipe.input_ports[i].amount);
         constraints.push_back(constraint);
     }
     for (int i = 1; i < recipe.getOutputPortCount(); ++i) {
-        operations_research::MPConstraint *constraint = solver->MakeRowConstraint(0.0, 0.0);
+        operations_research::MPConstraint *constraint = solver_->MakeRowConstraint(0.0, 0.0);
         constraint->SetCoefficient(variables[node.output_ports[0]], recipe.output_ports[i].amount);
         constraint->SetCoefficient(variables[node.output_ports[i]], -recipe.output_ports[0].amount);
         constraints.push_back(constraint);
@@ -123,7 +132,7 @@ void FactorySolver::addConnectionConstraints(const FactoryGraph &factory_graph) 
     // Split constraints (1 → N)
     for (const auto &[port_id, targets] : from_map) {
         if (targets.size() > 1 && !already_constrained.count(port_id)) {
-            auto constraint = solver->MakeRowConstraint(0.0, 0.0);
+            auto constraint = solver_->MakeRowConstraint(0.0, 0.0);
             constraint->SetCoefficient(variables[port_id], 1.0);
             for (int to_port_id : targets) {
                 constraint->SetCoefficient(variables[to_port_id], -1.0);
@@ -136,7 +145,7 @@ void FactorySolver::addConnectionConstraints(const FactoryGraph &factory_graph) 
     // Merge constraints (N → 1)
     for (const auto &[port_id, sources] : to_map) {
         if (sources.size() > 1 && !already_constrained.count(port_id)) {
-            auto constraint = solver->MakeRowConstraint(0.0, 0.0);
+            auto constraint = solver_->MakeRowConstraint(0.0, 0.0);
             for (int from_port_id : sources) {
                 constraint->SetCoefficient(variables[from_port_id], 1.0);
             }
@@ -151,11 +160,45 @@ void FactorySolver::addConnectionConstraints(const FactoryGraph &factory_graph) 
         int from = conn.from_port;
         int to = conn.to_port;
         if (!already_constrained.count(from) && !already_constrained.count(to)) {
-            auto constraint = solver->MakeRowConstraint(0.0, 0.0);
+            auto constraint = solver_->MakeRowConstraint(0.0, 0.0);
             constraint->SetCoefficient(variables[from], 1.0);
             constraint->SetCoefficient(variables[to], -1.0);
             constraints.push_back(constraint);
         }
+    }
+}
+
+void FactorySolver::updateFactoryGraph(FactoryGraph &factory_graph) const {
+    // Output the results to factory_graph
+    const auto &ports = factory_graph.getPorts();
+    for (const auto &port : ports) {
+        double value = variables.at(port.id)->solution_value();
+        factory_graph.getPort(port.id)->rate = value; // Update the port rate in the factory graph
+    }
+
+    // calculate machine counts and power usage for each node
+    const auto &nodes = factory_graph.getNodes();
+    for (const auto &node : nodes) {
+        const Recipe &recipe = factory_graph.getGameData().recipes.at(node.selected_recipe_id);
+        double machine_count = factory_graph.getPort(node.output_ports.at(0))->rate / (recipe.output_ports.at(0).amount / recipe.time * pow(60, factory_graph.getGameData().time_unit));
+        node.machine_count = machine_count;
+
+        double power_usage = factory_graph.getGameData().machines[node.machine_id].base_power_usage * machine_count;
+        node.power_usage = power_usage;
+    }
+}
+
+FactorySolver::SolverResult FactorySolver::convertSolverStatus(
+    operations_research::MPSolver::ResultStatus status) const {
+    switch (status) {
+        case operations_research::MPSolver::OPTIMAL:
+            return SolverResult::SUCCESS;
+        case operations_research::MPSolver::INFEASIBLE:
+            return SolverResult::INFEASIBLE;
+        case operations_research::MPSolver::UNBOUNDED:
+            return SolverResult::UNBOUNDED;
+        default:
+            return SolverResult::ERROR;
     }
 }
 
