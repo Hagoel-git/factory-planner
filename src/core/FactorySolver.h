@@ -19,25 +19,34 @@
 
 class FactorySolver {
 public:
-    void solve(FactoryGraph &factory_graph);
+    enum class SolverResult {
+        SUCCESS,
+        INFEASIBLE,
+        UNBOUNDED,
+        ERROR
+    };
 
-    FactorySolver() {
-        std::string solver_name = "GLOP";
-        operations_research::MPSolver::OptimizationProblemType problem_type;
-        if (!operations_research::MPSolver::ParseSolverType(solver_name, &problem_type)) {
-            std::cerr << "Unknown solver type: " << solver_name << std::endl;
-            return;
-        }
-        if (!operations_research::MPSolver::SupportsProblemType(problem_type)) {
-            std::cerr << "Problem type not supported" << std::endl;
-            return;
-        }
-        solver = new operations_research::MPSolver("FactorySolver", problem_type);
-    }
+    FactorySolver(const std::string& solver_name = "GLOP");
+    ~FactorySolver() = default;
 
+    // Delete copy constructor and assignment operator to prevent issues with solver ownership
+    FactorySolver(FactorySolver&) = delete;
+    FactorySolver& operator=(const FactorySolver&) = delete;
+
+    // Move constructor and assignment are okay
+    FactorySolver(FactorySolver&&) = default;
+    FactorySolver& operator=(FactorySolver&&) = default;
+
+    SolverResult solve(FactoryGraph &factory_graph);
+
+    double getLastSolveTime() const { return last_solve_time; }
+    std::string getLastSolverStatus() const { return last_solver_status; }
 private:
-    operations_research::MPSolver *solver;
-    double infinity = operations_research::MPSolver::infinity();
+    std::unique_ptr<operations_research::MPSolver> solver_;
+    const double infinity = operations_research::MPSolver::infinity();
+
+    double last_solve_time = 0.0;
+    std::string last_solver_status = "NOT_SOLVED";
 
     std::unordered_map<int, operations_research::MPVariable *> variables; // position = port id
     std::vector<operations_research::MPConstraint *> constraints; // position = constraint id
@@ -49,6 +58,9 @@ private:
     void addAllConstraints(const FactoryGraph &factory_graph);
     void addRecipeConstraints(const Node &node, const Recipe &recipe);
     void addConnectionConstraints(const FactoryGraph &factory_graph);
+
+    void updateFactoryGraph(FactoryGraph &factory_graph) const;
+    SolverResult convertSolverStatus(operations_research::MPSolver::ResultStatus status) const;
 };
 
 
