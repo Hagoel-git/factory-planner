@@ -278,7 +278,10 @@ void FactoryNodeEditor::HandleKeyboardShortcuts() {
             else if (ImGui::IsKeyPressed(ImGuiKey_V)) {
                 bool mapExternalConnections = ImGui::GetIO().KeyShift; // Shift key to map external connections
                 ed::ClearSelection();
-                if (copyBuffer.empty()) return;
+                if (copyBuffer.empty()) {
+                    ed::Resume();
+                    return; // Nothing to paste
+                }
                 // Calculate offset from original positions to mouse position
                 ImVec2 mousePos = ed::ScreenToCanvas(ImGui::GetMousePos());
                 ImVec2 originalCenter = ImVec2(0, 0);
