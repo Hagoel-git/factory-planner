@@ -6,6 +6,7 @@
 #define CONNECTION_H
 
 struct Connection {
+    double rate = 0.0;
     int id;
     int from_port; // Port number on the originating node
     int to_port; // Port number on the destination node
