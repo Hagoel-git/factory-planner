@@ -156,7 +156,6 @@ void FactoryGraph::clear() {
     next_connection_id = 0;
 }
 
-// Keep the rest of the methods unchanged
 bool FactoryGraph::setNodeRecipe(int node_id, int recipe_id) {
     Node *node = getNode(node_id);
     if (!node) {

@@ -29,9 +29,6 @@ FactoryNodeEditor::FactoryNodeEditor(FactoryGraph &g, FactorySolver &s)
     config.SmoothZoomPower = 1.2f;
     context = ed::CreateEditor(&config);
     ed::SetCurrentEditor(context);
-
-
-    ed::SetCurrentEditor(nullptr);
 }
 
 FactoryNodeEditor::~FactoryNodeEditor() {
@@ -48,17 +45,45 @@ void FactoryNodeEditor::Draw() {
 
     ed::SetCurrentEditor(context);
 
-    ImGui::Begin("Factory Editor", nullptr, ImGuiWindowFlags_NoScrollbar);
+    if (!ImGui::Begin("Factory Editor", nullptr, ImGuiWindowFlags_NoScrollbar)) {
+        ImGui::End();
+        ed::SetCurrentEditor(nullptr);
+        return;
+    }
+
+    DrawHeader();
+    DrawToolbar();
+
+    // Begin the node editor canvas
+    ed::Begin("FactoryEditor");
+
+    HandleFirstFrame();
+    DrawNodes();
+    DrawConnections();
+    HandleUserInteractions();
+    HandleKeyboardShortcuts();
+    HandleContextMenus();
+    HandlePopups();
+
+    ed::End(); // End node editor
+    ImGui::End(); // End main window
+
+    ed::SetCurrentEditor(nullptr);
+}
+
+void FactoryNodeEditor::DrawHeader() {
     auto &io = ImGui::GetIO();
     ImGui::Text("FPS: %.2f (%.2gms)", io.Framerate, io.Framerate ? 1000.0f / io.Framerate : 0.0f);
     ImGui::Text("Nodes: %d, Connections: %d, Ports: %d", graph.getNodes().size(), graph.getConnections().size(), graph.getPorts().size());
-    ImGui::Text("Nodes: %d (gui)", ed::GetNodeCount());
+    ImGui::Text("Copy Buffer Size: %d", copyBuffer.size());
     ImGui::Separator();
+}
 
-    // Top toolbar
-    if (ImGui::Button("Add Node")) {
-        // Simple convenience: add a default node (you may want a picker popup)
-        graph.addNode("New", NodeType::PROCESSOR, 55);
+void FactoryNodeEditor::DrawToolbar() {
+    if (ImGui::Button("Show Flow")) {
+        for (const auto& connection : graph.getConnections()) {
+            ed::Flow(ToLinkId(connection.id)); // Show flow for all connections
+        }
     }
 
     ImGui::SameLine();
@@ -73,42 +98,26 @@ void FactoryNodeEditor::Draw() {
     if (ImGui::Button("Solve")) {
         solver.solve(graph);
     }
+}
 
-    auto showLabel = [](const char* label, ImColor color)
-    {
-        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - ImGui::GetTextLineHeight());
-        auto size = ImGui::CalcTextSize(label);
-
-        auto padding = ImGui::GetStyle().FramePadding;
-        auto spacing = ImGui::GetStyle().ItemSpacing;
-
-        ImGui::SetCursorPos(ImGui::GetCursorPos() + ImVec2(spacing.x, -spacing.y));
-
-        auto rectMin = ImGui::GetCursorScreenPos() - padding;
-        auto rectMax = ImGui::GetCursorScreenPos() + size + padding;
-
-        auto drawList = ImGui::GetWindowDrawList();
-        drawList->AddRectFilled(rectMin, rectMax, color, size.y * 0.15f);
-        ImGui::TextUnformatted(label);
-    };
-
-    // Begin the node editor canvas
-    ed::Begin("FactoryEditor");
-
-    auto cursorTopLeft = ImGui::GetCursorScreenPos();
-    // --- Draw nodes ---
+void FactoryNodeEditor::HandleFirstFrame() {
     if (first_frame) {
+        // Set initial positions for nodes based on their IDs
         for (const auto &node : graph.getNodes()) {
             ed::NodeId nodeId = ToNodeId(node.id);
-           // ed::SetNodePosition(nodeId, ImVec2(node.id * 50 % 100000, node.id * 50 % 100000)); // Simple layout
+            ImVec2 initialPos = ImVec2((node.id % 5) * 200.0f, (node.id / 5) * 100.0f); // Simple grid layout
+            ed::SetNodePosition(nodeId, initialPos);
         }
+        first_frame = false; // Reset after first frame
     }
+}
+
+void FactoryNodeEditor::DrawNodes() {
     for (const auto &node: graph.getNodes()) {
         ed::NodeId nodeId = ToNodeId(node.id);
         ed::BeginNode(nodeId);
         ImGui::Text("%s", node.name.c_str());
         ImGui::BeginGroup(); // Group inputs/outputs
-        // Draw input pins
         int max_port_count = node.input_ports.size() > node.output_ports.size() ? node.input_ports.size() : node.output_ports.size();
         for (int i = 0; i < max_port_count; ++i) {
             if (i < node.input_ports.size()) {
@@ -136,11 +145,32 @@ void FactoryNodeEditor::Draw() {
         ImGui::EndGroup(); // End inputs/outputs group
         ed::EndNode();
     }
+}
 
-    // --- Draw connections ---
+void FactoryNodeEditor::DrawConnections() {
     for (const auto &c: graph.getConnections()) {
         ed::Link(ToLinkId(c.id), ToPinId(c.from_port), ToPinId(c.to_port));
     }
+}
+
+void FactoryNodeEditor::HandleUserInteractions() {
+    auto showLabel = [](const char* label, ImColor color)
+    {
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - ImGui::GetTextLineHeight());
+        auto size = ImGui::CalcTextSize(label);
+
+        auto padding = ImGui::GetStyle().FramePadding;
+        auto spacing = ImGui::GetStyle().ItemSpacing;
+
+        ImGui::SetCursorPos(ImGui::GetCursorPos() + ImVec2(spacing.x, -spacing.y));
+
+        auto rectMin = ImGui::GetCursorScreenPos() - padding;
+        auto rectMax = ImGui::GetCursorScreenPos() + size + padding;
+
+        auto drawList = ImGui::GetWindowDrawList();
+        drawList->AddRectFilled(rectMin, rectMax, color, size.y * 0.15f);
+        ImGui::TextUnformatted(label);
+    };
     // --- Handle new links being created interactively ---
     if (ed::BeginCreate()) {
         ed::PinId start, end;
@@ -226,7 +256,9 @@ void FactoryNodeEditor::Draw() {
         std::cout << std::endl;
     }
     ed::EndDelete();
+}
 
+void FactoryNodeEditor::HandleKeyboardShortcuts() {
     ed::Suspend();
     if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootWindow)) {
         if (ImGui::GetIO().KeyCtrl) {
@@ -246,7 +278,7 @@ void FactoryNodeEditor::Draw() {
             else if (ImGui::IsKeyPressed(ImGuiKey_V)) {
                 bool mapExternalConnections = ImGui::GetIO().KeyShift; // Shift key to map external connections
                 ed::ClearSelection();
-                // if (copyBuffer.empty()) return;
+                if (copyBuffer.empty()) return;
                 // Calculate offset from original positions to mouse position
                 ImVec2 mousePos = ed::ScreenToCanvas(ImGui::GetMousePos());
                 ImVec2 originalCenter = ImVec2(0, 0);
@@ -340,7 +372,9 @@ void FactoryNodeEditor::Draw() {
         }
     }
     ed::Resume();
+}
 
+void FactoryNodeEditor::HandleContextMenus() {
     ed::Suspend();
     if (ed::ShowNodeContextMenu(&m_contextNodeId)) {
         ImGui::OpenPopup("Node Context Menu");
@@ -360,7 +394,9 @@ void FactoryNodeEditor::Draw() {
         ed::Resume();
         m_storedPopupPosition = ImGui::GetMousePosOnOpeningCurrentPopup();
     }
-        // auto newNodePos = ImGui::GetMousePosOnOpeningCurrentPopup();
+}
+
+void FactoryNodeEditor::HandlePopups() {
 
     ed::Suspend();
     if (ImGui::BeginPopup("Node Context Menu")) {
@@ -442,16 +478,4 @@ void FactoryNodeEditor::Draw() {
         ImGui::EndPopup();
     }
     ed::Resume();
-
-    if (first_frame) {
-        //ed::NavigateToContent(0.0f); // Fit view to content on first frame
-        first_frame = false; // Reset after first frame
-    }
-
-    ed::End(); // End node editor
-    ImGui::End(); // End main window
-
-    ed::SetCurrentEditor(nullptr);
 }
-
-// End of file

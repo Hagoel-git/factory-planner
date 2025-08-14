@@ -11,6 +11,15 @@ namespace ed = ax::NodeEditor;
 
 class FactoryNodeEditor {
 public:
+
+    FactoryNodeEditor(FactoryGraph& g, FactorySolver& s);
+
+    ~FactoryNodeEditor();
+
+
+
+    void Draw();
+private:
     FactoryGraph& graph;
     FactorySolver& solver;
     ed::EditorContext* context = nullptr;
@@ -18,14 +27,20 @@ public:
     ed::PinId m_contextPinId;
     ed::LinkId m_contextLinkId;
 
-    FactoryNodeEditor(FactoryGraph& g, FactorySolver& s);
-
-    ~FactoryNodeEditor();
-
-    void Draw();
-private:
-    int selected_port_id = 0;
-
     ImVec2 m_storedPopupPosition;
     std::vector<int> copyBuffer; // Buffer for copied nodes
+    int selected_port_id = 0;
+
+    void DrawHeader();
+    void DrawToolbar();
+
+    void HandleFirstFrame();
+
+    void DrawNodes();
+    void DrawConnections();
+
+    void HandleUserInteractions();
+    void HandleKeyboardShortcuts();
+    void HandleContextMenus();
+    void HandlePopups();
 };
