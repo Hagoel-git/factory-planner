@@ -400,7 +400,6 @@ void FactoryNodeEditor::HandleContextMenus() {
 }
 
 void FactoryNodeEditor::HandlePopups() {
-
     ed::Suspend();
     if (ImGui::BeginPopup("Node Context Menu")) {
         auto node = graph.getNode(FromNodeId(m_contextNodeId));
@@ -438,6 +437,24 @@ void FactoryNodeEditor::HandlePopups() {
             }
         } else {
             ImGui::Text("Unknown port");
+        }
+        ImGui::EndPopup();
+    }
+
+    if (ImGui::BeginPopup("Link Context Menu")) {
+        auto connection = graph.getConnection(FromLinkId(m_contextLinkId));
+        if (connection) {
+            ImGui::Text("Connection ID: %d", connection->id);
+            ImGui::Text("From Port: %d", connection->from_port);
+            ImGui::Text("To Port: %d", connection->to_port);
+            ImGui::Text("Resource ID: %d", connection->resource_id);
+            ImGui::Text("Current rate: %.2f", connection->rate);
+            ImGui::Separator();
+            if (ImGui::MenuItem("Delete Link")) {
+                graph.removeConnection(connection->from_port, connection->to_port);
+            }
+        } else {
+            ImGui::Text("Unknown link");
         }
         ImGui::EndPopup();
     }

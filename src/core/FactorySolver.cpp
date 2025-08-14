@@ -66,9 +66,9 @@ void FactorySolver::createAllVariables(const FactoryGraph& factory_graph) {
     }
 
     // Create variables for each connection (using negative IDs to avoid conflicts)
-    for (size_t i = 0; i < connections.size(); ++i) {
-        const int connection_var_id = -(static_cast<int>(i) + 1); // -1, -2, -3, ...
-        const std::string var_name = "Conn_" + std::to_string(i);
+    for (const auto& conn : connections) {
+        const int connection_var_id = -(static_cast<int>(conn.id) + 1); // -1, -2, -3, ...
+        const std::string var_name = "Conn_" + std::to_string(conn.id);
         operations_research::MPVariable* var = solver_->MakeNumVar(0.0, infinity, var_name);
         variables[connection_var_id] = var;
     }
@@ -198,8 +198,6 @@ void FactorySolver::addRecipeConstraints(const Node &node, const Recipe &recipe)
     }
 }
 
-
-
 void FactorySolver::addConnectionConstraints(const FactoryGraph& factory_graph) {
     const auto& connections = factory_graph.getConnections();
 
@@ -240,15 +238,19 @@ void FactorySolver::addConnectionConstraints(const FactoryGraph& factory_graph) 
     }
 }
 
-
-
-
 void FactorySolver::updateFactoryGraph(FactoryGraph &factory_graph) const {
     // Output the results to factory_graph
     const auto &ports = factory_graph.getPorts();
     for (const auto &port : ports) {
         double value = variables.at(port.id)->solution_value();
         factory_graph.getPort(port.id)->rate = value; // Update the port rate in the factory graph
+    }
+
+    const auto &connections = factory_graph.getConnections();
+    for (const auto& conn : connections) {
+        const int connection_var_id = -(static_cast<int>(conn.id) + 1); // -1, -2, -3, ...
+        double value = variables.at(connection_var_id)->solution_value();
+        factory_graph.getConnection(conn.id)->rate = value; // Update the connection rate in the factory graph
     }
 
     // calculate machine counts and power usage for each node
