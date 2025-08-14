@@ -434,7 +434,7 @@ void FactoryNodeEditor::Draw() {
             for (const auto& recipe : graph.getGameData().recipes) {
                 if (ImGui::Selectable(recipe.name.c_str())) {
                     int new_node_id = graph.addNode(recipe.name, NodeType::PROCESSOR, recipe.id);
-                    ed::SetNodePosition(ToNodeId(new_node_id), ed::ScreenToCanvas(m_storedPopupPosition));
+                    ed::SetNodePosition(ToNodeId(new_node_id), m_storedPopupPosition);
                     ImGui::CloseCurrentPopup();
                 }
             }
