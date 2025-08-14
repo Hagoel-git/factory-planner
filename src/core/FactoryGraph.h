@@ -5,6 +5,7 @@
 #ifndef FACTORYGRAPH_H
 #define FACTORYGRAPH_H
 #include <vector>
+#include <unordered_map>
 
 #include "Connection.h"
 #include "Node.h"
@@ -47,12 +48,26 @@ public:
 private:
     const GameData game_data;
 
-    std::vector<Node> nodes; // List of nodes in the graph
-    std::vector<Port> ports; // List of ports
-    std::vector<Connection> connections; // List of connections between ports
+    std::vector<Node> nodes;
+    std::vector<Port> ports;
+    std::vector<Connection> connections;
 
-    int next_node_id = 0; // Unique ID for the next node to be added
+    // Hash maps for O(1) lookups
+    std::unordered_map<int, size_t> node_id_to_index_;
+    std::unordered_map<int, size_t> port_id_to_index_;
+    std::unordered_map<int, size_t> connection_id_to_index_;
+
+    int next_node_id = 0;
     int next_port_id = 0;
-    int next_connection_id = 0; // Unique ID for the next connection to be added
+    int next_connection_id = 0;
+
+    // Helper methods to maintain hash maps
+    void addNodeToIndex(int id, size_t index) { node_id_to_index_[id] = index; }
+    void addPortToIndex(int id, size_t index) { port_id_to_index_[id] = index; }
+    void addConnectionToIndex(int id, size_t index) { connection_id_to_index_[id] = index; }
+    void removeNodeFromIndex(int id) { node_id_to_index_.erase(id); }
+    void removePortFromIndex(int id) { port_id_to_index_.erase(id); }
+    void removeConnectionFromIndex(int id) { connection_id_to_index_.erase(id); }
 };
+
 #endif //FACTORYGRAPH_H
