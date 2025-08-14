@@ -6,14 +6,7 @@
 #define FACTORYSOLVER_H
 
 
-#include <absl/base/log_severity.h>
-
 #include "FactoryGraph.h"
-#include "absl/log/globals.h"
-#include "absl/strings/string_view.h"
-#include "absl/log/log.h"
-#include "absl/strings/match.h"
-#include "ortools/base/init_google.h"
 #include "ortools/linear_solver/linear_solver.h"
 
 
@@ -54,6 +47,8 @@ private:
     void createAllVariables(const FactoryGraph &factory_graph);
 
     void addObjectiveFunction(const FactoryGraph &factory_graph);
+
+    std::unordered_set<int> findReachablePorts(const FactoryGraph &factory_graph);
 
     void addAllConstraints(const FactoryGraph &factory_graph);
     void addRecipeConstraints(const Node &node, const Recipe &recipe);

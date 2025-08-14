@@ -4,6 +4,8 @@
 
 #include "FactorySolver.h"
 
+#include <queue>
+
 FactorySolver::FactorySolver(const std::string &solver_name) {
     operations_research::MPSolver::OptimizationProblemType problem_type;
     if (!operations_research::MPSolver::ParseSolverType(solver_name, &problem_type)) {
@@ -73,6 +75,9 @@ void FactorySolver::createAllVariables(const FactoryGraph& factory_graph) {
 }
 
 void FactorySolver::addObjectiveFunction(const FactoryGraph& factory_graph) {
+    // Find all ports that are reachable from constrained ports
+    std::unordered_set<int> reachable_ports = findReachablePorts(factory_graph);
+
     // Identify all ports that have outgoing connections
     std::unordered_set<int> ports_with_outputs;
     for (const auto& conn : factory_graph.getConnections()) {
@@ -81,15 +86,78 @@ void FactorySolver::addObjectiveFunction(const FactoryGraph& factory_graph) {
 
     const auto& ports = factory_graph.getPorts();
     operations_research::MPObjective* objective = solver_->MutableObjective();
+    bool has_objective_terms = false;
 
-    // Maximize output of ports that have no outgoing connections (bottom of hierarchy)
+    // Maximize output of leaf ports that are reachable from constrained ports
     for (const auto& port : ports) {
-        if (!ports_with_outputs.count(port.id)) {
+        if (!ports_with_outputs.count(port.id) && reachable_ports.count(port.id)) {
             objective->SetCoefficient(variables[port.id], 1.0);
+            has_objective_terms = true;
         }
     }
 
-    objective->SetMaximization();
+    // If no reachable leaf ports found, add a dummy objective to avoid unbounded problem
+    if (!has_objective_terms) {
+        // Just minimize the sum of all variables (or set a trivial objective)
+        for (const auto& port : ports) {
+            objective->SetCoefficient(variables[port.id], 0.0001); // Small coefficient
+        }
+        objective->SetMinimization(); // Minimize instead of maximize
+    } else {
+        objective->SetMaximization();
+    }
+}
+
+// Helper function to find all ports reachable from constrained ports
+std::unordered_set<int> FactorySolver::findReachablePorts(const FactoryGraph& factory_graph) {
+    std::unordered_set<int> reachable;
+    std::queue<int> to_visit;
+
+    // Start from all constrained ports
+    const auto& ports = factory_graph.getPorts();
+    for (const auto& port : ports) {
+        if (port.user_constraint >= 0) {
+            to_visit.push(port.id);
+            reachable.insert(port.id);
+        }
+    }
+
+    // Build adjacency maps
+    std::unordered_map<int, std::vector<int>> forward_connections;  // from_port -> [to_ports]
+    std::unordered_map<int, std::vector<int>> backward_connections; // to_port -> [from_ports]
+
+    for (const auto& conn : factory_graph.getConnections()) {
+        forward_connections[conn.from_port].push_back(conn.to_port);
+        backward_connections[conn.to_port].push_back(conn.from_port);
+    }
+
+    // BFS to find all reachable ports (both forward and backward)
+    while (!to_visit.empty()) {
+        int current_port = to_visit.front();
+        to_visit.pop();
+
+        // Check forward connections
+        if (forward_connections.count(current_port)) {
+            for (int next_port : forward_connections[current_port]) {
+                if (!reachable.count(next_port)) {
+                    reachable.insert(next_port);
+                    to_visit.push(next_port);
+                }
+            }
+        }
+
+        // Check backward connections
+        if (backward_connections.count(current_port)) {
+            for (int prev_port : backward_connections[current_port]) {
+                if (!reachable.count(prev_port)) {
+                    reachable.insert(prev_port);
+                    to_visit.push(prev_port);
+                }
+            }
+        }
+    }
+
+    return reachable;
 }
 
 void FactorySolver::addAllConstraints(const FactoryGraph &factory_graph) {
