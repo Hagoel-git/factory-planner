@@ -54,6 +54,7 @@ private:
     // Quadtree for spatial optimization
     std::unique_ptr<quadtree::Quadtree<NodeQuadtreeData, GetNodeBox>> nodeQuadtree;
     bool quadtreeNeedsRebuild = true;
+    bool shouldRebuildAfterDrag = false;
 
     void DrawHeader();
     void DrawToolbar();
