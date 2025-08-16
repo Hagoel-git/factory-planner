@@ -195,6 +195,7 @@ void FactoryNodeEditor::HandleUserInteractions() {
                     } else {
                         graph->addConnection(startId, endId);
                     }
+                    solver->solve(*graph);
                 } else {
                     if (connectionExists) {
                         showLabel("- Remove Link", ImColor(32, 45, 32, 180)); // Show label for removing link
@@ -251,6 +252,7 @@ void FactoryNodeEditor::HandleUserInteractions() {
         for (int id : nodesToDelete) {
             graph->removeNode(id);
         }
+        solver->solve(*graph);
         std::cout << std::endl;
     }
     ed::EndDelete();
@@ -369,6 +371,7 @@ void FactoryNodeEditor::HandleKeyboardShortcuts() {
                         // Case 4 (else): The connection is between two non-copied nodes, so we do nothing.
                     }
                 }
+                solver->solve(*graph);
             }
         }
     }
@@ -432,6 +435,7 @@ void FactoryNodeEditor::HandlePopups() {
             ImGui::InputDouble("Rate", &new_constraint, 0.1f, 1.0f, "%.2f");
             if (ImGui::MenuItem("Set Constraint")) {
                 graph->setPortDemand(port->id, new_constraint);
+                solver->solve(*graph);
             }
         } else {
             ImGui::Text("Unknown port");
@@ -479,6 +483,7 @@ void FactoryNodeEditor::HandlePopups() {
                                     break; // Connect to the first available port and stop searching
                                 }
                             }
+                            solver->solve(*graph);
                             ImGui::CloseCurrentPopup();
                         }
                     }
@@ -489,6 +494,7 @@ void FactoryNodeEditor::HandlePopups() {
                 if (ImGui::Selectable(recipe.name.c_str())) {
                     int new_node_id = graph->addNode(recipe.name, NodeType::PROCESSOR, recipe.id);
                     ed::SetNodePosition(ToNodeId(new_node_id), m_storedPopupPosition);
+                    solver->solve(*graph);
                     ImGui::CloseCurrentPopup();
                 }
             }
