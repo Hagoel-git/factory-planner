@@ -21,17 +21,22 @@ static inline int FromPinId(ed::PinId id) { return (int) (id.Get() - PIN_ID_OFFS
 static inline int FromNodeId(ed::NodeId id) { return (int) (id.Get() - NODE_ID_OFFSET); }
 static inline int FromLinkId(ed::LinkId id) { return (int) (id.Get() - LINK_ID_OFFSET); }
 
-FactoryNodeEditor::FactoryNodeEditor(FactoryGraph &g, FactorySolver &s)
-    : graph(g), solver(s) {
+FactoryNodeEditor::FactoryNodeEditor(const std::string &dataFilePath, const std::string &title)
+    : name(title) {
+
+    graph = std::make_unique<FactoryGraph>(dataFilePath);
+    solver = std::make_unique<FactorySolver>();
+
     ed::Config config;
-    config.SettingsFile = "FactoryEditor.json"; // Save/load settings
-    config.EnableSmoothZoom = true;
+    configFile = name + ".json";
+    config.SettingsFile = configFile.c_str();
     config.SmoothZoomPower = 1.2f;
     context = ed::CreateEditor(&config);
     ed::SetCurrentEditor(context);
 }
 
 FactoryNodeEditor::~FactoryNodeEditor() {
+    graph->clear();
     if (context) {
         ed::SetCurrentEditor(context);
         ed::DestroyEditor(context);
@@ -45,17 +50,11 @@ void FactoryNodeEditor::Draw() {
 
     ed::SetCurrentEditor(context);
 
-    if (!ImGui::Begin("Factory Editor", nullptr, ImGuiWindowFlags_NoScrollbar)) {
-        ImGui::End();
-        ed::SetCurrentEditor(nullptr);
-        return;
-    }
-
     DrawHeader();
     DrawToolbar();
 
     // Begin the node editor canvas
-    ed::Begin("FactoryEditor");
+    ed::Begin(name.c_str());
 
     HandleFirstFrame();
     DrawNodes();
@@ -66,7 +65,6 @@ void FactoryNodeEditor::Draw() {
     HandlePopups();
 
     ed::End(); // End node editor
-    ImGui::End(); // End main window
 
     ed::SetCurrentEditor(nullptr);
 }
@@ -74,14 +72,14 @@ void FactoryNodeEditor::Draw() {
 void FactoryNodeEditor::DrawHeader() {
     auto &io = ImGui::GetIO();
     ImGui::Text("FPS: %.2f (%.2gms)", io.Framerate, io.Framerate ? 1000.0f / io.Framerate : 0.0f);
-    ImGui::Text("Nodes: %d, Connections: %d, Ports: %d", graph.getNodes().size(), graph.getConnections().size(), graph.getPorts().size());
+    ImGui::Text("Nodes: %d, Connections: %d, Ports: %d", graph->getNodes().size(), graph->getConnections().size(), graph->getPorts().size());
     ImGui::Text("Copy Buffer Size: %d", copyBuffer.size());
     ImGui::Separator();
 }
 
 void FactoryNodeEditor::DrawToolbar() {
     if (ImGui::Button("Show Flow")) {
-        for (const auto& connection : graph.getConnections()) {
+        for (const auto& connection : graph->getConnections()) {
             ed::Flow(ToLinkId(connection.id)); // Show flow for all connections
         }
     }
@@ -92,18 +90,18 @@ void FactoryNodeEditor::DrawToolbar() {
     }
     ImGui::SameLine();
     if (ImGui::Button("Clear")) {
-        graph.clear();
+        graph->clear();
     }
     ImGui::SameLine();
     if (ImGui::Button("Solve")) {
-        solver.solve(graph);
+        solver->solve(*graph);
     }
 }
 
 void FactoryNodeEditor::HandleFirstFrame() {
     if (first_frame) {
         // Set initial positions for nodes based on their IDs
-        for (const auto &node : graph.getNodes()) {
+        for (const auto &node : graph->getNodes()) {
             ed::NodeId nodeId = ToNodeId(node.id);
             ImVec2 initialPos = ImVec2((node.id % 5) * 200.0f, (node.id / 5) * 100.0f); // Simple grid layout
             ed::SetNodePosition(nodeId, initialPos);
@@ -113,7 +111,7 @@ void FactoryNodeEditor::HandleFirstFrame() {
 }
 
 void FactoryNodeEditor::DrawNodes() {
-    for (const auto &node: graph.getNodes()) {
+    for (const auto &node: graph->getNodes()) {
         ed::NodeId nodeId = ToNodeId(node.id);
         ed::BeginNode(nodeId);
         ImGui::Text("%s", node.name.c_str());
@@ -121,22 +119,22 @@ void FactoryNodeEditor::DrawNodes() {
         int max_port_count = node.input_ports.size() > node.output_ports.size() ? node.input_ports.size() : node.output_ports.size();
         for (int i = 0; i < max_port_count; ++i) {
             if (i < node.input_ports.size()) {
-                Port *p = graph.getPort(node.input_ports[i]);
+                Port *p = graph->getPort(node.input_ports[i]);
                 if (!p) continue; // Skip invalid ports
                 ed::PinId pinId = ToPinId(p->id);
                 ed::BeginPin(pinId, ed::PinKind::Input);
-                ImGui::Text("<%.2f> %s",p->rate ,graph.getGameData().resources.at(p->resource_id).name.c_str()); // Display resource name
+                ImGui::Text("<%.2f> %s",p->rate ,graph->getGameData().resources.at(p->resource_id).name.c_str()); // Display resource name
                 ed::EndPin();
             } else {
                 ImGui::Text(" "); // Empty space for alignment
             }
             ImGui::SameLine();
             if (i < node.output_ports.size()) {
-                Port *p = graph.getPort(node.output_ports[i]);
+                Port *p = graph->getPort(node.output_ports[i]);
                 if (!p) continue; // Skip invalid ports
                 ed::PinId pinId = ToPinId(p->id);
                 ed::BeginPin(pinId, ed::PinKind::Output);
-                ImGui::Text("%s <%.2f>",p->rate, graph.getGameData().resources.at(p->resource_id).name.c_str()); // Display resource name
+                ImGui::Text("%s <%.2f>",p->rate, graph->getGameData().resources.at(p->resource_id).name.c_str()); // Display resource name
                 ed::EndPin();
             } else {
                 ImGui::Text(" "); // Empty space for alignment
@@ -148,7 +146,7 @@ void FactoryNodeEditor::DrawNodes() {
 }
 
 void FactoryNodeEditor::DrawConnections() {
-    for (const auto &c: graph.getConnections()) {
+    for (const auto &c: graph->getConnections()) {
         ed::Link(ToLinkId(c.id), ToPinId(c.from_port), ToPinId(c.to_port));
     }
 }
@@ -180,22 +178,22 @@ void FactoryNodeEditor::HandleUserInteractions() {
 
             selected_port_id = startId;
 
-            if (graph.getPort(startId)->isInput) {
+            if (graph->getPort(startId)->isInput) {
                 std::swap(startId, endId); // Ensure start is always output
             }
 
             // ask the graph if the connection is valid (it knows which is input/output)
-            if (!graph.isValidConnection(startId, endId)) {
+            if (!graph->isValidConnection(startId, endId)) {
                 ed::RejectNewItem(ImColor(255, 128, 128), 1.0f); // Reject with red color
             } else {
-                const bool connectionExists = graph.connectionExists(startId, endId);
+                const bool connectionExists = graph->connectionExists(startId, endId);
                 const ImColor color = connectionExists ? ImColor(255,128,128) : ImColor(128,255,128);
 
                 if (ed::AcceptNewItem(color, 1.0f)) {
                     if (connectionExists) {
-                        graph.removeConnection(startId, endId);
+                        graph->removeConnection(startId, endId);
                     } else {
-                        graph.addConnection(startId, endId);
+                        graph->addConnection(startId, endId);
                     }
                 } else {
                     if (connectionExists) {
@@ -242,16 +240,16 @@ void FactoryNodeEditor::HandleUserInteractions() {
         // Process deletions: links first, then nodes
         // This ensures we don't try to delete already-removed connections
         for (int id : linksToDelete) {
-            auto connection = graph.getConnection(id);
+            auto connection = graph->getConnection(id);
             if (connection != nullptr) {
                 int fromPort = connection->from_port;
                 int toPort = connection->to_port;
-                graph.removeConnection(fromPort, toPort);
+                graph->removeConnection(fromPort, toPort);
             }
         }
 
         for (int id : nodesToDelete) {
-            graph.removeNode(id);
+            graph->removeNode(id);
         }
         std::cout << std::endl;
     }
@@ -263,13 +261,13 @@ void FactoryNodeEditor::HandleKeyboardShortcuts() {
     if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootWindow)) {
         if (ImGui::GetIO().KeyCtrl) {
             if (ImGui::IsKeyPressed(ImGuiKey_A)) {
-                for (const auto &node : graph.getNodes()) {
+                for (const auto &node : graph->getNodes()) {
                     ed::SelectNode(ToNodeId(node.id), true); // Select all nodes
                 }
             }
             else if (ImGui::IsKeyPressed(ImGuiKey_C)) {
                 copyBuffer.clear();
-                for (const auto &node : graph.getNodes()) {
+                for (const auto &node : graph->getNodes()) {
                     if (ed::IsNodeSelected(ToNodeId(node.id))) {
                         copyBuffer.push_back(node.id); // Copy selected nodes to buffer
                     }
@@ -288,7 +286,7 @@ void FactoryNodeEditor::HandleKeyboardShortcuts() {
 
                 // Calculate center of original nodes
                 for (int nodeId : copyBuffer) {
-                    auto node = graph.getNode(nodeId);
+                    auto node = graph->getNode(nodeId);
                     if (node) {
                         ImVec2 nodePos = ed::GetNodePosition(ToNodeId(nodeId));
                         originalCenter.x += nodePos.x;
@@ -304,9 +302,9 @@ void FactoryNodeEditor::HandleKeyboardShortcuts() {
                 std::unordered_map<int, int> nodeIdMap;
 
                 for (int oldNodeId : copyBuffer) {
-                    auto node = graph.getNode(oldNodeId);
+                    auto node = graph->getNode(oldNodeId);
                     if (node) {
-                        int newNodeId = graph.addNode(node->name, node->type, node->selected_recipe_id);
+                        int newNodeId = graph->addNode(node->name, node->type, node->selected_recipe_id);
 
                         // Position node relative to mouse with original offset
                         ImVec2 oldPos = ed::GetNodePosition(ToNodeId(oldNodeId));
@@ -323,25 +321,25 @@ void FactoryNodeEditor::HandleKeyboardShortcuts() {
                     int oldNodeId = pair.first;
                     int newNodeId = pair.second;
 
-                    auto oldNode = graph.getNode(oldNodeId);
-                    auto newNode = graph.getNode(newNodeId);
+                    auto oldNode = graph->getNode(oldNodeId);
+                    auto newNode = graph->getNode(newNodeId);
 
                     if (oldNode && newNode) {
                         // Map all input ports
                         for (size_t i = 0; i < oldNode->input_ports.size(); ++i) {
                             oldToNewPortMap[oldNode->input_ports[i]] = newNode->input_ports[i];
-                            graph.getPort(newNode->input_ports[i])->user_constraint = graph.getPort(oldNode->input_ports[i])->user_constraint; // Copy constraints
+                            graph->getPort(newNode->input_ports[i])->user_constraint = graph->getPort(oldNode->input_ports[i])->user_constraint; // Copy constraints
                         }
                         // Map all output ports
                         for (size_t i = 0; i < oldNode->output_ports.size(); ++i) {
                             oldToNewPortMap[oldNode->output_ports[i]] = newNode->output_ports[i];
-                            graph.getPort(newNode->output_ports[i])->user_constraint = graph.getPort(oldNode->output_ports[i])->user_constraint; // Copy constraints
+                            graph->getPort(newNode->output_ports[i])->user_constraint = graph->getPort(oldNode->output_ports[i])->user_constraint; // Copy constraints
                         }
                     }
                 }
 
                 // Iterate through all original connections to recreate all relevant links.
-                for (const auto& conn : graph.getConnections()) {
+                for (const auto& conn : graph->getConnections()) {
                     auto itFrom = oldToNewPortMap.find(conn.from_port);
                     auto itTo = oldToNewPortMap.find(conn.to_port);
 
@@ -351,7 +349,7 @@ void FactoryNodeEditor::HandleKeyboardShortcuts() {
                     // Case 1: Internal connection (copied -> copied)
                     // Both the source and destination nodes were part of the selection.
                     if (fromIsCopied && toIsCopied) {
-                        graph.addConnection(itFrom->second, itTo->second);
+                        graph->addConnection(itFrom->second, itTo->second);
                     }
                     // Case 2: Outgoing connection (copied -> non-copied)
                     // The source node was copied, but it connects to an existing, external node.
@@ -359,14 +357,14 @@ void FactoryNodeEditor::HandleKeyboardShortcuts() {
                         if (fromIsCopied && !toIsCopied) {
                             int newFromPort = itFrom->second;
                             int originalToPort = conn.to_port;
-                            graph.addConnection(newFromPort, originalToPort);
+                            graph->addConnection(newFromPort, originalToPort);
                         }
                         // Case 3: Incoming connection (non-copied -> copied)
                         // An existing, external node connects to a node that was just pasted.
                         else if (!fromIsCopied && toIsCopied) {
                             int originalFromPort = conn.from_port;
                             int newToPort = itTo->second;
-                            graph.addConnection(originalFromPort, newToPort);
+                            graph->addConnection(originalFromPort, newToPort);
                         }
                         // Case 4 (else): The connection is between two non-copied nodes, so we do nothing.
                     }
@@ -402,7 +400,7 @@ void FactoryNodeEditor::HandleContextMenus() {
 void FactoryNodeEditor::HandlePopups() {
     ed::Suspend();
     if (ImGui::BeginPopup("Node Context Menu")) {
-        auto node = graph.getNode(FromNodeId(m_contextNodeId));
+        auto node = graph->getNode(FromNodeId(m_contextNodeId));
         if (node) {
             ImGui::Text("Node ID: %d", node->id);
             ImGui::Text("Name: %s", node->name.c_str());
@@ -413,7 +411,7 @@ void FactoryNodeEditor::HandlePopups() {
             ImGui::Text("Machine count: %.2f", node->machine_count);
             ImGui::Separator();
             if (ImGui::MenuItem("Delete Node")) {
-                graph.removeNode(node->id);
+                graph->removeNode(node->id);
             }
         } else {
             ImGui::Text("Unknown node");
@@ -422,7 +420,7 @@ void FactoryNodeEditor::HandlePopups() {
     }
 
     if (ImGui::BeginPopup("Pin Context Menu")) {
-        auto port = graph.getPort(FromPinId(m_contextPinId));
+        auto port = graph->getPort(FromPinId(m_contextPinId));
         if (port) {
             ImGui::Text("Port ID: %d", port->id);
             ImGui::Text("Resource ID: %d", port->resource_id);
@@ -433,7 +431,7 @@ void FactoryNodeEditor::HandlePopups() {
             static double new_constraint = 60;
             ImGui::InputDouble("Rate", &new_constraint, 0.1f, 1.0f, "%.2f");
             if (ImGui::MenuItem("Set Constraint")) {
-                graph.setPortDemand(port->id, new_constraint);
+                graph->setPortDemand(port->id, new_constraint);
             }
         } else {
             ImGui::Text("Unknown port");
@@ -442,7 +440,7 @@ void FactoryNodeEditor::HandlePopups() {
     }
 
     if (ImGui::BeginPopup("Link Context Menu")) {
-        auto connection = graph.getConnection(FromLinkId(m_contextLinkId));
+        auto connection = graph->getConnection(FromLinkId(m_contextLinkId));
         if (connection) {
             ImGui::Text("Connection ID: %d", connection->id);
             ImGui::Text("From Port: %d", connection->from_port);
@@ -451,7 +449,7 @@ void FactoryNodeEditor::HandlePopups() {
             ImGui::Text("Current rate: %.2f", connection->rate);
             ImGui::Separator();
             if (ImGui::MenuItem("Delete Link")) {
-                graph.removeConnection(connection->from_port, connection->to_port);
+                graph->removeConnection(connection->from_port, connection->to_port);
             }
         } else {
             ImGui::Text("Unknown link");
@@ -461,23 +459,23 @@ void FactoryNodeEditor::HandlePopups() {
 
     if (ImGui::BeginPopup("Create new node")) {
         if (selected_port_id != -1) {
-            auto resourceFilter = graph.getGameData().resources.at(graph.getPort(selected_port_id)->resource_id);
-            bool fromInput = graph.getPort(selected_port_id)->isInput;
-            for (const auto& recipe : graph.getGameData().recipes) {
+            auto resourceFilter = graph->getGameData().resources.at(graph->getPort(selected_port_id)->resource_id);
+            bool fromInput = graph->getPort(selected_port_id)->isInput;
+            for (const auto& recipe : graph->getGameData().recipes) {
                 const auto& ports = fromInput ? recipe.output_ports : recipe.input_ports;
                 for (const auto& port : ports) {
                     if (port.resource_id == resourceFilter.id) {
                         if (ImGui::Selectable(recipe.name.c_str())) {
-                            int new_node_id = graph.addNode(recipe.name, NodeType::PROCESSOR, recipe.id);
+                            int new_node_id = graph->addNode(recipe.name, NodeType::PROCESSOR, recipe.id);
                             ed::SetNodePosition(ToNodeId(new_node_id), ed::ScreenToCanvas(m_storedPopupPosition));
                             // Find the corresponding port on the newly created node to connect to
-                            const auto& ports_on_new_node = fromInput ? graph.getNode(new_node_id)->output_ports : graph.getNode(new_node_id)->input_ports;
+                            const auto& ports_on_new_node = fromInput ? graph->getNode(new_node_id)->output_ports : graph->getNode(new_node_id)->input_ports;
                             for (int new_port_id : ports_on_new_node) {
-                                if (graph.getPort(new_port_id)->resource_id == resourceFilter.id) {
+                                if (graph->getPort(new_port_id)->resource_id == resourceFilter.id) {
                                     // Determine connection direction dynamically
                                     int source_id = fromInput ? new_port_id : selected_port_id;
                                     int target_id = fromInput ? selected_port_id : new_port_id;
-                                    graph.addConnection(source_id, target_id);
+                                    graph->addConnection(source_id, target_id);
                                     break; // Connect to the first available port and stop searching
                                 }
                             }
@@ -487,9 +485,9 @@ void FactoryNodeEditor::HandlePopups() {
                 }
             }
         } else {
-            for (const auto& recipe : graph.getGameData().recipes) {
+            for (const auto& recipe : graph->getGameData().recipes) {
                 if (ImGui::Selectable(recipe.name.c_str())) {
-                    int new_node_id = graph.addNode(recipe.name, NodeType::PROCESSOR, recipe.id);
+                    int new_node_id = graph->addNode(recipe.name, NodeType::PROCESSOR, recipe.id);
                     ed::SetNodePosition(ToNodeId(new_node_id), m_storedPopupPosition);
                     ImGui::CloseCurrentPopup();
                 }
