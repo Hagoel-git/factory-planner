@@ -33,6 +33,16 @@ FactoryNodeEditor::FactoryNodeEditor(const std::string &dataFilePath, const std:
     config.SmoothZoomPower = 1.2f;
     context = ed::CreateEditor(&config);
     ed::SetCurrentEditor(context);
+
+    // Initialize quadtree with large world bounds to handle extreme zoom levels
+    float worldSize = 262144.0f; // 2^18, very large world
+    float halfWorldSize = worldSize * 0.5f;
+
+    quadtree::Box<float> worldBounds(
+        quadtree::Vector2<float>(-halfWorldSize, -halfWorldSize),
+        quadtree::Vector2<float>(worldSize, worldSize)
+    );
+    nodeQuadtree = std::make_unique<quadtree::Quadtree<NodeQuadtreeData, GetNodeBox>>(worldBounds);
 }
 
 FactoryNodeEditor::~FactoryNodeEditor() {
@@ -57,6 +67,13 @@ void FactoryNodeEditor::Draw() {
     ed::Begin(name.c_str());
 
     HandleFirstFrame();
+
+    // Rebuild quadtree if needed
+    if (quadtreeNeedsRebuild) {
+        RebuildQuadtree();
+        quadtreeNeedsRebuild = false;
+    }
+
     DrawNodes();
     DrawConnections();
     HandleUserInteractions();
@@ -74,6 +91,25 @@ void FactoryNodeEditor::DrawHeader() {
     ImGui::Text("FPS: %.2f (%.2gms)", io.Framerate, io.Framerate ? 1000.0f / io.Framerate : 0.0f);
     ImGui::Text("Nodes: %d, Connections: %d, Ports: %d", graph->getNodes().size(), graph->getConnections().size(), graph->getPorts().size());
     ImGui::Text("Copy Buffer Size: %d", copyBuffer.size());
+
+    // Debug info for quadtree
+    if (nodeQuadtree) {
+        auto bounds = nodeQuadtree->getBox();
+        ImGui::Text("Quadtree bounds: (%.1f, %.1f) size: (%.1f, %.1f)",
+                   bounds.getTopLeft().x, bounds.getTopLeft().y,
+                   bounds.getSize().x, bounds.getSize().y);
+
+        // Show current view bounds
+        ImVec2 viewMin = ImGui::GetWindowPos();
+        ImVec2 viewMax = ImVec2(viewMin.x + ImGui::GetWindowWidth(), viewMin.y + ImGui::GetWindowHeight());
+        ImVec2 canvasMin = ed::ScreenToCanvas(viewMin);
+        ImVec2 canvasMax = ed::ScreenToCanvas(viewMax);
+        ImGui::Text("View bounds: (%.1f, %.1f) to (%.1f, %.1f)", canvasMin.x, canvasMin.y, canvasMax.x, canvasMax.y);
+
+        auto visibleNodes = GetVisibleNodes(canvasMin, canvasMax);
+        ImGui::Text("Visible nodes: %d / %d", visibleNodes.size(), graph->getNodes().size());
+    }
+
     ImGui::Separator();
 }
 
@@ -91,6 +127,7 @@ void FactoryNodeEditor::DrawToolbar() {
     ImGui::SameLine();
     if (ImGui::Button("Clear")) {
         graph->clear();
+        quadtreeNeedsRebuild = true;
     }
     ImGui::SameLine();
     if (ImGui::Button("Solve")) {
@@ -106,20 +143,78 @@ void FactoryNodeEditor::HandleFirstFrame() {
             ImVec2 initialPos = ImVec2((node.id % 5) * 200.0f, (node.id / 5) * 100.0f); // Simple grid layout
             ed::SetNodePosition(nodeId, initialPos);
         }
+        quadtreeNeedsRebuild = true;
         first_frame = false; // Reset after first frame
     }
 }
 
-void FactoryNodeEditor::DrawNodes() {
-    for (const auto &node: graph->getNodes()) {
+void FactoryNodeEditor::RebuildQuadtree() {
+    // Use very large world bounds to handle any zoom level
+    // This ensures the quadtree can handle extreme zoom levels
+    float worldSize = 262144.0f; // 2^18, very large world
+    float halfWorldSize = worldSize * 0.5f;
+
+    quadtree::Box<float> worldBounds(
+        quadtree::Vector2<float>(-halfWorldSize, -halfWorldSize),
+        quadtree::Vector2<float>(worldSize, worldSize)
+    );
+    nodeQuadtree = std::make_unique<quadtree::Quadtree<NodeQuadtreeData, GetNodeBox>>(worldBounds);
+
+    // Add all nodes to quadtree
+    for (const auto &node : graph->getNodes()) {
         ed::NodeId nodeId = ToNodeId(node.id);
+        ImVec2 nodePos = ed::GetNodePosition(nodeId);
+        ImVec2 nodeSize = ed::GetNodeSize(nodeId);
+
+        nodeQuadtree->add(NodeQuadtreeData(node.id, nodePos, nodeSize));
+    }
+}
+
+std::vector<NodeQuadtreeData> FactoryNodeEditor::GetVisibleNodes(const ImVec2& viewMin, const ImVec2& viewMax) {
+    if (!nodeQuadtree) {
+        return {};
+    }
+
+    // Add some padding to the view to catch nodes that are partially visible
+    float padding = abs(0.1f * (viewMax.x - viewMin.x)); // 10% padding
+
+    quadtree::Box<float> viewBox(
+        quadtree::Vector2<float>(viewMin.x - padding, viewMin.y - padding),
+        quadtree::Vector2<float>((viewMax.x - viewMin.x) + 2.0f * padding, (viewMax.y - viewMin.y) + 2.0f * padding)
+    );
+
+    // Check if view box intersects with quadtree bounds before querying
+    auto quadtreeBounds = nodeQuadtree->getBox();
+    if (!viewBox.intersects(quadtreeBounds)) {
+        return {}; // No intersection, return empty result
+    }
+
+    return nodeQuadtree->query(viewBox);
+}
+
+void FactoryNodeEditor::DrawNodes() {
+    // Get the visible screen area and convert it to canvas coordinates
+    ImVec2 viewMin = ImGui::GetWindowPos();
+    ImVec2 viewMax = ImVec2(viewMin.x + ImGui::GetWindowWidth(), viewMin.y + ImGui::GetWindowHeight());
+    ImVec2 canvasMin = ed::ScreenToCanvas(viewMin);
+    ImVec2 canvasMax = ed::ScreenToCanvas(viewMax);
+
+    // Get visible nodes from quadtree
+    auto visibleNodes = GetVisibleNodes(canvasMin, canvasMax);
+
+    // Draw only visible nodes
+    for (const auto& nodeData : visibleNodes) {
+        auto node = graph->getNode(nodeData.nodeId);
+        if (!node) continue;
+
+        ed::NodeId nodeId = ToNodeId(node->id);
         ed::BeginNode(nodeId);
-        ImGui::Text("%s", node.name.c_str());
+        ImGui::Text("%s", node->name.c_str());
         ImGui::BeginGroup(); // Group inputs/outputs
-        int max_port_count = node.input_ports.size() > node.output_ports.size() ? node.input_ports.size() : node.output_ports.size();
+        int max_port_count = node->input_ports.size() > node->output_ports.size() ? node->input_ports.size() : node->output_ports.size();
         for (int i = 0; i < max_port_count; ++i) {
-            if (i < node.input_ports.size()) {
-                Port *p = graph->getPort(node.input_ports[i]);
+            if (i < node->input_ports.size()) {
+                Port *p = graph->getPort(node->input_ports[i]);
                 if (!p) continue; // Skip invalid ports
                 ed::PinId pinId = ToPinId(p->id);
                 ed::BeginPin(pinId, ed::PinKind::Input);
@@ -129,8 +224,8 @@ void FactoryNodeEditor::DrawNodes() {
                 ImGui::Text(" "); // Empty space for alignment
             }
             ImGui::SameLine();
-            if (i < node.output_ports.size()) {
-                Port *p = graph->getPort(node.output_ports[i]);
+            if (i < node->output_ports.size()) {
+                Port *p = graph->getPort(node->output_ports[i]);
                 if (!p) continue; // Skip invalid ports
                 ed::PinId pinId = ToPinId(p->id);
                 ed::BeginPin(pinId, ed::PinKind::Output);
@@ -251,6 +346,7 @@ void FactoryNodeEditor::HandleUserInteractions() {
 
         for (int id : nodesToDelete) {
             graph->removeNode(id);
+            quadtreeNeedsRebuild = true; // Mark for rebuild when nodes are deleted
         }
         solver->solve(*graph);
         std::cout << std::endl;
@@ -371,6 +467,7 @@ void FactoryNodeEditor::HandleKeyboardShortcuts() {
                         // Case 4 (else): The connection is between two non-copied nodes, so we do nothing.
                     }
                 }
+                quadtreeNeedsRebuild = true; // Mark for rebuild when nodes are added
                 solver->solve(*graph);
             }
         }
@@ -415,6 +512,7 @@ void FactoryNodeEditor::HandlePopups() {
             ImGui::Separator();
             if (ImGui::MenuItem("Delete Node")) {
                 graph->removeNode(node->id);
+                quadtreeNeedsRebuild = true; // Mark for rebuild when nodes are deleted
             }
         } else {
             ImGui::Text("Unknown node");
@@ -483,6 +581,7 @@ void FactoryNodeEditor::HandlePopups() {
                                     break; // Connect to the first available port and stop searching
                                 }
                             }
+                            quadtreeNeedsRebuild = true; // Mark for rebuild when nodes are added
                             solver->solve(*graph);
                             ImGui::CloseCurrentPopup();
                         }
@@ -494,6 +593,7 @@ void FactoryNodeEditor::HandlePopups() {
                 if (ImGui::Selectable(recipe.name.c_str())) {
                     int new_node_id = graph->addNode(recipe.name, NodeType::PROCESSOR, recipe.id);
                     ed::SetNodePosition(ToNodeId(new_node_id), m_storedPopupPosition);
+                    quadtreeNeedsRebuild = true; // Mark for rebuild when nodes are added
                     solver->solve(*graph);
                     ImGui::CloseCurrentPopup();
                 }
