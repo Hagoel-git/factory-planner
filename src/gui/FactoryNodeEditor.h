@@ -12,16 +12,16 @@ namespace ed = ax::NodeEditor;
 class FactoryNodeEditor {
 public:
 
-    FactoryNodeEditor(FactoryGraph& g, FactorySolver& s);
+    FactoryNodeEditor(const std::string& dataFilePath = "../../data/satisfactory.json",const std::string& title = "Factory Node Editor");
 
     ~FactoryNodeEditor();
 
-
-
     void Draw();
+    const std::string& GetName() const { return name; }
+    void SetName(const std::string& newName) { name = newName; }
 private:
-    FactoryGraph& graph;
-    FactorySolver& solver;
+    std::unique_ptr<FactoryGraph> graph;
+    std::unique_ptr<FactorySolver> solver;
     ed::EditorContext* context = nullptr;
     ed::NodeId m_contextNodeId;
     ed::PinId m_contextPinId;
@@ -29,6 +29,8 @@ private:
 
     ImVec2 m_storedPopupPosition;
     std::vector<int> copyBuffer; // Buffer for copied nodes
+    std::string name;
+    std::string configFile;
     int selected_port_id = 0;
 
     void DrawHeader();
