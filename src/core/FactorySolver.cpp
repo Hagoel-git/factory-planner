@@ -205,9 +205,8 @@ void FactorySolver::addConnectionConstraints(const FactoryGraph& factory_graph) 
     std::unordered_map<int, std::vector<int>> port_outgoing; // port_id -> [connection_var_ids]
     std::unordered_map<int, std::vector<int>> port_incoming; // port_id -> [connection_var_ids]
 
-    for (size_t i = 0; i < connections.size(); ++i) {
-        const auto& conn = connections[i];
-        const int connection_var_id = -(static_cast<int>(i) + 1); // negative ID for connection variable
+    for (const auto& conn : connections) {  // Remove size_t i
+        const int connection_var_id = -(static_cast<int>(conn.id) + 1); // Use conn.id, not index
 
         port_outgoing[conn.from_port].push_back(connection_var_id);
         port_incoming[conn.to_port].push_back(connection_var_id);
@@ -248,9 +247,9 @@ void FactorySolver::updateFactoryGraph(FactoryGraph &factory_graph) const {
 
     const auto &connections = factory_graph.getConnections();
     for (const auto& conn : connections) {
-        const int connection_var_id = -(static_cast<int>(conn.id) + 1); // -1, -2, -3, ...
+        const int connection_var_id = -(static_cast<int>(conn.id) + 1); // Use conn.id consistently
         double value = variables.at(connection_var_id)->solution_value();
-        factory_graph.getConnection(conn.id)->rate = value; // Update the connection rate in the factory graph
+        factory_graph.getConnection(conn.id)->rate = value;
     }
 
     // calculate machine counts and power usage for each node
