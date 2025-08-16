@@ -68,6 +68,13 @@ void FactoryNodeEditor::Draw() {
 
     HandleFirstFrame();
 
+    if (ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+        shouldRebuildAfterDrag = true; // Mark for rebuild after dragging
+    } else if (shouldRebuildAfterDrag) {
+        quadtreeNeedsRebuild = true; // Rebuild quadtree after dragging
+        shouldRebuildAfterDrag = false;
+    }
+
     // Rebuild quadtree if needed
     if (quadtreeNeedsRebuild) {
         RebuildQuadtree();
