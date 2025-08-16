@@ -1,13 +1,31 @@
 #pragma once
 #include "imgui.h"
 #include "imgui_node_editor.h"
-#include "../core/FactorySolver.h"
+#include "pvigier/Quadtree.h"
 namespace ed = ax::NodeEditor;
 
+#include "../core/FactorySolver.h"
 #include "../core/FactoryGraph.h"
-#include "../core/Node.h"
-#include "../core/Port.h"
-#include "../core/Recipe.h"
+
+// Structure to hold node data for quadtree
+struct NodeQuadtreeData {
+    int nodeId;
+    ImVec2 position;
+    ImVec2 size;
+
+    NodeQuadtreeData(int id, const ImVec2& pos, const ImVec2& sz)
+        : nodeId(id), position(pos), size(sz) {}
+};
+
+// Functor to get bounding box for quadtree
+struct GetNodeBox {
+    quadtree::Box<float> operator()(const NodeQuadtreeData& nodeData) const {
+        return quadtree::Box<float>(
+            quadtree::Vector2<float>(nodeData.position.x, nodeData.position.y),
+            quadtree::Vector2<float>(nodeData.size.x, nodeData.size.y)
+        );
+    }
+};
 
 class FactoryNodeEditor {
 public:
@@ -33,6 +51,10 @@ private:
     std::string configFile;
     int selected_port_id = 0;
 
+    // Quadtree for spatial optimization
+    std::unique_ptr<quadtree::Quadtree<NodeQuadtreeData, GetNodeBox>> nodeQuadtree;
+    bool quadtreeNeedsRebuild = true;
+
     void DrawHeader();
     void DrawToolbar();
 
@@ -40,6 +62,8 @@ private:
 
     void DrawNodes();
     void DrawConnections();
+    void RebuildQuadtree();
+    std::vector<NodeQuadtreeData> GetVisibleNodes(const ImVec2& viewMin, const ImVec2& viewMax);
 
     void HandleUserInteractions();
     void HandleKeyboardShortcuts();
