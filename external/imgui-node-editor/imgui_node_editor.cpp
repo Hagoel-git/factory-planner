@@ -2177,6 +2177,8 @@ void ed::EditorContext::LoadSettings()
 
 void ed::EditorContext::SaveSettings()
 {
+    if (!m_Config.AutoSaveEnabled) return;
+
     m_Config.BeginSave();
 
     for (auto& node : m_Nodes)
@@ -2206,6 +2208,48 @@ void ed::EditorContext::SaveSettings()
         m_Settings.ClearDirty();
 
     m_Config.EndSave();
+}
+
+std::string ed::EditorContext::SerializeSettingsToString()
+{
+    // Update in-memory settings from runtime state - mirrors the SaveSettings update part,
+    // but does not call m_Config.Save or SaveNode callbacks.
+    for (auto& node : m_Nodes)
+    {
+        auto settings = m_Settings.FindNode(node->m_ID);
+        settings->m_Location = node->m_Bounds.Min;
+        settings->m_Size     = node->m_Bounds.GetSize();
+        if (IsGroup(node))
+            settings->m_GroupSize = node->m_GroupBounds.GetSize();
+    }
+
+    m_Settings.m_Selection.resize(0);
+    for (auto& object : m_SelectedObjects)
+        m_Settings.m_Selection.push_back(object->ID());
+
+    m_Settings.m_ViewScroll  = m_NavigateAction.m_Scroll;
+    m_Settings.m_ViewZoom    = m_NavigateAction.m_Zoom;
+    m_Settings.m_VisibleRect = m_NavigateAction.m_VisibleRect;
+
+    return m_Settings.Serialize();
+}
+
+
+void ed::EditorContext::ApplySettingsFromString(const std::string& serializedSettings)
+{
+    // Parse into m_Settings and apply navigation like LoadSettings does.
+    ed::Settings::Parse(serializedSettings, m_Settings);
+
+    if (ImRect_IsEmpty(m_Settings.m_VisibleRect))
+    {
+        m_NavigateAction.m_Scroll = m_Settings.m_ViewScroll;
+        m_NavigateAction.m_Zoom   = m_Settings.m_ViewZoom;
+    }
+    else
+    {
+        m_NavigateAction.NavigateTo(m_Settings.m_VisibleRect, NavigateAction::ZoomMode::Exact, 0.0f);
+    }
+    // Note: node positions and sizes are not updated here
 }
 
 void ed::EditorContext::MakeDirty(SaveReasonFlags reason)
