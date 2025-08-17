@@ -38,7 +38,8 @@ Recipe JsonLoader::parseRecipe(
     const json &recipeJson,
     int id,
     const std::unordered_map<std::string, int> &keyNameToId,
-    const std::unordered_map<std::string, int> &categoryNameToId) {
+    const std::unordered_map<std::string, int> &categoryNameToId)
+{
     Recipe recipe;
     recipe.id = id;
     recipe.name = recipeJson.value("name", "");

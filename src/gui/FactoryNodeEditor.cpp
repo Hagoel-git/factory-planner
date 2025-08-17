@@ -3,6 +3,8 @@
 #include "FactoryNodeEditor.h"
 #include "imgui.h"
 #include "imgui_node_editor.h"
+#include "imgui_internal.h"
+#include "../utils/ProjectIo.h"
 namespace ed = ax::NodeEditor;
 
 #include <unordered_map>
@@ -21,38 +23,79 @@ static inline int FromPinId(ed::PinId id) { return (int) (id.Get() - PIN_ID_OFFS
 static inline int FromNodeId(ed::NodeId id) { return (int) (id.Get() - NODE_ID_OFFSET); }
 static inline int FromLinkId(ed::LinkId id) { return (int) (id.Get() - LINK_ID_OFFSET); }
 
-FactoryNodeEditor::FactoryNodeEditor(const std::string &dataFilePath, const std::string &title)
-    : name(title) {
-
-    graph = std::make_unique<FactoryGraph>(dataFilePath);
-    solver = std::make_unique<FactorySolver>();
-
-    ed::Config config;
-    configFile = name + ".json";
-    config.SettingsFile = configFile.c_str();
-    config.SmoothZoomPower = 1.2f;
-    context = ed::CreateEditor(&config);
-    ed::SetCurrentEditor(context);
-
-    // Initialize quadtree with large world bounds to handle extreme zoom levels
-    float worldSize = 262144.0f; // 2^18, very large world
-    float halfWorldSize = worldSize * 0.5f;
-
-    quadtree::Box<float> worldBounds(
-        quadtree::Vector2<float>(-halfWorldSize, -halfWorldSize),
-        quadtree::Vector2<float>(worldSize, worldSize)
-    );
-    nodeQuadtree = std::make_unique<quadtree::Quadtree<NodeQuadtreeData, GetNodeBox>>(worldBounds);
+FactoryNodeEditor::FactoryNodeEditor(const std::string &gameDataFilePath, const std::string &projectFilePath, const std::string &title)
+    : name(title), projectFilePath(projectFilePath), gameDataFilePath(gameDataFilePath), m_contextNodeId(0), m_contextPinId(0), m_contextLinkId(0) {
+    Initialize();
 }
 
 FactoryNodeEditor::~FactoryNodeEditor() {
-    graph->clear();
+    Close();
+}
+
+bool FactoryNodeEditor::Initialize() {
+    try {
+        graph = std::make_unique<FactoryGraph>(gameDataFilePath);
+        solver = std::make_unique<FactorySolver>();
+
+
+        for (int i = 0; i < 0; ++i) {
+            graph->addNode("Node " + std::to_string(i), NodeType::PROCESSOR, 32);
+        }
+
+        ed::Config cfg = ed::Config();
+        cfg.AutoSaveEnabled = false;
+        cfg.SettingsFile = nullptr;
+        cfg.SaveSettings = nullptr;
+        cfg.LoadSettings = nullptr;
+        cfg.SaveNodeSettings = nullptr;
+        cfg.LoadNodeSettings = nullptr;
+        cfg.UserPointer = nullptr;
+        context = ed::CreateEditor(&cfg);
+        ed::SetCurrentEditor(context);
+
+        ProjectIO::LoadProject(projectFilePath, *graph);
+        solver->solve(*graph);
+        // Initialize quadtree with large world bounds to handle extreme zoom levels
+        float worldSize = 262144.0f; // 2^18, very large world
+        float halfWorldSize = worldSize * 0.5f;
+
+        quadtree::Box<float> worldBounds(
+            quadtree::Vector2<float>(-halfWorldSize, -halfWorldSize),
+            quadtree::Vector2<float>(worldSize, worldSize)
+        );
+        nodeQuadtree = std::make_unique<quadtree::Quadtree<NodeQuadtreeData, GetNodeBox>>(worldBounds);
+        return true;
+    } catch (const std::exception &e) {
+        std::cerr << "Error initializing FactoryNodeEditor: " << e.what() << std::endl;
+        return false;
+    }
+}
+
+bool FactoryNodeEditor::Close() {
+    // Clear graph and solver
+    if (graph) graph->clear();
+    solver = nullptr;
+
+    // Destroy node editor context
     if (context) {
         ed::SetCurrentEditor(context);
         ed::DestroyEditor(context);
         context = nullptr;
         ed::SetCurrentEditor(nullptr);
     }
+
+    // Reset other state
+    nodeQuadtree = nullptr;
+    copyBuffer.clear();
+    selected_port_id = -1;
+    m_contextNodeId = 0;
+    m_contextPinId = 0;
+    m_contextLinkId = 0;
+    quadtreeNeedsRebuild = false;
+    shouldRebuildAfterDrag = false;
+    first_frame = true;
+
+    return true;
 }
 
 void FactoryNodeEditor::Draw() {
@@ -64,6 +107,7 @@ void FactoryNodeEditor::Draw() {
     DrawToolbar();
 
     // Begin the node editor canvas
+    windowPos = ImGui::GetWindowPos();
     ed::Begin(name.c_str());
 
     HandleFirstFrame();
@@ -91,6 +135,13 @@ void FactoryNodeEditor::Draw() {
     ed::End(); // End node editor
 
     ed::SetCurrentEditor(nullptr);
+}
+
+bool FactoryNodeEditor::Save() {
+    if (ProjectIO::SaveProject(projectFilePath + name + ".json", *graph, this->context)) {
+        return true;
+    }
+    return false;
 }
 
 void FactoryNodeEditor::DrawHeader() {
@@ -126,30 +177,17 @@ void FactoryNodeEditor::DrawToolbar() {
             ed::Flow(ToLinkId(connection.id)); // Show flow for all connections
         }
     }
-
     ImGui::SameLine();
     if (ImGui::Button("Fit View")) {
         ed::NavigateToContent();
     }
-    ImGui::SameLine();
-    if (ImGui::Button("Clear")) {
-        graph->clear();
-        quadtreeNeedsRebuild = true;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Solve")) {
-        solver->solve(*graph);
+    if (ImGui::Button("Save")) {
+        Save();
     }
 }
 
 void FactoryNodeEditor::HandleFirstFrame() {
     if (first_frame) {
-        // Set initial positions for nodes based on their IDs
-        for (const auto &node : graph->getNodes()) {
-            ed::NodeId nodeId = ToNodeId(node.id);
-            ImVec2 initialPos = ImVec2((node.id % 5) * 200.0f, (node.id / 5) * 100.0f); // Simple grid layout
-            ed::SetNodePosition(nodeId, initialPos);
-        }
         quadtreeNeedsRebuild = true;
         first_frame = false; // Reset after first frame
     }
@@ -201,8 +239,9 @@ std::vector<NodeQuadtreeData> FactoryNodeEditor::GetVisibleNodes(const ImVec2& v
 
 void FactoryNodeEditor::DrawNodes() {
     // Get the visible screen area and convert it to canvas coordinates
-    ImVec2 viewMin = ImGui::GetWindowPos();
-    ImVec2 viewMax = ImVec2(viewMin.x + ImGui::GetWindowWidth(), viewMin.y + ImGui::GetWindowHeight());
+
+    ImVec2 viewMin = windowPos;
+    ImVec2 viewMax = viewMin + ed::GetScreenSize();
     ImVec2 canvasMin = ed::ScreenToCanvas(viewMin);
     ImVec2 canvasMax = ed::ScreenToCanvas(viewMax);
 

@@ -34,6 +34,11 @@ public:
     bool setPortDemand(int port_id, double demand);
 
     void clear();
+
+    nlohmann::json serialize() const;
+
+    void deserialize(const nlohmann::json &j);
+
     void printGraph();
 
     const GameData& getGameData() const {
