@@ -760,3 +760,13 @@ int ax::NodeEditor::GetOrderedNodeIds(NodeId* nodes, int size)
 {
     return s_Editor->GetNodeIds(nodes, size);
 }
+
+
+std::string ax::NodeEditor::SerializeSettingsToString()
+{
+    return s_Editor->SerializeSettingsToString();
+}
+
+void ax::NodeEditor::ApplySettingsFromString(const std::string &serializedSettings) {
+    s_Editor->ApplySettingsFromString(serializedSettings);
+}

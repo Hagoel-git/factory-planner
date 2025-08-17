@@ -17,6 +17,7 @@
 //------------------------------------------------------------------------------
 # include <imgui.h>
 # include <cstdint> // std::uintXX_t
+#include <string>
 # include <utility> // std::move
 
 
@@ -107,6 +108,7 @@ struct Config
     int                     ContextMenuButtonIndex; // Mouse button index context menu action will react to (0-left, 1-right, 2-middle)
     bool                    EnableSmoothZoom;
     float                   SmoothZoomPower;
+    bool                    AutoSaveEnabled; // Automatically save editor state on each action (navigation, position, size, selection, add/remove node)
     Config()
         : SettingsFile("NodeEditor.json")
         , BeginSaveSession(nullptr)
@@ -123,6 +125,7 @@ struct Config
         , NavigateButtonIndex(1)
         , ContextMenuButtonIndex(1)
         , EnableSmoothZoom(false)
+        , AutoSaveEnabled(true)
     # ifdef __APPLE__
         , SmoothZoomPower(1.1f)
     # else
@@ -285,6 +288,13 @@ struct EditorContext;
 
 
 //------------------------------------------------------------------------------
+    // Return serialized editor settings as string without calling any Save callbacks.
+IMGUI_NODE_EDITOR_API std::string SerializeSettingsToString();
+
+    // Apply settings previously obtained from SerializeSettingsToString().
+    // This will update navigation (camera) and node settings as LoadSettings() does.
+IMGUI_NODE_EDITOR_API void ApplySettingsFromString(const std::string& serializedSettings);
+
 IMGUI_NODE_EDITOR_API void SetCurrentEditor(EditorContext* ctx);
 IMGUI_NODE_EDITOR_API EditorContext* GetCurrentEditor();
 IMGUI_NODE_EDITOR_API EditorContext* CreateEditor(const Config* config = nullptr);

@@ -1458,6 +1458,9 @@ struct EditorContext
     ImGuiMouseButton GetBackgroundClickButtonIndex()       const { return m_BackgroundClickButtonIndex; }
     ImGuiMouseButton GetBackgroundDoubleClickButtonIndex() const { return m_BackgroundDoubleClickButtonIndex; }
 
+    std::string SerializeSettingsToString();
+    void ApplySettingsFromString(const std::string &serializedSettings);
+
     float AlignPointToGrid(float p) const
     {
         if (!ImGui::GetIO().KeyAlt)
@@ -1472,6 +1475,7 @@ struct EditorContext
     }
 
     ImDrawList* GetDrawList() { return m_DrawList; }
+
 
 private:
     void LoadSettings();
