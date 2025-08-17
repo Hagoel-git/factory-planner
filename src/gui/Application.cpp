@@ -3,21 +3,21 @@
 #include <imgui_internal.h>
 
 Application::Application() {
-    // Create the first tab
-    CreateNewEditor("Factory 1");
 }
 
 Application::~Application() = default;
 
 void Application::Draw() {
     DrawMenuBar();
-
-    ImGuiViewport* viewport = ImGui::GetMainViewport();
+    DrawNewProjectDialog();
+    DrawOpenProjectDialog();
+    ImGuiViewport *viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->WorkPos);
     ImGui::SetNextWindowSize(viewport->WorkSize);
     ImGui::SetNextWindowViewport(viewport->ID);
     ImGuiWindowFlags host_flags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
-        ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoBackground;
+                                  ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus |
+                                  ImGuiWindowFlags_NoBackground;
 
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
@@ -37,7 +37,7 @@ void Application::Draw() {
 
     activeEditor = -1; // reset each frame; will set to index of focused one
     for (int i = 0; i < static_cast<int>(editors.size()); ++i) {
-        auto& editor = editors[i];
+        auto &editor = editors[i];
         if (editor) {
             // Give each window a unique ID if you have duplicate names
             ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(640, 480));
@@ -56,15 +56,35 @@ void Application::Draw() {
 void Application::DrawMenuBar() {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
-            if (ImGui::MenuItem("New Factory", "Ctrl+T")) {
-                CreateNewEditor();
+            if (ImGui::MenuItem("New", "Ctrl+N")) {
+                showNewProjectDialog = true; // Show dialog to create new project
             }
+            if (ImGui::MenuItem("Open", "Ctrl+O")) {
+                showOpenProjectDialog = true; // Show dialog to open existing project
+            }
+            if (ImGui::MenuItem("Open Recent (WIP)")) {
+                // todo: Implement recent files functionality
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Save", "Ctrl+S")) {
+                SaveActiveEditor();
+            }
+            if (ImGui::MenuItem("Save As...", "Ctrl+Shift+S (WIP)")) {
 
-            if (ImGui::MenuItem("Close Active Factory", "Ctrl+W") && !editors.empty()) {
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Close Active", "Ctrl+W") && !editors.empty()) {
                 CloseActiveEditor();
             }
-
+            if (ImGui::MenuItem("Close All")) {
+                editors.clear();
+                activeEditor = -1; // Reset active editor
+            }
             ImGui::Separator();
+            if (ImGui::MenuItem("Quit", "Ctrl+Q (WIP)")) {
+                editors.clear();
+                // todo: Implement application quit functionality
+            }
 
             ImGui::EndMenu();
         }
@@ -73,26 +93,147 @@ void Application::DrawMenuBar() {
     }
 
     // Handle keyboard shortcuts
-    ImGuiIO& io = ImGui::GetIO();
+    ImGuiIO &io = ImGui::GetIO();
     if (io.KeyCtrl) {
-        if (ImGui::IsKeyPressed(ImGuiKey_T)) {
-            CreateNewEditor();
+        if (ImGui::IsKeyPressed(ImGuiKey_N)) {
+            showNewProjectDialog = true;
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_O)) {
+            showOpenProjectDialog = true;
         }
         if (ImGui::IsKeyPressed(ImGuiKey_W) && !editors.empty()) {
             CloseActiveEditor();
         }
+        if (ImGui::IsKeyPressed(ImGuiKey_S)) {
+            SaveActiveEditor();
+        }
     }
 }
 
-void Application::CreateNewEditor(const std::string& name) {
-    std::string tabName = name.empty() ? GenerateDefaultEditorName() : name;
+void Application::DrawNewProjectDialog() {
+    if (!showNewProjectDialog) return;
+
+    ImGui::SetNextWindowSize(ImVec2(640, 480), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("New Project", &showNewProjectDialog, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse)) {
+        std::string gameDataPath = "game_data"; // Default path for game data files
+        std::vector<std::string> gameDataFiles = GetGameDataFiles(gameDataPath);
+        static char projectName[128];
+        static char location[256] = "projects/"; // Default path
+        ImGui::Text("Create a new project:");
+        if (projectName[0] == '\0') {
+            // Initialize with a default name if empty
+            std::string defaultName = GenerateDefaultEditorName();
+            std::strncpy(projectName, defaultName.c_str(), sizeof(projectName));
+            projectName[sizeof(projectName) - 1] = '\0'; // Ensure null-termination
+        }
+        ImGui::InputText("Project Name", projectName, sizeof(projectName));
+        ImGui::InputText("Location (Relative)", location, sizeof(projectName));
+        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Full project path: %s%s.json", location, projectName);
+        ImGui::Text("Select Game Configuration:");
+
+        static int selectedGameDataFile = gameDataFiles.empty() ? -1 : 0; // Default to first file if available
+
+        if (ImGui::BeginChild("GameSelection", ImVec2(0, 150), true)) {
+            for (int i = 0; i < static_cast<int>(gameDataFiles.size()); ++i) {
+                bool isSelected = (selectedGameDataFile == i);
+                if (ImGui::Selectable(gameDataFiles[i].c_str(), isSelected)) {
+                    selectedGameDataFile = i;
+                }
+            }
+        }
+        ImGui::EndChild();
+
+        ImGui::Spacing();
+
+        bool nameExists = std::any_of(editors.begin(), editors.end(), [&](const auto &editor) {
+            return editor->GetName() == projectName;
+        });
+        bool projectExists = std::filesystem::exists(
+            std::filesystem::path(location) / (std::string(projectName) + ".json"));
+
+        ImGui::BeginDisabled(nameExists || projectExists || selectedGameDataFile == -1);
+        // Disable button if name exists or project already exists
+        if (ImGui::Button("Create")) {
+            if (!nameExists) {
+                CreateNewEditor(gameDataPath + "/" + gameDataFiles.at(selectedGameDataFile), location, projectName);
+                showNewProjectDialog = false;
+            }
+            if (!projectExists) {
+                // Create the project directory if it doesn't exist
+                std::filesystem::create_directories(location);
+            }
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel")) {
+            showNewProjectDialog = false; // Close dialog without action
+        }
+        if (nameExists) {
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(1, 0, 0, 1), "An editor with this name already exists.");
+        }
+        if (projectExists) {
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(1, 0, 0, 1),
+                               "A project with this name already exists at the specified location.");
+        }
+        if (selectedGameDataFile == -1) {
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(1, 0, 0, 1), "Please select a game configuration file.");
+        }
+        ImGui::End();
+    }
+}
+
+void Application::DrawOpenProjectDialog() {
+    if (!showOpenProjectDialog) return;
+    ImGui::SetNextWindowSize(ImVec2(640, 480), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Open Project", &showOpenProjectDialog, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse)) {
+        std::string gameDataPath = "game_data"; // Default path for game data files
+        std::vector<std::string> gameDataFiles = GetGameDataFiles(gameDataPath);
+        static char location[256] = "projects/"; // Default path
+        ImGui::Text("Open an existing project:");
+        ImGui::InputText("Location (Relative)", location, sizeof(location));
+        if (ImGui::Button("Open")) {
+            // Check if the project file exists
+            std::string projectFilePath = std::string(location);
+            if (std::filesystem::exists(projectFilePath)) {
+                // name from location
+                std::string projectName = std::filesystem::path(projectFilePath).stem().string();
+                // Load the project
+                CreateNewEditor(gameDataPath + "/" + gameDataFiles.at(0), location, projectName);
+                showOpenProjectDialog = false; // Close dialog after opening
+            } else {
+                ImGui::TextColored(ImVec4(1, 0, 0, 1), "Project file does not exist at the specified location.");
+            }
+        }
+        ImGui::End();
+    }
+}
+
+void Application::CreateNewEditor(const std::string &gameDataFilePath, const std::string &location,
+                                  const std::string &name) {
+    std::string projectName = name.empty() ? GenerateDefaultEditorName() : name;
 
     // Create new editor with its own graph and solver
-    auto editor = std::make_unique<FactoryNodeEditor>("../../data/satisfactory.json", tabName);
+    auto editor = std::make_unique<FactoryNodeEditor>(gameDataFilePath, location, projectName);
     editors.push_back(std::move(editor));
 
     // Switch to the new tab
     activeEditor = static_cast<int>(editors.size()) - 1;
+}
+
+bool Application::SaveActiveEditor() {
+    if (activeEditor < 0 || static_cast<size_t>(activeEditor) >= editors.size()) {
+        return false; // No active editor to save
+    }
+
+    auto &editor = editors[activeEditor];
+    if (editor) {
+        editor->Save();
+        return true;
+    }
+    return false;
 }
 
 void Application::CloseEditor(int index) {
@@ -121,18 +262,13 @@ void Application::CloseActiveEditor() {
     }
 }
 
-void Application::RenameEditor(int index, const std::string& newName) {
-    if (index >= 0 && index < editors.size()) {
-        editors[index]->SetName(newName);
-    }
-}
 
 std::string Application::GenerateDefaultEditorName() {
     std::set<int> usedNumbers;
 
     // Extract all numbers from existing factory names
-    for (const auto& editor : editors) {
-        const std::string& name = editor->GetName();
+    for (const auto &editor: editors) {
+        const std::string &name = editor->GetName();
 
         // Check if name starts with "Factory "
         if (name.substr(0, 8) == "Factory ") {
@@ -152,5 +288,18 @@ std::string Application::GenerateDefaultEditorName() {
         nextNumber++;
     }
 
-    return "Factory " + std::to_string(nextNumber);
+    return "Factory_" + std::to_string(nextNumber);
+}
+
+std::vector<std::string> Application::GetGameDataFiles(const std::string &directory) {
+    if (!std::filesystem::exists(directory)) {
+        std::filesystem::create_directories(directory);
+    }
+    std::vector<std::string> jsonFiles;
+    for (const auto &entry: std::filesystem::directory_iterator(directory)) {
+        if (entry.is_regular_file() && entry.path().extension() == ".json") {
+            jsonFiles.push_back(entry.path().filename().string());
+        }
+    }
+    return jsonFiles;
 }

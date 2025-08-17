@@ -30,11 +30,17 @@ struct GetNodeBox {
 class FactoryNodeEditor {
 public:
 
-    FactoryNodeEditor(const std::string& dataFilePath = "../../data/satisfactory.json",const std::string& title = "Factory Node Editor");
+    FactoryNodeEditor(const std::string& gameDataFilePath, const std::string& projectFilePath, const std::string& title );
 
     ~FactoryNodeEditor();
 
+    bool Initialize();
+    bool Close();
     void Draw();
+    bool Save();
+
+    ed::EditorContext* GetContext() { return context; }
+
     const std::string& GetName() const { return name; }
     void SetName(const std::string& newName) { name = newName; }
 private:
@@ -46,9 +52,11 @@ private:
     ed::LinkId m_contextLinkId;
 
     ImVec2 m_storedPopupPosition;
+    ImVec2 windowPos;
     std::vector<int> copyBuffer; // Buffer for copied nodes
     std::string name;
-    std::string configFile;
+    std::string projectFilePath;
+    std::string gameDataFilePath;
     int selected_port_id = 0;
 
     // Quadtree for spatial optimization

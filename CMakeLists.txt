@@ -86,6 +86,8 @@ set(SRC
         src/gui/FactoryNodeEditor.h
         src/gui/Application.cpp
         src/gui/Application.h
+        src/utils/ProjectIo.cpp
+        src/utils/ProjectIo.h
 )
 
 add_executable(factory_planner ${SRC})

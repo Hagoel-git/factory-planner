@@ -18,17 +18,25 @@ private:
     std::vector<std::unique_ptr<FactoryNodeEditor>> editors;
     bool dockInitialized = false;
     int activeEditor = -1; // No active editor initially
-     // Drawing functions
+
+    bool showNewProjectDialog = false;
+    bool showOpenProjectDialog = false;
+
     void DrawMenuBar();
 
-    void CreateNewEditor(const std::string& name = "");
+    void DrawNewProjectDialog();
+    void DrawOpenProjectDialog();
+
+    void CreateNewEditor(const std::string &gameDataFilePath, const std::string &location, const std::string &name);
+
+    bool SaveActiveEditor();
+
 
     void CloseActiveEditor();
 
     void CloseEditor(int index);
-    void RenameEditor(int index, const std::string& newName);
-
     // Utility
     std::string GenerateDefaultEditorName();
+    std::vector<std::string> GetGameDataFiles(const std::string &directory);
 };
 #endif
