@@ -3,6 +3,11 @@
 #include <fstream>
 #include <imgui_internal.h>
 
+#include <thread>
+#include <atomic>
+
+#include "nfd.h"
+
 Application::Application() {
 }
 
@@ -115,7 +120,7 @@ void Application::DrawNewProjectDialog() {
     if (!showNewProjectDialog) return;
 
     ImGui::SetNextWindowSize(ImVec2(640, 480), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin("New Project", &showNewProjectDialog, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse)) {
+    if (ImGui::Begin("New Project", &showNewProjectDialog, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking)) {
         std::string gameDataPath = "game_data"; // Default path for game data files
         std::vector<std::string> gameDataFiles = GetGameDataFiles(gameDataPath);
         static char projectName[128];
@@ -192,29 +197,34 @@ void Application::DrawNewProjectDialog() {
     }
 }
 
+static std::atomic<bool> fileDialogRunning = false;
+static std::string fileDialogResult;
 void Application::DrawOpenProjectDialog() {
     if (!showOpenProjectDialog) return;
-    ImGui::SetNextWindowSize(ImVec2(640, 480), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin("Open Project", &showOpenProjectDialog, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse)) {
-        std::string gameDataPath = "game_data"; // Default path for game data files
-        std::vector<std::string> gameDataFiles = GetGameDataFiles(gameDataPath);
-        static char location[256] = "projects/"; // Default path
-        ImGui::Text("Open an existing project:");
-        ImGui::InputText("Location (Relative)", location, sizeof(location));
-        if (ImGui::Button("Open")) {
-            // Check if the project file exists
-            std::string projectFilePath = std::string(location);
-            if (std::filesystem::exists(projectFilePath)) {
-                // name from location
-                std::string projectName = std::filesystem::path(projectFilePath).stem().string();
-                // Load the project
-                CreateNewEditor(gameDataPath + "/" + gameDataFiles.at(0), location, projectName);
-                showOpenProjectDialog = false; // Close dialog after opening
+    std::string gameDataPath = "game_data"; // Default path for game data files
+    std::vector<std::string> gameDataFiles = GetGameDataFiles(gameDataPath);
+
+
+    if (!fileDialogRunning && fileDialogResult.empty()) {
+        fileDialogRunning = true;
+        std::thread([]() {
+            nfdu8char_t *outPath;
+            nfdopendialogu8args_t args = {0};
+            nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
+            if (result == NFD_OKAY) {
+                fileDialogResult = outPath;
+                NFD_FreePathU8(outPath);
             } else {
-                ImGui::TextColored(ImVec4(1, 0, 0, 1), "Project file does not exist at the specified location.");
+                fileDialogResult.clear();
             }
-        }
-        ImGui::End();
+            fileDialogRunning = false;
+        }).detach();
+    }
+    if (!fileDialogResult.empty()) {
+        std::string projectName = std::filesystem::path(fileDialogResult).stem().string();
+        CreateNewEditor(gameDataPath + "/" + gameDataFiles.at(0), fileDialogResult, projectName);
+        showOpenProjectDialog = false;
+        fileDialogResult.clear();
     }
 }
 
