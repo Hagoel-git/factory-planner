@@ -138,7 +138,7 @@ void FactoryNodeEditor::Draw() {
 }
 
 bool FactoryNodeEditor::Save() {
-    if (ProjectIO::SaveProject(projectFilePath + name + ".json", *graph, this->context)) {
+    if (ProjectIO::SaveProject(projectFilePath, *graph, this->context)) {
         return true;
     }
     return false;
@@ -180,9 +180,6 @@ void FactoryNodeEditor::DrawToolbar() {
     ImGui::SameLine();
     if (ImGui::Button("Fit View")) {
         ed::NavigateToContent();
-    }
-    if (ImGui::Button("Save")) {
-        Save();
     }
 }
 
