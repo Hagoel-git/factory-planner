@@ -53,6 +53,7 @@ private:
 
     ImVec2 m_storedPopupPosition;
     ImVec2 windowPos;
+    ImVec2 windowSize;
     std::vector<int> copyBuffer; // Buffer for copied nodes
     std::string name;
     std::string projectFilePath;

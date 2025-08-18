@@ -53,8 +53,6 @@ bool FactoryNodeEditor::Initialize() {
         context = ed::CreateEditor(&cfg);
         ed::SetCurrentEditor(context);
 
-        ProjectIO::LoadProject(projectFilePath, *graph);
-        solver->solve(*graph);
         // Initialize quadtree with large world bounds to handle extreme zoom levels
         float worldSize = 262144.0f; // 2^18, very large world
         float halfWorldSize = worldSize * 0.5f;
@@ -108,9 +106,10 @@ void FactoryNodeEditor::Draw() {
 
     // Begin the node editor canvas
     windowPos = ImGui::GetWindowPos();
+    windowSize = ImGui::GetWindowSize();
+    HandleFirstFrame();
     ed::Begin(name.c_str());
 
-    HandleFirstFrame();
 
     if (ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
         shouldRebuildAfterDrag = true; // Mark for rebuild after dragging
@@ -185,6 +184,8 @@ void FactoryNodeEditor::DrawToolbar() {
 
 void FactoryNodeEditor::HandleFirstFrame() {
     if (first_frame) {
+        ProjectIO::LoadProject(projectFilePath, *graph);
+        solver->solve(*graph);
         quadtreeNeedsRebuild = true;
         first_frame = false; // Reset after first frame
     }
@@ -238,7 +239,7 @@ void FactoryNodeEditor::DrawNodes() {
     // Get the visible screen area and convert it to canvas coordinates
 
     ImVec2 viewMin = windowPos;
-    ImVec2 viewMax = viewMin + ed::GetScreenSize();
+    ImVec2 viewMax = viewMin + windowSize;
     ImVec2 canvasMin = ed::ScreenToCanvas(viewMin);
     ImVec2 canvasMax = ed::ScreenToCanvas(viewMax);
 
