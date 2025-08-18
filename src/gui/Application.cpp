@@ -7,6 +7,7 @@
 #include <atomic>
 
 #include "nfd.h"
+static bool showFileAlreadyOpenPopup = false;
 
 Application::Application() {
 }
@@ -47,14 +48,31 @@ void Application::Draw() {
         if (editor) {
             // Give each window a unique ID if you have duplicate names
             ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(640, 480));
-            ImGui::Begin(editor->GetName().c_str());
+            bool is_open = true;
+            ImGui::Begin(editor->GetName().c_str(), &is_open);
             ImGui::PopStyleVar();
             if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
                 activeEditor = i;
             }
             editor->Draw();
             ImGui::End();
+            if (!is_open) {
+                CloseEditor(i);
+            }
         }
+    }
+    if (showFileAlreadyOpenPopup) {
+        ImGui::OpenPopup("FileAlreadyOpen");
+        showFileAlreadyOpenPopup = false; // Reset after drawing
+    }
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (ImGui::BeginPopupModal("FileAlreadyOpen", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("An editor for this file is already open.");
+        if (ImGui::Button("OK")) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
     }
     ImGui::End();
 }
@@ -230,10 +248,15 @@ void Application::DrawOpenProjectDialog() {
 
 void Application::CreateNewEditor(const std::string &gameDataFilePath, const std::string &location,
                                   const std::string &name) {
-    std::string projectName = name.empty() ? GenerateDefaultEditorName() : name;
-
+    // Check if an editor with the same name already exists
+    if (std::any_of(editors.begin(), editors.end(), [&](const auto &editor) {
+        return editor->GetName() == name;
+    })) {
+        showFileAlreadyOpenPopup = true;
+        return; // Do not create a new editor if the name already exists
+    }
     // Create new editor with its own graph and solver
-    auto editor = std::make_unique<FactoryNodeEditor>(gameDataFilePath, location, projectName);
+    auto editor = std::make_unique<FactoryNodeEditor>(gameDataFilePath, location, name);
     editors.push_back(std::move(editor));
 
     // Switch to the new tab
