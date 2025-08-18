@@ -208,6 +208,10 @@ void FactoryNodeEditor::RebuildQuadtree() {
         ed::NodeId nodeId = ToNodeId(node.id);
         ImVec2 nodePos = ed::GetNodePosition(nodeId);
         ImVec2 nodeSize = ed::GetNodeSize(nodeId);
+        if (nodeSize.x <= 0 || nodeSize.y <= 0) {
+            shouldRebuildAfterDrag = true; // workaround after load (node size not immediately available)
+        }
+        std::cout << "Adding node to quadtree: " << node.id << " at position (" << nodePos.x << ", " << nodePos.y << ") with size (" << nodeSize.x << ", " << nodeSize.y << ")" << std::endl;
 
         nodeQuadtree->add(NodeQuadtreeData(node.id, nodePos, nodeSize));
     }
