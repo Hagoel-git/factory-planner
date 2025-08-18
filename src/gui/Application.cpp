@@ -1,5 +1,6 @@
 #include "Application.h"
 #include <algorithm>
+#include <fstream>
 #include <imgui_internal.h>
 
 Application::Application() {
@@ -128,7 +129,8 @@ void Application::DrawNewProjectDialog() {
         }
         ImGui::InputText("Project Name", projectName, sizeof(projectName));
         ImGui::InputText("Location (Relative)", location, sizeof(projectName));
-        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Full project path: %s%s.json", location, projectName);
+        std::string fullPath = std::string(location) + projectName + ".json";
+        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Full project path: %s", fullPath.c_str());
         ImGui::Text("Select Game Configuration:");
 
         static int selectedGameDataFile = gameDataFiles.empty() ? -1 : 0; // Default to first file if available
@@ -155,12 +157,17 @@ void Application::DrawNewProjectDialog() {
         // Disable button if name exists or project already exists
         if (ImGui::Button("Create")) {
             if (!nameExists) {
-                CreateNewEditor(gameDataPath + "/" + gameDataFiles.at(selectedGameDataFile), location, projectName);
+                CreateNewEditor(gameDataPath + "/" + gameDataFiles.at(selectedGameDataFile), fullPath, projectName);
                 showNewProjectDialog = false;
             }
             if (!projectExists) {
-                // Create the project directory if it doesn't exist
-                std::filesystem::create_directories(location);
+                // create the project directory and file if it doesn't exist
+                std::filesystem::create_directories(std::filesystem::path(location));
+                std::ofstream projectFile(fullPath);
+                if (projectFile) {
+                    projectFile << "{}"; // Create an empty JSON file
+                    projectFile.close();
+                }
             }
         }
         ImGui::EndDisabled();
