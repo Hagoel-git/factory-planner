@@ -13,7 +13,6 @@ Application::Application() {
 }
 
 Application::~Application() = default;
-
 void Application::Draw() {
     DrawMenuBar();
     DrawNewProjectDialog();
@@ -39,6 +38,9 @@ void Application::Draw() {
         ImGui::DockBuilderRemoveNode(dockspace_id);
         ImGui::DockBuilderAddNode(dockspace_id, host_flags | ImGuiDockNodeFlags_DockSpace);
         ImGui::DockBuilderSetNodeSize(dockspace_id, viewport->Size);
+
+        ImGui::DockBuilderFinish(dockspace_id);
+
         dockInitialized = true;
     }
 
@@ -46,10 +48,12 @@ void Application::Draw() {
     for (int i = 0; i < static_cast<int>(editors.size()); ++i) {
         auto &editor = editors[i];
         if (editor) {
+            ImGui::SetNextWindowDockID(dockspace_id, ImGuiCond_FirstUseEver);
+
             // Give each window a unique ID if you have duplicate names
             ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(640, 480));
             bool is_open = true;
-            ImGui::Begin(editor->GetName().c_str(), &is_open);
+            ImGui::Begin(editor->GetName().c_str(), &is_open, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings);
             ImGui::PopStyleVar();
             if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
                 activeEditor = i;
@@ -76,7 +80,6 @@ void Application::Draw() {
     }
     ImGui::End();
 }
-
 void Application::DrawMenuBar() {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
