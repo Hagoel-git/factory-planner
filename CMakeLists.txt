@@ -25,6 +25,9 @@ add_compile_definitions(OR_PROTO_DLL=)
 set(EXTERNAL_DIR ${CMAKE_SOURCE_DIR}/external)
 message(STATUS "EXTERNAL_DIR = ${EXTERNAL_DIR}")
 
+set(NFD_PORTAL ON CACHE BOOL "Enable portal implementation" FORCE)
+add_subdirectory(${EXTERNAL_DIR}/nativefiledialog-extended)
+
 # ---- ImGui static lib (sources collected from external/) ----
 file(GLOB IMGUI_SOURCES
         ${EXTERNAL_DIR}/imgui/*.cpp
@@ -100,6 +103,7 @@ target_link_libraries(factory_planner
         PRIVATE
         imgui
         imgui_node_editor
+        nfd
         glfw
         OpenGL::GL
         # Optional: link external libraries if found

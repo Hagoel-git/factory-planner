@@ -3,7 +3,9 @@
 #include "backends/imgui_impl_opengl3.h"
 #include "imgui_node_editor.h"
 #include <GLFW/glfw3.h>
+#include <nfd.h>
 
+#include "nfd_glfw3.h"
 #include "gui/Application.h"
 
 static void glfw_error_callback(int error, const char* description) {
@@ -31,6 +33,16 @@ int main(int, char**)
         return 1;
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1); // Enable vsync
+
+    if (NFD_Init() != NFD_OKAY) {
+        fprintf(stderr, "Failed to initialize Native File Dialog\n");
+        return 1;
+    }
+    // Prepare args (zero-init)
+    nfdopendialogu8args_t args = {0};
+    // parentWindow will be filled by this helper
+    NFD_GetNativeWindowFromGLFWWindow(window, &args.parentWindow);
+
 
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
@@ -80,6 +92,7 @@ int main(int, char**)
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
 
+    NFD_Quit();
     glfwDestroyWindow(window);
     glfwTerminate();
 
