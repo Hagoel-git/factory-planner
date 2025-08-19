@@ -14,8 +14,6 @@ static constexpr uintptr_t NODE_ID_OFFSET = 0x10000000u;
 static constexpr uintptr_t PIN_ID_OFFSET = 0x20000000u;
 static constexpr uintptr_t LINK_ID_OFFSET = 0x30000000u;
 
-bool first_frame = true; // Track if this is the first frame to set initial node positions
-
 static inline ed::NodeId ToNodeId(int id) { return ed::NodeId((uintptr_t) id + NODE_ID_OFFSET); }
 static inline ed::PinId ToPinId(int id) { return ed::PinId((uintptr_t) id + PIN_ID_OFFSET); }
 static inline ed::LinkId ToLinkId(int id) { return ed::LinkId((uintptr_t) id + LINK_ID_OFFSET); }
@@ -174,6 +172,7 @@ void FactoryNodeEditor::DrawHeader() {
         ImGui::Text("View bounds: (%.1f, %.1f) to (%.1f, %.1f)", canvasMin.x, canvasMin.y, canvasMax.x, canvasMax.y);
         ImGui::Text("Visible nodes: %d / %d", drawnNodeCount, graph->getNodes().size());
     }
+    ImGui::Text("File path: %s", projectFilePath.c_str());
 
     ImGui::Separator();
 }
