@@ -152,7 +152,7 @@ bool FactoryNodeEditor::Save() {
     }
     return false;
 }
-static int visibleNodeCount = 0;
+static int drawnNodeCount = 0;
 void FactoryNodeEditor::DrawHeader() {
     auto &io = ImGui::GetIO();
     ImGui::Text("FPS: %.2f (%.2gms)", io.Framerate, io.Framerate ? 1000.0f / io.Framerate : 0.0f);
@@ -167,13 +167,12 @@ void FactoryNodeEditor::DrawHeader() {
                    bounds.getSize().x, bounds.getSize().y);
 
         // Show current view bounds
-        ImVec2 viewMin = ImGui::GetWindowPos();
-        ImVec2 viewMax = ImVec2(viewMin.x + ImGui::GetWindowWidth(), viewMin.y + ImGui::GetWindowHeight());
+        ImVec2 viewMin = windowPos;
+        ImVec2 viewMax = viewMin + windowSize;
         ImVec2 canvasMin = ed::ScreenToCanvas(viewMin);
         ImVec2 canvasMax = ed::ScreenToCanvas(viewMax);
         ImGui::Text("View bounds: (%.1f, %.1f) to (%.1f, %.1f)", canvasMin.x, canvasMin.y, canvasMax.x, canvasMax.y);
-
-        ImGui::Text("Visible nodes: %d / %d", visibleNodeCount, graph->getNodes().size());
+        ImGui::Text("Visible nodes: %d / %d", drawnNodeCount, graph->getNodes().size());
     }
 
     ImGui::Separator();
@@ -301,6 +300,8 @@ void FactoryNodeEditor::DrawNodes() {
             }
         }
     }
+
+    drawnNodeCount = static_cast<int>(nodesToRegister.size());
     // Draw only visible nodes
     for (const auto& nodeData : nodesToRegister) {
         auto node = graph->getNode(nodeData);
