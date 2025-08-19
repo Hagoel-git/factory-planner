@@ -633,8 +633,7 @@ void FactoryNodeEditor::HandlePopups() {
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Delete Node")) {
-                graph->removeNode(node->id);
-                quadtreeNeedsRebuild = true; // Mark for rebuild when nodes are deleted
+                executeCommand(std::make_unique<RemoveNodeCommand>(node->id));
             }
         } else {
             ImGui::Text("Unknown node");
@@ -690,10 +689,7 @@ void FactoryNodeEditor::HandlePopups() {
                 for (const auto& port : ports) {
                     if (port.resource_id == resourceFilter.id) {
                         if (ImGui::Selectable(recipe.name.c_str())) {
-                            auto cmd = std::make_unique<AddNodeCommand>(recipe.name, NodeType::PROCESSOR, recipe.id, selected_port_id, ed::ScreenToCanvas(m_storedPopupPosition));
-                            undoRedoManager.executeCommand(std::move(cmd), *graph);
-                            quadtreeNeedsRebuild = true; // Mark for rebuild when nodes are added
-                            solver->solve(*graph);
+                            executeCommand(std::make_unique<AddNodeCommand>(recipe.name, NodeType::PROCESSOR, recipe.id, selected_port_id, ed::ScreenToCanvas(m_storedPopupPosition)));
                             ImGui::CloseCurrentPopup();
                         }
                     }
@@ -702,10 +698,7 @@ void FactoryNodeEditor::HandlePopups() {
         } else {
             for (const auto& recipe : graph->getGameData().recipes) {
                 if (ImGui::Selectable(recipe.name.c_str())) {
-                    auto cmd = std::make_unique<AddNodeCommand>(recipe.name, NodeType::PROCESSOR, recipe.id, -1, m_storedPopupPosition);
-                    undoRedoManager.executeCommand(std::move(cmd), *graph);
-                    quadtreeNeedsRebuild = true; // Mark for rebuild when nodes are added
-                    solver->solve(*graph);
+                    executeCommand(std::make_unique<AddNodeCommand>(recipe.name, NodeType::PROCESSOR, recipe.id, -1, m_storedPopupPosition));
                     ImGui::CloseCurrentPopup();
                 }
             }

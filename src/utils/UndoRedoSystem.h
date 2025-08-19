@@ -38,6 +38,24 @@ public:
     std::string getDescription() const override { return "Add Node: " + nodeName; }
 };
 
+class RemoveNodeCommand : public Command {
+private:
+    int id;
+
+    Node nodeData;
+    std::vector<Port> ports_data;
+    std::vector<Connection> connections_data;
+    ImVec2 position;
+public:
+    RemoveNodeCommand(int id)
+        : id(id), nodeData(), position(0, 0) {
+    }
+    void execute(FactoryGraph& graph) override;
+    void undo(FactoryGraph& graph) override;
+    std::string getDescription() const override { return "Remove Node: " + nodeData.name; }
+
+};
+
 class UndoRedoManager {
 private:
     std::vector<std::unique_ptr<Command>> undoStack;
