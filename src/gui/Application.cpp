@@ -330,7 +330,9 @@ void Application::UndoActiveEditor() {
     }
     auto &editor = editors[activeEditor];
     if (editor) {
+        ed::SetCurrentEditor(editor->GetContext());
         editor->undo();
+        ed::SetCurrentEditor(nullptr);
     }
 }
 

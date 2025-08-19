@@ -40,8 +40,16 @@ public:
     void Draw();
     bool Save();
 
-    void undo() {undoRedoManager.undo(*graph);}
-    void redo() {undoRedoManager.redo(*graph);}
+    void undo() {
+        undoRedoManager.undo(*graph);
+        solver->solve(*graph);
+        quadtreeNeedsRebuild = true; // Mark for rebuild after undo
+    }
+    void redo() {
+        undoRedoManager.redo(*graph);
+        solver->solve(*graph);
+        quadtreeNeedsRebuild = true; // Mark for rebuild after redo
+    }
     bool canUndo() const { return undoRedoManager.canUndo(); }
     bool canRedo() const { return undoRedoManager.canRedo(); }
 
@@ -71,6 +79,13 @@ private:
     std::unique_ptr<quadtree::Quadtree<NodeQuadtreeData, GetNodeBox>> nodeQuadtree;
     bool quadtreeNeedsRebuild = true;
     bool first_frame = true;
+
+    void executeCommand(std::unique_ptr<Command> command) {
+        undoRedoManager.executeCommand(std::move(command), *graph);
+        solver->solve(*graph);
+        quadtreeNeedsRebuild = true; // Mark for rebuild after command execution
+    }
+
     void DrawHeader();
     void DrawToolbar();
 
