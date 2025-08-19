@@ -13,7 +13,7 @@ public:
     ~Application();
 
     void Draw();
-
+    bool quitRequested = false;
 private:
     std::vector<std::unique_ptr<FactoryNodeEditor>> editors;
     bool dockInitialized = false;

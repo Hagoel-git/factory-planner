@@ -5,6 +5,7 @@
 
 #include <thread>
 #include <atomic>
+#include <GLFW/glfw3.h>
 
 #include "nfd.h"
 static bool showFileAlreadyOpenPopup = false;
@@ -110,7 +111,7 @@ void Application::DrawMenuBar() {
             ImGui::Separator();
             if (ImGui::MenuItem("Quit", "Ctrl+Q (WIP)")) {
                 editors.clear();
-                // todo: Implement application quit functionality
+                quitRequested = true;
             }
 
             ImGui::EndMenu();
@@ -133,6 +134,10 @@ void Application::DrawMenuBar() {
         }
         if (ImGui::IsKeyPressed(ImGuiKey_S)) {
             SaveActiveEditor();
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Q)) {
+            editors.clear();
+            quitRequested = true;
         }
     }
 }
