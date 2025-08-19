@@ -12,6 +12,7 @@ struct Connection {
     int to_port; // Port number on the destination node
     int resource_id;
 
+    Connection() = default;
 
     Connection(int id,int from_port, int to_port, int resource_id)
         : id(id), from_port(from_port), to_port(to_port), resource_id(resource_id) {
