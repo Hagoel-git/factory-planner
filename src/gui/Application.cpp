@@ -155,7 +155,7 @@ void Application::DrawNewProjectDialog() {
         }
         ImGui::InputText("Project Name", projectName, sizeof(projectName));
         ImGui::InputText("Location (Relative)", location, sizeof(projectName));
-        std::string fullPath = std::string(location) + projectName + ".json";
+        std::string fullPath = std::string(location) + projectName + ".fpp";
         ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Full project path: %s", fullPath.c_str());
         ImGui::Text("Select Game Configuration:");
 
@@ -177,7 +177,7 @@ void Application::DrawNewProjectDialog() {
             return editor->GetName() == projectName;
         });
         bool projectExists = std::filesystem::exists(
-            std::filesystem::path(location) / (std::string(projectName) + ".json"));
+            std::filesystem::path(location) / (std::string(projectName) + ".fpp"));
 
         ImGui::BeginDisabled(nameExists || projectExists || selectedGameDataFile == -1);
         // Disable button if name exists or project already exists
@@ -189,11 +189,6 @@ void Application::DrawNewProjectDialog() {
             if (!projectExists) {
                 // create the project directory and file if it doesn't exist
                 std::filesystem::create_directories(std::filesystem::path(location));
-                std::ofstream projectFile(fullPath);
-                if (projectFile) {
-                    projectFile << "{}"; // Create an empty JSON file
-                    projectFile.close();
-                }
             }
         }
         ImGui::EndDisabled();
@@ -217,38 +212,58 @@ void Application::DrawNewProjectDialog() {
         ImGui::End();
     }
 }
-
 static std::atomic<bool> fileDialogRunning = false;
 static std::string fileDialogResult;
+static std::atomic<bool> fileDialogCancelled = false;
+
 void Application::DrawOpenProjectDialog() {
     if (!showOpenProjectDialog) return;
+
     std::string gameDataPath = "game_data"; // Default path for game data files
     std::vector<std::string> gameDataFiles = GetGameDataFiles(gameDataPath);
 
-
-    if (!fileDialogRunning && fileDialogResult.empty()) {
+    if (!fileDialogRunning && fileDialogResult.empty() && !fileDialogCancelled) {
         fileDialogRunning = true;
+        fileDialogCancelled = false;
+
         std::thread([]() {
             nfdu8char_t *outPath;
             nfdopendialogu8args_t args = {0};
+            nfdu8filteritem_t filters[1] = { { "Factory Planner Project", "fpp" } };
+            args.filterList = filters;
+            args.filterCount = 1;
+
             nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
+
             if (result == NFD_OKAY) {
                 fileDialogResult = outPath;
                 NFD_FreePathU8(outPath);
+            } else if (result == NFD_CANCEL) {
+                fileDialogCancelled = true;
             } else {
+                // Handle NFD_ERROR case
                 fileDialogResult.clear();
+                fileDialogCancelled = true;
             }
+
             fileDialogRunning = false;
         }).detach();
     }
+
+    // Handle successful file selection
     if (!fileDialogResult.empty()) {
         std::string projectName = std::filesystem::path(fileDialogResult).stem().string();
         CreateNewEditor(gameDataPath + "/" + gameDataFiles.at(0), fileDialogResult, projectName);
         showOpenProjectDialog = false;
         fileDialogResult.clear();
     }
-}
 
+    // Handle cancellation
+    if (fileDialogCancelled) {
+        showOpenProjectDialog = false;
+        fileDialogCancelled = false;
+    }
+}
 void Application::CreateNewEditor(const std::string &gameDataFilePath, const std::string &location,
                                   const std::string &name) {
     // Check if an editor with the same name already exists
