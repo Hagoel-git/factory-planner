@@ -109,14 +109,29 @@ void Application::DrawMenuBar() {
                 activeEditor = -1; // Reset active editor
             }
             ImGui::Separator();
-            if (ImGui::MenuItem("Quit", "Ctrl+Q (WIP)")) {
+            if (ImGui::MenuItem("Quit", "Ctrl+Q")) {
                 editors.clear();
                 quitRequested = true;
             }
 
             ImGui::EndMenu();
         }
-
+        if (ImGui::BeginMenu("Edit")) {
+            if (ImGui::MenuItem("Undo", "Ctrl+Z")) {
+                UndoActiveEditor();
+            }
+            if (ImGui::MenuItem("Redo", "Ctrl+Y")) {
+                RedoActiveEditor();
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Cut", "Ctrl+X (WIP)")) {}
+            if (ImGui::MenuItem("Copy", "Ctrl+C (WIP)")) {}
+            if (ImGui::MenuItem("Paste", "Ctrl+V (WIP)")) {}
+            if (ImGui::MenuItem("Paste Special", "Ctrl+Shift+V (WIP)")) {}
+            ImGui::Separator();
+            if (ImGui::MenuItem("Select All", "Ctrl+A (WIP)")) {}
+            ImGui::EndMenu();
+        }
         ImGui::EndMainMenuBar();
     }
 
