@@ -1,6 +1,7 @@
 #pragma once
 #include "imgui.h"
 #include "imgui_node_editor.h"
+#include "../utils/UndoRedoSystem.h"
 #include "pvigier/Quadtree.h"
 namespace ed = ax::NodeEditor;
 
@@ -39,6 +40,11 @@ public:
     void Draw();
     bool Save();
 
+    void undo() {undoRedoManager.undo(*graph);}
+    void redo() {undoRedoManager.redo(*graph);}
+    bool canUndo() const { return undoRedoManager.canUndo(); }
+    bool canRedo() const { return undoRedoManager.canRedo(); }
+
     ed::EditorContext* GetContext() { return context; }
 
     const std::string& GetName() const { return name; }
@@ -46,6 +52,7 @@ public:
 private:
     std::unique_ptr<FactoryGraph> graph;
     std::unique_ptr<FactorySolver> solver;
+    UndoRedoManager undoRedoManager;
     ed::EditorContext* context = nullptr;
     ed::NodeId m_contextNodeId;
     ed::PinId m_contextPinId;

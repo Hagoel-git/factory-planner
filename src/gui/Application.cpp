@@ -139,6 +139,16 @@ void Application::DrawMenuBar() {
             editors.clear();
             quitRequested = true;
         }
+        if (ImGui::IsKeyPressed(ImGuiKey_Y)) {
+            RedoActiveEditor();
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Z)) {
+            if (io.KeyShift) {
+                RedoActiveEditor();
+            } else {
+                UndoActiveEditor();
+            }
+        }
     }
 }
 
@@ -297,6 +307,28 @@ bool Application::SaveActiveEditor() {
         return true;
     }
     return false;
+}
+
+void Application::UndoActiveEditor() {
+    if (activeEditor < 0 || static_cast<size_t>(activeEditor) >= editors.size()) {
+        return; // No active editor to undo
+    }
+    auto &editor = editors[activeEditor];
+    if (editor) {
+        editor->undo();
+    }
+}
+
+void Application::RedoActiveEditor() {
+    if (activeEditor < 0 || static_cast<size_t>(activeEditor) >= editors.size()) {
+        return; // No active editor to redo
+    }
+    auto &editor = editors[activeEditor];
+    if (editor) {
+        ed::SetCurrentEditor(editor->GetContext());
+        editor->redo();
+        ed::SetCurrentEditor(nullptr);
+    }
 }
 
 void Application::CloseEditor(int index) {

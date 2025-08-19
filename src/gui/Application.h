@@ -30,8 +30,8 @@ private:
     void CreateNewEditor(const std::string &gameDataFilePath, const std::string &location, const std::string &name);
 
     bool SaveActiveEditor();
-
-
+    void UndoActiveEditor();
+    void RedoActiveEditor();
     void CloseActiveEditor();
 
     void CloseEditor(int index);

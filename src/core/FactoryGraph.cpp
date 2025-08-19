@@ -16,6 +16,16 @@ int FactoryGraph::addNode(const std::string &name, NodeType type, int recipe_id)
     return id;
 }
 
+void FactoryGraph::restoreNode(const Node &node, const std::vector<Port> &ports) {
+    nodes.push_back(node);
+    size_t index = nodes.size() - 1;
+    addNodeToIndex(node.id, index);
+    for (auto port : ports) {
+        this->ports.push_back(port);
+        addPortToIndex(port.id, this->ports.size() - 1);
+    }
+}
+
 bool FactoryGraph::removeNode(int node_id) {
     auto map_it = node_id_to_index_.find(node_id);
     if (map_it == node_id_to_index_.end()) {
@@ -104,9 +114,9 @@ Port *FactoryGraph::getPort(int id) {
     return (it != port_id_to_index_.end()) ? &ports[it->second] : nullptr;
 }
 
-bool FactoryGraph::addConnection(int from_port, int to_port) {
+int FactoryGraph::addConnection(int from_port, int to_port) {
     if (!isValidConnection(from_port, to_port)) {
-        return false;
+        return -1;
     }
     int id = next_connection_id++;
     size_t index = connections.size();
@@ -114,7 +124,15 @@ bool FactoryGraph::addConnection(int from_port, int to_port) {
     addConnectionToIndex(id, index);
     connectionsByPort.insert({from_port, id});
     connectionsByPort.insert({to_port, id});
-    return true;
+    return id;
+}
+
+void FactoryGraph::restoreConnection(const Connection &connection) {
+    connections.push_back(connection);
+    size_t index = connections.size() - 1;
+    addConnectionToIndex(connection.id, index);
+    connectionsByPort.insert({connection.from_port, connection.id});
+    connectionsByPort.insert({connection.to_port, connection.id});
 }
 
 bool FactoryGraph::removeConnection(int from_port, int to_port) {

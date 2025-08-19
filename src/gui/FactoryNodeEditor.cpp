@@ -22,7 +22,7 @@ static inline int FromNodeId(ed::NodeId id) { return (int) (id.Get() - NODE_ID_O
 static inline int FromLinkId(ed::LinkId id) { return (int) (id.Get() - LINK_ID_OFFSET); }
 
 FactoryNodeEditor::FactoryNodeEditor(const std::string &gameDataFilePath, const std::string &projectFilePath, const std::string &title)
-    : name(title), projectFilePath(projectFilePath), gameDataFilePath(gameDataFilePath), m_contextNodeId(0), m_contextPinId(0), m_contextLinkId(0) {
+    : name(title), projectFilePath(projectFilePath), gameDataFilePath(gameDataFilePath), m_contextNodeId(0), m_contextPinId(0), m_contextLinkId(0), undoRedoManager(100) {
     Initialize();
 }
 
@@ -171,6 +171,7 @@ void FactoryNodeEditor::DrawHeader() {
         ImVec2 canvasMax = ed::ScreenToCanvas(viewMax);
         ImGui::Text("View bounds: (%.1f, %.1f) to (%.1f, %.1f)", canvasMin.x, canvasMin.y, canvasMax.x, canvasMax.y);
         ImGui::Text("Visible nodes: %d / %d", drawnNodeCount, graph->getNodes().size());
+        ImGui::Text("Undo Stack: %zu, Redo Stack: %zu", undoRedoManager.getUndoStackSize(), undoRedoManager.getRedoStackSize());
     }
     ImGui::Text("File path: %s", projectFilePath.c_str());
 
@@ -186,6 +187,14 @@ void FactoryNodeEditor::DrawToolbar() {
     ImGui::SameLine();
     if (ImGui::Button("Fit View")) {
         ed::NavigateToContent();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Undo")) {
+        undo();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Redo")) {
+        redo();
     }
 }
 
@@ -218,8 +227,6 @@ void FactoryNodeEditor::RebuildQuadtree() {
         if (nodeSize.x <= 0 || nodeSize.y <= 0) {
             nodeSize = ImVec2(300.0f, 100.0f); // Default size if not provided
         }
-        std::cout << "Adding node to quadtree: " << node.id << " at position (" << nodePos.x << ", " << nodePos.y << ") with size (" << nodeSize.x << ", " << nodeSize.y << ")" << std::endl;
-
         nodeQuadtree->add(NodeQuadtreeData(node.id, nodePos, nodeSize));
     }
 }
@@ -683,22 +690,10 @@ void FactoryNodeEditor::HandlePopups() {
                 for (const auto& port : ports) {
                     if (port.resource_id == resourceFilter.id) {
                         if (ImGui::Selectable(recipe.name.c_str())) {
-                            int new_node_id = graph->addNode(recipe.name, NodeType::PROCESSOR, recipe.id);
-                            ed::SetNodePosition(ToNodeId(new_node_id), ed::ScreenToCanvas(m_storedPopupPosition));
-                            // Find the corresponding port on the newly created node to connect to
-                            const auto& ports_on_new_node = fromInput ? graph->getNode(new_node_id)->output_ports : graph->getNode(new_node_id)->input_ports;
-                            for (int new_port_id : ports_on_new_node) {
-                                if (graph->getPort(new_port_id)->resource_id == resourceFilter.id) {
-                                    // Determine connection direction dynamically
-                                    int source_id = fromInput ? new_port_id : selected_port_id;
-                                    int target_id = fromInput ? selected_port_id : new_port_id;
-                                    graph->addConnection(source_id, target_id);
-
-                                    quadtreeNeedsRebuild = true; // Mark for rebuild when node is added
-                                    solver->solve(*graph);
-                                    break; // Connect to the first available port and stop searching
-                                }
-                            }
+                            auto cmd = std::make_unique<AddNodeCommand>(recipe.name, NodeType::PROCESSOR, recipe.id, selected_port_id, ed::ScreenToCanvas(m_storedPopupPosition));
+                            undoRedoManager.executeCommand(std::move(cmd), *graph);
+                            quadtreeNeedsRebuild = true; // Mark for rebuild when nodes are added
+                            solver->solve(*graph);
                             ImGui::CloseCurrentPopup();
                         }
                     }
@@ -707,8 +702,8 @@ void FactoryNodeEditor::HandlePopups() {
         } else {
             for (const auto& recipe : graph->getGameData().recipes) {
                 if (ImGui::Selectable(recipe.name.c_str())) {
-                    int new_node_id = graph->addNode(recipe.name, NodeType::PROCESSOR, recipe.id);
-                    ed::SetNodePosition(ToNodeId(new_node_id), m_storedPopupPosition);
+                    auto cmd = std::make_unique<AddNodeCommand>(recipe.name, NodeType::PROCESSOR, recipe.id, -1, m_storedPopupPosition);
+                    undoRedoManager.executeCommand(std::move(cmd), *graph);
                     quadtreeNeedsRebuild = true; // Mark for rebuild when nodes are added
                     solver->solve(*graph);
                     ImGui::CloseCurrentPopup();

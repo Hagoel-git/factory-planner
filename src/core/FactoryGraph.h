@@ -15,6 +15,7 @@
 class FactoryGraph {
 public:
     int addNode(const std::string& name, NodeType type, int recipe_id);
+    void restoreNode(const Node& node, const std::vector<Port>& ports);
     bool removeNode(int node_id);
     bool setNodeRecipe(int node_id, int recipe_id);
     Node* getNode(int id);
@@ -22,7 +23,8 @@ public:
 
     bool isValidConnection(int from_port, int to_port);
     bool connectionExists(int from_port, int to_port);
-    bool addConnection(int from_port, int to_port);
+    int addConnection(int from_port, int to_port);
+    void restoreConnection(const Connection& connection);
     bool removeConnection(int from_port, int to_port);
     Connection* getConnection(int id);
     std::vector<Connection*> getConnectionsForPort(int id);
