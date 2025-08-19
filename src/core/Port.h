@@ -9,11 +9,12 @@ struct Port {
     double rate = 0.0; // Rate of the port, e.g., how much resource it can handle per second
     double user_constraint = -1.0; // User-defined constraint for the port, -1 means no constraint
     int id;
+    int node_id;
     int resource_id; // ID of the resource associated with this port
     bool isInput;
 
-    Port(int id, int resource_id, bool isInput)
-        : id(id), resource_id(resource_id), isInput(isInput) {
+    Port(int id, int node_id, int resource_id, bool isInput)
+        : id(id), node_id(node_id), resource_id(resource_id), isInput(isInput) {
     }
 };
 #endif //PORT_H

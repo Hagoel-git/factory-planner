@@ -16,7 +16,7 @@ int FactoryGraph::addNode(const std::string &name, NodeType type, int recipe_id)
     return id;
 }
 
-int FactoryGraph::removeNode(int node_id) {
+bool FactoryGraph::removeNode(int node_id) {
     auto map_it = node_id_to_index_.find(node_id);
     if (map_it == node_id_to_index_.end()) {
         return false;
@@ -51,10 +51,10 @@ Node *FactoryGraph::getNode(int id) {
     return (it != node_id_to_index_.end()) ? &nodes[it->second] : nullptr;
 }
 
-int FactoryGraph::addPort(int resource_id, bool isInput) {
+int FactoryGraph::addPort(int resource_id, int node_id, bool isInput) {
     int port_id = next_port_id++;
     size_t index = ports.size();
-    ports.emplace_back(port_id, resource_id, isInput);
+    ports.emplace_back(port_id, node_id, resource_id, isInput);
     addPortToIndex(port_id, index);
     return port_id;
 }
@@ -78,8 +78,12 @@ bool FactoryGraph::removePort(int port_id) {
 
     // Rebuild connection index after removal
     connection_id_to_index_.clear();
+    connectionsByPort.clear();
     for (size_t i = 0; i < connections.size(); ++i) {
-        addConnectionToIndex(connections[i].id, i);
+        Connection* conn_ptr = &connections[i];
+        addConnectionToIndex(conn_ptr->id, i);
+        connectionsByPort.insert({conn_ptr->from_port, conn_ptr->id});
+        connectionsByPort.insert({conn_ptr->to_port, conn_ptr->id});
     }
 
     // Update indices for elements after the removed one
@@ -108,6 +112,8 @@ bool FactoryGraph::addConnection(int from_port, int to_port) {
     size_t index = connections.size();
     connections.emplace_back(id, from_port, to_port, getPort(from_port)->resource_id);
     addConnectionToIndex(id, index);
+    connectionsByPort.insert({from_port, id});
+    connectionsByPort.insert({to_port, id});
     return true;
 }
 
@@ -116,6 +122,22 @@ bool FactoryGraph::removeConnection(int from_port, int to_port) {
         if (it->from_port == from_port && it->to_port == to_port) {
             int connection_id = it->id;
             size_t index = std::distance(connections.begin(), it);
+
+            // Remove from connectionsByPort before erasing from the vector
+            auto range_from = connectionsByPort.equal_range(from_port);
+            for (auto multi_it = range_from.first; multi_it != range_from.second; ++multi_it) {
+                if (multi_it->second == connection_id) {
+                    connectionsByPort.erase(multi_it);
+                    break;
+                }
+            }
+            auto range_to = connectionsByPort.equal_range(to_port);
+            for (auto multi_it = range_to.first; multi_it != range_to.second; ++multi_it) {
+                if (multi_it->second== connection_id) {
+                    connectionsByPort.erase(multi_it);
+                    break;
+                }
+            }
 
             // Update indices for elements after the removed one
             for (auto& [id, idx] : connection_id_to_index_) {
@@ -136,6 +158,16 @@ Connection *FactoryGraph::getConnection(int id) {
     auto it = connection_id_to_index_.find(id);
     return (it != connection_id_to_index_.end()) ? &connections[it->second] : nullptr;
 }
+
+std::vector<Connection *> FactoryGraph::getConnectionsForPort(int id) {
+    std::vector<Connection*> result;
+    auto range = connectionsByPort.equal_range(id);
+    for (auto it = range.first; it != range.second; ++it) {
+        result.push_back(getConnection(it->second));
+    }
+    return result;
+}
+
 
 void FactoryGraph::clear() {
     nodes.clear();
@@ -172,6 +204,7 @@ nlohmann::json FactoryGraph::serialize() const {
     for (const auto& port : ports) {
         nlohmann::json port_json;
         port_json["id"] = port.id;
+        port_json["node_id"] = port.node_id;
         port_json["resource_id"] = port.resource_id;
         port_json["isInput"] = port.isInput;
         port_json["user_constraint"] = port.user_constraint;
@@ -221,7 +254,7 @@ void FactoryGraph::deserialize(const nlohmann::json& j) {
     // Deserialize ports
     if (j.contains("ports")) {
         for (const auto& port_json : j["ports"]) {
-            Port port(port_json["id"], port_json["resource_id"], port_json["isInput"]);
+            Port port(port_json["id"], port_json["node_id"], port_json["resource_id"], port_json["isInput"]);
             port.user_constraint = port_json["user_constraint"];
 
             ports.push_back(port);
@@ -237,6 +270,8 @@ void FactoryGraph::deserialize(const nlohmann::json& j) {
 
             connections.push_back(connection);
             addConnectionToIndex(connection.id, connections.size() - 1);
+            connectionsByPort.insert({connection.from_port, connection.id});
+            connectionsByPort.insert({connection.to_port, connection.id});
         }
     }
 
@@ -266,11 +301,11 @@ bool FactoryGraph::setNodeRecipe(int node_id, int recipe_id) {
     node->output_ports.resize(recipe.getOutputPortCount());
     node->input_ports.resize(recipe.getInputPortCount());
     for (int i = 0; i < recipe.getInputPortCount(); ++i) {
-        int port_id = addPort(recipe.getInputPortResourceId(i), true);
+        int port_id = addPort(recipe.getInputPortResourceId(i), node_id, true);
         node->input_ports[i] = port_id;
     }
     for (int i = 0; i < recipe.getOutputPortCount(); ++i) {
-        int port_id = addPort(recipe.getOutputPortResourceId(i), false);
+        int port_id = addPort(recipe.getOutputPortResourceId(i), node_id, false);
         node->output_ports[i] = port_id;
     }
     return true;

@@ -15,7 +15,7 @@
 class FactoryGraph {
 public:
     int addNode(const std::string& name, NodeType type, int recipe_id);
-    int removeNode(int node_id);
+    bool removeNode(int node_id);
     bool setNodeRecipe(int node_id, int recipe_id);
     Node* getNode(int id);
     [[nodiscard]] const std::vector<Node>& getNodes() const;
@@ -25,9 +25,10 @@ public:
     bool addConnection(int from_port, int to_port);
     bool removeConnection(int from_port, int to_port);
     Connection* getConnection(int id);
+    std::vector<Connection*> getConnectionsForPort(int id);
     [[nodiscard]] const std::vector<Connection>& getConnections() const;
 
-    int addPort(int resource_id, bool isInput);
+    int addPort(int resource_id, int node_id, bool isInput);
     bool removePort(int port_id);
     Port* getPort(int id);
     [[nodiscard]] const std::vector<Port>& getPorts() const;
@@ -38,8 +39,6 @@ public:
     nlohmann::json serialize() const;
 
     void deserialize(const nlohmann::json &j);
-
-    void printGraph();
 
     const GameData& getGameData() const {
         return game_data;
@@ -61,6 +60,8 @@ private:
     std::unordered_map<int, size_t> node_id_to_index_;
     std::unordered_map<int, size_t> port_id_to_index_;
     std::unordered_map<int, size_t> connection_id_to_index_;
+
+    std::unordered_multimap<int, int> connectionsByPort; // Maps port_id to connection_id for quick access
 
     int next_node_id = 0;
     int next_port_id = 0;

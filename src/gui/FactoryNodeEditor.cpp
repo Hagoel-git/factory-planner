@@ -90,7 +90,6 @@ bool FactoryNodeEditor::Close() {
     m_contextPinId = 0;
     m_contextLinkId = 0;
     quadtreeNeedsRebuild = false;
-    shouldRebuildAfterDrag = false;
     first_frame = true;
 
     return true;
@@ -110,13 +109,24 @@ void FactoryNodeEditor::Draw() {
     HandleFirstFrame();
     ed::Begin(name.c_str());
 
+    static bool wasDragging = false;
+    bool isDragging = ImGui::IsMouseDragging(ImGuiMouseButton_Left, 1);
+    static bool draggingNode = false;
 
-    if (ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
-        shouldRebuildAfterDrag = true; // Mark for rebuild after dragging
-    } else if (shouldRebuildAfterDrag) {
-        quadtreeNeedsRebuild = true; // Rebuild quadtree after dragging
-        shouldRebuildAfterDrag = false;
+    if (isDragging && !wasDragging) {
+        // Drag just started - check if we're over a node BUT NOT over a pin
+        if (ed::GetHoveredNode() && !ed::GetHoveredPin()) {
+            draggingNode = true;
+        }
+    } else if (!isDragging && wasDragging) {
+        // Drag just ended
+        if (draggingNode) {
+            quadtreeNeedsRebuild = true;
+            draggingNode = false;
+        }
     }
+
+    wasDragging = isDragging;
 
     // Rebuild quadtree if needed
     if (quadtreeNeedsRebuild) {
@@ -142,7 +152,7 @@ bool FactoryNodeEditor::Save() {
     }
     return false;
 }
-
+static int visibleNodeCount = 0;
 void FactoryNodeEditor::DrawHeader() {
     auto &io = ImGui::GetIO();
     ImGui::Text("FPS: %.2f (%.2gms)", io.Framerate, io.Framerate ? 1000.0f / io.Framerate : 0.0f);
@@ -163,8 +173,7 @@ void FactoryNodeEditor::DrawHeader() {
         ImVec2 canvasMax = ed::ScreenToCanvas(viewMax);
         ImGui::Text("View bounds: (%.1f, %.1f) to (%.1f, %.1f)", canvasMin.x, canvasMin.y, canvasMax.x, canvasMax.y);
 
-        auto visibleNodes = GetVisibleNodes(canvasMin, canvasMax);
-        ImGui::Text("Visible nodes: %d / %d", visibleNodes.size(), graph->getNodes().size());
+        ImGui::Text("Visible nodes: %d / %d", visibleNodeCount, graph->getNodes().size());
     }
 
     ImGui::Separator();
@@ -209,7 +218,7 @@ void FactoryNodeEditor::RebuildQuadtree() {
         ImVec2 nodePos = ed::GetNodePosition(nodeId);
         ImVec2 nodeSize = ed::GetNodeSize(nodeId);
         if (nodeSize.x <= 0 || nodeSize.y <= 0) {
-            shouldRebuildAfterDrag = true; // workaround after load (node size not immediately available)
+            nodeSize = ImVec2(300.0f, 100.0f); // Default size if not provided
         }
         std::cout << "Adding node to quadtree: " << node.id << " at position (" << nodePos.x << ", " << nodePos.y << ") with size (" << nodeSize.x << ", " << nodeSize.y << ")" << std::endl;
 
@@ -250,9 +259,51 @@ void FactoryNodeEditor::DrawNodes() {
     // Get visible nodes from quadtree
     auto visibleNodes = GetVisibleNodes(canvasMin, canvasMax);
 
+    // Build set of visible node ids
+    std::unordered_set<int> visibleNodeIds;
+    visibleNodeIds.reserve(visibleNodes.size());
+    for (const auto &nd : visibleNodes) visibleNodeIds.insert(nd.nodeId);
+
+    std::unordered_set<int> nodesToRegister = visibleNodeIds;
+
+    // Iterate only through the visible nodes
+    for (int nodeId : visibleNodeIds) {
+        auto node = graph->getNode(nodeId);
+        if (!node) continue;
+
+        // Check input ports
+        for (int portId : node->input_ports) {
+            for (const auto& conn : graph->getConnectionsForPort(portId)) {
+                // Check if the connection is incoming or outgoing to determine the remote node
+                if (conn->to_port == portId) {
+                    auto fromPort = graph->getPort(conn->from_port);
+                    if (fromPort) {
+                        nodesToRegister.insert(fromPort->node_id);
+                    } else {
+                        std::cout << "Warning: Input port " << portId << " of node " << nodeId << " has no valid connection." << std::endl;
+                    }
+                }
+            }
+        }
+
+        // Check output ports
+        for (int portId : node->output_ports) {
+            for (const auto& conn : graph->getConnectionsForPort(portId)) {
+                // Check if the connection is incoming or outgoing to determine the remote node
+                if (conn->from_port == portId) {
+                    auto toPort = graph->getPort(conn->to_port);
+                    if (toPort) {
+                        nodesToRegister.insert(toPort->node_id);
+                    } else {
+                        std::cout << "Warning: Output port " << portId << " of node " << nodeId << " has no valid connection." << std::endl;
+                    }
+                }
+            }
+        }
+    }
     // Draw only visible nodes
-    for (const auto& nodeData : visibleNodes) {
-        auto node = graph->getNode(nodeData.nodeId);
+    for (const auto& nodeData : nodesToRegister) {
+        auto node = graph->getNode(nodeData);
         if (!node) continue;
 
         ed::NodeId nodeId = ToNodeId(node->id);
@@ -557,6 +608,22 @@ void FactoryNodeEditor::HandlePopups() {
             ImGui::Text("Selected Recipe ID: %d", node->selected_recipe_id);
             ImGui::Text("Power usage: %.2f MW", node->power_usage);
             ImGui::Text("Machine count: %.2f", node->machine_count);
+            // Display input ports
+            ImGui::Text("Input Ports:");
+            for (int portId : node->input_ports) {
+                auto port = graph->getPort(portId);
+                if (port) {
+                    ImGui::BulletText("Port ID: %d, Resource ID: %d, Rate: %.2f", port->id, port->resource_id, port->rate);
+                }
+            }
+            // Display output ports
+            ImGui::Text("Output Ports:");
+            for (int portId : node->output_ports) {
+                auto port = graph->getPort(portId);
+                if (port) {
+                    ImGui::BulletText("Port ID: %d, Resource ID: %d, Rate: %.2f", port->id, port->resource_id, port->rate);
+                }
+            }
             ImGui::Separator();
             if (ImGui::MenuItem("Delete Node")) {
                 graph->removeNode(node->id);
@@ -626,11 +693,12 @@ void FactoryNodeEditor::HandlePopups() {
                                     int source_id = fromInput ? new_port_id : selected_port_id;
                                     int target_id = fromInput ? selected_port_id : new_port_id;
                                     graph->addConnection(source_id, target_id);
+
+                                    quadtreeNeedsRebuild = true; // Mark for rebuild when node is added
+                                    solver->solve(*graph);
                                     break; // Connect to the first available port and stop searching
                                 }
                             }
-                            quadtreeNeedsRebuild = true; // Mark for rebuild when nodes are added
-                            solver->solve(*graph);
                             ImGui::CloseCurrentPopup();
                         }
                     }
