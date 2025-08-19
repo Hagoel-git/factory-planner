@@ -88,7 +88,7 @@ int main(int, char **) {
     Application app;
 
     // Main loop
-    while (!glfwWindowShouldClose(window)) {
+    while (!glfwWindowShouldClose(window) && !app.quitRequested) {
         glfwPollEvents();
 
         // Start the Dear ImGui frame
