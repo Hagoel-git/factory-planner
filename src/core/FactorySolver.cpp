@@ -40,6 +40,14 @@ FactorySolver::SolverResult FactorySolver::solve(FactoryGraph &factory_graph) {
         if (result == SolverResult::SUCCESS) {
             updateFactoryGraph(factory_graph);
         } else {
+            const auto &ports = factory_graph.getPorts();
+            for (const auto &port : ports) {
+                factory_graph.getPort(port.id)->rate = 0; // Update the port rate in the factory graph
+            }
+            const auto & connections = factory_graph.getConnections();
+            for (const auto &conn : connections) {
+                factory_graph.getConnection(conn.id)->rate = 0; // Update the connection rate in the factory graph
+            }
             std::cerr << "Solver failed with status: " << last_solver_status << std::endl;
         }
 
