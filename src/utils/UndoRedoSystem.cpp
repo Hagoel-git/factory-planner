@@ -176,3 +176,11 @@ void RemoveConnectionCommand::execute(FactoryGraph &graph) {
 void RemoveConnectionCommand::undo(FactoryGraph &graph) {
     graph.restoreConnection(connectionData);
 }
+
+void SetPortConstraintCommand::execute(FactoryGraph &graph) {
+    graph.setPortDemand(portId, newConstraint);
+}
+
+void SetPortConstraintCommand::undo(FactoryGraph &graph) {
+    graph.setPortDemand(portId, oldConstraint);
+}

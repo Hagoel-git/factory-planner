@@ -114,6 +114,22 @@ private:
     std::string getDescription() const override { return "Remove Connection: " + std::to_string(fromPort) + " -> " + std::to_string(toPort); }
 };
 
+class SetPortConstraintCommand : public Command {
+private:
+    int portId;
+    double oldConstraint;
+    double newConstraint;
+public:
+    SetPortConstraintCommand(int portId, double oldConstraint, double newConstraint)
+        : portId(portId), oldConstraint(oldConstraint), newConstraint(newConstraint) {
+    }
+    void execute(FactoryGraph& graph) override;
+    void undo(FactoryGraph& graph) override;
+    std::string getDescription() const override {
+        return "Set Port Constraint: Port ID " + std::to_string(portId) + " from " + std::to_string(oldConstraint) + " to " + std::to_string(newConstraint);
+    }
+};
+
 class UndoRedoManager {
 private:
     std::vector<std::unique_ptr<Command>> undoStack;
