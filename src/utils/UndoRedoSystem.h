@@ -56,6 +56,37 @@ public:
 
 };
 
+class AddConnectionCommand : public Command {
+private:
+    int fromPort;
+    int toPort;
+
+    Connection connectionData;
+    bool executed;
+public:
+    AddConnectionCommand(int fromPort, int toPort)
+        : fromPort(fromPort), toPort(toPort), connectionData(), executed(false) {
+    }
+    void execute(FactoryGraph& graph) override;
+    void undo(FactoryGraph& graph) override;
+    std::string getDescription() const override { return "Add Connection: " + std::to_string(fromPort) + " -> " + std::to_string(toPort); }
+};
+
+class RemoveConnectionCommand : public Command {
+private:
+    int fromPort;
+    int toPort;
+
+    Connection connectionData;
+    public:
+    RemoveConnectionCommand(int fromPort, int toPort)
+        : fromPort(fromPort), toPort(toPort), connectionData() {
+    }
+    void execute(FactoryGraph& graph) override;
+    void undo(FactoryGraph& graph) override;
+    std::string getDescription() const override { return "Remove Connection: " + std::to_string(fromPort) + " -> " + std::to_string(toPort); }
+};
+
 class UndoRedoManager {
 private:
     std::vector<std::unique_ptr<Command>> undoStack;
