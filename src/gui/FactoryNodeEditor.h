@@ -65,7 +65,14 @@ private:
     UndoRedoManager undoRedoManager;
     ed::EditorContext* context = nullptr;
     ed::NodeId m_contextNodeId;
+
     ed::PinId m_contextPinId;
+    char m_contextPinConstraintBuf[64] = {0}; // Buffer for pin constraint input
+    double m_contextPinOriginalConstraint = 0.0;
+    double m_contextPinCurrentConstraint = 0.0;
+    bool m_contextPinConstraintChanged = false;
+    bool m_isContextMenuInitialized = false;
+
     ed::LinkId m_contextLinkId;
 
     ImVec2 m_storedPopupPosition;

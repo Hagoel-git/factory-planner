@@ -238,7 +238,7 @@ std::vector<NodeQuadtreeData> FactoryNodeEditor::GetVisibleNodes(const ImVec2& v
     }
 
     // Add some padding to the view to catch nodes that are partially visible
-    float padding = abs(0.1f * (viewMax.x - viewMin.x)); // 10% padding
+    float padding = 100.0;
 
     quadtree::Box<float> viewBox(
         quadtree::Vector2<float>(viewMin.x - padding, viewMin.y - padding),
@@ -641,17 +641,56 @@ void FactoryNodeEditor::HandlePopups() {
     if (ImGui::BeginPopup("Pin Context Menu")) {
         auto port = graph->getPort(FromPinId(m_contextPinId));
         if (port) {
+            // --- Initialization on first frame ---
+            if (!m_isContextMenuInitialized) {
+                m_contextPinOriginalConstraint = port->user_constraint;
+                m_contextPinCurrentConstraint = port->user_constraint;
+
+                if (port->user_constraint < 0.0) {
+                    m_contextPinConstraintBuf[0] = '\0';
+                } else {
+                    snprintf(m_contextPinConstraintBuf, sizeof(m_contextPinConstraintBuf), "%.15g", port->user_constraint);
+                }
+                m_isContextMenuInitialized = true; // Mark as initialized
+                ImGui::SetKeyboardFocusHere();
+            }
+
+            // --- Display Port Info ---
             ImGui::Text("Port ID: %d", port->id);
             ImGui::Text("Resource ID: %d", port->resource_id);
             ImGui::Text("Is Input: %s", port->isInput ? "Yes" : "No");
             ImGui::Text("Current rate: %.2f", port->rate);
             ImGui::Text("Limit: %.2f", port->user_constraint);
             ImGui::Separator();
-            static double new_constraint = 60;
-            ImGui::InputDouble("Rate", &new_constraint, 0.1f, 1.0f, "%.2f");
-            if (ImGui::MenuItem("Set Constraint")) {
-                graph->setPortDemand(port->id, new_constraint);
+            ImGui::PushItemWidth(150);
+
+            // --- User Input Handling ---
+            if (ImGui::InputText("Rate", m_contextPinConstraintBuf, sizeof(m_contextPinConstraintBuf), ImGuiInputTextFlags_AutoSelectAll)) {
+                // Value was edited, so we update the solver in real-time
+                double v = strtod(m_contextPinConstraintBuf, nullptr);
+                // Check for empty string or parse failure (strtod returns 0.0)
+                if (m_contextPinConstraintBuf[0] == '\0') {
+                    m_contextPinCurrentConstraint = -1.0;
+                } else {
+                    // Ensure constraint is not negative
+                    m_contextPinCurrentConstraint = (v < 0.0) ? 0.0 : v;
+                }
+
+                graph->setPortDemand(port->id, m_contextPinCurrentConstraint);
                 solver->solve(*graph);
+            }
+
+            // --- Deactivation Logic (Enter pressed or focus lost) ---
+            if (ImGui::IsItemDeactivatedAfterEdit() || ImGui::IsItemFocused() && ImGui::IsKeyPressed(ImGuiKey_Enter)) {
+                if (m_contextPinCurrentConstraint != m_contextPinOriginalConstraint) {
+                    // Create a single undo command for the entire change
+                    executeCommand(std::make_unique<SetPortConstraintCommand>(
+                        port->id, m_contextPinOriginalConstraint, m_contextPinCurrentConstraint
+                    ));
+                }
+
+                ImGui::CloseCurrentPopup();
+                m_isContextMenuInitialized = false;
             }
         } else {
             ImGui::Text("Unknown port");
