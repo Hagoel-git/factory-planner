@@ -41,11 +41,13 @@ public:
     bool Save();
 
     void undo() {
+        if (!undoRedoManager.canUndo()) return;
         undoRedoManager.undo(*graph);
         solver->solve(*graph);
         quadtreeNeedsRebuild = true; // Mark for rebuild after undo
     }
     void redo() {
+        if (!undoRedoManager.canRedo()) return;
         undoRedoManager.redo(*graph);
         solver->solve(*graph);
         quadtreeNeedsRebuild = true; // Mark for rebuild after redo
@@ -81,6 +83,13 @@ private:
     bool first_frame = true;
 
     void executeCommand(std::unique_ptr<Command> command) {
+        if (!command) return;
+        // check if it is a composite command and if it has no sub-commands, then ignore it
+        if (auto compositeCommand = dynamic_cast<CompositeCommand*>(command.get())) {
+            if (compositeCommand->isEmpty()) {
+                return;
+            }
+        }
         undoRedoManager.executeCommand(std::move(command), *graph);
         solver->solve(*graph);
         quadtreeNeedsRebuild = true; // Mark for rebuild after command execution
