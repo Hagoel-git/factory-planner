@@ -156,6 +156,7 @@ void FactoryNodeEditor::DrawHeader() {
     ImGui::Text("FPS: %.2f (%.2gms)", io.Framerate, io.Framerate ? 1000.0f / io.Framerate : 0.0f);
     ImGui::Text("Nodes: %d, Connections: %d, Ports: %d", graph->getNodes().size(), graph->getConnections().size(), graph->getPorts().size());
     ImGui::Text("Copy Buffer Size: %d", copyBuffer.size());
+    ImGui::Text("Selection size: %d", ed::GetSelectedObjectCount());
 
     // Debug info for quadtree
     if (nodeQuadtree) {
@@ -438,22 +439,19 @@ void FactoryNodeEditor::HandleUserInteractions() {
             }
         }
 
-        // Process deletions: links first, then nodes
-        // This ensures we don't try to delete already-removed connections
+        auto cmd = std::make_unique<CompositeCommand>("Delete operation");
         for (int id : linksToDelete) {
             auto connection = graph->getConnection(id);
             if (connection != nullptr) {
-                int fromPort = connection->from_port;
-                int toPort = connection->to_port;
-                graph->removeConnection(fromPort, toPort);
+                cmd->addCommand(std::make_unique<RemoveConnectionCommand>(connection->from_port, connection->to_port));
             }
         }
 
         for (int id : nodesToDelete) {
-            graph->removeNode(id);
-            quadtreeNeedsRebuild = true; // Mark for rebuild when nodes are deleted
+            cmd->addCommand(std::make_unique<RemoveNodeCommand>(id));
         }
-        solver->solve(*graph);
+
+        executeCommand(std::move(cmd));
         std::cout << std::endl;
     }
     ed::EndDelete();
@@ -671,7 +669,7 @@ void FactoryNodeEditor::HandlePopups() {
             ImGui::Text("Current rate: %.2f", connection->rate);
             ImGui::Separator();
             if (ImGui::MenuItem("Delete Link")) {
-                graph->removeConnection(connection->from_port, connection->to_port);
+                executeCommand(std::make_unique<RemoveConnectionCommand>(connection->from_port, connection->to_port));
             }
         } else {
             ImGui::Text("Unknown link");

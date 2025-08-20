@@ -17,6 +17,33 @@ public:
     virtual std::string getDescription() const = 0;
 };
 
+class CompositeCommand : public Command {
+private:
+    std::vector<std::unique_ptr<Command>> commands;
+    std::string description;
+public:
+    CompositeCommand(const std::string& desc) : description(desc) {}
+    void addCommand(std::unique_ptr<Command> command) {
+        commands.push_back(std::move(command));
+    }
+    void execute(FactoryGraph& graph) override {
+        for (auto& cmd : commands) {
+            cmd->execute(graph);
+        }
+    }
+    void undo(FactoryGraph& graph) override {
+        for (auto it = commands.rbegin(); it != commands.rend(); ++it) {
+            (*it)->undo(graph);
+        }
+    }
+    std::string getDescription() const override {
+        return description;
+    }
+    bool isEmpty() const {
+        return commands.empty();
+    }
+};
+
 class AddNodeCommand : public Command {
 private:
     std::string nodeName;

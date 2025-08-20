@@ -45,6 +45,15 @@ void Application::Draw() {
         dockInitialized = true;
     }
 
+    // Workaround for ImGuiConfigFlags_NavEnableKeyboard
+    // When the Alt key is released alone, some systems or ImGui's internal navigation state can cause focus to be lost.
+    if (ImGui::IsKeyReleased(ImGuiKey_LeftAlt) || ImGui::IsKeyReleased(ImGuiKey_RightAlt)) {
+        if (activeEditor != -1) {
+            // If an editor window was previously active (indicated by activeEditor not being -1),
+            // we'll explicitly restore keyboard focus to it.
+            ImGui::SetWindowFocus(editors[activeEditor]->GetName().c_str());
+        }
+    }
     activeEditor = -1; // reset each frame; will set to index of focused one
     for (int i = 0; i < static_cast<int>(editors.size()); ++i) {
         auto &editor = editors[i];
