@@ -107,25 +107,6 @@ void FactoryNodeEditor::Draw() {
     HandleFirstFrame();
     ed::Begin(name.c_str());
 
-    static bool wasDragging = false;
-    bool isDragging = ImGui::IsMouseDragging(ImGuiMouseButton_Left, 1);
-    static bool draggingNode = false;
-
-    if (isDragging && !wasDragging) {
-        // Drag just started - check if we're over a node BUT NOT over a pin
-        if (ed::GetHoveredNode() && !ed::GetHoveredPin()) {
-            draggingNode = true;
-        }
-    } else if (!isDragging && wasDragging) {
-        // Drag just ended
-        if (draggingNode) {
-            quadtreeNeedsRebuild = true;
-            draggingNode = false;
-        }
-    }
-
-    wasDragging = isDragging;
-
     // Rebuild quadtree if needed
     if (quadtreeNeedsRebuild) {
         RebuildQuadtree();
@@ -455,6 +436,50 @@ void FactoryNodeEditor::HandleUserInteractions() {
         std::cout << std::endl;
     }
     ed::EndDelete();
+
+    bool isDragging = ImGui::IsMouseDragging(ImGuiMouseButton_Left, 1);
+    if (isDragging && !wasDragging) {
+        // Drag just started - check if we're over a node BUT NOT over a pin
+        if (ed::GetHoveredNode() && !ed::GetHoveredPin()) {
+            draggedNodeId = ed::GetHoveredNode();
+            draggedNodeOriginalPos = ed::GetNodePosition(draggedNodeId);
+            draggingNodes = true;
+        }
+    } else if (!isDragging && wasDragging) {
+        // Drag just ended
+        if (draggingNodes) {
+            std::vector<ed::NodeId> selectedNodes;
+            selectedNodes.resize(ed::GetSelectedObjectCount());
+            int nodeCount = ed::GetSelectedNodes(selectedNodes.data(), selectedNodes.size());
+            selectedNodes.resize(nodeCount);
+
+            draggedNodeNewPos = ed::GetNodePosition(draggedNodeId);
+
+            // check if dragged node is in the selection
+            if (std::find(selectedNodes.begin(), selectedNodes.end(), draggedNodeId) != selectedNodes.end()) {
+                auto cmd = std::make_unique<CompositeCommand>("Move Nodes Command");
+                for (const auto &nodeId : selectedNodes) {
+                    ImVec2 originalPosition = ed::GetNodePosition(nodeId) - (draggedNodeNewPos - draggedNodeOriginalPos);
+                    ImVec2 newPos = ed::GetNodePosition(nodeId);;
+                    if (draggedNodeOriginalPos != newPos) {
+                        auto node = graph->getNode(FromNodeId(nodeId));
+                        if (node) {
+                            cmd->addCommand(std::make_unique<MoveNodeCommand>(node->id, originalPosition, newPos));
+                        }
+                    }
+                }
+                executeCommand(std::move(cmd));
+            } else {
+                // If the dragged node is not in the selection, just move it
+                auto node = graph->getNode(FromNodeId(draggedNodeId));
+                if (node) {
+                    executeCommand(std::make_unique<MoveNodeCommand>(node->id, draggedNodeOriginalPos, draggedNodeNewPos));
+                }
+            }
+            draggingNodes = false;
+        }
+    }
+    wasDragging = isDragging;
 }
 
 void FactoryNodeEditor::HandleKeyboardShortcuts() {
