@@ -177,6 +177,16 @@ Connection *FactoryGraph::getConnection(int id) {
     return (it != connection_id_to_index_.end()) ? &connections[it->second] : nullptr;
 }
 
+Connection *FactoryGraph::getConnection(int from_port, int to_port) {
+    for (auto & connection : connections) {
+        if (connection.from_port == from_port && connection.to_port == to_port) {
+            int connection_id = connection.id;
+            return getConnection(connection_id);
+        }
+    }
+    return nullptr;
+}
+
 std::vector<Connection *> FactoryGraph::getConnectionsForPort(int id) {
     std::vector<Connection*> result;
     auto range = connectionsByPort.equal_range(id);

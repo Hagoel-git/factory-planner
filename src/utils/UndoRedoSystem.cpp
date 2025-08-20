@@ -61,8 +61,10 @@ void AddNodeCommand::execute(FactoryGraph &graph) {
         if (fromPort != -1) {
             bool fromInput = graph.getPort(fromPort)->isInput;
             // Find the corresponding port on the newly created node to connect to
-            const auto& ports_on_new_node = fromInput ? graph.getNode(newNodeId)->output_ports : graph.getNode(newNodeId)->input_ports;
-            for (int new_port_id : ports_on_new_node) {
+            const auto &ports_on_new_node = fromInput
+                                                ? graph.getNode(newNodeId)->output_ports
+                                                : graph.getNode(newNodeId)->input_ports;
+            for (int new_port_id: ports_on_new_node) {
                 if (graph.getPort(new_port_id)->resource_id == graph.getPort(fromPort)->resource_id) {
                     // Determine connection direction dynamically
                     int source_id = fromInput ? new_port_id : fromPort;
@@ -80,13 +82,13 @@ void AddNodeCommand::execute(FactoryGraph &graph) {
         if (node) {
             nodeData = *node; // Store the node data for undo
         }
-        for (int port_id : nodeData.input_ports) {
+        for (int port_id: nodeData.input_ports) {
             auto port = graph.getPort(port_id);
             if (port) {
                 ports_data.push_back(*port); // Store input port data
             }
         }
-        for (int port_id : nodeData.output_ports) {
+        for (int port_id: nodeData.output_ports) {
             auto port = graph.getPort(port_id);
             if (port) {
                 ports_data.push_back(*port); // Store output port data
@@ -114,21 +116,21 @@ void RemoveNodeCommand::execute(FactoryGraph &graph) {
     nodeData = *node; // Store the node data for undo
     position = ed::GetNodePosition(ToNodeId(id));
     // Store all ports and connections for undo
-    for (int port_id : nodeData.input_ports) {
+    for (int port_id: nodeData.input_ports) {
         auto port = graph.getPort(port_id);
         if (port) {
             ports_data.push_back(*port); // Store input port data
         }
-        for (const auto &conn : graph.getConnectionsForPort(port_id)) {
+        for (const auto &conn: graph.getConnectionsForPort(port_id)) {
             connections_data.push_back(*conn); // Store connection data
         }
     }
-    for (int port_id : nodeData.output_ports) {
+    for (int port_id: nodeData.output_ports) {
         auto port = graph.getPort(port_id);
         if (port) {
             ports_data.push_back(*port); // Store output port data
         }
-        for (const auto &conn : graph.getConnectionsForPort(port_id)) {
+        for (const auto &conn: graph.getConnectionsForPort(port_id)) {
             connections_data.push_back(*conn); // Store connection data
         }
     }
@@ -141,10 +143,36 @@ void RemoveNodeCommand::undo(FactoryGraph &graph) {
     ed::SetNodePosition(ToNodeId(nodeData.id), position);
 
     // Restore all connections
-    for (const auto &conn : connections_data) {
+    for (const auto &conn: connections_data) {
         graph.restoreConnection(conn);
     }
     connections_data.clear();
     ports_data.clear();
     nodeData = Node(); // Clear node data to avoid double undo
+}
+
+void AddConnectionCommand::execute(FactoryGraph &graph) {
+    if (!executed) {
+        int connId = graph.addConnection(fromPort, toPort);
+        connectionData = *graph.getConnection(connId); // Store connection data for undo
+        executed = true;
+    } else {
+        graph.restoreConnection(connectionData);
+    }
+}
+
+void AddConnectionCommand::undo(FactoryGraph &graph) {
+    graph.removeConnection(fromPort, toPort);
+}
+
+void RemoveConnectionCommand::execute(FactoryGraph &graph) {
+    Connection* conn = graph.getConnection(fromPort, toPort);
+    if (conn != nullptr) {
+        connectionData = *conn;
+        graph.removeConnection(fromPort, toPort);
+    }
+}
+
+void RemoveConnectionCommand::undo(FactoryGraph &graph) {
+    graph.restoreConnection(connectionData);
 }

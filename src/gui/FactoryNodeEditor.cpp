@@ -392,11 +392,10 @@ void FactoryNodeEditor::HandleUserInteractions() {
 
                 if (ed::AcceptNewItem(color, 1.0f)) {
                     if (connectionExists) {
-                        graph->removeConnection(startId, endId);
+                        executeCommand(std::make_unique<RemoveConnectionCommand>(startId, endId));
                     } else {
-                        graph->addConnection(startId, endId);
+                        executeCommand(std::make_unique<AddConnectionCommand>(startId, endId));
                     }
-                    solver->solve(*graph);
                 } else {
                     if (connectionExists) {
                         showLabel("- Remove Link", ImColor(32, 45, 32, 180)); // Show label for removing link

@@ -27,6 +27,7 @@ public:
     void restoreConnection(const Connection& connection);
     bool removeConnection(int from_port, int to_port);
     Connection* getConnection(int id);
+    Connection* getConnection(int from_port, int to_port);
     std::vector<Connection*> getConnectionsForPort(int id);
     [[nodiscard]] const std::vector<Connection>& getConnections() const;
 
