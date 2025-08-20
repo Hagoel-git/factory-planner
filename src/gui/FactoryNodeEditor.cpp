@@ -461,7 +461,7 @@ void FactoryNodeEditor::HandleUserInteractions() {
                 for (const auto &nodeId : selectedNodes) {
                     ImVec2 originalPosition = ed::GetNodePosition(nodeId) - (draggedNodeNewPos - draggedNodeOriginalPos);
                     ImVec2 newPos = ed::GetNodePosition(nodeId);;
-                    if (draggedNodeOriginalPos != newPos) {
+                    if (draggedNodeOriginalPos != draggedNodeNewPos) {
                         auto node = graph->getNode(FromNodeId(nodeId));
                         if (node) {
                             cmd->addCommand(std::make_unique<MoveNodeCommand>(node->id, originalPosition, newPos));
