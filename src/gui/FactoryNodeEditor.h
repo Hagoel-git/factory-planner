@@ -64,6 +64,13 @@ private:
     std::unique_ptr<FactorySolver> solver;
     UndoRedoManager undoRedoManager;
     ed::EditorContext* context = nullptr;
+
+    bool wasDragging = false;
+    bool draggingNodes = false;
+    ed::NodeId draggedNodeId;
+    ImVec2 draggedNodeOriginalPos = ImVec2(0, 0);
+    ImVec2 draggedNodeNewPos = ImVec2(0, 0);
+
     ed::NodeId m_contextNodeId;
 
     ed::PinId m_contextPinId;

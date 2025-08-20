@@ -130,6 +130,22 @@ public:
     }
 };
 
+class MoveNodeCommand : public Command {
+private:
+    ImVec2 oldPosition;
+    ImVec2 newPosition;
+    int nodeId;
+public:
+    MoveNodeCommand(int nodeId, const ImVec2& oldPosition, const ImVec2& newPosition)
+        : nodeId(nodeId), oldPosition(oldPosition), newPosition(newPosition) {
+    }
+    void execute(FactoryGraph& graph) override;
+    void undo(FactoryGraph& graph) override;
+    std::string getDescription() const override {
+        return "Change Node Position: Node ID " + std::to_string(nodeId) + " from (" + std::to_string(oldPosition.x) + ", " + std::to_string(oldPosition.y) + ") to (" + std::to_string(newPosition.x) + ", " + std::to_string(newPosition.y) + ")";
+    }
+};
+
 class UndoRedoManager {
 private:
     std::vector<std::unique_ptr<Command>> undoStack;

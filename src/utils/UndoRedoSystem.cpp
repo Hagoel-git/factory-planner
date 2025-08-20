@@ -184,3 +184,11 @@ void SetPortConstraintCommand::execute(FactoryGraph &graph) {
 void SetPortConstraintCommand::undo(FactoryGraph &graph) {
     graph.setPortDemand(portId, oldConstraint);
 }
+
+void MoveNodeCommand::execute(FactoryGraph &graph) {
+    ed::SetNodePosition(ToNodeId(nodeId),  newPosition);
+}
+
+void MoveNodeCommand::undo(FactoryGraph &graph) {
+    ed::SetNodePosition(ToNodeId(nodeId), oldPosition);
+}
