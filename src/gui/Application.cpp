@@ -108,7 +108,14 @@ void Application::DrawMenuBar() {
                 SaveActiveEditor();
             }
             if (ImGui::MenuItem("Save As...", "Ctrl+Shift+S")) {
-                showSaveAsDialog = true;
+                showSaveDialog = true;
+            }
+            if (ImGui::MenuItem("Save a Copy")) {
+                isSaveAsCopy = true;
+                showSaveDialog = true;
+            }
+            if (ImGui::MenuItem("Save All")) {
+                SaveAll();
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Close Active", "Ctrl+W") && !editors.empty()) {
@@ -159,7 +166,7 @@ void Application::DrawMenuBar() {
         }
         if (ImGui::IsKeyPressed(ImGuiKey_S)) {
             if (io.KeyShift) {
-                showSaveAsDialog = true; // Show Save As dialog
+                showSaveDialog = true; // Show Save As dialog
             } else {
                 SaveActiveEditor(); // Save current editor
             }
@@ -310,9 +317,9 @@ void Application::DrawOpenProjectDialog() {
 }
 
 void Application::DrawSaveAsDialog() {
-    if (!showSaveAsDialog) return;
+    if (!showSaveDialog) return;
     if (editors.empty()) {
-        showSaveAsDialog = false; // No editors to save
+        showSaveDialog = false; // No editors to save
         return;
     }
     // Start native save dialog on background thread if not already running
@@ -346,22 +353,27 @@ void Application::DrawSaveAsDialog() {
 
     // If a path was picked, perform SaveAs and switch to the new file
     if (!fileDialogResult.empty()) {
-        // check if the file is already open
-        std::string newFileName = std::filesystem::path(fileDialogResult).stem().string();
-        if (std::any_of(editors.begin(), editors.end(), [&](const auto &editor) {
-            return editor->GetName() == newFileName;
-        })) {
-            // If an editor with the same name is already open, close it
-            CloseEditorByName(newFileName);
+        if (isSaveAsCopy) {
+            SaveActiveEditorAs(fileDialogResult, SaveAsMode::KeepCurrentFile);
+            isSaveAsCopy = false;
+        } else {
+            // check if the file is already open
+            std::string newFileName = std::filesystem::path(fileDialogResult).stem().string();
+            if (std::any_of(editors.begin(), editors.end(), [&](const auto &editor) {
+                return editor->GetName() == newFileName;
+            })) {
+                // If an editor with the same name is already open, close it
+                CloseEditorByName(newFileName);
+            }
+            SaveActiveEditorAs(fileDialogResult, SaveAsMode::SwitchToNewFile);
         }
-        SaveActiveEditorAs(fileDialogResult, SaveAsMode::SwitchToNewFile);
-        showSaveAsDialog = false;
+        showSaveDialog = false;
         fileDialogResult.clear();
     }
 
     // Handle cancellation
     if (fileDialogCancelled) {
-        showSaveAsDialog = false;
+        showSaveDialog = false;
         fileDialogCancelled = false;
     }
 }
@@ -403,9 +415,17 @@ bool Application::SaveActiveEditorAs(const std::string &newFilePath, SaveAsMode 
 
     auto &editor = editors[activeEditor];
     if (editor) {
-        return editor->SaveAs(newFilePath, SaveAsMode::SwitchToNewFile);
+        return editor->SaveAs(newFilePath, mode);
     }
     return false;
+}
+
+void Application::SaveAll() {
+    for (auto& editor : editors) {
+        if (editor) {
+            editor->Save();
+        }
+    }
 }
 
 void Application::UndoActiveEditor() {

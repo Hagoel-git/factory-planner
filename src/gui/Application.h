@@ -21,7 +21,8 @@ private:
 
     bool showNewProjectDialog = false;
     bool showOpenProjectDialog = false;
-    bool showSaveAsDialog = false;
+    bool showSaveDialog = false;
+    bool isSaveAsCopy = false;
 
     void DrawMenuBar();
 
@@ -33,8 +34,8 @@ private:
     void CreateNewEditor(const std::string &gameDataFilePath, const std::string &location, const std::string &name);
 
     bool SaveActiveEditor();
-
     bool SaveActiveEditorAs(const std::string &newFilePath, SaveAsMode mode);
+    void SaveAll();
 
     void UndoActiveEditor();
     void RedoActiveEditor();
