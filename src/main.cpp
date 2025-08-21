@@ -76,6 +76,8 @@ int main(int, char **) {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+    io.IniFilename = NULL;
+    io.LogFilename = NULL;
 
     // Setup Dear ImGui style
     ImGui::StyleColorsDark();

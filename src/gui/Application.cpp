@@ -8,10 +8,11 @@
 #include <GLFW/glfw3.h>
 
 #include "nfd.h"
-static bool showFileAlreadyOpenPopup = false;
+#include "../utils/FilesystemUtils.h"
 
 Application::Application() {
-}
+    executableDirectory = get_executable_directory()
+                              .value_or(std::filesystem::current_path());}
 
 Application::~Application() = default;
 void Application::Draw() {
@@ -154,6 +155,9 @@ void Application::DrawMenuBar() {
 
     // Handle keyboard shortcuts
     ImGuiIO &io = ImGui::GetIO();
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        showNewProjectDialog = false;
+    }
     if (io.KeyCtrl) {
         if (ImGui::IsKeyPressed(ImGuiKey_N)) {
             showNewProjectDialog = true;
@@ -191,78 +195,193 @@ void Application::DrawMenuBar() {
 void Application::DrawNewProjectDialog() {
     if (!showNewProjectDialog) return;
 
-    ImGui::SetNextWindowSize(ImVec2(640, 480), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin("New Project", &showNewProjectDialog, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking)) {
-        std::string gameDataPath = "game_data"; // Default path for game data files
-        std::vector<std::string> gameDataFiles = GetGameDataFiles(gameDataPath);
-        static char projectName[128];
-        static char location[256] = "projects/"; // Default path
-        ImGui::Text("Create a new project:");
-        if (projectName[0] == '\0') {
-            // Initialize with a default name if empty
-            std::string defaultName = GenerateDefaultEditorName();
-            std::strncpy(projectName, defaultName.c_str(), sizeof(projectName));
-            projectName[sizeof(projectName) - 1] = '\0'; // Ensure null-termination
-        }
-        ImGui::InputText("Project Name", projectName, sizeof(projectName));
-        ImGui::InputText("Location (Relative)", location, sizeof(projectName));
-        std::string fullPath = std::string(location) + projectName + ".fpp";
-        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Full project path: %s", fullPath.c_str());
-        ImGui::Text("Select Game Configuration:");
+    constexpr const char* kProjectExtension = ".fpp";
+    static char projectNameBuf[128] = "";
+    static char locationBuf[512] = "";
+    static bool initialized = false;
+    static int selectedGameDataFile = -1;
 
-        static int selectedGameDataFile = gameDataFiles.empty() ? -1 : 0; // Default to first file if available
-
-        if (ImGui::BeginChild("GameSelection", ImVec2(0, 150), true)) {
-            for (int i = 0; i < static_cast<int>(gameDataFiles.size()); ++i) {
-                bool isSelected = (selectedGameDataFile == i);
-                if (ImGui::Selectable(gameDataFiles[i].c_str(), isSelected)) {
-                    selectedGameDataFile = i;
-                }
-            }
-        }
-        ImGui::EndChild();
-
-        ImGui::Spacing();
-
-        bool nameExists = std::any_of(editors.begin(), editors.end(), [&](const auto &editor) {
-            return editor->GetName() == projectName;
-        });
-        bool projectExists = std::filesystem::exists(
-            std::filesystem::path(location) / (std::string(projectName) + ".fpp"));
-
-        ImGui::BeginDisabled(nameExists || projectExists || selectedGameDataFile == -1);
-        // Disable button if name exists or project already exists
-        if (ImGui::Button("Create")) {
-            if (!nameExists) {
-                CreateNewEditor(gameDataPath + "/" + gameDataFiles.at(selectedGameDataFile), fullPath, projectName);
-                showNewProjectDialog = false;
-            }
-            if (!projectExists) {
-                // create the project directory and file if it doesn't exist
-                std::filesystem::create_directories(std::filesystem::path(location));
-            }
-        }
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel")) {
-            showNewProjectDialog = false; // Close dialog without action
-        }
-        if (nameExists) {
-            ImGui::Spacing();
-            ImGui::TextColored(ImVec4(1, 0, 0, 1), "An editor with this name already exists.");
-        }
-        if (projectExists) {
-            ImGui::Spacing();
-            ImGui::TextColored(ImVec4(1, 0, 0, 1),
-                               "A project with this name already exists at the specified location.");
-        }
-        if (selectedGameDataFile == -1) {
-            ImGui::Spacing();
-            ImGui::TextColored(ImVec4(1, 0, 0, 1), "Please select a game configuration file.");
-        }
+    ImGui::SetNextWindowSize(ImVec2(800, 650), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("New Project", &showNewProjectDialog,
+                       ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking)) {
         ImGui::End();
+        return;
     }
+
+    // Gather game data files (fresh each frame in case files change)
+    std::filesystem::path gameDataPath = executableDirectory / "game_data";
+    std::vector<std::filesystem::path> gameDataFiles = GetGameDataFiles(gameDataPath);
+
+    // One-time initialization of buffers
+    if (!initialized) {
+        initialized = true;
+        std::string defaultName = GenerateDefaultEditorName();
+        std::strncpy(projectNameBuf, defaultName.c_str(), sizeof(projectNameBuf));
+        projectNameBuf[sizeof(projectNameBuf) - 1] = '\0';
+
+        std::filesystem::path defaultLocation = executableDirectory / "projects";
+        std::strncpy(locationBuf, defaultLocation.string().c_str(), sizeof(locationBuf));
+        locationBuf[sizeof(locationBuf) - 1] = '\0';
+
+        selectedGameDataFile = gameDataFiles.empty() ? -1 : 0;
+    }
+
+    // --- Header ---
+    ImGui::TextWrapped("Create a new project. The project filename will be <name>%s", kProjectExtension);
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    // --- Name & Location ---
+    ImGui::PushItemWidth(-1); // full width inputs
+    ImGui::Text("Project name (filename without extension):");
+    if (ImGui::InputText("##projname", projectNameBuf, sizeof(projectNameBuf))) {
+        // sanitize: strip any path separators and extension if user pasted it
+        std::string s(projectNameBuf);
+        // Remove any directory components
+        size_t pos = s.find_last_of("/\\");
+        if (pos != std::string::npos) s = s.substr(pos + 1);
+        // Remove extension if user included it
+        if (s.size() > std::strlen(kProjectExtension) &&
+            s.compare(s.size() - std::strlen(kProjectExtension), std::strlen(kProjectExtension), kProjectExtension) == 0) {
+            s.resize(s.size() - std::strlen(kProjectExtension));
+        }
+        // Remove any remaining slashes
+        s.erase(std::remove_if(s.begin(), s.end(), [](char c){ return c == '/' || c == '\\' || c == ':'; }), s.end());
+        std::strncpy(projectNameBuf, s.c_str(), sizeof(projectNameBuf));
+        projectNameBuf[sizeof(projectNameBuf) - 1] = '\0';
+    }
+    ImGui::PopItemWidth();
+
+    ImGui::Spacing();
+    ImGui::Text("Location (folder):");
+    ImGui::SameLine();
+
+    ImGui::BeginGroup();
+    float totalWidth = ImGui::GetContentRegionAvail().x;
+    float buttonWidth = 60.0f;
+    float spacing = ImGui::GetStyle().ItemSpacing.x;
+    float inputWidth = totalWidth - buttonWidth - spacing;
+
+    ImGui::PushItemWidth(inputWidth);
+    ImGui::InputText("##location", locationBuf, sizeof(locationBuf));
+    ImGui::PopItemWidth();
+    ImGui::SameLine();
+    if (ImGui::Button("Browse...", ImVec2(buttonWidth, 0))) {
+        std::thread([]() {
+        nfdu8char_t *outPath;
+        nfdpickfolderu8args_t args = {0};
+        args.defaultPath = locationBuf;
+        nfdresult_t result = NFD_PickFolderU8_With(&outPath, &args);
+
+        if (result == NFD_OKAY) {
+            std::strncpy(locationBuf, outPath, sizeof(locationBuf) - 1);
+            locationBuf[sizeof(locationBuf) - 1] = '\0';
+            NFD_FreePathU8(outPath);
+        }
+    }).detach();
+    }
+    ImGui::EndGroup();
+
+    // Compute full path shown to the user (location / (projectName + ext))
+    std::filesystem::path locationPath = std::filesystem::path(std::string(locationBuf));
+    std::string projectNameStr = projectNameBuf;
+    std::filesystem::path fullPath;
+    if (!projectNameStr.empty()) {
+        fullPath = locationPath / (projectNameStr + kProjectExtension);
+    } else {
+        fullPath = locationPath; // fallback if name empty
+    }
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("Full project path:");
+    ImGui::SameLine();
+    ImGui::TextWrapped("%s", fullPath.string().c_str());
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    // --- Game configuration list ---
+    ImGui::Text("Select Game Configuration:");
+    ImGui::BeginChild("GameSelection", ImVec2(0, 180), true);
+    if (gameDataFiles.empty()) {
+        ImGui::TextDisabled("No game configuration files found in %s", gameDataPath.string().c_str());
+        selectedGameDataFile = -1;
+    } else {
+        // Ensure selected index is valid
+        if (selectedGameDataFile < 0) selectedGameDataFile = 0;
+        if (selectedGameDataFile >= static_cast<int>(gameDataFiles.size())) selectedGameDataFile = static_cast<int>(gameDataFiles.size()) - 1;
+
+        for (int i = 0; i < static_cast<int>(gameDataFiles.size()); ++i) {
+            const auto &p = gameDataFiles[i];
+            const std::string display = p.filename().string();
+            bool isSelected = (selectedGameDataFile == i);
+            if (ImGui::Selectable(display.c_str(), isSelected)) {
+                selectedGameDataFile = i;
+            }
+        }
+    }
+    ImGui::EndChild();
+
+    ImGui::Spacing();
+
+    // --- Validation checks ---
+    bool nameEmpty = projectNameStr.empty();
+    bool nameExists = std::any_of(editors.begin(), editors.end(), [&](const auto &editor) {
+        return editor->GetName() == projectNameStr;
+    });
+
+    bool projectExists = false;
+    if (!fullPath.empty()) {
+        projectExists = std::filesystem::exists(fullPath);
+    }
+
+    // Buttons
+    ImGui::BeginGroup();
+    // Create button disabled if invalid
+    ImGui::BeginDisabled(nameEmpty || nameExists || projectExists || selectedGameDataFile == -1);
+    if (ImGui::Button("Create", ImVec2(120, 0))) {
+        // Ensure project directory exists
+        std::error_code ec;
+        std::filesystem::create_directories(locationPath, ec);
+        // Create the editor/project (call existing function)
+        if (selectedGameDataFile >= 0 && selectedGameDataFile < static_cast<int>(gameDataFiles.size())) {
+            std::filesystem::path selectedGameData = gameDataPath / gameDataFiles.at(selectedGameDataFile);
+            CreateNewEditor(selectedGameData, fullPath, projectNameStr);
+        }
+        showNewProjectDialog = false;
+    }
+    ImGui::EndDisabled();
+
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+        showNewProjectDialog = false;
+    }
+    ImGui::EndGroup();
+
+    // --- Inline validation messages ---
+    if (nameEmpty) {
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(1, 0.4f, 0.4f, 1), "Project name cannot be empty.");
+    } else if (nameExists) {
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(1, 0.2f, 0.2f, 1), "An editor with this name already exists.");
+    }
+
+    if (projectExists) {
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(1, 0.2f, 0.2f, 1), "A project with this name already exists at the specified location.");
+    }
+
+    if (selectedGameDataFile == -1) {
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(1, 0.2f, 0.2f, 1), "Please select a game configuration file.");
+    }
+
+    ImGui::End();
 }
+
 static std::atomic<bool> fileDialogRunning = false;
 static std::string fileDialogResult;
 static std::atomic<bool> fileDialogCancelled = false;
@@ -270,8 +389,8 @@ static std::atomic<bool> fileDialogCancelled = false;
 void Application::DrawOpenProjectDialog() {
     if (!showOpenProjectDialog) return;
 
-    std::string gameDataPath = "game_data"; // Default path for game data files
-    std::vector<std::string> gameDataFiles = GetGameDataFiles(gameDataPath);
+    std::filesystem::path gameDataPath = executableDirectory / "game_data";
+    std::vector<std::filesystem::path> gameDataFiles = GetGameDataFiles(gameDataPath);
 
     if (!fileDialogRunning && fileDialogResult.empty() && !fileDialogCancelled) {
         fileDialogRunning = true;
@@ -304,7 +423,7 @@ void Application::DrawOpenProjectDialog() {
     // Handle successful file selection
     if (!fileDialogResult.empty()) {
         std::string projectName = std::filesystem::path(fileDialogResult).stem().string();
-        CreateNewEditor(gameDataPath + "/" + gameDataFiles.at(0), fileDialogResult, projectName);
+        CreateNewEditor(gameDataPath / gameDataFiles.at(0), fileDialogResult, projectName);
         showOpenProjectDialog = false;
         fileDialogResult.clear();
     }
@@ -517,14 +636,14 @@ std::string Application::GenerateDefaultEditorName() {
     return "Factory_" + std::to_string(nextNumber);
 }
 
-std::vector<std::string> Application::GetGameDataFiles(const std::string &directory) {
-    if (!std::filesystem::exists(directory)) {
-        std::filesystem::create_directories(directory);
+std::vector<std::filesystem::path> Application::GetGameDataFiles(const std::filesystem::path &directory) {
+    if (!exists(directory)) {
+        create_directories(directory);
     }
-    std::vector<std::string> jsonFiles;
+    std::vector<std::filesystem::path> jsonFiles;
     for (const auto &entry: std::filesystem::directory_iterator(directory)) {
         if (entry.is_regular_file() && entry.path().extension() == ".json") {
-            jsonFiles.push_back(entry.path().filename().string());
+            jsonFiles.push_back(entry.path().filename());
         }
     }
     return jsonFiles;
