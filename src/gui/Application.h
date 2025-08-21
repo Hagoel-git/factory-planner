@@ -16,11 +16,13 @@ public:
     bool quitRequested = false;
 private:
     std::vector<std::unique_ptr<FactoryNodeEditor>> editors;
+    std::filesystem::path executableDirectory;
     bool dockInitialized = false;
     int activeEditor = -1; // No active editor initially
 
     bool showNewProjectDialog = false;
     bool showOpenProjectDialog = false;
+    bool showFileAlreadyOpenPopup = false;
     bool showSaveDialog = false;
     bool isSaveAsCopy = false;
 
@@ -47,6 +49,7 @@ private:
 
     // Utility
     std::string GenerateDefaultEditorName();
-    std::vector<std::string> GetGameDataFiles(const std::string &directory);
+
+    std::vector<std::filesystem::path> GetGameDataFiles(const std::filesystem::path &directory);
 };
 #endif
