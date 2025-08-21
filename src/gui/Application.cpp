@@ -18,6 +18,7 @@ void Application::Draw() {
     DrawMenuBar();
     DrawNewProjectDialog();
     DrawOpenProjectDialog();
+    DrawSaveAsDialog();
     ImGuiViewport *viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->WorkPos);
     ImGui::SetNextWindowSize(viewport->WorkSize);
@@ -106,8 +107,8 @@ void Application::DrawMenuBar() {
             if (ImGui::MenuItem("Save", "Ctrl+S")) {
                 SaveActiveEditor();
             }
-            if (ImGui::MenuItem("Save As...", "Ctrl+Shift+S (WIP)")) {
-
+            if (ImGui::MenuItem("Save As...", "Ctrl+Shift+S")) {
+                showSaveAsDialog = true;
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Close Active", "Ctrl+W") && !editors.empty()) {
@@ -157,7 +158,11 @@ void Application::DrawMenuBar() {
             CloseActiveEditor();
         }
         if (ImGui::IsKeyPressed(ImGuiKey_S)) {
-            SaveActiveEditor();
+            if (io.KeyShift) {
+                showSaveAsDialog = true; // Show Save As dialog
+            } else {
+                SaveActiveEditor(); // Save current editor
+            }
         }
         if (ImGui::IsKeyPressed(ImGuiKey_Q)) {
             editors.clear();
@@ -303,6 +308,64 @@ void Application::DrawOpenProjectDialog() {
         fileDialogCancelled = false;
     }
 }
+
+void Application::DrawSaveAsDialog() {
+    if (!showSaveAsDialog) return;
+    if (editors.empty()) {
+        showSaveAsDialog = false; // No editors to save
+        return;
+    }
+    // Start native save dialog on background thread if not already running
+    if (!fileDialogRunning && fileDialogResult.empty() && !fileDialogCancelled) {
+        fileDialogRunning = true;
+        fileDialogCancelled = false;
+
+        std::thread([]() {
+            nfdu8char_t *outPath = nullptr;
+            nfdsavedialogu8args_t args = {0};
+            nfdu8filteritem_t filters[1] = { { "Factory Planner Project", "fpp" } };
+            args.filterList = filters;
+            args.filterCount = 1;
+
+            nfdresult_t result = NFD_SaveDialogU8_With(&outPath, &args);
+
+            if (result == NFD_OKAY) {
+                fileDialogResult = outPath ? outPath : "";
+                if (outPath) NFD_FreePathU8(outPath);
+            } else if (result == NFD_CANCEL) {
+                fileDialogCancelled = true;
+            } else {
+                // NFD_ERROR
+                fileDialogResult.clear();
+                fileDialogCancelled = true;
+            }
+
+            fileDialogRunning = false;
+        }).detach();
+    }
+
+    // If a path was picked, perform SaveAs and switch to the new file
+    if (!fileDialogResult.empty()) {
+        // check if the file is already open
+        std::string newFileName = std::filesystem::path(fileDialogResult).stem().string();
+        if (std::any_of(editors.begin(), editors.end(), [&](const auto &editor) {
+            return editor->GetName() == newFileName;
+        })) {
+            // If an editor with the same name is already open, close it
+            CloseEditorByName(newFileName);
+        }
+        SaveActiveEditorAs(fileDialogResult, SaveAsMode::SwitchToNewFile);
+        showSaveAsDialog = false;
+        fileDialogResult.clear();
+    }
+
+    // Handle cancellation
+    if (fileDialogCancelled) {
+        showSaveAsDialog = false;
+        fileDialogCancelled = false;
+    }
+}
+
 void Application::CreateNewEditor(const std::string &gameDataFilePath, const std::string &location,
                                   const std::string &name) {
     // Check if an editor with the same name already exists
@@ -329,6 +392,18 @@ bool Application::SaveActiveEditor() {
     if (editor) {
         editor->Save();
         return true;
+    }
+    return false;
+}
+
+bool Application::SaveActiveEditorAs(const std::string &newFilePath, SaveAsMode mode) {
+    if (activeEditor < 0 || static_cast<size_t>(activeEditor) >= editors.size()) {
+        return false; // No active editor to save
+    }
+
+    auto &editor = editors[activeEditor];
+    if (editor) {
+        return editor->SaveAs(newFilePath, SaveAsMode::SwitchToNewFile);
     }
     return false;
 }
@@ -369,6 +444,16 @@ void Application::CloseEditor(int index) {
         activeEditor = -1;
     } else if (activeEditor >= static_cast<int>(editors.size())) {
         activeEditor = static_cast<int>(editors.size()) - 1;
+    }
+}
+
+void Application::CloseEditorByName(const std::string& name) {
+    auto it = std::find_if(editors.begin(), editors.end(), [&](const auto& editor) {
+        return editor->GetName() == name;
+    });
+    if (it != editors.end()) {
+        int index = static_cast<int>(std::distance(editors.begin(), it));
+        CloseEditor(index);
     }
 }
 

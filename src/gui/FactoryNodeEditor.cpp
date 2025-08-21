@@ -131,6 +131,18 @@ bool FactoryNodeEditor::Save() {
     }
     return false;
 }
+
+bool FactoryNodeEditor::SaveAs(const std::string &newFilePath, SaveAsMode mode) {
+    if (ProjectIO::SaveProject(newFilePath, *graph, this->context)) {
+        if (mode == SaveAsMode::SwitchToNewFile) {
+            projectFilePath = newFilePath;
+            name = std::filesystem::path(newFilePath).stem().string();
+        }
+        return true;
+    }
+    return false;
+
+}
 static int drawnNodeCount = 0;
 void FactoryNodeEditor::DrawHeader() {
     auto &io = ImGui::GetIO();
