@@ -94,6 +94,7 @@ set(SRC
         src/utils/UndoRedoSystem.cpp
         src/utils/UndoRedoSystem.h
         src/utils/FilesystemUtils.h
+        src/common/IdUtils.h
 )
 
 add_executable(factory_planner ${SRC})
