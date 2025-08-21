@@ -5,6 +5,7 @@
 #include "imgui_internal.h"
 #include "../utils/ProjectIo.h"
 #include "../common/IdUtils.h"
+#include "../common/CopyBuffer.h"
 
 #include <unordered_map>
 #include <string>
@@ -71,7 +72,6 @@ bool FactoryNodeEditor::Close() {
 
     // Reset other state
     nodeQuadtree = nullptr;
-    copyBuffer.clear();
     selected_port_id = -1;
     m_contextNodeId = 0;
     m_contextPinId = 0;
@@ -132,12 +132,64 @@ bool FactoryNodeEditor::SaveAs(const std::string &newFilePath, SaveAsMode mode) 
     return false;
 
 }
+static long copyBufferSize = 0;
+
+void FactoryNodeEditor::copy(CopyBuffer &copy_buffer) {
+    std::vector<ed::NodeId> selectedNodes;
+    selectedNodes.resize(ed::GetSelectedObjectCount());
+    int nodeCount = ed::GetSelectedNodes(selectedNodes.data(), selectedNodes.size());
+    selectedNodes.resize(nodeCount);
+
+    if (nodeCount == 0) return;
+
+    copy_buffer.clear();
+
+    copy_buffer.gameDataFilePath = this->gameDataFilePath; // Store game data file path
+
+    for (const auto &nodeId : selectedNodes) {
+        int nodeIdInt = IdUtils::FromNodeId(nodeId);
+        auto node = graph->getNode(nodeIdInt);
+        if (!node) continue; // Skip invalid nodes
+
+        copy_buffer.nodes[nodeIdInt] = *node; // Copy node
+        copy_buffer.nodePositions[nodeIdInt] = ed::GetNodePosition(nodeId); // Store position
+
+        for (const auto &portId : node->input_ports) {
+            auto port = graph->getPort(portId);
+            if (port) {
+                copy_buffer.ports[portId] = *port; // Copy input port
+                for (const auto &conn : graph->getConnectionsForPort(portId)) {
+                        copy_buffer.connections.insert(*conn); // Copy incoming connection
+
+                }
+            }
+        }
+        for (const auto &portId : node->output_ports) {
+            auto port = graph->getPort(portId);
+            if (port) {
+                copy_buffer.ports[portId] = *port; // Copy output port
+                for (const auto &conn : graph->getConnectionsForPort(portId)) {
+                        copy_buffer.connections.insert(*conn); // Copy incoming connection
+
+                }
+            }
+        }
+    }
+    copyBufferSize = copy_buffer.nodes.size() << 32 |
+                     copy_buffer.ports.size() << 16 |
+                     copy_buffer.connections.size();
+}
+void FactoryNodeEditor::paste(const CopyBuffer &copy_buffer, bool mapExternalConnections) {
+    executeCommand(std::make_unique<PasteCommand>(copy_buffer, mapExternalConnections));
+}
+
 static int drawnNodeCount = 0;
 void FactoryNodeEditor::DrawHeader() {
     auto &io = ImGui::GetIO();
     ImGui::Text("FPS: %.2f (%.2gms)", io.Framerate, io.Framerate ? 1000.0f / io.Framerate : 0.0f);
     ImGui::Text("Nodes: %d, Connections: %d, Ports: %d", graph->getNodes().size(), graph->getConnections().size(), graph->getPorts().size());
-    ImGui::Text("Copy Buffer Size: %d", copyBuffer.size());
+    ImGui::Text("Copy Buffer Size: Nodes: %d, Ports: %d, Connections: % d",
+                copyBufferSize >> 32, (copyBufferSize >> 16) & 0xFFFF, copyBufferSize & 0xFFFF);
     ImGui::Text("Selection size: %d", ed::GetSelectedObjectCount());
 
     // Debug info for quadtree
@@ -170,22 +222,6 @@ void FactoryNodeEditor::DrawToolbar() {
     ImGui::SameLine();
     if (ImGui::Button("Fit View")) {
         ed::NavigateToContent();
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Undo")) {
-        undo();
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Redo")) {
-        redo();
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("new Copy")) {
-
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("new Paste")) {
-
     }
 }
 
@@ -496,116 +532,10 @@ void FactoryNodeEditor::HandleKeyboardShortcuts() {
     if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootWindow)) {
         if (ImGui::GetIO().KeyCtrl) {
             if (ImGui::IsKeyPressed(ImGuiKey_A)) {
+                ed::ClearSelection();
                 for (const auto &node : graph->getNodes()) {
                     ed::SelectNode(IdUtils::ToNodeId(node.id), true); // Select all nodes
                 }
-            }
-            else if (ImGui::IsKeyPressed(ImGuiKey_C)) {
-                copyBuffer.clear();
-                for (const auto &node : graph->getNodes()) {
-                    if (ed::IsNodeSelected(IdUtils::ToNodeId(node.id))) {
-                        copyBuffer.push_back(node.id); // Copy selected nodes to buffer
-                    }
-                }
-            }
-            else if (ImGui::IsKeyPressed(ImGuiKey_V)) {
-                bool mapExternalConnections = ImGui::GetIO().KeyShift; // Shift key to map external connections
-                ed::ClearSelection();
-                if (copyBuffer.empty()) {
-                    ed::Resume();
-                    return; // Nothing to paste
-                }
-                // Calculate offset from original positions to mouse position
-                ImVec2 mousePos = ed::ScreenToCanvas(ImGui::GetMousePos());
-                ImVec2 originalCenter = ImVec2(0, 0);
-
-                // Calculate center of original nodes
-                for (int nodeId : copyBuffer) {
-                    auto node = graph->getNode(nodeId);
-                    if (node) {
-                        ImVec2 nodePos = ed::GetNodePosition(IdUtils::ToNodeId(nodeId));
-                        originalCenter.x += nodePos.x;
-                        originalCenter.y += nodePos.y;
-                    }
-                }
-                originalCenter.x /= copyBuffer.size();
-                originalCenter.y /= copyBuffer.size();
-
-                ImVec2 offset = ImVec2(mousePos.x - originalCenter.x, mousePos.y - originalCenter.y);
-
-                // Map old node IDs to new node IDs
-                std::unordered_map<int, int> nodeIdMap;
-
-                for (int oldNodeId : copyBuffer) {
-                    auto node = graph->getNode(oldNodeId);
-                    if (node) {
-                        int newNodeId = graph->addNode(node->name, node->type, node->selected_recipe_id);
-
-                        // Position node relative to mouse with original offset
-                        ImVec2 oldPos = ed::GetNodePosition(IdUtils::ToNodeId(oldNodeId));
-                        ImVec2 newPos = ImVec2(oldPos.x + offset.x, oldPos.y + offset.y);
-                        ed::SetNodePosition(IdUtils::ToNodeId(newNodeId), newPos);
-
-                        ed::SelectNode(IdUtils::ToNodeId(newNodeId), true);
-                        nodeIdMap[oldNodeId] = newNodeId;
-                    }
-                }
-
-                std::unordered_map<int, int> oldToNewPortMap;
-                for (const auto& pair : nodeIdMap) {
-                    int oldNodeId = pair.first;
-                    int newNodeId = pair.second;
-
-                    auto oldNode = graph->getNode(oldNodeId);
-                    auto newNode = graph->getNode(newNodeId);
-
-                    if (oldNode && newNode) {
-                        // Map all input ports
-                        for (size_t i = 0; i < oldNode->input_ports.size(); ++i) {
-                            oldToNewPortMap[oldNode->input_ports[i]] = newNode->input_ports[i];
-                            graph->getPort(newNode->input_ports[i])->user_constraint = graph->getPort(oldNode->input_ports[i])->user_constraint; // Copy constraints
-                        }
-                        // Map all output ports
-                        for (size_t i = 0; i < oldNode->output_ports.size(); ++i) {
-                            oldToNewPortMap[oldNode->output_ports[i]] = newNode->output_ports[i];
-                            graph->getPort(newNode->output_ports[i])->user_constraint = graph->getPort(oldNode->output_ports[i])->user_constraint; // Copy constraints
-                        }
-                    }
-                }
-
-                // Iterate through all original connections to recreate all relevant links.
-                for (const auto& conn : graph->getConnections()) {
-                    auto itFrom = oldToNewPortMap.find(conn.from_port);
-                    auto itTo = oldToNewPortMap.find(conn.to_port);
-
-                    bool fromIsCopied = (itFrom != oldToNewPortMap.end());
-                    bool toIsCopied = (itTo != oldToNewPortMap.end());
-
-                    // Case 1: Internal connection (copied -> copied)
-                    // Both the source and destination nodes were part of the selection.
-                    if (fromIsCopied && toIsCopied) {
-                        graph->addConnection(itFrom->second, itTo->second);
-                    }
-                    // Case 2: Outgoing connection (copied -> non-copied)
-                    // The source node was copied, but it connects to an existing, external node.
-                    if (mapExternalConnections) {
-                        if (fromIsCopied && !toIsCopied) {
-                            int newFromPort = itFrom->second;
-                            int originalToPort = conn.to_port;
-                            graph->addConnection(newFromPort, originalToPort);
-                        }
-                        // Case 3: Incoming connection (non-copied -> copied)
-                        // An existing, external node connects to a node that was just pasted.
-                        else if (!fromIsCopied && toIsCopied) {
-                            int originalFromPort = conn.from_port;
-                            int newToPort = itTo->second;
-                            graph->addConnection(originalFromPort, newToPort);
-                        }
-                        // Case 4 (else): The connection is between two non-copied nodes, so we do nothing.
-                    }
-                }
-                quadtreeNeedsRebuild = true; // Mark for rebuild when nodes are added
-                solver->solve(*graph);
             }
         }
     }

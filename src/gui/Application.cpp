@@ -12,7 +12,8 @@
 
 Application::Application() {
     executableDirectory = get_executable_directory()
-                              .value_or(std::filesystem::current_path());}
+                              .value_or(std::filesystem::current_path());
+}
 
 Application::~Application() = default;
 void Application::Draw() {
@@ -142,10 +143,17 @@ void Application::DrawMenuBar() {
                 RedoActiveEditor();
             }
             ImGui::Separator();
-            if (ImGui::MenuItem("Cut", "Ctrl+X (WIP)")) {}
-            if (ImGui::MenuItem("Copy", "Ctrl+C (WIP)")) {}
-            if (ImGui::MenuItem("Paste", "Ctrl+V (WIP)")) {}
-            if (ImGui::MenuItem("Paste Special", "Ctrl+Shift+V (WIP)")) {}
+            if (ImGui::MenuItem("Cut", "Ctrl+X (WIP)")) {
+            }
+            if (ImGui::MenuItem("Copy", "Ctrl+C")) {
+                CopyActiveEditor();
+            }
+            if (ImGui::MenuItem("Paste", "Ctrl+V")) {
+                PasteActiveEditor(false);
+            }
+            if (ImGui::MenuItem("Paste Special", "Ctrl+Shift+V")) {
+                PasteActiveEditor(true);
+            }
             ImGui::Separator();
             if (ImGui::MenuItem("Select All", "Ctrl+A (WIP)")) {}
             ImGui::EndMenu();
@@ -189,6 +197,12 @@ void Application::DrawMenuBar() {
                 UndoActiveEditor();
             }
         }
+        if (ImGui::IsKeyPressed(ImGuiKey_C)) {
+            CopyActiveEditor();
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_V)) {
+            PasteActiveEditor(io.KeyShift); // Shift key to map external connections
+        }
     }
 }
 
@@ -228,6 +242,8 @@ void Application::DrawNewProjectDialog() {
 
     // --- Header ---
     ImGui::TextWrapped("Create a new project. The project filename will be <name>%s", kProjectExtension);
+    ImGui::TextWrapped("CopyBuffer: N: %d, P: %d, C: %d", copyBuffer.nodes.size(),
+                       copyBuffer.ports.size(), copyBuffer.connections.size());
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
@@ -544,6 +560,33 @@ void Application::SaveAll() {
         if (editor) {
             editor->Save();
         }
+    }
+}
+
+void Application::CopyActiveEditor() {
+    if (activeEditor < 0 || static_cast<size_t>(activeEditor) >= editors.size()) {
+        return; // No active editor to copy
+    }
+    auto &editor = editors[activeEditor];
+    if (editor) {
+        ed::SetCurrentEditor(editor->GetContext());
+        editor->copy(copyBuffer);
+        ed::SetCurrentEditor(nullptr);
+    }
+}
+
+void Application::PasteActiveEditor(bool mapExternalConnections) {
+    if (activeEditor < 0 || static_cast<size_t>(activeEditor) >= editors.size()) {
+        return; // No active editor to paste into
+    }
+    auto &editor = editors[activeEditor];
+    if (editor) {
+        if (editor.get()->GetGameDataFilePath() != copyBuffer.gameDataFilePath) {
+            return;
+        }
+        ed::SetCurrentEditor(editor->GetContext());
+        editor->paste(copyBuffer, mapExternalConnections);
+        ed::SetCurrentEditor(nullptr);
     }
 }
 

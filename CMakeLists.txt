@@ -85,6 +85,7 @@ set(SRC
 
         src/core/Machine.h
         src/common/GameData.h
+        src/common/IdUtils.h
         src/gui/FactoryNodeEditor.cpp
         src/gui/FactoryNodeEditor.h
         src/gui/Application.cpp
@@ -94,7 +95,7 @@ set(SRC
         src/utils/UndoRedoSystem.cpp
         src/utils/UndoRedoSystem.h
         src/utils/FilesystemUtils.h
-        src/common/IdUtils.h
+        src/common/CopyBuffer.h
 )
 
 add_executable(factory_planner ${SRC})

@@ -6,6 +6,7 @@
 #define UNDOREDOSYSTEM_H
 #include <imgui.h>
 
+#include "../common/CopyBuffer.h"
 #include "../core/FactoryGraph.h"
 
 
@@ -112,6 +113,27 @@ private:
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
     std::string getDescription() const override { return "Remove Connection: " + std::to_string(fromPort) + " -> " + std::to_string(toPort); }
+};
+
+class PasteCommand : public Command {
+private:
+    CopyBuffer copy_buffer;
+    bool mapExternalConnections;
+
+    std::vector<Node> pastedNodes;
+    std::unordered_multimap<int, Port> pastedPorts;
+    std::vector<Connection> pastedConnections;
+    std::unordered_map<int, ImVec2> pastedNodePositions;
+    bool executed;
+public:
+    PasteCommand(const CopyBuffer &copy_buffer, bool map_external_connections)
+        : copy_buffer(copy_buffer),
+          mapExternalConnections(map_external_connections), executed(false) {
+    }
+
+    void execute(FactoryGraph& graph) override;
+    void undo(FactoryGraph& graph) override;
+    std::string getDescription() const override { return "Pasted " + std::to_string(pastedNodes.size()) + " nodes";}
 };
 
 class SetPortConstraintCommand : public Command {

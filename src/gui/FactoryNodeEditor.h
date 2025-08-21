@@ -3,6 +3,7 @@
 #include "imgui_node_editor.h"
 #include "../utils/UndoRedoSystem.h"
 #include "pvigier/Quadtree.h"
+struct CopyBuffer;
 namespace ed = ax::NodeEditor;
 
 #include "../core/FactorySolver.h"
@@ -47,6 +48,9 @@ public:
     bool Save();
     bool SaveAs(const std::string& newFilePath, SaveAsMode mode = SaveAsMode::KeepCurrentFile);
 
+    void copy(CopyBuffer &copy_buffer);
+    void paste(const CopyBuffer &copy_buffer, bool mapExternalConnections = false);
+
     void undo() {
         if (!undoRedoManager.canUndo()) return;
         undoRedoManager.undo(*graph);
@@ -65,6 +69,7 @@ public:
     ed::EditorContext* GetContext() { return context; }
 
     const std::string& GetName() const { return name; }
+    const std::filesystem::path& GetGameDataFilePath() const { return gameDataFilePath; }
     void SetName(const std::string& newName) { name = newName; }
 private:
     std::unique_ptr<FactoryGraph> graph;
@@ -92,10 +97,9 @@ private:
     ImVec2 m_storedPopupPosition;
     ImVec2 windowPos;
     ImVec2 windowSize;
-    std::vector<int> copyBuffer; // Buffer for copied nodes
     std::string name;
-    std::string projectFilePath;
-    std::string gameDataFilePath;
+    std::filesystem::path projectFilePath;
+    std::filesystem::path gameDataFilePath;
     int selected_port_id = 0;
 
     // Quadtree for spatial optimization
