@@ -44,6 +44,8 @@ private:
 
     void CopyActiveEditor();
 
+    void CutActiveEditor();
+
     void PasteActiveEditor(bool mapExternalConnections);
 
     void UndoActiveEditor();
