@@ -30,6 +30,23 @@ struct Node {
     Node(std::string name, NodeType type, int id)
         : name(std::move(name)), type(type), id(id) {
     }
+
+    friend bool operator==(const Node &lhs, const Node &rhs) {
+        return lhs.id == rhs.id;
+    }
+
+    friend bool operator!=(const Node &lhs, const Node &rhs) {
+        return !(lhs == rhs);
+    }
 };
+
+namespace std {
+    template <>
+    struct hash<Node> {
+        std::size_t operator()(const Node& n) const noexcept {
+            return std::hash<int>{}(n.id);
+        }
+    };
+}
 
 #endif //NODE_H

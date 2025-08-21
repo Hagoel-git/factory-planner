@@ -17,6 +17,22 @@ struct Connection {
     Connection(int id,int from_port, int to_port, int resource_id)
         : id(id), from_port(from_port), to_port(to_port), resource_id(resource_id) {
     }
-};
 
+    friend bool operator==(const Connection &lhs, const Connection &rhs) {
+        return lhs.id == rhs.id;
+    }
+
+    friend bool operator!=(const Connection &lhs, const Connection &rhs) {
+        return !(lhs == rhs);
+    }
+
+};
+namespace std {
+    template <>
+    struct hash<Connection> {
+        std::size_t operator()(const Connection& c) const noexcept {
+            return std::hash<int>{}(c.id);
+        }
+    };
+}
 #endif //CONNECTION_H
