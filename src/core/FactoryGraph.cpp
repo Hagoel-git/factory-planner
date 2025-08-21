@@ -35,7 +35,7 @@ bool FactoryGraph::removeNode(int node_id) {
     size_t index = map_it->second;
     Node& node = nodes[index];
 
-    // Remove all associated ports
+    // Remove all associated ports (these functions already handle their own swap-and-pop)
     for (int port_id : node.input_ports) {
         removePort(port_id);
     }
@@ -43,18 +43,25 @@ bool FactoryGraph::removeNode(int node_id) {
         removePort(port_id);
     }
 
-    // Update indices for elements after the removed one
-    for (auto& [id, idx] : node_id_to_index_) {
-        if (idx > index) {
-            idx--;
-        }
+    // If it's not the last node, swap with the last
+    size_t last_index = nodes.size() - 1;
+    if (index != last_index) {
+        std::swap(nodes[index], nodes[last_index]);
+
+        // Update index of swapped node
+        int swapped_id = nodes[index].id;
+        node_id_to_index_[swapped_id] = index;
     }
 
-    // Remove from hash map and vector
+    // Remove from index map
     removeNodeFromIndex(node_id);
-    nodes.erase(nodes.begin() + index);
+
+    // Pop from vector
+    nodes.pop_back();
+
     return true;
 }
+
 
 Node *FactoryGraph::getNode(int id) {
     auto it = node_id_to_index_.find(id);
@@ -78,36 +85,36 @@ bool FactoryGraph::removePort(int port_id) {
     size_t index = map_it->second;
 
     // Remove all connections involving this port
-    connections.erase(
-        std::remove_if(connections.begin(), connections.end(),
-            [port_id](const Connection& conn) {
-                return conn.from_port == port_id || conn.to_port == port_id;
-            }),
-        connections.end()
-    );
-
-    // Rebuild connection index after removal
-    connection_id_to_index_.clear();
-    connectionsByPort.clear();
-    for (size_t i = 0; i < connections.size(); ++i) {
-        Connection* conn_ptr = &connections[i];
-        addConnectionToIndex(conn_ptr->id, i);
-        connectionsByPort.insert({conn_ptr->from_port, conn_ptr->id});
-        connectionsByPort.insert({conn_ptr->to_port, conn_ptr->id});
+    // We'll use removeConnection() so it keeps indices consistent
+    auto range = connectionsByPort.equal_range(port_id);
+    std::vector<int> connections_to_remove;
+    for (auto it = range.first; it != range.second; ++it) {
+        connections_to_remove.push_back(it->second);
+    }
+    for (int conn_id : connections_to_remove) {
+        const auto& conn = connections[connection_id_to_index_[conn_id]];
+        removeConnection(conn.from_port, conn.to_port);
     }
 
-    // Update indices for elements after the removed one
-    for (auto& [id, idx] : port_id_to_index_) {
-        if (idx > index) {
-            idx--;
-        }
+    // If it's not the last port, swap with the last
+    size_t last_index = ports.size() - 1;
+    if (index != last_index) {
+        std::swap(ports[index], ports[last_index]);
+
+        // Update index of swapped port
+        int swapped_id = ports[index].id;
+        port_id_to_index_[swapped_id] = index;
     }
 
-    // Remove from hash map and vector
+    // Remove from index map
     removePortFromIndex(port_id);
-    ports.erase(ports.begin() + index);
+
+    // Remove from vector
+    ports.pop_back();
+
     return true;
 }
+
 
 Port *FactoryGraph::getPort(int id) {
     auto it = port_id_to_index_.find(id);
@@ -136,12 +143,13 @@ void FactoryGraph::restoreConnection(const Connection &connection) {
 }
 
 bool FactoryGraph::removeConnection(int from_port, int to_port) {
-    for (auto it = connections.begin(); it != connections.end(); ++it) {
-        if (it->from_port == from_port && it->to_port == to_port) {
-            int connection_id = it->id;
-            size_t index = std::distance(connections.begin(), it);
+    for (size_t index = 0; index < connections.size(); ++index) {
+        if (connections[index].from_port == from_port &&
+            connections[index].to_port == to_port) {
 
-            // Remove from connectionsByPort before erasing from the vector
+            int connection_id = connections[index].id;
+
+            // Remove from connectionsByPort before erasing
             auto range_from = connectionsByPort.equal_range(from_port);
             for (auto multi_it = range_from.first; multi_it != range_from.second; ++multi_it) {
                 if (multi_it->second == connection_id) {
@@ -151,23 +159,30 @@ bool FactoryGraph::removeConnection(int from_port, int to_port) {
             }
             auto range_to = connectionsByPort.equal_range(to_port);
             for (auto multi_it = range_to.first; multi_it != range_to.second; ++multi_it) {
-                if (multi_it->second== connection_id) {
+                if (multi_it->second == connection_id) {
                     connectionsByPort.erase(multi_it);
                     break;
                 }
             }
 
-            // Update indices for elements after the removed one
-            for (auto& [id, idx] : connection_id_to_index_) {
-                if (idx > index) {
-                    idx--;
-                }
+            // If it's not the last element, swap with the last
+            size_t last_index = connections.size() - 1;
+            if (index != last_index) {
+                std::swap(connections[index], connections[last_index]);
+
+                // Update index map for the swapped element
+                int swapped_id = connections[index].id;
+                connection_id_to_index_[swapped_id] = index;
             }
 
+            // Remove from index map
             removeConnectionFromIndex(connection_id);
-            connections.erase(it);
+
+            // Actually remove the element
+            connections.pop_back();
+
             return true;
-        }
+            }
     }
     return false;
 }
@@ -178,10 +193,14 @@ Connection *FactoryGraph::getConnection(int id) {
 }
 
 Connection *FactoryGraph::getConnection(int from_port, int to_port) {
-    for (auto & connection : connections) {
-        if (connection.from_port == from_port && connection.to_port == to_port) {
-            int connection_id = connection.id;
-            return getConnection(connection_id);
+    auto range = connectionsByPort.equal_range(from_port);
+    for (auto it = range.first; it != range.second; ++it) {
+        int conn_id = it->second;
+        auto idx_it = connection_id_to_index_.find(conn_id);
+        if (idx_it == connection_id_to_index_.end()) continue;
+        const Connection &c = connections[idx_it->second];
+        if (c.to_port == to_port) {
+            return getConnection(conn_id);
         }
     }
     return nullptr;
@@ -360,10 +379,15 @@ bool FactoryGraph::isValidConnection(int from_port, int to_port) {
 }
 
 bool FactoryGraph::connectionExists(int from_port, int to_port) {
-    return std::any_of(connections.begin(), connections.end(),
-        [from_port, to_port](const Connection& conn) {
-            return conn.from_port == from_port && conn.to_port == to_port;
-        });
+    auto range = connectionsByPort.equal_range(from_port);
+    for (auto it = range.first; it != range.second; ++it) {
+        int conn_id = it->second;
+        auto idx_it = connection_id_to_index_.find(conn_id);
+        if (idx_it == connection_id_to_index_.end()) continue;
+        const Connection &c = connections[idx_it->second];
+        if (c.to_port == to_port) return true;
+    }
+    return false;
 }
 
 const std::vector<Connection> &FactoryGraph::getConnections() const {
