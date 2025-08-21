@@ -48,6 +48,8 @@ public:
     bool Save();
     bool SaveAs(const std::string& newFilePath, SaveAsMode mode = SaveAsMode::KeepCurrentFile);
 
+    void cut(CopyBuffer &copyBuffer);
+
     void copy(CopyBuffer &copy_buffer);
     void paste(const CopyBuffer &copy_buffer, bool mapExternalConnections = false);
 

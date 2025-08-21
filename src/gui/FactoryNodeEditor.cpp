@@ -179,6 +179,21 @@ void FactoryNodeEditor::copy(CopyBuffer &copy_buffer) {
                      copy_buffer.ports.size() << 16 |
                      copy_buffer.connections.size();
 }
+
+void FactoryNodeEditor::cut(CopyBuffer &copyBuffer) {
+    copy(copyBuffer);
+
+    if (copyBuffer.isEmpty()) return;
+
+    auto cmd = std::make_unique<CompositeCommand>("Cut Nodes");
+
+    for (const auto &pair : copyBuffer.nodes) {
+        int nodeId = pair.first;
+        cmd->addCommand(std::make_unique<RemoveNodeCommand>(nodeId));
+    }
+    executeCommand(std::move(cmd));
+}
+
 void FactoryNodeEditor::paste(const CopyBuffer &copy_buffer, bool mapExternalConnections) {
     executeCommand(std::make_unique<PasteCommand>(copy_buffer, mapExternalConnections));
 }

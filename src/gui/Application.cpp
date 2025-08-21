@@ -57,7 +57,6 @@ void Application::Draw() {
             ImGui::SetWindowFocus(editors[activeEditor]->GetName().c_str());
         }
     }
-    activeEditor = -1; // reset each frame; will set to index of focused one
     for (int i = 0; i < static_cast<int>(editors.size()); ++i) {
         auto &editor = editors[i];
         if (editor) {
@@ -143,7 +142,8 @@ void Application::DrawMenuBar() {
                 RedoActiveEditor();
             }
             ImGui::Separator();
-            if (ImGui::MenuItem("Cut", "Ctrl+X (WIP)")) {
+            if (ImGui::MenuItem("Cut", "Ctrl+X")) {
+                CutActiveEditor();
             }
             if (ImGui::MenuItem("Copy", "Ctrl+C")) {
                 CopyActiveEditor();
@@ -196,6 +196,9 @@ void Application::DrawMenuBar() {
             } else {
                 UndoActiveEditor();
             }
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_X)) {
+            CutActiveEditor();
         }
         if (ImGui::IsKeyPressed(ImGuiKey_C)) {
             CopyActiveEditor();
@@ -575,6 +578,18 @@ void Application::CopyActiveEditor() {
     }
 }
 
+void Application::CutActiveEditor() {
+    if (activeEditor < 0 || static_cast<size_t>(activeEditor) >= editors.size()) {
+        return; // No active editor to cut
+    }
+    auto &editor = editors[activeEditor];
+    if (editor) {
+        ed::SetCurrentEditor(editor->GetContext());
+        editor->cut(copyBuffer);
+        ed::SetCurrentEditor(nullptr);
+    }
+}
+
 void Application::PasteActiveEditor(bool mapExternalConnections) {
     if (activeEditor < 0 || static_cast<size_t>(activeEditor) >= editors.size()) {
         return; // No active editor to paste into
@@ -591,9 +606,12 @@ void Application::PasteActiveEditor(bool mapExternalConnections) {
 }
 
 void Application::UndoActiveEditor() {
+    std::cout << "Undo requested" << std::endl;
     if (activeEditor < 0 || static_cast<size_t>(activeEditor) >= editors.size()) {
+        std::cout << "No active editor to undo" << std::endl;
         return; // No active editor to undo
     }
+    std::cout << "Active editor index: " << activeEditor << std::endl;
     auto &editor = editors[activeEditor];
     if (editor) {
         ed::SetCurrentEditor(editor->GetContext());
