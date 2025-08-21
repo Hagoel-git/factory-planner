@@ -4,19 +4,10 @@
 
 #include "UndoRedoSystem.h"
 #include "imgui_node_editor.h"
+#include "../common/IdUtils.h"
 
 namespace ed = ax::NodeEditor;
 
-static constexpr uintptr_t NODE_ID_OFFSET = 0x10000000u;
-static constexpr uintptr_t PIN_ID_OFFSET = 0x20000000u;
-static constexpr uintptr_t LINK_ID_OFFSET = 0x30000000u;
-
-static inline ed::NodeId ToNodeId(int id) { return ed::NodeId((uintptr_t) id + NODE_ID_OFFSET); }
-static inline ed::PinId ToPinId(int id) { return ed::PinId((uintptr_t) id + PIN_ID_OFFSET); }
-static inline ed::LinkId ToLinkId(int id) { return ed::LinkId((uintptr_t) id + LINK_ID_OFFSET); }
-static inline int FromPinId(ed::PinId id) { return (int) (id.Get() - PIN_ID_OFFSET); }
-static inline int FromNodeId(ed::NodeId id) { return (int) (id.Get() - NODE_ID_OFFSET); }
-static inline int FromLinkId(ed::LinkId id) { return (int) (id.Get() - LINK_ID_OFFSET); }
 
 void UndoRedoManager::executeCommand(std::unique_ptr<Command> command, FactoryGraph &graph) {
     command->execute(graph);
@@ -56,7 +47,7 @@ void UndoRedoManager::trimUndoStack() {
 void AddNodeCommand::execute(FactoryGraph &graph) {
     if (!executed) {
         int newNodeId = graph.addNode(nodeName, nodeType, recipeId);
-        ed::SetNodePosition(ToNodeId(newNodeId), position);
+        ed::SetNodePosition(IdUtils::ToNodeId(newNodeId), position);
 
         if (fromPort != -1) {
             bool fromInput = graph.getPort(fromPort)->isInput;
@@ -97,7 +88,7 @@ void AddNodeCommand::execute(FactoryGraph &graph) {
         executed = true;
     } else {
         graph.restoreNode(nodeData, ports_data);
-        ed::SetNodePosition(ToNodeId(nodeData.id), position);
+        ed::SetNodePosition(IdUtils::ToNodeId(nodeData.id), position);
         // Reconnect ports if necessary
         if (connectionData.from_port != -1 && connectionData.to_port != -1) {
             graph.restoreConnection(connectionData);
@@ -114,7 +105,7 @@ void RemoveNodeCommand::execute(FactoryGraph &graph) {
     Node *node = graph.getNode(id);
     if (!node) return;
     nodeData = *node; // Store the node data for undo
-    position = ed::GetNodePosition(ToNodeId(id));
+    position = ed::GetNodePosition(IdUtils::ToNodeId(id));
     // Store all ports and connections for undo
     for (int port_id: nodeData.input_ports) {
         auto port = graph.getPort(port_id);
@@ -140,7 +131,7 @@ void RemoveNodeCommand::execute(FactoryGraph &graph) {
 
 void RemoveNodeCommand::undo(FactoryGraph &graph) {
     graph.restoreNode(nodeData, ports_data);
-    ed::SetNodePosition(ToNodeId(nodeData.id), position);
+    ed::SetNodePosition(IdUtils::ToNodeId(nodeData.id), position);
 
     // Restore all connections
     for (const auto &conn: connections_data) {
@@ -186,9 +177,9 @@ void SetPortConstraintCommand::undo(FactoryGraph &graph) {
 }
 
 void MoveNodeCommand::execute(FactoryGraph &graph) {
-    ed::SetNodePosition(ToNodeId(nodeId),  newPosition);
+    ed::SetNodePosition(IdUtils::ToNodeId(nodeId),  newPosition);
 }
 
 void MoveNodeCommand::undo(FactoryGraph &graph) {
-    ed::SetNodePosition(ToNodeId(nodeId), oldPosition);
+    ed::SetNodePosition(IdUtils::ToNodeId(nodeId), oldPosition);
 }

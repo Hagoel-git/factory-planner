@@ -1,25 +1,14 @@
-#pragma once
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "FactoryNodeEditor.h"
 #include "imgui.h"
 #include "imgui_node_editor.h"
 #include "imgui_internal.h"
 #include "../utils/ProjectIo.h"
-namespace ed = ax::NodeEditor;
+#include "../common/IdUtils.h"
 
 #include <unordered_map>
 #include <string>
-
-static constexpr uintptr_t NODE_ID_OFFSET = 0x10000000u;
-static constexpr uintptr_t PIN_ID_OFFSET = 0x20000000u;
-static constexpr uintptr_t LINK_ID_OFFSET = 0x30000000u;
-
-static inline ed::NodeId ToNodeId(int id) { return ed::NodeId((uintptr_t) id + NODE_ID_OFFSET); }
-static inline ed::PinId ToPinId(int id) { return ed::PinId((uintptr_t) id + PIN_ID_OFFSET); }
-static inline ed::LinkId ToLinkId(int id) { return ed::LinkId((uintptr_t) id + LINK_ID_OFFSET); }
-static inline int FromPinId(ed::PinId id) { return (int) (id.Get() - PIN_ID_OFFSET); }
-static inline int FromNodeId(ed::NodeId id) { return (int) (id.Get() - NODE_ID_OFFSET); }
-static inline int FromLinkId(ed::LinkId id) { return (int) (id.Get() - LINK_ID_OFFSET); }
+namespace ed = ax::NodeEditor;
 
 FactoryNodeEditor::FactoryNodeEditor(const std::string &gameDataFilePath, const std::string &projectFilePath, const std::string &title)
     : name(title), projectFilePath(projectFilePath), gameDataFilePath(gameDataFilePath), m_contextNodeId(0), m_contextPinId(0), m_contextLinkId(0), undoRedoManager(100) {
@@ -175,7 +164,7 @@ void FactoryNodeEditor::DrawHeader() {
 void FactoryNodeEditor::DrawToolbar() {
     if (ImGui::Button("Show Flow")) {
         for (const auto& connection : graph->getConnections()) {
-            ed::Flow(ToLinkId(connection.id)); // Show flow for all connections
+            ed::Flow(IdUtils::ToLinkId(connection.id)); // Show flow for all connections
         }
     }
     ImGui::SameLine();
@@ -189,6 +178,14 @@ void FactoryNodeEditor::DrawToolbar() {
     ImGui::SameLine();
     if (ImGui::Button("Redo")) {
         redo();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("new Copy")) {
+
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("new Paste")) {
+
     }
 }
 
@@ -215,7 +212,7 @@ void FactoryNodeEditor::RebuildQuadtree() {
 
     // Add all nodes to quadtree
     for (const auto &node : graph->getNodes()) {
-        ed::NodeId nodeId = ToNodeId(node.id);
+        ed::NodeId nodeId = IdUtils::ToNodeId(node.id);
         ImVec2 nodePos = ed::GetNodePosition(nodeId);
         ImVec2 nodeSize = ed::GetNodeSize(nodeId);
         if (nodeSize.x <= 0 || nodeSize.y <= 0) {
@@ -307,7 +304,7 @@ void FactoryNodeEditor::DrawNodes() {
         auto node = graph->getNode(nodeData);
         if (!node) continue;
 
-        ed::NodeId nodeId = ToNodeId(node->id);
+        ed::NodeId nodeId = IdUtils::ToNodeId(node->id);
         ed::BeginNode(nodeId);
         ImGui::Text("%s", node->name.c_str());
         ImGui::BeginGroup(); // Group inputs/outputs
@@ -316,7 +313,7 @@ void FactoryNodeEditor::DrawNodes() {
             if (i < node->input_ports.size()) {
                 Port *p = graph->getPort(node->input_ports[i]);
                 if (!p) continue; // Skip invalid ports
-                ed::PinId pinId = ToPinId(p->id);
+                ed::PinId pinId = IdUtils::ToPinId(p->id);
                 ed::BeginPin(pinId, ed::PinKind::Input);
                 ImGui::Text("<%.2f> %s",p->rate ,graph->getGameData().resources.at(p->resource_id).name.c_str()); // Display resource name
                 ed::EndPin();
@@ -327,7 +324,7 @@ void FactoryNodeEditor::DrawNodes() {
             if (i < node->output_ports.size()) {
                 Port *p = graph->getPort(node->output_ports[i]);
                 if (!p) continue; // Skip invalid ports
-                ed::PinId pinId = ToPinId(p->id);
+                ed::PinId pinId = IdUtils::ToPinId(p->id);
                 ed::BeginPin(pinId, ed::PinKind::Output);
                 ImGui::Text("%s <%.2f>",p->rate, graph->getGameData().resources.at(p->resource_id).name.c_str()); // Display resource name
                 ed::EndPin();
@@ -342,7 +339,7 @@ void FactoryNodeEditor::DrawNodes() {
 
 void FactoryNodeEditor::DrawConnections() {
     for (const auto &c: graph->getConnections()) {
-        ed::Link(ToLinkId(c.id), ToPinId(c.from_port), ToPinId(c.to_port));
+        ed::Link(IdUtils::ToLinkId(c.id), IdUtils::ToPinId(c.from_port), IdUtils::ToPinId(c.to_port));
     }
 }
 
@@ -368,8 +365,8 @@ void FactoryNodeEditor::HandleUserInteractions() {
     if (ed::BeginCreate()) {
         ed::PinId start, end;
         if (ed::QueryNewLink(&start, &end)) {
-            int startId = FromPinId(start);
-            int endId = FromPinId(end);
+            int startId = IdUtils::FromPinId(start);
+            int endId = IdUtils::FromPinId(end);
 
             selected_port_id = startId;
 
@@ -400,7 +397,7 @@ void FactoryNodeEditor::HandleUserInteractions() {
             }
         }
         if (ed::QueryNewNode(&start)) {
-            selected_port_id = FromPinId(start);
+            selected_port_id = IdUtils::FromPinId(start);
             showLabel("Create Node", ImColor(32, 45, 32, 180)); // Show label for creating node
             if (ed::AcceptNewItem(ImColor(255, 255, 255), 0.7f)) {
                 ed::Suspend();
@@ -421,14 +418,14 @@ void FactoryNodeEditor::HandleUserInteractions() {
         ed::NodeId nodeId = 0;
         while (ed::QueryDeletedNode(&nodeId)) {
             if (ed::AcceptDeletedItem()) {
-                nodesToDelete.push_back(FromNodeId(nodeId));
+                nodesToDelete.push_back(IdUtils::FromNodeId(nodeId));
             }
         }
 
         ed::LinkId linkId = 0;
         while (ed::QueryDeletedLink(&linkId)) {
             if (ed::AcceptDeletedItem()) {
-                linksToDelete.push_back(FromLinkId(linkId));
+                linksToDelete.push_back(IdUtils::FromLinkId(linkId));
             }
         }
 
@@ -474,7 +471,7 @@ void FactoryNodeEditor::HandleUserInteractions() {
                     ImVec2 originalPosition = ed::GetNodePosition(nodeId) - (draggedNodeNewPos - draggedNodeOriginalPos);
                     ImVec2 newPos = ed::GetNodePosition(nodeId);;
                     if (draggedNodeOriginalPos != draggedNodeNewPos) {
-                        auto node = graph->getNode(FromNodeId(nodeId));
+                        auto node = graph->getNode(IdUtils::FromNodeId(nodeId));
                         if (node) {
                             cmd->addCommand(std::make_unique<MoveNodeCommand>(node->id, originalPosition, newPos));
                         }
@@ -483,7 +480,7 @@ void FactoryNodeEditor::HandleUserInteractions() {
                 executeCommand(std::move(cmd));
             } else {
                 // If the dragged node is not in the selection, just move it
-                auto node = graph->getNode(FromNodeId(draggedNodeId));
+                auto node = graph->getNode(IdUtils::FromNodeId(draggedNodeId));
                 if (node) {
                     executeCommand(std::make_unique<MoveNodeCommand>(node->id, draggedNodeOriginalPos, draggedNodeNewPos));
                 }
@@ -500,13 +497,13 @@ void FactoryNodeEditor::HandleKeyboardShortcuts() {
         if (ImGui::GetIO().KeyCtrl) {
             if (ImGui::IsKeyPressed(ImGuiKey_A)) {
                 for (const auto &node : graph->getNodes()) {
-                    ed::SelectNode(ToNodeId(node.id), true); // Select all nodes
+                    ed::SelectNode(IdUtils::ToNodeId(node.id), true); // Select all nodes
                 }
             }
             else if (ImGui::IsKeyPressed(ImGuiKey_C)) {
                 copyBuffer.clear();
                 for (const auto &node : graph->getNodes()) {
-                    if (ed::IsNodeSelected(ToNodeId(node.id))) {
+                    if (ed::IsNodeSelected(IdUtils::ToNodeId(node.id))) {
                         copyBuffer.push_back(node.id); // Copy selected nodes to buffer
                     }
                 }
@@ -526,7 +523,7 @@ void FactoryNodeEditor::HandleKeyboardShortcuts() {
                 for (int nodeId : copyBuffer) {
                     auto node = graph->getNode(nodeId);
                     if (node) {
-                        ImVec2 nodePos = ed::GetNodePosition(ToNodeId(nodeId));
+                        ImVec2 nodePos = ed::GetNodePosition(IdUtils::ToNodeId(nodeId));
                         originalCenter.x += nodePos.x;
                         originalCenter.y += nodePos.y;
                     }
@@ -545,11 +542,11 @@ void FactoryNodeEditor::HandleKeyboardShortcuts() {
                         int newNodeId = graph->addNode(node->name, node->type, node->selected_recipe_id);
 
                         // Position node relative to mouse with original offset
-                        ImVec2 oldPos = ed::GetNodePosition(ToNodeId(oldNodeId));
+                        ImVec2 oldPos = ed::GetNodePosition(IdUtils::ToNodeId(oldNodeId));
                         ImVec2 newPos = ImVec2(oldPos.x + offset.x, oldPos.y + offset.y);
-                        ed::SetNodePosition(ToNodeId(newNodeId), newPos);
+                        ed::SetNodePosition(IdUtils::ToNodeId(newNodeId), newPos);
 
-                        ed::SelectNode(ToNodeId(newNodeId), true);
+                        ed::SelectNode(IdUtils::ToNodeId(newNodeId), true);
                         nodeIdMap[oldNodeId] = newNodeId;
                     }
                 }
@@ -640,7 +637,7 @@ void FactoryNodeEditor::HandleContextMenus() {
 void FactoryNodeEditor::HandlePopups() {
     ed::Suspend();
     if (ImGui::BeginPopup("Node Context Menu")) {
-        auto node = graph->getNode(FromNodeId(m_contextNodeId));
+        auto node = graph->getNode(IdUtils::FromNodeId(m_contextNodeId));
         if (node) {
             ImGui::Text("Node ID: %d", node->id);
             ImGui::Text("Name: %s", node->name.c_str());
@@ -676,7 +673,7 @@ void FactoryNodeEditor::HandlePopups() {
     }
 
     if (ImGui::BeginPopup("Pin Context Menu")) {
-        auto port = graph->getPort(FromPinId(m_contextPinId));
+        auto port = graph->getPort(IdUtils::FromPinId(m_contextPinId));
         if (port) {
             // --- Initialization on first frame ---
             if (!m_isContextMenuInitialized) {
@@ -736,7 +733,7 @@ void FactoryNodeEditor::HandlePopups() {
     }
 
     if (ImGui::BeginPopup("Link Context Menu")) {
-        auto connection = graph->getConnection(FromLinkId(m_contextLinkId));
+        auto connection = graph->getConnection(IdUtils::FromLinkId(m_contextLinkId));
         if (connection) {
             ImGui::Text("Connection ID: %d", connection->id);
             ImGui::Text("From Port: %d", connection->from_port);

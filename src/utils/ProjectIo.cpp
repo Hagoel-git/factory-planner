@@ -6,10 +6,7 @@
 #include <fstream>
 #include <iostream>
 #include <imgui-node-editor/imgui_node_editor.h>
-
-static constexpr uintptr_t NODE_ID_OFFSET = 0x10000000u;
-static inline ed::NodeId ToNodeId(int id) { return ed::NodeId((uintptr_t) id + NODE_ID_OFFSET); }
-static inline int FromNodeId(ed::NodeId id) { return (int) (id.Get() - NODE_ID_OFFSET); }
+#include "../common/IdUtils.h"
 
 bool ProjectIO::SaveProject(const std::string &path, const FactoryGraph &factoryGraph, ed::EditorContext *context) {
     try {
@@ -142,7 +139,7 @@ bool ProjectIO::LoadProject(const std::string &path, FactoryGraph &factoryGraph)
 
                             // Convert saved id -> engine id
                             ed::NodeId savedEdNodeId(rawId);
-                            int engineNodeId = FromNodeId(savedEdNodeId);
+                            int engineNodeId = IdUtils::FromNodeId(savedEdNodeId);
 
                             // Verify this node actually exists in our graph
                             if (!factoryGraph.getNode(engineNodeId)) {
@@ -159,7 +156,7 @@ bool ProjectIO::LoadProject(const std::string &path, FactoryGraph &factoryGraph)
                                     float x = static_cast<float>(location["x"].get<double>());
                                     float y = static_cast<float>(location["y"].get<double>());
 
-                                    ed::NodeId editorNodeId = ToNodeId(engineNodeId);
+                                    ed::NodeId editorNodeId = IdUtils::ToNodeId(engineNodeId);
                                     ed::SetNodePosition(editorNodeId, ImVec2(x, y));
                                 }
                             }
