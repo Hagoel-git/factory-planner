@@ -8,6 +8,11 @@ namespace ed = ax::NodeEditor;
 #include "../core/FactorySolver.h"
 #include "../core/FactoryGraph.h"
 
+enum class SaveAsMode {
+    KeepCurrentFile,
+    SwitchToNewFile,
+};
+
 // Structure to hold node data for quadtree
 struct NodeQuadtreeData {
     int nodeId;
@@ -38,7 +43,9 @@ public:
     bool Initialize();
     bool Close();
     void Draw();
+
     bool Save();
+    bool SaveAs(const std::string& newFilePath, SaveAsMode mode = SaveAsMode::KeepCurrentFile);
 
     void undo() {
         if (!undoRedoManager.canUndo()) return;
