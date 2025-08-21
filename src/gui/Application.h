@@ -6,6 +6,7 @@
 #include <string>
 #include "FactoryNodeEditor.h"
 #include "imgui.h"
+#include "../common/CopyBuffer.h"
 
 class Application {
 public:
@@ -19,6 +20,8 @@ private:
     std::filesystem::path executableDirectory;
     bool dockInitialized = false;
     int activeEditor = -1; // No active editor initially
+
+    CopyBuffer copyBuffer;
 
     bool showNewProjectDialog = false;
     bool showOpenProjectDialog = false;
@@ -38,6 +41,10 @@ private:
     bool SaveActiveEditor();
     bool SaveActiveEditorAs(const std::string &newFilePath, SaveAsMode mode);
     void SaveAll();
+
+    void CopyActiveEditor();
+
+    void PasteActiveEditor(bool mapExternalConnections);
 
     void UndoActiveEditor();
     void RedoActiveEditor();
