@@ -517,7 +517,7 @@ void FactoryNodeEditor::HandleUserInteractions() {
 
             // check if dragged node is in the selection
             if (std::find(selectedNodes.begin(), selectedNodes.end(), draggedNodeId) != selectedNodes.end()) {
-                auto cmd = std::make_unique<CompositeCommand>("Move Nodes Command");
+                auto cmd = std::make_unique<CompositeCommand>("Move Nodes Command", CommandFlags{false, true});
                 for (const auto &nodeId : selectedNodes) {
                     ImVec2 originalPosition = ed::GetNodePosition(nodeId) - (draggedNodeNewPos - draggedNodeOriginalPos);
                     ImVec2 newPos = ed::GetNodePosition(nodeId);;

@@ -9,12 +9,18 @@
 #include "../common/CopyBuffer.h"
 #include "../core/FactoryGraph.h"
 
+struct CommandFlags {
+    bool needsSolve;
+    bool needsRebuild;
+};
+
 
 class Command {
 public:
     virtual ~Command() = default;
     virtual void execute(FactoryGraph& graph) = 0;
     virtual void undo(FactoryGraph& graph) = 0;
+    virtual CommandFlags GetFlags() const { return CommandFlags{false, false}; }
     virtual std::string getDescription() const = 0;
 };
 
@@ -22,8 +28,9 @@ class CompositeCommand : public Command {
 private:
     std::vector<std::unique_ptr<Command>> commands;
     std::string description;
+    CommandFlags flags;
 public:
-    CompositeCommand(const std::string& desc) : description(desc) {}
+    CompositeCommand(const std::string& desc, CommandFlags flags = {true, true}) : description(desc), flags(flags) {}
     void addCommand(std::unique_ptr<Command> command) {
         commands.push_back(std::move(command));
     }
@@ -37,6 +44,7 @@ public:
             (*it)->undo(graph);
         }
     }
+    virtual CommandFlags GetFlags() const { return flags; }
     std::string getDescription() const override {
         return description;
     }
@@ -63,6 +71,7 @@ public:
     }
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
+    virtual CommandFlags GetFlags() const { return CommandFlags{true, true}; }
     std::string getDescription() const override { return "Add Node: " + nodeName; }
 };
 
@@ -80,6 +89,7 @@ public:
     }
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
+    virtual CommandFlags GetFlags() const { return CommandFlags{true, true}; }
     std::string getDescription() const override { return "Remove Node: " + nodeData.name; }
 
 };
@@ -97,6 +107,7 @@ public:
     }
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
+    virtual CommandFlags GetFlags() const { return CommandFlags{true, false}; }
     std::string getDescription() const override { return "Add Connection: " + std::to_string(fromPort) + " -> " + std::to_string(toPort); }
 };
 
@@ -112,6 +123,7 @@ private:
     }
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
+    virtual CommandFlags GetFlags() const { return CommandFlags{true, false}; }
     std::string getDescription() const override { return "Remove Connection: " + std::to_string(fromPort) + " -> " + std::to_string(toPort); }
 };
 
@@ -133,6 +145,7 @@ public:
 
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
+    virtual CommandFlags GetFlags() const { return CommandFlags{true, true}; }
     std::string getDescription() const override { return "Pasted " + std::to_string(pastedNodes.size()) + " nodes";}
 };
 
@@ -147,6 +160,7 @@ public:
     }
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
+    virtual CommandFlags GetFlags() const { return CommandFlags{true, false}; }
     std::string getDescription() const override {
         return "Set Port Constraint: Port ID " + std::to_string(portId) + " from " + std::to_string(oldConstraint) + " to " + std::to_string(newConstraint);
     }
@@ -163,6 +177,7 @@ public:
     }
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
+    virtual CommandFlags GetFlags() const { return CommandFlags{false, true}; }
     std::string getDescription() const override {
         return "Change Node Position: Node ID " + std::to_string(nodeId) + " from (" + std::to_string(oldPosition.x) + ", " + std::to_string(oldPosition.y) + ") to (" + std::to_string(newPosition.x) + ", " + std::to_string(newPosition.y) + ")";
     }
@@ -183,6 +198,12 @@ public:
     void undo(FactoryGraph& graph);
     void redo(FactoryGraph& graph);
 
+    const Command *getCommandToUndo() const {
+        return undoStack.empty() ? nullptr : undoStack.back().get();
+    }
+    const Command *getCommandToRedo() const {
+        return redoStack.empty() ? nullptr : redoStack.back().get();
+    }
 
     std::string getUndoDescription() const {
         return undoStack.empty() ? "" : undoStack.back()->getDescription();
