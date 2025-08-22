@@ -50,6 +50,9 @@ private:
 
     void UndoActiveEditor();
     void RedoActiveEditor();
+
+    void SelectAllActiveEditor();
+
     void CloseActiveEditor();
 
     void CloseEditor(int index);

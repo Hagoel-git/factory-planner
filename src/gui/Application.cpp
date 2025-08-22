@@ -155,7 +155,9 @@ void Application::DrawMenuBar() {
                 PasteActiveEditor(true);
             }
             ImGui::Separator();
-            if (ImGui::MenuItem("Select All", "Ctrl+A (WIP)")) {}
+            if (ImGui::MenuItem("Select All", "Ctrl+A")) {
+                SelectAllActiveEditor();
+            }
             ImGui::EndMenu();
         }
         ImGui::EndMainMenuBar();
@@ -205,6 +207,9 @@ void Application::DrawMenuBar() {
         }
         if (ImGui::IsKeyPressed(ImGuiKey_V)) {
             PasteActiveEditor(io.KeyShift); // Shift key to map external connections
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_A)) {
+            SelectAllActiveEditor();
         }
     }
 }
@@ -606,12 +611,9 @@ void Application::PasteActiveEditor(bool mapExternalConnections) {
 }
 
 void Application::UndoActiveEditor() {
-    std::cout << "Undo requested" << std::endl;
     if (activeEditor < 0 || static_cast<size_t>(activeEditor) >= editors.size()) {
-        std::cout << "No active editor to undo" << std::endl;
         return; // No active editor to undo
     }
-    std::cout << "Active editor index: " << activeEditor << std::endl;
     auto &editor = editors[activeEditor];
     if (editor) {
         ed::SetCurrentEditor(editor->GetContext());
@@ -628,6 +630,18 @@ void Application::RedoActiveEditor() {
     if (editor) {
         ed::SetCurrentEditor(editor->GetContext());
         editor->redo();
+        ed::SetCurrentEditor(nullptr);
+    }
+}
+
+void Application::SelectAllActiveEditor() {
+    if (activeEditor < 0 || static_cast<size_t>(activeEditor) >= editors.size()) {
+        return; // No active editor to select all
+    }
+    auto &editor = editors[activeEditor];
+    if (editor) {
+        ed::SetCurrentEditor(editor->GetContext());
+        editor->selectAll();
         ed::SetCurrentEditor(nullptr);
     }
 }
