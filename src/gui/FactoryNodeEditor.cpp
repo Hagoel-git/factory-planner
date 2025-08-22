@@ -11,8 +11,8 @@
 #include <string>
 namespace ed = ax::NodeEditor;
 
-FactoryNodeEditor::FactoryNodeEditor(const std::string &gameDataFilePath, const std::string &projectFilePath, const std::string &title)
-    : name(title), projectFilePath(projectFilePath), gameDataFilePath(gameDataFilePath), m_contextNodeId(0), m_contextPinId(0), m_contextLinkId(0), undoRedoManager(100) {
+FactoryNodeEditor::FactoryNodeEditor(GameData game_data, const std::string &projectFilePath, const std::string &title)
+    : name(title), projectFilePath(projectFilePath), gameData(std::move(game_data)), m_contextNodeId(0), m_contextPinId(0), m_contextLinkId(0), undoRedoManager(100) {
     Initialize();
 }
 
@@ -22,7 +22,7 @@ FactoryNodeEditor::~FactoryNodeEditor() {
 
 bool FactoryNodeEditor::Initialize() {
     try {
-        graph = std::make_unique<FactoryGraph>(gameDataFilePath);
+        graph = std::make_unique<FactoryGraph>(gameData);
         solver = std::make_unique<FactorySolver>();
 
         ed::Config cfg = ed::Config();
@@ -138,7 +138,7 @@ void FactoryNodeEditor::copy(CopyBuffer &copy_buffer) {
 
     copy_buffer.clear();
 
-    copy_buffer.gameDataFilePath = this->gameDataFilePath; // Store game data file path
+    copy_buffer.gameDataFilePath = gameData.gameDataFilePath; // Store game data file path
 
     for (const auto &nodeId : selectedNodes) {
         int nodeIdInt = IdUtils::FromNodeId(nodeId);
@@ -365,10 +365,12 @@ void FactoryNodeEditor::DrawNodes() {
             if (i < node->input_ports.size()) {
                 Port *p = graph->getPort(node->input_ports[i]);
                 if (!p) continue; // Skip invalid ports
-                ed::PinId pinId = IdUtils::ToPinId(p->id);
-                ed::BeginPin(pinId, ed::PinKind::Input);
-                ImGui::Text("<%.2f> %s",p->rate ,graph->getGameData().resources.at(p->resource_id).name.c_str()); // Display resource name
-                ed::EndPin();
+                if (p->resource_id != 0) {
+                    ed::PinId pinId = IdUtils::ToPinId(p->id);
+                    ed::BeginPin(pinId, ed::PinKind::Input);
+                    ImGui::Text("<%.2f> %s",p->rate ,graph->getGameData().resources.at(p->resource_id).name.c_str()); // Display resource name
+                    ed::EndPin();
+                }
             } else {
                 ImGui::Text(" "); // Empty space for alignment
             }
@@ -376,10 +378,13 @@ void FactoryNodeEditor::DrawNodes() {
             if (i < node->output_ports.size()) {
                 Port *p = graph->getPort(node->output_ports[i]);
                 if (!p) continue; // Skip invalid ports
-                ed::PinId pinId = IdUtils::ToPinId(p->id);
-                ed::BeginPin(pinId, ed::PinKind::Output);
-                ImGui::Text("%s <%.2f>",p->rate, graph->getGameData().resources.at(p->resource_id).name.c_str()); // Display resource name
-                ed::EndPin();
+                if (p->resource_id != 0) {
+                    // Skip ports with no resource
+                    ed::PinId pinId = IdUtils::ToPinId(p->id);
+                    ed::BeginPin(pinId, ed::PinKind::Output);
+                    ImGui::Text("%s <%.2f>",p->rate, graph->getGameData().resources.at(p->resource_id).name.c_str()); // Display resource name
+                    ed::EndPin();
+                }
             } else {
                 ImGui::Text(" "); // Empty space for alignment
             }

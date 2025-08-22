@@ -3,6 +3,7 @@
 #include <iostream>
 #include <unordered_map>
 
+
 json JsonLoader::loadFromFile(const std::string &filePath) {
     std::ifstream file(filePath);
     if (!file.is_open()) {
@@ -30,7 +31,6 @@ Machine JsonLoader::parseMachine(const json &machineJson, int id) {
     machine.id = id;
     machine.name = machineJson.value("name", "");
     machine.base_power_usage = machineJson.value("base_power_usage", 0.0);
-    machine.max_somersloop_slots = machineJson.value("max_somersloop_slots", 0);
     return machine;
 }
 
@@ -43,7 +43,6 @@ Recipe JsonLoader::parseRecipe(
     Recipe recipe;
     recipe.id = id;
     recipe.name = recipeJson.value("name", "");
-    recipe.time = recipeJson.value("time", 1.0);
     try {
         recipe.category_id = categoryNameToId.at(recipeJson.value("category", ""));
     } catch (const std::out_of_range &e) {

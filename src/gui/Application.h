@@ -5,7 +5,6 @@
 #include <memory>
 #include <string>
 #include "FactoryNodeEditor.h"
-#include "imgui.h"
 #include "../common/CopyBuffer.h"
 
 class Application {
@@ -17,6 +16,8 @@ public:
     bool quitRequested = false;
 private:
     std::vector<std::unique_ptr<FactoryNodeEditor>> editors;
+    GameDataManager gameDataManager;
+    std::string gameDataManagerError;
     std::filesystem::path executableDirectory;
     bool dockInitialized = false;
     int activeEditor = -1; // No active editor initially

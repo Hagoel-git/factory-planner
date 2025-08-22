@@ -127,6 +127,9 @@ void Application::DrawMenuBar() {
                 activeEditor = -1; // Reset active editor
             }
             ImGui::Separator();
+            if (ImGui::MenuItem("Game Data Manager")) {
+                // todo
+            }
             if (ImGui::MenuItem("Quit", "Ctrl+Q")) {
                 editors.clear();
                 quitRequested = true;
@@ -531,7 +534,14 @@ void Application::CreateNewEditor(const std::string &gameDataFilePath, const std
         return; // Do not create a new editor if the name already exists
     }
     // Create new editor with its own graph and solver
-    auto editor = std::make_unique<FactoryNodeEditor>(gameDataFilePath, location, name);
+    gameDataManager.loadFromFile(gameDataFilePath,gameDataManagerError);
+    if (!gameDataManagerError.empty()) {
+        // todo: show error to user
+        std::cerr << gameDataManagerError << std::endl;
+        return;
+    }
+    auto editor = std::make_unique<FactoryNodeEditor>(gameDataManager.current(), location, name);
+    gameDataManager.clear();
     editors.push_back(std::move(editor));
 
     // Switch to the new tab

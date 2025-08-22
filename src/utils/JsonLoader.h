@@ -4,10 +4,7 @@
 #include <nlohmann/json.hpp>
 #include <unordered_map>
 #include <string>
-
-#include "../core/Machine.h"
-#include "../core/Recipe.h"
-#include "../core/Resource.h"
+#include "../common/GameData.h"
 
 using json = nlohmann::json;
 

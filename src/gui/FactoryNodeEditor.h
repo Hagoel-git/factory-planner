@@ -37,7 +37,7 @@ struct GetNodeBox {
 class FactoryNodeEditor {
 public:
 
-    FactoryNodeEditor(const std::string& gameDataFilePath, const std::string& projectFilePath, const std::string& title );
+    FactoryNodeEditor(GameData game_data, const std::string& projectFilePath, const std::string& title );
 
     ~FactoryNodeEditor();
 
@@ -87,7 +87,7 @@ public:
     ed::EditorContext* GetContext() { return context; }
 
     const std::string& GetName() const { return name; }
-    const std::filesystem::path& GetGameDataFilePath() const { return gameDataFilePath; }
+    const std::filesystem::path& GetGameDataFilePath() const { return gameData.gameDataFilePath; }
     void SetName(const std::string& newName) { name = newName; }
 private:
     std::unique_ptr<FactoryGraph> graph;
@@ -117,7 +117,7 @@ private:
     ImVec2 windowSize;
     std::string name;
     std::filesystem::path projectFilePath;
-    std::filesystem::path gameDataFilePath;
+    GameData gameData;
     int selected_port_id = 0;
 
     // Quadtree for spatial optimization

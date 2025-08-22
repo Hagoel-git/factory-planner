@@ -76,14 +76,11 @@ set(SRC
         src/utils/JsonLoader.cpp
         src/utils/JsonLoader.h
 
-        src/core/Recipe.h
-        src/core/Resource.h
         src/core/Port.h
 
         src/core/FactorySolver.cpp
         src/core/FactorySolver.h
 
-        src/core/Machine.h
         src/common/GameData.h
         src/common/IdUtils.h
         src/gui/FactoryNodeEditor.cpp
@@ -96,6 +93,8 @@ set(SRC
         src/utils/UndoRedoSystem.h
         src/utils/FilesystemUtils.h
         src/common/CopyBuffer.h
+        src/utils/GameDataManager.cpp
+        src/utils/GameDataManager.h
 )
 
 add_executable(factory_planner ${SRC})

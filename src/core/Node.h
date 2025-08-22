@@ -8,7 +8,6 @@
 #include <iostream>
 #include <unordered_map>
 
-#include "Recipe.h"
 #include "../common/NodeType.h"
 
 struct Node {

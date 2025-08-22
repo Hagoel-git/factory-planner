@@ -4,6 +4,7 @@
 
 #ifndef FACTORYGRAPH_H
 #define FACTORYGRAPH_H
+#include <utility>
 #include <vector>
 #include <unordered_map>
 
@@ -11,6 +12,7 @@
 #include "Node.h"
 #include "Port.h"
 #include "../common/GameData.h"
+#include "../utils/GameDataManager.h"
 
 class FactoryGraph {
 public:
@@ -47,13 +49,14 @@ public:
         return game_data;
     }
 
-    FactoryGraph(const std::string& jsonFile): game_data(jsonFile) {
+    explicit FactoryGraph(GameData game_data) {
+        this->game_data = std::move(game_data);
     }
 
     ~FactoryGraph() = default;
 
 private:
-    const GameData game_data;
+    GameData game_data;
 
     std::vector<Node> nodes;
     std::vector<Port> ports;

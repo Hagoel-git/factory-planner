@@ -342,17 +342,17 @@ bool FactoryGraph::setNodeRecipe(int node_id, int recipe_id) {
     if (recipe_id > game_data.recipes.size()) {
         return false;
     }
-    const Recipe &recipe = game_data.recipes[recipe_id];
+    const Recipe &recipe = game_data.recipes.at(recipe_id);
     node->selected_recipe_id = recipe_id;
     node->machine_id = recipe.category_id;
-    node->output_ports.resize(recipe.getOutputPortCount());
-    node->input_ports.resize(recipe.getInputPortCount());
-    for (int i = 0; i < recipe.getInputPortCount(); ++i) {
-        int port_id = addPort(recipe.getInputPortResourceId(i), node_id, true);
+    node->output_ports.resize(recipe.output_ports.size());
+    node->input_ports.resize(recipe.input_ports.size());
+    for (int i = 0; i < recipe.input_ports.size(); ++i) {
+        int port_id = addPort(recipe.input_ports.at(i).resource_id, node_id, true);
         node->input_ports[i] = port_id;
     }
-    for (int i = 0; i < recipe.getOutputPortCount(); ++i) {
-        int port_id = addPort(recipe.getOutputPortResourceId(i), node_id, false);
+    for (int i = 0; i < recipe.output_ports.size(); ++i) {
+        int port_id = addPort(recipe.output_ports.at(i).resource_id, node_id, false);
         node->output_ports[i] = port_id;
     }
     return true;
