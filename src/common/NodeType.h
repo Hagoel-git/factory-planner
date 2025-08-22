@@ -8,8 +8,7 @@
 enum class NodeType {
     PRODUCER,
     PROCESSOR,
-    CONSUMER,
-    MISC,
+    CONSUMER
 };
 
 inline const char *toString(NodeType type) {
@@ -17,7 +16,6 @@ inline const char *toString(NodeType type) {
         case NodeType::PRODUCER: return "Producer";
         case NodeType::PROCESSOR: return "Processor";
         case NodeType::CONSUMER: return "Consumer";
-        case NodeType::MISC: return "Miscellaneous";
         default: return "Unknown";
     }
 }

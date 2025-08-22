@@ -1,9 +1,9 @@
 #ifndef COPYBUFFER_H
 #define COPYBUFFER_H
 
-#include <vector>
 #include <unordered_map>
 #include <unordered_set>
+#include <filesystem>
 
 #include "imgui.h"
 #include "../core/FactoryGraph.h"
