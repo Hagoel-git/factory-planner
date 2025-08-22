@@ -55,15 +55,29 @@ public:
 
     void undo() {
         if (!undoRedoManager.canUndo()) return;
+
+        const Command *command = undoRedoManager.getCommandToUndo();
+        if (!command) return;
+
+        CommandFlags flags = command->GetFlags();
+
         undoRedoManager.undo(*graph);
-        solver->solve(*graph);
-        quadtreeNeedsRebuild = true; // Mark for rebuild after undo
+
+        if (flags.needsSolve) solver->solve(*graph);
+        quadtreeNeedsRebuild = flags.needsRebuild;
     }
     void redo() {
         if (!undoRedoManager.canRedo()) return;
+
+        const Command *command = undoRedoManager.getCommandToRedo();
+        if (!command) return;
+
+        CommandFlags flags = command->GetFlags();
+
         undoRedoManager.redo(*graph);
-        solver->solve(*graph);
-        quadtreeNeedsRebuild = true; // Mark for rebuild after redo
+
+        if (flags.needsSolve) solver->solve(*graph);
+        quadtreeNeedsRebuild = flags.needsRebuild;
     }
     bool canUndo() const { return undoRedoManager.canUndo(); }
     bool canRedo() const { return undoRedoManager.canRedo(); }
@@ -117,9 +131,12 @@ private:
                 return;
             }
         }
+        CommandFlags flags = command->GetFlags();
+        std::cout << "Executing command: " << command->getDescription() << std::endl;
+        std::cout << "Flags - needsSolve: " << flags.needsSolve << ", needsRebuild: " << flags.needsRebuild << std::endl;
         undoRedoManager.executeCommand(std::move(command), *graph);
-        solver->solve(*graph);
-        quadtreeNeedsRebuild = true; // Mark for rebuild after command execution
+        if (flags.needsSolve) solver->solve(*graph);
+        quadtreeNeedsRebuild = flags.needsRebuild;
     }
 
     void DrawHeader();
