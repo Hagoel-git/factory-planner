@@ -53,6 +53,8 @@ public:
     void copy(CopyBuffer &copy_buffer);
     void paste(const CopyBuffer &copy_buffer, bool mapExternalConnections = false);
 
+    void selectAll();
+
     void undo() {
         if (!undoRedoManager.canUndo()) return;
 
@@ -132,8 +134,6 @@ private:
             }
         }
         CommandFlags flags = command->GetFlags();
-        std::cout << "Executing command: " << command->getDescription() << std::endl;
-        std::cout << "Flags - needsSolve: " << flags.needsSolve << ", needsRebuild: " << flags.needsRebuild << std::endl;
         undoRedoManager.executeCommand(std::move(command), *graph);
         if (flags.needsSolve) solver->solve(*graph);
         quadtreeNeedsRebuild = flags.needsRebuild;
@@ -150,7 +150,6 @@ private:
     std::vector<NodeQuadtreeData> GetVisibleNodes(const ImVec2& viewMin, const ImVec2& viewMax);
 
     void HandleUserInteractions();
-    void HandleKeyboardShortcuts();
     void HandleContextMenus();
     void HandlePopups();
 };

@@ -25,11 +25,6 @@ bool FactoryNodeEditor::Initialize() {
         graph = std::make_unique<FactoryGraph>(gameDataFilePath);
         solver = std::make_unique<FactorySolver>();
 
-
-        for (int i = 0; i < 0; ++i) {
-            graph->addNode("Node " + std::to_string(i), NodeType::PROCESSOR, 32);
-        }
-
         ed::Config cfg = ed::Config();
         cfg.AutoSaveEnabled = false;
         cfg.SettingsFile = nullptr;
@@ -105,7 +100,6 @@ void FactoryNodeEditor::Draw() {
     DrawNodes();
     DrawConnections();
     HandleUserInteractions();
-    HandleKeyboardShortcuts();
     HandleContextMenus();
     HandlePopups();
 
@@ -196,6 +190,13 @@ void FactoryNodeEditor::cut(CopyBuffer &copyBuffer) {
 
 void FactoryNodeEditor::paste(const CopyBuffer &copy_buffer, bool mapExternalConnections) {
     executeCommand(std::make_unique<PasteCommand>(copy_buffer, mapExternalConnections));
+}
+
+void FactoryNodeEditor::selectAll() {
+    ed::ClearSelection();
+    for (const auto &node : graph->getNodes()) {
+        ed::SelectNode(IdUtils::ToNodeId(node.id), true); // Select all nodes
+    }
 }
 
 static int drawnNodeCount = 0;
@@ -540,21 +541,6 @@ void FactoryNodeEditor::HandleUserInteractions() {
         }
     }
     wasDragging = isDragging;
-}
-
-void FactoryNodeEditor::HandleKeyboardShortcuts() {
-    ed::Suspend();
-    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootWindow)) {
-        if (ImGui::GetIO().KeyCtrl) {
-            if (ImGui::IsKeyPressed(ImGuiKey_A)) {
-                ed::ClearSelection();
-                for (const auto &node : graph->getNodes()) {
-                    ed::SelectNode(IdUtils::ToNodeId(node.id), true); // Select all nodes
-                }
-            }
-        }
-    }
-    ed::Resume();
 }
 
 void FactoryNodeEditor::HandleContextMenus() {
