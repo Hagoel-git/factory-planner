@@ -41,7 +41,7 @@ private:
     double last_solve_time = 0.0;
     std::string last_solver_status = "NOT_SOLVED";
 
-    std::unordered_map<int, operations_research::MPVariable *> variables; // position = port id
+    std::unordered_map<int, operations_research::MPVariable *> variables;
     std::vector<operations_research::MPConstraint *> constraints; // position = constraint id
 
     void createAllVariables(const FactoryGraph &factory_graph);
