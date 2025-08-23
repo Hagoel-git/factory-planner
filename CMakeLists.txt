@@ -73,9 +73,6 @@ set(SRC
         src/core/FactoryGraph.h
         src/core/FactoryGraph.cpp
 
-        src/utils/JsonLoader.cpp
-        src/utils/JsonLoader.h
-
         src/core/Port.h
 
         src/core/FactorySolver.cpp

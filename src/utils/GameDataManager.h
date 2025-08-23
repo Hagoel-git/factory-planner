@@ -7,8 +7,9 @@
 #include <mutex>
 #include <filesystem>
 
-#include "JsonLoader.h"
 #include "../common/GameData.h"
+#include <nlohmann/json.hpp>
+using json = nlohmann::json;
 
 class GameDataManager {
 public:
