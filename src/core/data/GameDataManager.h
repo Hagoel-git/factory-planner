@@ -5,9 +5,8 @@
 #include <vector>
 #include <functional>
 #include <mutex>
-#include <filesystem>
 
-#include "../common/GameData.h"
+#include "GameData.h"
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;
 

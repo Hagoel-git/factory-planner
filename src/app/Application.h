@@ -5,7 +5,8 @@
 #include <memory>
 #include <string>
 #include "FactoryNodeEditor.h"
-#include "../common/CopyBuffer.h"
+#include "CopyBuffer.h"
+#include "GameDataManager.h"
 
 class Application {
 public:

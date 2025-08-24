@@ -1,13 +1,13 @@
 #pragma once
 #include "imgui.h"
 #include "imgui_node_editor.h"
-#include "../utils/UndoRedoSystem.h"
+#include "UndoRedoSystem.h"
 #include "pvigier/Quadtree.h"
+#include "FactorySolver.h"
+#include "FactoryGraph.h"
+
 struct CopyBuffer;
 namespace ed = ax::NodeEditor;
-
-#include "../core/FactorySolver.h"
-#include "../core/FactoryGraph.h"
 
 enum class SaveAsMode {
     KeepCurrentFile,

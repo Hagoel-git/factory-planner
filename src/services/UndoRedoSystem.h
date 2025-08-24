@@ -6,8 +6,8 @@
 #define UNDOREDOSYSTEM_H
 #include <imgui.h>
 
-#include "../common/CopyBuffer.h"
-#include "../core/FactoryGraph.h"
+#include "CopyBuffer.h"
+#include "FactoryGraph.h"
 
 struct CommandFlags {
     bool needsSolve;
