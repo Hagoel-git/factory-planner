@@ -11,18 +11,21 @@
 
 #include "nativefiledialog-extended/src/include/nfd.h"
 #include "FilesystemUtils.h"
+#include "SettingsManager.h"
 
 Application::Application() {
-    executableDirectory = get_executable_directory()
-                              .value_or(std::filesystem::current_path());
+    SettingsManager::instance().load();
 }
 
-Application::~Application() = default;
+Application::~Application() {
+    SettingsManager::instance().save();
+}
 void Application::Draw() {
     DrawMenuBar();
     DrawNewProjectDialog();
     DrawOpenProjectDialog();
     DrawSaveAsDialog();
+    gameDataEditor.Draw();
     ImGuiViewport *viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->WorkPos);
     ImGui::SetNextWindowSize(viewport->WorkSize);
@@ -130,7 +133,7 @@ void Application::DrawMenuBar() {
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Game Data Manager")) {
-                // todo
+                gameDataEditor.SetOpen(true);
             }
             if (ImGui::MenuItem("Quit", "Ctrl+Q")) {
                 editors.clear();
@@ -236,7 +239,7 @@ void Application::DrawNewProjectDialog() {
     }
 
     // Gather game data files (fresh each frame in case files change)
-    std::filesystem::path gameDataPath = executableDirectory / "game_data";
+    std::filesystem::path gameDataPath = SettingsManager::instance().getSettings().gameDataPath;
     std::vector<std::filesystem::path> gameDataFiles = GetGameDataFiles(gameDataPath);
 
     // One-time initialization of buffers
@@ -246,7 +249,7 @@ void Application::DrawNewProjectDialog() {
         std::strncpy(projectNameBuf, defaultName.c_str(), sizeof(projectNameBuf));
         projectNameBuf[sizeof(projectNameBuf) - 1] = '\0';
 
-        std::filesystem::path defaultLocation = executableDirectory / "projects";
+        std::filesystem::path defaultLocation = SettingsManager::instance().getSettings().defaultProjectPath;
         std::strncpy(locationBuf, defaultLocation.string().c_str(), sizeof(locationBuf));
         locationBuf[sizeof(locationBuf) - 1] = '\0';
 
@@ -255,8 +258,6 @@ void Application::DrawNewProjectDialog() {
 
     // --- Header ---
     ImGui::TextWrapped("Create a new project. The project filename will be <name>%s", kProjectExtension);
-    ImGui::TextWrapped("CopyBuffer: N: %d, P: %d, C: %d", copyBuffer.nodes.size(),
-                       copyBuffer.ports.size(), copyBuffer.connections.size());
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
@@ -418,7 +419,7 @@ static std::atomic<bool> fileDialogCancelled = false;
 void Application::DrawOpenProjectDialog() {
     if (!showOpenProjectDialog) return;
 
-    std::filesystem::path gameDataPath = executableDirectory / "game_data";
+    std::filesystem::path gameDataPath = SettingsManager::instance().getSettings().gameDataPath;
     std::vector<std::filesystem::path> gameDataFiles = GetGameDataFiles(gameDataPath);
 
     if (!fileDialogRunning && fileDialogResult.empty() && !fileDialogCancelled) {
@@ -721,17 +722,4 @@ std::string Application::GenerateDefaultEditorName() {
     }
 
     return "Factory_" + std::to_string(nextNumber);
-}
-
-std::vector<std::filesystem::path> Application::GetGameDataFiles(const std::filesystem::path &directory) {
-    if (!exists(directory)) {
-        create_directories(directory);
-    }
-    std::vector<std::filesystem::path> jsonFiles;
-    for (const auto &entry: std::filesystem::directory_iterator(directory)) {
-        if (entry.is_regular_file() && entry.path().extension() == ".json") {
-            jsonFiles.push_back(entry.path().filename());
-        }
-    }
-    return jsonFiles;
 }
