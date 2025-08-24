@@ -1,7 +1,3 @@
-//
-// Created by hagoel on 8/21/25.
-//
-
 #ifndef FILESYSTEMUTILS_H
 #define FILESYSTEMUTILS_H
 #include <filesystem>
@@ -18,7 +14,7 @@
   #include <mach-o/dyld.h>
 #endif
 
-std::optional<std::filesystem::path> get_executable_directory() {
+inline std::optional<std::filesystem::path> get_executable_directory() {
     std::filesystem::path exe_path;
 
 #ifdef _WIN32
@@ -86,5 +82,17 @@ std::optional<std::filesystem::path> get_executable_directory() {
     return result_dir;
 }
 
+inline std::vector<std::filesystem::path> GetGameDataFiles(const std::filesystem::path &directory) {
+    if (!exists(directory)) {
+        create_directories(directory);
+    }
+    std::vector<std::filesystem::path> jsonFiles;
+    for (const auto &entry: std::filesystem::directory_iterator(directory)) {
+        if (entry.is_regular_file() && entry.path().extension() == ".json") {
+            jsonFiles.push_back(entry.path().filename());
+        }
+    }
+    return jsonFiles;
+}
 
 #endif //FILESYSTEMUTILS_H

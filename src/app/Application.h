@@ -6,6 +6,7 @@
 #include <string>
 #include "FactoryNodeEditor.h"
 #include "CopyBuffer.h"
+#include "GameDataEditor.h"
 #include "GameDataManager.h"
 
 class Application {
@@ -17,9 +18,9 @@ public:
     bool quitRequested = false;
 private:
     std::vector<std::unique_ptr<FactoryNodeEditor>> editors;
+    GameDataEditor gameDataEditor;
     GameDataManager gameDataManager;
     std::string gameDataManagerError;
-    std::filesystem::path executableDirectory;
     bool dockInitialized = false;
     int activeEditor = -1; // No active editor initially
 
@@ -63,7 +64,5 @@ private:
 
     // Utility
     std::string GenerateDefaultEditorName();
-
-    std::vector<std::filesystem::path> GetGameDataFiles(const std::filesystem::path &directory);
 };
 #endif

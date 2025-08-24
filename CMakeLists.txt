@@ -93,6 +93,8 @@ set(SRC
         src/services/ProjectIo.h
         src/services/UndoRedoSystem.cpp
         src/services/UndoRedoSystem.h
+        src/services/SettingsManager.cpp
+        src/services/SettingsManager.h
 )
 
 add_executable(factory_planner ${SRC})
