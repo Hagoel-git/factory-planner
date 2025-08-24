@@ -1,14 +1,16 @@
 #include "Application.h"
 #include <algorithm>
 #include <fstream>
-#include <imgui_internal.h>
+#include "imgui/imgui_internal.h"
 
 #include <thread>
 #include <atomic>
+#include <iostream>
+#include <set>
 #include <GLFW/glfw3.h>
 
-#include "nfd.h"
-#include "../utils/FilesystemUtils.h"
+#include "nativefiledialog-extended/src/include/nfd.h"
+#include "FilesystemUtils.h"
 
 Application::Application() {
     executableDirectory = get_executable_directory()

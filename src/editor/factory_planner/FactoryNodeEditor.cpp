@@ -3,9 +3,9 @@
 #include "imgui.h"
 #include "imgui_node_editor.h"
 #include "imgui_internal.h"
-#include "../utils/ProjectIo.h"
-#include "../common/IdUtils.h"
-#include "../common/CopyBuffer.h"
+#include "ProjectIo.h"
+#include "IdUtils.h"
+#include "CopyBuffer.h"
 
 #include <unordered_map>
 #include <string>

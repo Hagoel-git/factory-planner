@@ -60,41 +60,56 @@ add_library(imgui_node_editor STATIC ${NODE_EDITOR_SOURCES})
 target_include_directories(imgui_node_editor PUBLIC ${EXTERNAL_DIR}/imgui-node-editor)
 target_link_libraries(imgui_node_editor PUBLIC imgui)
 
-
-include_directories(${CMAKE_SOURCE_DIR}/external)
-
 # ---- main executable ----
 set(SRC
-        src/main.cpp
+        src/app/main.cpp
+        src/app/Application.h
+        src/app/Application.cpp
 
-        src/core/Node.h
         src/common/NodeType.h
-        src/core/Connection.h
-        src/core/FactoryGraph.h
-        src/core/FactoryGraph.cpp
-
-        src/core/Port.h
-
-        src/core/FactorySolver.cpp
-        src/core/FactorySolver.h
-
-        src/common/GameData.h
-        src/common/IdUtils.h
-        src/gui/FactoryNodeEditor.cpp
-        src/gui/FactoryNodeEditor.h
-        src/gui/Application.cpp
-        src/gui/Application.h
-        src/utils/ProjectIo.cpp
-        src/utils/ProjectIo.h
-        src/utils/UndoRedoSystem.cpp
-        src/utils/UndoRedoSystem.h
-        src/utils/FilesystemUtils.h
+        src/common/FilesystemUtils.h
         src/common/CopyBuffer.h
-        src/utils/GameDataManager.cpp
-        src/utils/GameDataManager.h
+        src/common/IdUtils.h
+
+        src/core/graph/Connection.h
+        src/core/graph/Port.h
+        src/core/graph/Node.h
+        src/core/graph/FactoryGraph.h
+        src/core/graph/FactoryGraph.cpp
+
+        src/core/graph/FactorySolver.h
+        src/core/graph/FactorySolver.cpp
+
+        src/core/data/GameData.h
+        src/core/data/GameDataManager.h
+        src/core/data/GameDataManager.cpp
+
+        src/editor/factory_planner/FactoryNodeEditor.h
+        src/editor/factory_planner/FactoryNodeEditor.cpp
+        src/editor/game_data_editor/GameDataEditor.h
+        src/editor/game_data_editor/GameDataEditor.cpp
+
+        src/services/ProjectIo.cpp
+        src/services/ProjectIo.h
+        src/services/UndoRedoSystem.cpp
+        src/services/UndoRedoSystem.h
 )
 
 add_executable(factory_planner ${SRC})
+
+target_include_directories(factory_planner PRIVATE
+        ${CMAKE_SOURCE_DIR}/external
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/src/core
+        ${CMAKE_SOURCE_DIR}/src/core/graph
+        ${CMAKE_SOURCE_DIR}/src/core/data
+        ${CMAKE_SOURCE_DIR}/src/editor
+        ${CMAKE_SOURCE_DIR}/src/editor/factory_planner
+        ${CMAKE_SOURCE_DIR}/src/editor/game_data_editor
+        ${CMAKE_SOURCE_DIR}/src/app
+        ${CMAKE_SOURCE_DIR}/src/services
+        ${CMAKE_SOURCE_DIR}/src/common
+)
 
 # Organize sources in IDEs
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SRC})

@@ -6,7 +6,7 @@
 #include <filesystem>
 
 #include "imgui.h"
-#include "../core/FactoryGraph.h"
+#include "FactoryGraph.h"
 
 struct CopyBuffer {
     std::unordered_map<int, Node> nodes;    // id->Node; copies of Node (value-copied)

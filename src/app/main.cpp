@@ -7,7 +7,7 @@
 #include <thread>
 
 #include "nfd_glfw3.h"
-#include "gui/Application.h"
+#include "Application.h"
 
 // Return true if current session *looks like* Wayland.
 static bool RunningOnWayland()

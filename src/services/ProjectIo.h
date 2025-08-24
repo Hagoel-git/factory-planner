@@ -8,9 +8,7 @@
 
 #include <filesystem>
 #include <nlohmann/json.hpp>
-#include "../core/FactoryGraph.h"
-
-
+#include "FactoryGraph.h"
 #include "imgui-node-editor/imgui_node_editor.h"
 
 using json = nlohmann::json;

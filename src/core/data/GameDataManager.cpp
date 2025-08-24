@@ -11,7 +11,7 @@
 #include <chrono>
 #include <iostream>
 
-#include <nlohmann/json.hpp>
+#include <../../../external/nlohmann/json.hpp>
 
 using json = nlohmann::json;
 

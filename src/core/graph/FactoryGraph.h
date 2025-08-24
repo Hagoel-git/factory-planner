@@ -11,8 +11,8 @@
 #include "Connection.h"
 #include "Node.h"
 #include "Port.h"
-#include "../common/GameData.h"
-#include "../utils/GameDataManager.h"
+#include "GameData.h"
+#include "GameDataManager.h"
 
 class FactoryGraph {
 public:
