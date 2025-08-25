@@ -9,10 +9,12 @@
 
 #include <unordered_map>
 #include <string>
+
+#include "SettingsManager.h"
 namespace ed = ax::NodeEditor;
 
 FactoryNodeEditor::FactoryNodeEditor(GameData game_data, const std::string &projectFilePath, const std::string &title)
-    : name(title), projectFilePath(projectFilePath), gameData(std::move(game_data)), m_contextNodeId(0), m_contextPinId(0), m_contextLinkId(0), undoRedoManager(100) {
+    : name(title), projectFilePath(projectFilePath), gameData(std::move(game_data)), m_contextNodeId(0), m_contextPinId(0), m_contextLinkId(0), undoRedoManager(SettingsManager::instance().getSettings().maxUndoHistory) {
     Initialize();
 }
 
