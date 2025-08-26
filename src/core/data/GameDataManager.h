@@ -65,7 +65,6 @@ private:
 
     int nextRecipeId() const;
 
-    // Access current in-memory config
 private:
     GameData _data;
     std::function<void()> _onChange;
