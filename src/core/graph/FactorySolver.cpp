@@ -188,7 +188,7 @@ void FactorySolver::addAllConstraints(const FactoryGraph &factory_graph) {
 void FactorySolver::addRecipeConstraints(const Node &node, const Recipe &recipe) {
     for (int i = 0; i < recipe.input_ports.size(); ++i) {
         operations_research::MPConstraint *constraint = solver_->MakeRowConstraint(0.0, 0.0);
-        constraint->SetCoefficient(variables[node.input_ports[i]], recipe.output_ports[0].amount);
+        constraint->SetCoefficient(variables[node.input_ports[i]], recipe.output_ports[0].amount * node.production_multiplier);
         constraint->SetCoefficient(variables[node.output_ports[0]], -recipe.input_ports[i].amount);
         constraints.push_back(constraint);
     }
@@ -257,10 +257,19 @@ void FactorySolver::updateFactoryGraph(FactoryGraph &factory_graph) const {
 
     // calculate machine counts and power usage for each node
     const auto &nodes = factory_graph.getNodes();
+    int time_unit = 0;
+    if (factory_graph.getGameData().time_unit == "seconds") {
+        time_unit = 1;
+    } else if (factory_graph.getGameData().time_unit == "minutes") {
+        time_unit = 60;
+    } else if (factory_graph.getGameData().time_unit == "hours") {
+        time_unit = 3600;
+    } else {
+        time_unit = 1; // default to seconds
+    }
     for (const auto &node: nodes) {
         const Recipe &recipe = factory_graph.getGameData().recipes.at(node.selected_recipe_id);
-        double machine_count = factory_graph.getPort(node.output_ports.at(0))->rate / (
-                                   recipe.output_ports.at(0).amount / recipe.time_seconds);
+        double machine_count = factory_graph.getPort(node.input_ports.at(0))->rate / (recipe.input_ports.at(0).amount / recipe.time_seconds * time_unit * (node.clock_speed/100));
         node.machine_count = machine_count;
     }
 }

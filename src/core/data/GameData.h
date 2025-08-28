@@ -33,11 +33,6 @@ struct RecipePort {
     int resource_id = -1;
 };
 
-struct RecipeMachineOverride {
-    int machine_id = -1; // machine this override applies to
-    double crafting_time_multiplier = 1.0; // multiply base recipe time
-    double output_multiplier = 1.0; // multiply product counts
-};
 
 struct Recipe {
     int id = -1;
@@ -51,7 +46,6 @@ struct Recipe {
     std::vector<RecipePort> input_ports;
     std::vector<RecipePort> output_ports;
 
-    std::vector<RecipeMachineOverride> machine_overrides;
 };
 
 
