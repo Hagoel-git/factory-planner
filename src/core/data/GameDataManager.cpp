@@ -72,7 +72,7 @@ GameData GameDataManager::createNew(const std::string &gameName, const std::stri
     gd.gameName = gameName;
     gd.gameDataFilePath = "";
     gd.time_unit = timeUnit;
-    gd.schema_version = 1;
+    gd.schema_version = 2;
     // ensure "nothing" resource at id 0
     Resource nothing;
     nothing.id = 0;
@@ -296,13 +296,6 @@ std::vector<std::string> GameDataManager::validate(const GameData &gd) {
 void GameDataManager::setChangeCallback(std::function<void()> cb) {
     std::lock_guard<std::mutex> lk(_mutex);
     _onChange = std::move(cb);
-}
-
-static double convertTimeToSeconds(double timeValue, const std::string &unit) {
-    if (unit == "seconds") return timeValue;
-    if (unit == "minutes") return timeValue / 60.0;
-    if (unit == "hours") return timeValue / 3600.0;
-    return timeValue; // fallback
 }
 
 void GameDataManager::notifyChange() {
