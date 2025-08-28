@@ -262,9 +262,6 @@ void FactorySolver::updateFactoryGraph(FactoryGraph &factory_graph) const {
         double machine_count = factory_graph.getPort(node.output_ports.at(0))->rate / (
                                    recipe.output_ports.at(0).amount / recipe.time_seconds);
         node.machine_count = machine_count;
-
-        double power_usage = factory_graph.getGameData().machines[node.machine_id].base_power_usage * machine_count;
-        node.power_usage = power_usage;
     }
 }
 

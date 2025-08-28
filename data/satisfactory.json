@@ -1,209 +1,102 @@
 {
     "gameName": "Satisfactory",
     "time_unit": "minutes",
-    "belts": [
-        {
-            "name": "Conveyor Belt",
-            "key_name": "belt1",
-            "rate": 60
-        },
-        {
-            "name": "Conveyor Belt Mk.2",
-            "key_name": "belt2",
-            "rate": 120
-        },
-        {
-            "name": "Conveyor Belt Mk.3",
-            "key_name": "belt3",
-            "rate": 270
-        },
-        {
-            "name": "Conveyor Belt Mk.4",
-            "key_name": "belt4",
-            "rate": 480
-        },
-        {
-            "name": "Conveyor Belt Mk.5",
-            "key_name": "belt5",
-            "rate": 780
-        },
-        {
-            "name": "Conveyor Belt Mk.6",
-            "key_name": "belt6",
-            "rate": 1200
-        }
-    ],
-    "pipes": [
-        {
-            "name": "Pipeline Mk.1",
-            "key_name": "pipe1",
-            "rate": 300
-        },
-        {
-            "name": "Pipeline Mk.2",
-            "key_name": "pipe2",
-            "rate": 600
-        }
-    ],
     "machines": [
         {
             "name": "Constructor",
             "key_name": "constructor",
             "category": "crafting1",
-            "base_power_usage": 4,
-            "max_somersloop_slots": 1,
-            "max": 1
+            "base_power_usage": 4
         },
         {
             "name": "Assembler",
             "key_name": "assembler",
             "category": "crafting2",
-            "base_power_usage": 15,
-            "max_somersloop_slots": 2,
-            "max": 2
+            "base_power_usage": 15
         },
         {
             "name": "Manufacturer",
             "key_name": "manufacturer",
             "category": "crafting3",
-            "base_power_usage": 55,
-            "max_somersloop_slots": 4,
-            "max": 4
+            "base_power_usage": 55
         },
         {
             "name": "Smelter",
             "key_name": "smelter",
             "category": "smelting1",
-            "base_power_usage": 4,
-            "max_somersloop_slots": 1,
-            "max": 1
+            "base_power_usage": 4
         },
         {
             "name": "Foundry",
             "key_name": "foundry",
             "category": "smelting2",
-            "base_power_usage": 16,
-            "max_somersloop_slots": 2,
-            "max": 2
+            "base_power_usage": 16
         },
         {
             "name": "Refinery",
             "key_name": "oil-refinery",
             "category": "refining",
-            "base_power_usage": 30,
-            "max_somersloop_slots": 2,
-            "max": 1
+            "base_power_usage": 30
         },
         {
             "name": "Packager",
             "key_name": "packager",
             "category": "packaging",
-            "base_power_usage": 10,
-            "max_somersloop_slots": 0,
-            "max": 2
+            "base_power_usage": 10
         },
         {
             "name": "Blender",
             "key_name": "blender",
             "category": "blending",
-            "base_power_usage": 75,
-            "max_somersloop_slots": 4,
-            "max": 4
+            "base_power_usage": 75
         },
         {
             "name": "Particle Accelerator",
             "key_name": "accelerator",
             "category": "accelerating",
             "base_power_usage": 0,
-            "max_somersloop_slots": 4,
-            "max": 3
+            "power_range": [500, 1500]
         },
         {
             "name": "Converter",
             "key_name": "converter",
             "category": "converting",
             "base_power_usage": 0,
-            "power_range": [100, 400],
-            "max_somersloop_slots": 2,
-            "max": 2
+            "power_range": [100, 400]
         },
         {
             "name": "Quantum Encoder",
             "key_name": "quantum-encoder",
             "category": "encoding",
             "base_power_usage": 0,
-            "power_range": [0, 2000],
-            "max_somersloop_slots": 4,
-            "max": 4
+            "power_range": [0, 2000]
         },
         {
             "name": "Nuclear Power Plant",
             "key_name": "nuclear-power-plant",
             "category": "nuke-reacting",
-            "base_power_usage": 0,
-            "max_somersloop_slots": 0,
-            "max": 2
+            "base_power_usage": -2500
         },
         {
             "name": "Miner",
             "key_name": "miner",
             "category": "mining",
-            "base_power_usage": 0,
-            "max_somersloop_slots": 0
+            "base_power_usage": 0
         },
         {
             "name": "Oil Extractor",
             "key_name": "oil-extractor",
             "category": "oil-extracting",
-            "base_power_usage": 0,
-            "max_somersloop_slots": 0
+            "base_power_usage": 0
         },
         {
             "name": "Water Extractor",
             "key_name": "water-extractor",
             "category": "water-extracting",
-            "base_power_usage": 0,
-            "max_somersloop_slots": 0
+            "base_power_usage": 0
         }
     ],
-    "miners": [
-        {
-            "name": "Miner MK1",
-            "key_name": "miner-mk1",
-            "category": "mineral",
-            "base_rate": 60,
-            "power": 5
-        },
-        {
-            "name": "Miner MK2",
-            "key_name": "miner-mk2",
-            "category": "mineral",
-            "base_rate": 120,
-            "power": 12
-        },
-        {
-            "name": "Miner MK3",
-            "key_name": "miner-mk3",
-            "category": "mineral",
-            "base_rate": 240,
-            "power": 30
-        },
-        {
-            "name": "Oil Extractor",
-            "key_name": "oil-pump",
-            "category": "oil",
-            "base_rate": 120,
-            "power": 40
-        },
-        {
-            "name": "Water Extractor",
-            "key_name": "water-extractor",
-            "category": "water",
-            "base_rate": 120,
-            "power": 20
-        }
-    ],
-    "items": [
+    "resources": [
         {
             "name": "Iron Ore",
             "key_name": "iron-ore",
@@ -968,9 +861,7 @@
             "name": "Alien Power Matrix",
             "key_name": "alien-power-matrix",
             "tier": 9
-        }
-    ],
-    "fluids": [
+        },
         {
             "name": "Water",
             "key_name": "water",
@@ -1053,7 +944,7 @@
             "key_name": "iron-ore",
             "category": "mining",
             "time": 1,
-            "ingredients": [["iron-ore", 0]],
+            "ingredients": [],
             "products": [
                 ["iron-ore", 1]
             ]
@@ -1063,7 +954,7 @@
             "key_name": "copper-ore",
             "category": "mining",
             "time": 1,
-            "ingredients": [["copper-ore", 0]],
+            "ingredients": [],
             "products": [
                 ["copper-ore", 1]
             ]
@@ -1073,7 +964,7 @@
             "key_name": "coal",
             "category": "mining",
             "time": 1,
-            "ingredients": [["coal", 0]],
+            "ingredients": [],
             "products": [
                 ["coal", 1]
             ]
@@ -1083,7 +974,7 @@
             "key_name": "limestone",
             "category": "mining",
             "time": 1,
-            "ingredients": [["limestone", 0]],
+            "ingredients": [],
             "products": [
                 ["limestone", 1]
             ]
@@ -1093,7 +984,7 @@
             "key_name": "caterium-ore",
             "category": "mining",
             "time": 1,
-            "ingredients": [["caterium-ore", 0]],
+            "ingredients": [],
             "products": [
                 ["caterium-ore", 1]
             ]
@@ -1103,7 +994,7 @@
             "key_name": "raw-quartz",
             "category": "mining",
             "time": 1,
-            "ingredients": [["raw-quartz", 0]],
+            "ingredients": [],
             "products": [
                 ["raw-quartz", 1]
             ]
@@ -1113,7 +1004,7 @@
             "key_name": "crude-oil",
             "category": "oil-extracting",
             "time": 1,
-            "ingredients": [["crude-oil", 0]],
+            "ingredients": [],
             "products": [
                 ["crude-oil", 1]
             ]
@@ -4717,86 +4608,6 @@
             "products": [
                 ["plutonium-waste", 10]
             ]
-        }
-    ],
-    "resources": [
-        {
-            "key_name": "iron-ore",
-            "category": "mineral",
-            "priority": 1,
-            "weight": 307
-        },
-        {
-            "key_name": "copper-ore",
-            "category": "mineral",
-            "priority": 1,
-            "weight": 123
-        },
-        {
-            "key_name": "coal",
-            "category": "mineral",
-            "priority": 1,
-            "weight": 141
-        },
-        {
-            "key_name": "limestone",
-            "category": "mineral",
-            "priority": 1,
-            "weight": 233
-        },
-        {
-            "key_name": "caterium-ore",
-            "category": "mineral",
-            "priority": 1,
-            "weight": 50
-        },
-        {
-            "key_name": "sulfur",
-            "category": "mineral",
-            "priority": 1,
-            "weight": 36
-        },
-        {
-            "key_name": "raw-quartz",
-            "category": "mineral",
-            "priority": 1,
-            "weight": 45
-        },
-        {
-            "key_name": "crude-oil",
-            "category": "oil",
-            "priority": 1,
-            "weight": 42
-        },
-        {
-            "key_name": "bauxite",
-            "category": "mineral",
-            "priority": 1,
-            "weight": 41
-        },
-        {
-            "key_name": "uranium",
-            "category": "mineral",
-            "priority": 1,
-            "weight": 7
-        },
-        {
-            "key_name": "water",
-            "category": "water",
-            "priority": 0,
-            "weight": 100
-        },
-        {
-            "key_name": "nitrogen-gas",
-            "category": "water",
-            "priority": 1,
-            "weight": 40
-        },
-        {
-            "key_name": "sam",
-            "category": "mineral",
-            "priority": 1,
-            "weight": 34
         }
     ]
 }

@@ -344,7 +344,7 @@ bool FactoryGraph::setNodeRecipe(int node_id, int recipe_id) {
     }
     const Recipe &recipe = game_data.recipes.at(recipe_id);
     node->selected_recipe_id = recipe_id;
-    node->machine_id = recipe.category_id;
+    node->machine_id = recipe.produced_in_machines_ids.empty() ? -1 : recipe.produced_in_machines_ids[0];
     node->output_ports.resize(recipe.output_ports.size());
     node->input_ports.resize(recipe.input_ports.size());
     for (int i = 0; i < recipe.input_ports.size(); ++i) {

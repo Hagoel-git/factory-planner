@@ -187,9 +187,7 @@ bool GameDataManager::editMachine(int id, const Machine &m, std::string &outErro
     _data.machineKeyToId.erase(it->key_name);
     it->key_name = m.key_name;
     it->name = m.name;
-    it->base_power_usage = m.base_power_usage;
-    it->efficiency = m.efficiency <= 0.0 ? 1.0 : m.efficiency;
-    it->category_id = m.category_id;
+    it->base_crafting_speed = m.base_crafting_speed <= 0.0 ? 1.0 : m.base_crafting_speed;
     _data.machineKeyToId[it->key_name] = it->id;
     notifyChange();
     return true;
@@ -271,8 +269,7 @@ std::vector<std::string> GameDataManager::validate(const GameData &gd) {
         if (m.key_name.empty()) messages.push_back("Machine with empty key_name: '" + m.name + "'.");
         if (!m.key_name.empty() && seen.count(m.key_name)) messages.push_back("Duplicate machine key_name: '" + m.key_name + "'.");
         seen[m.key_name] = 1;
-        if (m.base_power_usage < 0.0) messages.push_back("Machine '" + m.name + "' has negative base_power_usage.");
-        if (m.efficiency <= 0.0) messages.push_back("Machine '" + m.name + "' has non-positive efficiency.");
+        if (m.base_crafting_speed <= 0.0) messages.push_back("Machine '" + m.name + "' has non-positive base_crafting_speed.");
     }
     seen.clear();
     for (const auto &r : gd.recipes) {
@@ -350,24 +347,7 @@ GameData GameDataManager::jsonToGameData(const json &j, std::string &outError) {
                 gd.resourceKeyToId[res.key_name] = res.id;
             }
         };
-        if (j.contains("items")) handleResourceArray(j["items"]);
         if (j.contains("resources")) handleResourceArray(j["resources"]);
-        if (j.contains("fluids")) handleResourceArray(j["fluids"]);
-
-
-        // Categories
-        int nextCategoryId = 0;
-        if (j.contains("categories") && j["categories"].is_array()) {
-            for (const auto &cj : j["categories"]) {
-                std::string key = cj.value("key_name", std::string());
-                std::string name = cj.value("name", key);
-                if (key.empty()) continue;
-                Category cat{nextCategoryId++, key, name};
-                gd.categories.push_back(cat);
-                gd.categoryKeyToId[key] = cat.id;
-            }
-        }
-
 
         // Machines
         int nextMachineId = 0;
@@ -375,33 +355,18 @@ GameData GameDataManager::jsonToGameData(const json &j, std::string &outError) {
             for (const auto &mj : j["machines"]) {
                 std::string name = mj.value("name", std::string());
                 std::string key = mj.value("key_name", std::string());
-                std::string catKey = mj.value("category", std::string());
-                double power = mj.value("base_power_usage", 0.0);
-                double eff = mj.value("efficiency", 1.0);
-                int catId = -1;
-                if (!catKey.empty()) {
-                    if (gd.categoryKeyToId.count(catKey)) catId = gd.categoryKeyToId[catKey];
-                    else {
-                        // create category on the fly
-                        int id = nextCategoryId++;
-                        Category c{id, catKey, catKey};
-                        gd.categories.push_back(c);
-                        gd.categoryKeyToId[catKey] = id;
-                        catId = id;
-                    }
-                }
+                double eff = mj.value("base_crafting_speed", 1.0);
+                int maxClock = mj.value("max_clock", 100);
                 Machine mm;
                 mm.id = nextMachineId++;
                 mm.key_name = key;
                 mm.name = name.empty() ? key : name;
-                mm.category_id = catId;
-                mm.base_power_usage = power;
-                mm.efficiency = eff <= 0.0 ? 1.0 : eff;
+                mm.base_crafting_speed = eff <= 0.0 ? 1.0 : eff;
+                mm.max_clock = maxClock <= 0 ? 100 : maxClock;
                 gd.machines.push_back(mm);
                 if (!mm.key_name.empty()) gd.machineKeyToId[mm.key_name] = mm.id;
             }
         }
-
 
         // Recipes
         int nextRecipeId = 0;
@@ -411,19 +376,7 @@ GameData GameDataManager::jsonToGameData(const json &j, std::string &outError) {
                 r.id = nextRecipeId++;
                 r.key_name = rj.value("key_name", std::string());
                 r.name = rj.value("name", r.key_name);
-                std::string catKey = rj.value("category", std::string());
-                if (!catKey.empty()) {
-                    if (!gd.categoryKeyToId.count(catKey)) {
-                        int id = nextCategoryId++;
-                        Category c{id, catKey, catKey};
-                        gd.categories.push_back(c);
-                        gd.categoryKeyToId[catKey] = id;
-                    }
-                    r.category_id = gd.categoryKeyToId[catKey];
-                }
-                double timeVal = rj.value("time", 0.0);
-                r.time_seconds = convertTimeToSeconds(timeVal, gd.time_unit);
-
+                r.time_seconds = rj.value("time", 0.0);
 
                 // ingredients
                 if (rj.contains("ingredients") && rj["ingredients"].is_array()) {
@@ -474,6 +427,16 @@ GameData GameDataManager::jsonToGameData(const json &j, std::string &outError) {
                     }
                 }
 
+                // produced_in
+                if (rj.contains("produced_in") && rj["produced_in"].is_array()) {
+                    for (const auto &mk : rj["produced_in"]) {
+                        std::string key = mk.get<std::string>();
+                        if (gd.machineKeyToId.count(key)) {
+                            int mid = gd.machineKeyToId[key];
+                            r.produced_in_machines_ids.push_back(mid);
+                        }
+                    }
+                }
 
                 if (!r.key_name.empty()) gd.recipeKeyToId[r.key_name] = r.id;
                 gd.recipes.push_back(std::move(r));
@@ -504,29 +467,15 @@ json GameDataManager::gameDataToJson(const GameData &gd) {
     j["gameName"] = gd.gameName;
     j["time_unit"] = gd.time_unit;
     // resources: write all except the reserved "nothing" with id 0
-    json items = json::array();
+    json resources = json::array();
     for (const auto &res : gd.resources) {
         if (res.id == 0) continue; // skip internal 'nothing'
         json rj;
         rj["name"] = res.name;
         rj["key_name"] = res.key_name;
-        items.push_back(rj);
+        resources.push_back(rj);
     }
-    if (!items.empty()) j["items"] = items;
-
-
-    // categories
-    if (!gd.categories.empty()) {
-        json carr = json::array();
-        for (const auto &c : gd.categories) {
-            json cj;
-            cj["name"] = c.name;
-            cj["key_name"] = c.key_name;
-            carr.push_back(cj);
-        }
-        j["categories"] = carr;
-    }
-
+    if (!resources.empty()) j["resources"] = resources;
 
     // machines
     if (!gd.machines.empty()) {
@@ -535,15 +484,8 @@ json GameDataManager::gameDataToJson(const GameData &gd) {
             json mj;
             mj["name"] = m.name;
             mj["key_name"] = m.key_name;
-            if (m.category_id != -1) {
-                // lookup key
-                std::string catKey = "";
-                auto it = std::find_if(gd.categories.begin(), gd.categories.end(), [&](const Category &c){ return c.id == m.category_id; });
-                if (it != gd.categories.end()) catKey = it->key_name;
-                if (!catKey.empty()) mj["category"] = catKey;
-            }
-            mj["base_power_usage"] = m.base_power_usage;
-            mj["efficiency"] = m.efficiency;
+            mj["base_crafting_speed"] = m.base_crafting_speed;
+            mj["max_clock"] = m.max_clock;
             marr.push_back(mj);
         }
         j["machines"] = marr;
@@ -557,16 +499,7 @@ json GameDataManager::gameDataToJson(const GameData &gd) {
             json rj;
             rj["name"] = r.name;
             rj["key_name"] = r.key_name;
-            if (r.category_id != -1) {
-                auto it = std::find_if(gd.categories.begin(), gd.categories.end(), [&](const Category &c){ return c.id == r.category_id; });
-                if (it != gd.categories.end()) rj["category"] = it->key_name;
-            }
-            // convert time_seconds back to unit used by this GameData
-            double tVal = r.time_seconds;
-            if (gd.time_unit == "minutes") tVal = r.time_seconds / 60.0;
-            else if (gd.time_unit == "hours") tVal = r.time_seconds / 3600.0;
-            rj["time"] = tVal;
-
+            rj["time"] = r.time_seconds;
 
             // ingredients
             json ing = json::array();
@@ -593,6 +526,17 @@ json GameDataManager::gameDataToJson(const GameData &gd) {
             }
             rj["products"] = prod;
 
+            // machines produced in
+            if (!r.produced_in_machines_ids.empty()) {
+                json midarr = json::array();
+                for (int mid : r.produced_in_machines_ids) {
+                    auto it = std::find_if(gd.machines.begin(), gd.machines.end(), [&](const Machine &m){ return m.id == mid; });
+                    if (it != gd.machines.end()) {
+                        midarr.push_back(it->key_name);
+                    }
+                }
+                if (!midarr.empty()) rj["produced_in"] = midarr;
+            }
 
             rarr.push_back(rj);
         }
@@ -606,8 +550,6 @@ json GameDataManager::gameDataToJson(const GameData &gd) {
 void GameDataManager::rebuildMaps(GameData &gd) {
     gd.resourceKeyToId.clear();
     for (const auto &r : gd.resources) gd.resourceKeyToId[r.key_name] = r.id;
-    gd.categoryKeyToId.clear();
-    for (const auto &c : gd.categories) gd.categoryKeyToId[c.key_name] = c.id;
     gd.machineKeyToId.clear();
     for (const auto &m : gd.machines) gd.machineKeyToId[m.key_name] = m.id;
     gd.recipeKeyToId.clear();

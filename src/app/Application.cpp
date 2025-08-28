@@ -453,7 +453,7 @@ void Application::DrawOpenProjectDialog() {
     // Handle successful file selection
     if (!fileDialogResult.empty()) {
         std::string projectName = std::filesystem::path(fileDialogResult).stem().string();
-        CreateNewEditor(gameDataPath / gameDataFiles.at(0), fileDialogResult, projectName);
+        CreateNewEditor(gameDataPath / gameDataFiles.at(1), fileDialogResult, projectName);
         showOpenProjectDialog = false;
         fileDialogResult.clear();
     }
@@ -541,7 +541,7 @@ void Application::CreateNewEditor(const std::string &gameDataFilePath, const std
     if (!gameDataManagerError.empty()) {
         // todo: show error to user
         std::cerr << gameDataManagerError << std::endl;
-        return;
+        //return;
     }
     auto editor = std::make_unique<FactoryNodeEditor>(gameDataManager.current(), location, name);
     gameDataManager.clear();

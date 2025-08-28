@@ -582,7 +582,6 @@ void FactoryNodeEditor::HandlePopups() {
             ImGui::Text("Type: %s", toString(node->type));
             ImGui::Text("Machine ID: %d", node->machine_id);
             ImGui::Text("Selected Recipe ID: %d", node->selected_recipe_id);
-            ImGui::Text("Power usage: %.2f MW", node->power_usage);
             ImGui::Text("Machine count: %.2f", node->machine_count);
             // Display input ports
             ImGui::Text("Input Ports:");

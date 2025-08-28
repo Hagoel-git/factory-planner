@@ -19,7 +19,6 @@ struct Node {
     int selected_recipe_id = -1;
 
     mutable double machine_count = 0.0;;
-    mutable double power_usage = 0.0; // in MW
 
     std::vector<int> input_ports;
     std::vector<int> output_ports;
