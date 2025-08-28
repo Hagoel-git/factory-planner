@@ -20,7 +20,7 @@ struct Node {
 
     mutable double machine_count = 0.0;
     mutable double clock_speed = 100.0; // percentage, 100% is normal speed, 200% is double speed, etc.
-    mutable double production_multiplier = 1.0; // multiplier only for output product rates
+    mutable double production_multiplier = 100.0; // percentage, 100% is normal output, 200% is double output, etc.
 
     std::vector<int> input_ports;
     std::vector<int> output_ports;
