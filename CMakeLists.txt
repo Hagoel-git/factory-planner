@@ -95,6 +95,7 @@ set(SRC
         src/services/UndoRedoSystem.h
         src/services/SettingsManager.cpp
         src/services/SettingsManager.h
+        src/common/StringUtils.h
 )
 
 add_executable(factory_planner ${SRC})
