@@ -44,6 +44,14 @@ void GameDataEditor::DrawLeftSide() {
         const bool isSelected = (m_currentlyEditingFile.filename() == file.filename());
         if (ImGui::Selectable(file.filename().string().c_str(), isSelected)) {
             m_currentlyEditingFile = gameDataPath / file.filename();
+            // clear all buffers
+            selResourceKey.clear();
+            selMachineKey.clear();
+            selRecipeKey.clear();
+            resourceDirty = false;
+            machineDirty = false;
+            recipeDirty = false;
+
             if (!gameDataManager.loadFromFile(m_currentlyEditingFile, m_fileLoadError)) {
                 // Loading failed, error message is in m_fileLoadError
             } else {
@@ -202,8 +210,10 @@ void GameDataEditor::DrawRightSide() {
     if (!messages.empty()) {
         ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(230, 180, 50, 255));
         ImGui::TextWrapped("Validation warnings:");
-        ImGui::SetNextWindowSizeConstraints(ImVec2(0.0f, ImGui::GetTextLineHeightWithSpacing() * 1), ImVec2(FLT_MAX, ImGui::GetTextLineHeightWithSpacing() * 10));
-        if (ImGui::BeginChild("ConstrainedChild", ImVec2(-FLT_MIN, 0.0f), ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY))
+        ImGui::SetNextWindowSizeConstraints(ImVec2(0.0f, ImGui::GetTextLineHeightWithSpacing() * 1),
+                                            ImVec2(FLT_MAX, ImGui::GetTextLineHeightWithSpacing() * 10));
+        if (ImGui::BeginChild("ConstrainedChild", ImVec2(-FLT_MIN, 0.0f),
+                              ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY))
             for (const auto &m: messages) {
                 ImGui::BulletText("%s", m.c_str());
             }
@@ -236,9 +246,9 @@ void GameDataEditor::DrawRightSide() {
             ImGui::Text("Are you sure you want to delete this item? This cannot be undone.");
             if (ImGui::Button("Yes")) {
                 std::string err;
-                if (deleteTargetType == 1) gameDataManager.deleteResource(deleteTargetId, err);
-                else if (deleteTargetType == 2) gameDataManager.deleteMachine(deleteTargetId, err);
-                else if (deleteTargetType == 3) gameDataManager.deleteRecipe(deleteTargetId, err);
+                if (deleteTargetType == 1) gameDataManager.deleteResource(deleteTargetKey, err);
+                else if (deleteTargetType == 2) gameDataManager.deleteMachine(deleteTargetKey, err);
+                else if (deleteTargetType == 3) gameDataManager.deleteRecipe(deleteTargetKey, err);
                 showDeleteConfirm = false;
                 ImGui::CloseCurrentPopup();
             }
@@ -305,7 +315,7 @@ void GameDataEditor::DrawRenameFileDialog() {
                         std::filesystem::rename(m_currentlyEditingFile, newFilePath);
                         m_currentlyEditingFile = newFilePath;
                         ImGui::CloseCurrentPopup();
-                    } catch (const std::filesystem::filesystem_error& e) {
+                    } catch (const std::filesystem::filesystem_error &e) {
                         renameErrorMessage = "Failed to rename file: " + std::string(e.what());
                     }
                 }
@@ -348,7 +358,7 @@ void GameDataEditor::DrawDeleteFileDialog() {
                 gameDataManager.clear();
                 m_fileLoadError.clear();
                 ImGui::CloseCurrentPopup();
-            } catch (const std::filesystem::filesystem_error& e) {
+            } catch (const std::filesystem::filesystem_error &e) {
                 // Could store error message to show in a separate error popup
                 // For now, we'll just close the popup and the file will remain
                 ImGui::CloseCurrentPopup();
@@ -373,17 +383,16 @@ void GameDataEditor::DrawResourcesTab(const GameData &gd) {
     // toolbar
     if (ImGui::Button("Add##res")) {
         Resource r;
-        r.key_name = "";
         r.name = "New Resource";
-        int newId = gameDataManager.addResource(r);
-        selResourceId = newId;
+        bool success = gameDataManager.addResource(r);
+        selResourceKey = slugify(r.name);
         // load into buffer
         strncpy(resNameBuf, "New Resource", sizeof(resNameBuf));
     }
     ImGui::SameLine();
-    if (ImGui::Button("Delete##res") && selResourceId > 0) {
+    if (ImGui::Button("Delete##res") && selResourceKey != "") {
         deleteTargetType = 1;
-        deleteTargetId = selResourceId;
+        deleteTargetKey = selResourceKey;
         showDeleteConfirm = true;
     }
     ImGui::PushItemWidth(-1);
@@ -393,17 +402,17 @@ void GameDataEditor::DrawResourcesTab(const GameData &gd) {
 
     // list resources
     for (const auto &r: gd.resources) {
-        if (r.id == 0) continue; // skip reserved nothing
+        if (r.first == "nothing") continue; // skip reserved nothing
         // filter by name/key
-        std::string combined = r.name + " " + r.key_name;
+        std::string combined = r.second.name + " " + r.first;
         if (resourceFilter[0] != '\0' && combined.find(resourceFilter) == std::string::npos) continue;
         char buf[128];
-        snprintf(buf, sizeof(buf), "%s", r.name.c_str());
-        ImGui::PushID(r.id);
-        if (ImGui::Selectable(buf, selResourceId == r.id)) {
-            selResourceId = r.id;
+        snprintf(buf, sizeof(buf), "%s", r.second.name.c_str());
+        ImGui::PushID(r.first.c_str());
+        if (ImGui::Selectable(buf, selResourceKey == r.first)) {
+            selResourceKey = r.first;
             // load into buffers
-            strncpy(resNameBuf, r.name.c_str(), sizeof(resNameBuf));
+            strncpy(resNameBuf, r.second.name.c_str(), sizeof(resNameBuf));
             resourceDirty = false;
         }
         ImGui::PopID();
@@ -413,29 +422,26 @@ void GameDataEditor::DrawResourcesTab(const GameData &gd) {
     // Right: details
     ImGui::NextColumn();
     ImGui::BeginChild("ResDetail", ImVec2(0, 0), false);
-    if (selResourceId <= 0) {
+    if (selResourceKey == "") {
         ImGui::TextDisabled("Select resource to edit or press Add.");
     } else {
         ImGui::InputText("Name", resNameBuf, sizeof(resNameBuf));
         ImGui::Spacing();
         if (ImGui::Button("Save")) {
             Resource r;
-            r.id = selResourceId;
             r.name = std::string(resNameBuf);
-            r.key_name = slugify(resNameBuf);
             std::string err;
-            if (!gameDataManager.editResource(selResourceId, r, err)) {
+            if (!gameDataManager.editResource(selResourceKey, r, err)) {
                 std::cerr << "Error saving resource: " << err << std::endl;
             }
+            selResourceKey = slugify(r.name); // update selected key in case name changed
         }
         ImGui::SameLine();
         if (ImGui::Button("Cancel")) {
             // reload from manager
-            auto it = std::find_if(gd.resources.begin(), gd.resources.end(), [&](const Resource &res) {
-                return res.id == selResourceId;
-            });
+            auto it = gd.resources.find(selResourceKey);
             if (it != gd.resources.end()) {
-                strncpy(resNameBuf, it->name.c_str(), sizeof(resNameBuf));
+                strncpy(resNameBuf, it->second.name.c_str(), sizeof(resNameBuf));
             }
         }
     }
@@ -449,32 +455,32 @@ void GameDataEditor::DrawMachinesTab(const GameData &gd) {
     ImGui::BeginChild("MachList", ImVec2(0, 0), false);
     if (ImGui::Button("Add##mach")) {
         Machine m;
-        m.key_name = "";
         m.name = "New Machine";
         m.base_crafting_speed = 1.0;
-        int id = gameDataManager.addMachine(m);
-        selMachineId = id;
+        bool success = gameDataManager.addMachine(m);
+        selMachineKey = slugify(m.name);
         strncpy(machNameBuf, "New Machine", sizeof(machNameBuf));
         machBaseSpeed = 1.0;
     }
     ImGui::SameLine();
-    if (ImGui::Button("Delete##mach") && selMachineId > 0) {
+    if (ImGui::Button("Delete##mach") && selMachineKey != "") {
         deleteTargetType = 2;
-        deleteTargetId = selMachineId;
+        deleteTargetKey = selMachineKey;
         showDeleteConfirm = true;
     }
     ImGui::InputTextWithHint("##machfilter", "Filter...", machineFilter, sizeof(machineFilter));
     ImGui::Separator();
     for (const auto &m: gd.machines) {
-        std::string combined = m.name + " " + m.key_name;
+        std::string combined = m.second.name + " " + m.first;
         if (machineFilter[0] != '\0' && combined.find(machineFilter) == std::string::npos) continue;
         char buf[256];
-        snprintf(buf, sizeof(buf), "%s", m.name.c_str());
-        ImGui::PushID(m.id);
-        if (ImGui::Selectable(buf, selMachineId == m.id)) {
-            selMachineId = m.id;
-            strncpy(machNameBuf, m.name.c_str(), sizeof(machNameBuf));
-            machBaseSpeed = m.base_crafting_speed;
+        snprintf(buf, sizeof(buf), "%s", m.second.name.c_str());
+        ImGui::PushID(m.first.c_str());
+        if (ImGui::Selectable(buf, selMachineKey == m.first)) {
+            selMachineKey = m.first;
+            strncpy(machNameBuf, m.second.name.c_str(), sizeof(machNameBuf));
+            machBaseSpeed = m.second.base_crafting_speed;
+            machineDirty = false;
         }
         ImGui::PopID();
     }
@@ -483,7 +489,7 @@ void GameDataEditor::DrawMachinesTab(const GameData &gd) {
     // Right: machine detail
     ImGui::NextColumn();
     ImGui::BeginChild("MachDetail", ImVec2(0, 0), false);
-    if (selMachineId < 0) {
+    if (selMachineKey == "") {
         ImGui::TextDisabled("Select machine or press Add.");
     } else {
         ImGui::InputText("Name", machNameBuf, sizeof(machNameBuf));
@@ -491,23 +497,20 @@ void GameDataEditor::DrawMachinesTab(const GameData &gd) {
         ImGui::Spacing();
         if (ImGui::Button("Save")) {
             Machine m;
-            m.id = selMachineId;
             m.name = machNameBuf;
-            m.key_name = slugify(machNameBuf);
             m.base_crafting_speed = machBaseSpeed;
             std::string err;
-            if (!gameDataManager.editMachine(selMachineId, m, err)) {
+            if (!gameDataManager.editMachine(selMachineKey, m, err)) {
                 std::cerr << "Error saving machine: " << err << std::endl;
             }
+            selMachineKey = slugify(m.name); // update selected key in case name changed
         }
         ImGui::SameLine();
         if (ImGui::Button("Cancel")) {
-            // reload
-            auto it = std::find_if(gd.machines.begin(), gd.machines.end(),
-                                   [&](const Machine &mm) { return mm.id == selMachineId; });
+            auto it = gd.machines.find(selMachineKey);
             if (it != gd.machines.end()) {
-                strncpy(machNameBuf, it->name.c_str(), sizeof(machNameBuf));
-                machBaseSpeed = it->base_crafting_speed;
+                strncpy(machNameBuf, it->second.name.c_str(), sizeof(machNameBuf));
+                machBaseSpeed = it->second.base_crafting_speed;
             }
         }
     }
@@ -522,11 +525,10 @@ void GameDataEditor::DrawRecipesTab(const GameData &gd) {
 
     if (ImGui::Button("Add##rec")) {
         Recipe r;
-        r.key_name = "";
         r.name = "New Recipe";
         r.time_seconds = 1.0;
-        int id = gameDataManager.addRecipe(r);
-        selRecipeId = id;
+        bool success = gameDataManager.addRecipe(r);
+        selRecipeKey = slugify(r.name);
         strncpy(recNameBuf, "New Recipe", sizeof(recNameBuf));
         recTimeSeconds = r.time_seconds;
         recInputs.clear();
@@ -535,9 +537,9 @@ void GameDataEditor::DrawRecipesTab(const GameData &gd) {
     }
 
     ImGui::SameLine();
-    if (ImGui::Button("Delete##rec") && selRecipeId >= 0) {
+    if (ImGui::Button("Delete##rec") && selRecipeKey != "") {
         deleteTargetType = 3;
-        deleteTargetId = selRecipeId;
+        deleteTargetKey = selRecipeKey;
         showDeleteConfirm = true;
     }
 
@@ -545,23 +547,32 @@ void GameDataEditor::DrawRecipesTab(const GameData &gd) {
     ImGui::Separator();
 
     for (const auto &r: gd.recipes) {
-        std::string combined = r.name + " " + r.key_name;
+        std::string combined = r.second.name + " " + r.first;
         if (recipeFilter[0] != '\0' && combined.find(recipeFilter) == std::string::npos) continue;
         char buf[256];
-        snprintf(buf, sizeof(buf), "%s", r.name.c_str());
-        ImGui::PushID(r.id);
-        if (ImGui::Selectable(buf, selRecipeId == r.id)) {
-            selRecipeId = r.id;
+        snprintf(buf, sizeof(buf), "%s", r.second.name.c_str());
+        ImGui::PushID(r.first.c_str());
+        if (ImGui::Selectable(buf, selRecipeKey == r.first)) {
+            selRecipeKey = r.first;
             // load recipe into buffers
-            strncpy(recNameBuf, r.name.c_str(), sizeof(recNameBuf));
-            recTimeSeconds = r.time_seconds;
+            strncpy(recNameBuf, r.second.name.c_str(), sizeof(recNameBuf));
+            recTimeSeconds = r.second.time_seconds;
             // copy ports
             recInputs.clear();
             recOutputs.clear();
             recMachines.clear();
-            for (auto &p: r.input_ports) recInputs.emplace_back(p.resource_id, p.amount);
-            for (auto &p: r.output_ports) recOutputs.emplace_back(p.resource_id, p.amount);
-            for (int mid: r.produced_in_machines_ids) recMachines.insert(mid);
+            for (auto &p: r.second.input_ports) {
+                recInputs.emplace_back(p.resource_key, p.amount);
+                strcpy(recInputNameBufs.emplace_back().data(), p.resource_key.c_str());
+                recInputFilterBufs.emplace_back()[0] = '\0';
+            }
+            for (auto &p: r.second.output_ports) {
+                recOutputs.emplace_back(p.resource_key, p.amount);
+                strcpy(recOutputNameBufs.emplace_back().data(), p.resource_key.c_str());
+                recOutputFilterBufs.emplace_back()[0] = '\0';
+            }
+            for (const auto m: r.second.produced_in_machines_keys) recMachines.insert(m);
+
             recipeDirty = false;
         }
         ImGui::PopID();
@@ -573,22 +584,24 @@ void GameDataEditor::DrawRecipesTab(const GameData &gd) {
     ImGui::NextColumn();
     ImGui::BeginChild("RecDetail", ImVec2(0, 0), false);
 
-    if (selRecipeId < 0) {
+    if (selRecipeKey == "") {
         ImGui::TextDisabled("Select or create a recipe.");
     } else {
         ImGui::InputText("Name", recNameBuf, sizeof(recNameBuf));
-        ImGui::InputDouble("Time (seconds)", &recTimeSeconds, 0.0, 0.0, "%.2f");
+        ImGui::InputDouble("Time (seconds)", &recTimeSeconds, 0.0, 0.0, "%.2g");
 
         ImGui::Separator();
         ImGui::Text("Inputs");
 
         // --- Prepare per-row name/filter buffers and keep them in sync with recInputs ---
-        if ((int)recInputNameBufs.size() != (int)recInputs.size()) {
+        if ((int) recInputNameBufs.size() != (int) recInputs.size()) {
             // resize and initialize from current recInputs
             recInputNameBufs.resize(recInputs.size());
             recInputFilterBufs.resize(recInputs.size());
             for (size_t i = 0; i < recInputs.size(); ++i) {
-                const Resource *rres = findResourceById(gd, recInputs[i].first);
+                const Resource *rres = gd.resources.find(recInputs[i].first) != gd.resources.end()
+                                         ? &gd.resources.at(recInputs[i].first)
+                                         : nullptr;
                 if (rres) {
                     strncpy(recInputNameBufs[i].data(), rres->name.c_str(), recInputNameBufs[i].size());
                 } else {
@@ -605,7 +618,7 @@ void GameDataEditor::DrawRecipesTab(const GameData &gd) {
             ImGui::TableSetupColumn("Remove");
             ImGui::TableHeadersRow();
 
-            for (int i = 0; i < (int)recInputs.size(); ) {
+            for (int i = 0; i < static_cast<int>(recInputs.size());) {
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
 
@@ -615,11 +628,11 @@ void GameDataEditor::DrawRecipesTab(const GameData &gd) {
                 const char *preview = recInputNameBufs[i].data();
                 if (preview[0] == '\0') preview = "<none>";
                 if (ImGui::BeginCombo(comboLabel.c_str(), preview, ImGuiComboFlags_HeightLarge)) {
-
                     // filter text input inside combo
                     ImGui::PushID(("infilter" + std::to_string(i)).c_str());
                     ImGui::PushItemWidth(-1);
-                    ImGui::InputTextWithHint("##filter", "Type to filter or enter new name", recInputFilterBufs[i].data(), recInputFilterBufs[i].size());
+                    ImGui::InputTextWithHint("##filter", "Type to filter or enter new name",
+                                             recInputFilterBufs[i].data(), recInputFilterBufs[i].size());
                     ImGui::PopItemWidth();
                     ImGui::PopID();
                     ImGui::Separator();
@@ -628,15 +641,15 @@ void GameDataEditor::DrawRecipesTab(const GameData &gd) {
                     // list matching resources
                     bool anyShown = false;
                     for (const auto &res: gd.resources) {
-                        if (res.id == 0) continue;
+                        if (res.first == "nothing") continue;
                         if (!filter.empty()) {
-                            if (res.name.find(filter) == std::string::npos) continue;
+                            if (res.second.name.find(filter) == std::string::npos) continue;
                         }
                         anyShown = true;
-                        bool selected = (res.id == recInputs[i].first);
-                        if (ImGui::Selectable(res.name.c_str(), selected)) {
-                            recInputs[i].first = res.id;
-                            strncpy(recInputNameBufs[i].data(), res.name.c_str(), recInputNameBufs[i].size());
+                        bool selected = (res.first == recInputs[i].first);
+                        if (ImGui::Selectable(res.second.name.c_str(), selected)) {
+                            recInputs[i].first = res.first;
+                            strncpy(recInputNameBufs[i].data(), res.second.name.c_str(), recInputNameBufs[i].size());
                             // clear filter so next open shows all
                             recInputFilterBufs[i][0] = '\0';
                         }
@@ -648,17 +661,19 @@ void GameDataEditor::DrawRecipesTab(const GameData &gd) {
                     ImGui::Separator();
 
                     // allow creating new resource from typed filter or typed name
-                    std::string typed = recInputFilterBufs[i][0] ? std::string(recInputFilterBufs[i].data()) : std::string(recInputNameBufs[i].data());
+                    std::string typed = recInputFilterBufs[i][0]
+                                            ? std::string(recInputFilterBufs[i].data())
+                                            : std::string(recInputNameBufs[i].data());
                     if (!typed.empty()) {
                         std::string createLabel = "Create new resource: '" + typed + "'";
                         if (ImGui::Selectable(createLabel.c_str(), false)) {
                             // create resource via manager
                             Resource newRes;
                             newRes.name = typed;
-                            newRes.key_name = slugify(typed);
-                            int newId = gameDataManager.addResource(newRes);
-                            if (newId > 0) {
-                                recInputs[i].first = newId;
+                            bool success = gameDataManager.addResource(newRes);
+                            if (success) {
+                                recInputs[i].first = slugify(typed);
+                                // update name buffer
                                 strncpy(recInputNameBufs[i].data(), typed.c_str(), recInputNameBufs[i].size());
                                 recInputFilterBufs[i][0] = '\0';
                             } else {
@@ -690,19 +705,20 @@ void GameDataEditor::DrawRecipesTab(const GameData &gd) {
         }
 
         if (ImGui::Button("Add Input")) {
-            recInputs.emplace_back(0, 1.0);
-            // ensure buffers in next frame will be resized
+            recInputs.emplace_back("", 1.0);
         }
 
         ImGui::Separator();
         ImGui::Text("Outputs");
 
         // --- outputs buffers ---
-        if ((int)recOutputNameBufs.size() != (int)recOutputs.size()) {
+        if ((int) recOutputNameBufs.size() != (int) recOutputs.size()) {
             recOutputNameBufs.resize(recOutputs.size());
             recOutputFilterBufs.resize(recOutputs.size());
             for (size_t i = 0; i < recOutputs.size(); ++i) {
-                const Resource *rres = findResourceById(gd, recOutputs[i].first);
+                const Resource *rres = gd.resources.find(recOutputs[i].first) != gd.resources.end()
+                                         ? &gd.resources.at(recOutputs[i].first)
+                                         : nullptr;
                 if (rres) {
                     strncpy(recOutputNameBufs[i].data(), rres->name.c_str(), recOutputNameBufs[i].size());
                 } else {
@@ -718,7 +734,7 @@ void GameDataEditor::DrawRecipesTab(const GameData &gd) {
             ImGui::TableSetupColumn("Remove");
             ImGui::TableHeadersRow();
 
-            for (int i = 0; i < (int)recOutputs.size(); ) {
+            for (int i = 0; i < (int) recOutputs.size();) {
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
 
@@ -729,7 +745,8 @@ void GameDataEditor::DrawRecipesTab(const GameData &gd) {
                 if (ImGui::BeginCombo(comboLabel.c_str(), preview, ImGuiComboFlags_HeightLarge)) {
                     ImGui::PushID(("outfilter" + std::to_string(i)).c_str());
                     ImGui::PushItemWidth(-1);
-                    ImGui::InputTextWithHint("##filter", "Type to filter or enter new name", recOutputFilterBufs[i].data(), recOutputFilterBufs[i].size());
+                    ImGui::InputTextWithHint("##filter", "Type to filter or enter new name",
+                                             recOutputFilterBufs[i].data(), recOutputFilterBufs[i].size());
                     ImGui::PopItemWidth();
                     ImGui::PopID();
                     ImGui::Separator();
@@ -737,15 +754,15 @@ void GameDataEditor::DrawRecipesTab(const GameData &gd) {
                     std::string filter(recOutputFilterBufs[i].data());
                     bool anyShown = false;
                     for (const auto &res: gd.resources) {
-                        if (res.id == 0) continue;
+                        if (res.first == "nothing") continue;
                         if (!filter.empty()) {
-                            if (res.name.find(filter) == std::string::npos) continue;
+                            if (res.second.name.find(filter) == std::string::npos) continue;
                         }
                         anyShown = true;
-                        bool selected = (res.id == recOutputs[i].first);
-                        if (ImGui::Selectable(res.name.c_str(), selected)) {
-                            recOutputs[i].first = res.id;
-                            strncpy(recOutputNameBufs[i].data(), res.name.c_str(), recOutputNameBufs[i].size());
+                        bool selected = (res.first == recOutputs[i].first);
+                        if (ImGui::Selectable(res.second.name.c_str(), selected)) {
+                            recOutputs[i].first = res.first;
+                            strncpy(recOutputNameBufs[i].data(), res.second.name.c_str(), recOutputNameBufs[i].size());
                             recOutputFilterBufs[i][0] = '\0';
                         }
                     }
@@ -755,16 +772,17 @@ void GameDataEditor::DrawRecipesTab(const GameData &gd) {
                     }
                     ImGui::Separator();
 
-                    std::string typed = recOutputFilterBufs[i][0] ? std::string(recOutputFilterBufs[i].data()) : std::string(recOutputNameBufs[i].data());
+                    std::string typed = recOutputFilterBufs[i][0]
+                                            ? std::string(recOutputFilterBufs[i].data())
+                                            : std::string(recOutputNameBufs[i].data());
                     if (!typed.empty()) {
                         std::string createLabel = "Create new resource: '" + typed + "'";
                         if (ImGui::Selectable(createLabel.c_str(), false)) {
                             Resource newRes;
                             newRes.name = typed;
-                            newRes.key_name = slugify(typed);
-                            int newId = gameDataManager.addResource(newRes);
-                            if (newId > 0) {
-                                recOutputs[i].first = newId;
+                            bool success = gameDataManager.addResource(newRes);
+                            if (success) {
+                                recOutputs[i].first = slugify(typed);
                                 strncpy(recOutputNameBufs[i].data(), typed.c_str(), recOutputNameBufs[i].size());
                                 recOutputFilterBufs[i][0] = '\0';
                             }
@@ -793,7 +811,7 @@ void GameDataEditor::DrawRecipesTab(const GameData &gd) {
         }
 
         if (ImGui::Button("Add Output")) {
-            recOutputs.emplace_back(0, 1.0);
+            recOutputs.emplace_back("", 1.0);
         }
 
         ImGui::Separator();
@@ -802,11 +820,11 @@ void GameDataEditor::DrawRecipesTab(const GameData &gd) {
         // show checkboxes for machines (compress if many)
         ImGui::BeginChild("machCheckboxes", ImVec2(0, 240), true);
         for (const auto &m: gd.machines) {
-            bool checked = recMachines.count(m.id);
-            std::string cbLabel = m.name + " (" + m.key_name + ")";
+            bool checked = recMachines.count(m.first);
+            std::string cbLabel = m.second.name;
             if (ImGui::Checkbox(cbLabel.c_str(), &checked)) {
-                if (checked) recMachines.insert(m.id);
-                else recMachines.erase(m.id);
+                if (checked) recMachines.insert(m.first);
+                else recMachines.erase(m.first);
             }
         }
         ImGui::EndChild();
@@ -817,71 +835,37 @@ void GameDataEditor::DrawRecipesTab(const GameData &gd) {
         if (ImGui::Button("Save Recipe")) {
             // Build recipe object
             Recipe r;
-            r.id = selRecipeId;
             r.name = recNameBuf;
-            r.key_name = slugify(recNameBuf);
             r.time_seconds = recTimeSeconds;
 
             // Before copying ports, ensure any typed-but-uncreated resources are created.
-            // (Search by name among existing resources; if not found, create.)
-            auto findResourceByName = [&](const std::string &name) -> const Resource* {
-                for (const auto &res : gd.resources) {
-                    if (res.name == name) return &res;
-                }
-                return nullptr;
-            };
-
-            // For inputs: create missing resources if any (buffer arrays hold names)
-            // We must retrieve the mutable name buffers we prepared earlier.
-            // If a recInputs entry has id==0 but a name in the matching name buffer, create it.
-            // NOTE: we attempt to reuse the name buffers prepared above if sizes match.
-            {
-                // ensure we have consistent buffer sizes; if not, fallback to trying to look up by id only
-                if (recInputNameBufs.size() == recInputs.size()) {
-                    for (size_t i = 0; i < recInputs.size(); ++i) {
-                        if (recInputs[i].first == 0) {
-                            std::string maybeName = recInputNameBufs[i].data();
-                            if (!maybeName.empty()) {
-                                const Resource *found = findResourceByName(maybeName);
-                                if (found) {
-                                    recInputs[i].first = found->id;
-                                } else {
-                                    Resource newRes;
-                                    newRes.name = maybeName;
-                                    newRes.key_name = slugify(maybeName);
-                                    int newId = gameDataManager.addResource(newRes);
-                                    if (newId > 0) {
-                                        recInputs[i].first = newId;
-                                    }
-                                }
-                            }
+            for (auto &p: recInputs) {
+                if (p.first == "") continue;
+                if (gd.resources.find(p.first) == gd.resources.end()) {
+                    Resource newRes;
+                    newRes.name = p.first; // use key as name if not found
+                    // search in name buffers for a better name
+                    for (const auto &nbuf: recInputNameBufs) {
+                        if (slugify(nbuf.data()) == p.first) {
+                            newRes.name = nbuf.data();
+                            break;
                         }
                     }
+                    gameDataManager.addResource(newRes);
                 }
             }
-
-            // Same for outputs
-            {
-                if (recOutputNameBufs.size() == recOutputs.size()) {
-                    for (size_t i = 0; i < recOutputs.size(); ++i) {
-                        if (recOutputs[i].first == 0) {
-                            std::string maybeName = recOutputNameBufs[i].data();
-                            if (!maybeName.empty()) {
-                                const Resource *found = findResourceByName(maybeName);
-                                if (found) {
-                                    recOutputs[i].first = found->id;
-                                } else {
-                                    Resource newRes;
-                                    newRes.name = maybeName;
-                                    newRes.key_name = slugify(maybeName);
-                                    int newId = gameDataManager.addResource(newRes);
-                                    if (newId > 0) {
-                                        recOutputs[i].first = newId;
-                                    }
-                                }
-                            }
+            for (auto &p: recOutputs) {
+                if (p.first == "") continue;
+                if (gd.resources.find(p.first) == gd.resources.end()) {
+                    Resource newRes;
+                    newRes.name = p.first;
+                    for (const auto &nbuf: recOutputNameBufs) {
+                        if (slugify(nbuf.data()) == p.first) {
+                            newRes.name = nbuf.data();
+                            break;
                         }
                     }
+                    gameDataManager.addResource(newRes);
                 }
             }
 
@@ -891,33 +875,41 @@ void GameDataEditor::DrawRecipesTab(const GameData &gd) {
             r.output_ports.clear();
             for (auto &p: recOutputs) r.output_ports.push_back(RecipePort{p.second, p.first});
 
-            r.produced_in_machines_ids.clear();
-            for (int mid: recMachines) r.produced_in_machines_ids.push_back(mid);
+            r.produced_in_machines_keys.clear();
+            for (const auto key: recMachines) r.produced_in_machines_keys.push_back(key);
 
             std::string err;
-            if (!gameDataManager.editRecipe(selRecipeId, r, err)) {
-                // show error (you can use a modal or store err into a temp char buf to show)
+            if (!gameDataManager.editRecipe(selRecipeKey, r, err)) {
+                // show error
             } else {
-                // success - optionally mark dirty false
                 recipeDirty = false;
             }
+            selRecipeKey = slugify(r.name); // update selected key in case name changed
         }
 
         ImGui::SameLine();
         if (ImGui::Button("Cancel")) {
             // reload from gd
-            auto it = std::find_if(gd.recipes.begin(), gd.recipes.end(),
-                                   [&](const Recipe &rr) { return rr.id == selRecipeId; });
-            if (it != gd.recipes.end()) {
-                strncpy(recNameBuf, it->name.c_str(), sizeof(recNameBuf));
-                recTimeSeconds = it->time_seconds;
-                recInputs.clear();
-                recOutputs.clear();
-                recMachines.clear();
-                for (auto &p: it->input_ports) recInputs.emplace_back(p.resource_id, p.amount);
-                for (auto &p: it->output_ports) recOutputs.emplace_back(p.resource_id, p.amount);
-                for (int mid: it->produced_in_machines_ids) recMachines.insert(mid);
+            auto r = gd.recipes.at(selRecipeKey);
+            // load recipe into buffers
+            strncpy(recNameBuf, r.name.c_str(), sizeof(recNameBuf));
+            recTimeSeconds = r.time_seconds;
+            // copy ports
+            recInputs.clear();
+            recOutputs.clear();
+            recMachines.clear();
+            for (auto &p: r.input_ports) {
+                recInputs.emplace_back(p.resource_key, p.amount);
+                strcpy(recInputNameBufs.emplace_back().data(), p.resource_key.c_str());
+                recInputFilterBufs.emplace_back()[0] = '\0';
             }
+            for (auto &p: r.output_ports) {
+                recOutputs.emplace_back(p.resource_key, p.amount);
+                strcpy(recOutputNameBufs.emplace_back().data(), p.resource_key.c_str());
+                recOutputFilterBufs.emplace_back()[0] = '\0';
+            }
+            for (const auto m: r.produced_in_machines_keys) recMachines.insert(m);
+            recipeDirty = false;
         }
     }
 

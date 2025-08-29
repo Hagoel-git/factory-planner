@@ -17,9 +17,9 @@ private:
 
     std::string m_fileLoadError;
 
-    int selResourceId = -1;
-    int selMachineId = -1;
-    int selRecipeId = -1;
+    std::string selResourceKey = "";
+    std::string selMachineKey = "";
+    std::string selRecipeKey = "";
 
     char gameNameBuf[128] = "";
 
@@ -35,18 +35,18 @@ private:
     // Lists for inputs/outputs: vector of pairs (resource_id, amount)
     std::vector<std::array<char, 128>> recInputNameBufs;
     std::vector<std::array<char, 128>> recInputFilterBufs;
-    std::vector<std::pair<int,double>> recInputs;
+    std::vector<std::pair<std::string,double>> recInputs;
 
     std::vector<std::array<char, 128>> recOutputNameBufs;
     std::vector<std::array<char, 128>> recOutputFilterBufs;
-    std::vector<std::pair<int,double>> recOutputs;
+    std::vector<std::pair<std::string,double>> recOutputs;
     // compatible machines set (ids)
-    std::unordered_set<int> recMachines;
+    std::unordered_set<std::string> recMachines;
 
     // UI flow
     bool showDeleteConfirm = false;
     int deleteTargetType = 0; // 1=res,2=mach,3=rec
-    int deleteTargetId = -1;
+    std::string deleteTargetKey = "";
 
     // search filters
     char resourceFilter[128] = "";
@@ -76,15 +76,6 @@ private:
     void DrawMachinesTab(const GameData &gd);
 
     void DrawRecipesTab(const GameData &gd);
-
-    static const Resource* findResourceById(const GameData &gd, int id) {
-        for (const auto &r : gd.resources) if (r.id == id) return &r;
-        return nullptr;
-    }
-    static const Machine* findMachineById(const GameData &gd, int id) {
-        for (const auto &m : gd.machines) if (m.id == id) return &m;
-        return nullptr;
-    }
 };
 
 #endif //GAMEDATAEDITOR_H

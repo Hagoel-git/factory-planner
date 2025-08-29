@@ -23,20 +23,17 @@ public:
     GameData createNew(const std::string &gameName, const std::string &timeUnit="seconds");
 
     // CRUD operations
-    int addResource(const Resource &r);
-    bool editResource(int id, const Resource &r, std::string &err);
-    bool deleteResource(int id, std::string &err);
+    bool addResource(const Resource &r);
+    bool editResource(std::string key_name, const Resource &r, std::string &outError);
+    bool deleteResource(std::string key_name, std::string &err);
 
-    int addMachine(const Machine &m);
-    bool editMachine(int id, const Machine &m, std::string &err);
-    bool deleteMachine(int id, std::string &err);
+    bool addMachine(const Machine &m);
+    bool editMachine(std::string key_name, const Machine &m, std::string &err);
+    bool deleteMachine(std::string key_name, std::string &err);
 
-    int addRecipe(const Recipe &r);
-    bool editRecipe(int id, const Recipe &r, std::string &err);
-    bool deleteRecipe(int id, std::string &err);
-
-    // Duplicate config (deep copy) - useful for "Duplicate" button
-    GameData duplicateConfig(const GameData &source, const std::string &newName);
+    bool addRecipe(const Recipe &r);
+    bool editRecipe(std::string key_name, const Recipe &r, std::string &err);
+    bool deleteRecipe(std::string key_name, std::string &err);
 
     // Validation - returns vector of human readable errors/warnings
     std::vector<std::string> validate(const GameData &gd);
@@ -52,19 +49,8 @@ public:
     void setChangeCallback(std::function<void()> cb);
 private:
     void notifyChange();
-
     GameData jsonToGameData(const json &j, std::string &outError);
-
     json gameDataToJson(const GameData &gd);
-
-    void rebuildMaps(GameData &gd);
-
-    int nextResourceId() const;
-
-    int nextMachineId() const;
-
-    int nextRecipeId() const;
-
 private:
     GameData _data;
     std::function<void()> _onChange;

@@ -4,18 +4,19 @@
 
 #ifndef CONNECTION_H
 #define CONNECTION_H
+#include <string>
 
 struct Connection {
     double rate = 0.0;
     int id;
     int from_port; // Port number on the originating node
     int to_port; // Port number on the destination node
-    int resource_id;
+    std::string resource_key;
 
     Connection() = default;
 
-    Connection(int id,int from_port, int to_port, int resource_id)
-        : id(id), from_port(from_port), to_port(to_port), resource_id(resource_id) {
+    Connection(int id,int from_port, int to_port, std::string resource_key)
+        : id(id), from_port(from_port), to_port(to_port), resource_key(resource_key) {
     }
 
     friend bool operator==(const Connection &lhs, const Connection &rhs) {

@@ -57,7 +57,7 @@ class AddNodeCommand : public Command {
 private:
     std::string nodeName;
     NodeType nodeType;
-    int recipeId;
+    std::string recipeKey;
     int fromPort;
     ImVec2 position;
 
@@ -66,8 +66,8 @@ private:
     Connection connectionData;
     bool executed;
 public:
-    AddNodeCommand(const std::string& name, NodeType type, int recipeId, int fromPort, const ImVec2& pos)
-        : nodeName(name), nodeType(type), recipeId(recipeId), fromPort(fromPort), position(pos), nodeData(), connectionData(), executed(false) {
+    AddNodeCommand(const std::string& name, NodeType type, std::string recipeKey, int fromPort, const ImVec2& pos)
+        : nodeName(name), nodeType(type), recipeKey(recipeKey), fromPort(fromPort), position(pos), nodeData(), connectionData(), executed(false) {
     }
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;

@@ -10,13 +10,13 @@ struct Port {
     double user_constraint = -1.0; // User-defined constraint for the port, -1 means no constraint
     int id;
     int node_id;
-    int resource_id; // ID of the resource associated with this port
+    std::string resource_key; // ID of the resource associated with this port
     bool isInput;
 
     Port() = default;
 
-    Port(int id, int node_id, int resource_id, bool isInput)
-        : id(id), node_id(node_id), resource_id(resource_id), isInput(isInput) {
+    Port(int id, int node_id, std::string resource_key, bool isInput)
+        : id(id), node_id(node_id), resource_key(resource_key), isInput(isInput) {
     }
 
     friend bool operator==(const Port &lhs, const Port &rhs) {

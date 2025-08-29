@@ -367,10 +367,10 @@ void FactoryNodeEditor::DrawNodes() {
             if (i < node->input_ports.size()) {
                 Port *p = graph->getPort(node->input_ports[i]);
                 if (!p) continue; // Skip invalid ports
-                if (p->resource_id != 0) {
+                if (p->resource_key != "nothing") {
                     ed::PinId pinId = IdUtils::ToPinId(p->id);
                     ed::BeginPin(pinId, ed::PinKind::Input);
-                    ImGui::Text("<%.2f> %s",p->rate ,graph->getGameData().resources.at(p->resource_id).name.c_str()); // Display resource name
+                    ImGui::Text("<%.2f> %s",p->rate ,gameData.resources.at(p->resource_key).name.c_str()); // Display resource name
                     ed::EndPin();
                 }
             } else {
@@ -380,11 +380,11 @@ void FactoryNodeEditor::DrawNodes() {
             if (i < node->output_ports.size()) {
                 Port *p = graph->getPort(node->output_ports[i]);
                 if (!p) continue; // Skip invalid ports
-                if (p->resource_id != 0) {
+                if (p->resource_key != "nothing") {
                     // Skip ports with no resource
                     ed::PinId pinId = IdUtils::ToPinId(p->id);
                     ed::BeginPin(pinId, ed::PinKind::Output);
-                    ImGui::Text("%s <%.2f>",p->rate, graph->getGameData().resources.at(p->resource_id).name.c_str()); // Display resource name
+                    ImGui::Text("%s <%.2f>",p->rate, gameData.resources.at(p->resource_key).name.c_str()); // Display resource name
                     ed::EndPin();
                 }
             } else {
@@ -580,15 +580,15 @@ void FactoryNodeEditor::HandlePopups() {
             ImGui::Text("Node ID: %d", node->id);
             ImGui::Text("Name: %s", node->name.c_str());
             ImGui::Text("Type: %s", toString(node->type));
-            ImGui::Text("Machine ID: %d", node->machine_id);
-            ImGui::Text("Selected Recipe ID: %d", node->selected_recipe_id);
+            ImGui::Text("Machine: %s", node->machine_key.c_str());
+            ImGui::Text("Selected Recipe: %s", node->selected_recipe_key.c_str());
             ImGui::Text("Machine count: %.2f", node->machine_count);
             // Display input ports
             ImGui::Text("Input Ports:");
             for (int portId : node->input_ports) {
                 auto port = graph->getPort(portId);
                 if (port) {
-                    ImGui::BulletText("Port ID: %d, Resource ID: %d, Rate: %.2f", port->id, port->resource_id, port->rate);
+                    ImGui::BulletText("Port ID: %d, Resource ID: %s, Rate: %.2f", port->id, port->resource_key.c_str(), port->rate);
                 }
             }
             // Display output ports
@@ -596,7 +596,7 @@ void FactoryNodeEditor::HandlePopups() {
             for (int portId : node->output_ports) {
                 auto port = graph->getPort(portId);
                 if (port) {
-                    ImGui::BulletText("Port ID: %d, Resource ID: %d, Rate: %.2f", port->id, port->resource_id, port->rate);
+                    ImGui::BulletText("Port ID: %d, Resource ID: %s, Rate: %.2f", port->id, port->resource_key.c_str(), port->rate);
                 }
             }
             ImGui::Separator();
@@ -628,7 +628,7 @@ void FactoryNodeEditor::HandlePopups() {
 
             // --- Display Port Info ---
             ImGui::Text("Port ID: %d", port->id);
-            ImGui::Text("Resource ID: %d", port->resource_id);
+            ImGui::Text("Resource Key: %s", port->resource_key.c_str());
             ImGui::Text("Is Input: %s", port->isInput ? "Yes" : "No");
             ImGui::Text("Current rate: %.2f", port->rate);
             ImGui::Text("Limit: %.2f", port->user_constraint);
@@ -675,7 +675,7 @@ void FactoryNodeEditor::HandlePopups() {
             ImGui::Text("Connection ID: %d", connection->id);
             ImGui::Text("From Port: %d", connection->from_port);
             ImGui::Text("To Port: %d", connection->to_port);
-            ImGui::Text("Resource ID: %d", connection->resource_id);
+            ImGui::Text("Resource Key: %s", connection->resource_key.c_str());
             ImGui::Text("Current rate: %.2f", connection->rate);
             ImGui::Separator();
             if (ImGui::MenuItem("Delete Link")) {
@@ -689,14 +689,14 @@ void FactoryNodeEditor::HandlePopups() {
 
     if (ImGui::BeginPopup("Create new node")) {
         if (selected_port_id != -1) {
-            auto resourceFilter = graph->getGameData().resources.at(graph->getPort(selected_port_id)->resource_id);
+            std::string resourceFilter = gameData.resources.find(graph->getPort(selected_port_id)->resource_key)->first;
             bool fromInput = graph->getPort(selected_port_id)->isInput;
             for (const auto& recipe : graph->getGameData().recipes) {
-                const auto& ports = fromInput ? recipe.output_ports : recipe.input_ports;
+                const auto& ports = fromInput ? recipe.second.output_ports : recipe.second.input_ports;
                 for (const auto& port : ports) {
-                    if (port.resource_id == resourceFilter.id) {
-                        if (ImGui::Selectable(recipe.name.c_str())) {
-                            executeCommand(std::make_unique<AddNodeCommand>(recipe.name, NodeType::PROCESSOR, recipe.id, selected_port_id, ed::ScreenToCanvas(m_storedPopupPosition)));
+                    if (port.resource_key == resourceFilter) {
+                        if (ImGui::Selectable(recipe.second.name.c_str())) {
+                            executeCommand(std::make_unique<AddNodeCommand>(recipe.second.name, NodeType::PROCESSOR, recipe.first, selected_port_id, ed::ScreenToCanvas(m_storedPopupPosition)));
                             ImGui::CloseCurrentPopup();
                         }
                     }
@@ -704,8 +704,8 @@ void FactoryNodeEditor::HandlePopups() {
             }
         } else {
             for (const auto& recipe : graph->getGameData().recipes) {
-                if (ImGui::Selectable(recipe.name.c_str())) {
-                    executeCommand(std::make_unique<AddNodeCommand>(recipe.name, NodeType::PROCESSOR, recipe.id, -1, m_storedPopupPosition));
+                if (ImGui::Selectable(recipe.second.name.c_str())) {
+                    executeCommand(std::make_unique<AddNodeCommand>(recipe.second.name, NodeType::PROCESSOR, recipe.first, -1, m_storedPopupPosition));
                     ImGui::CloseCurrentPopup();
                 }
             }

@@ -7,12 +7,12 @@
 #include <iostream>
 #include <unordered_set>
 
-int FactoryGraph::addNode(const std::string &name, NodeType type, int recipe_id) {
+int FactoryGraph::addNode(const std::string &name, NodeType type, std::string recipe_key) {
     int id = next_node_id++;
     size_t index = nodes.size();
     nodes.emplace_back(name, type, id);
     addNodeToIndex(id, index);
-    setNodeRecipe(id, recipe_id);
+    setNodeRecipe(id, recipe_key);
     return id;
 }
 
@@ -68,10 +68,10 @@ Node *FactoryGraph::getNode(int id) {
     return (it != node_id_to_index_.end()) ? &nodes[it->second] : nullptr;
 }
 
-int FactoryGraph::addPort(int resource_id, int node_id, bool isInput) {
+int FactoryGraph::addPort(std::string resource_key, int node_id, bool isInput) {
     int port_id = next_port_id++;
     size_t index = ports.size();
-    ports.emplace_back(port_id, node_id, resource_id, isInput);
+    ports.emplace_back(port_id, node_id, resource_key, isInput);
     addPortToIndex(port_id, index);
     return port_id;
 }
@@ -127,7 +127,7 @@ int FactoryGraph::addConnection(int from_port, int to_port) {
     }
     int id = next_connection_id++;
     size_t index = connections.size();
-    connections.emplace_back(id, from_port, to_port, getPort(from_port)->resource_id);
+    connections.emplace_back(id, from_port, to_port, getPort(from_port)->resource_key);
     addConnectionToIndex(id, index);
     connectionsByPort.insert({from_port, id});
     connectionsByPort.insert({to_port, id});
@@ -239,8 +239,8 @@ nlohmann::json FactoryGraph::serialize() const {
         node_json["id"] = node.id;
         node_json["name"] = node.name;
         node_json["type"] = node.type;
-        node_json["machine_id"] = node.machine_id;
-        node_json["selected_recipe_id"] = node.selected_recipe_id;
+        node_json["machine_key"] = node.machine_key;
+        node_json["selected_recipe_key"] = node.selected_recipe_key;
         node_json["input_ports"] = node.input_ports;
         node_json["output_ports"] = node.output_ports;
         j["nodes"].push_back(node_json);
@@ -252,7 +252,7 @@ nlohmann::json FactoryGraph::serialize() const {
         nlohmann::json port_json;
         port_json["id"] = port.id;
         port_json["node_id"] = port.node_id;
-        port_json["resource_id"] = port.resource_id;
+        port_json["resource_key"] = port.resource_key;
         port_json["isInput"] = port.isInput;
         port_json["user_constraint"] = port.user_constraint;
         j["ports"].push_back(port_json);
@@ -265,7 +265,7 @@ nlohmann::json FactoryGraph::serialize() const {
         conn_json["id"] = connection.id;
         conn_json["from_port"] = connection.from_port;
         conn_json["to_port"] = connection.to_port;
-        conn_json["resource_id"] = connection.resource_id;
+        conn_json["resource_key"] = connection.resource_key;
         j["connections"].push_back(conn_json);
     }
 
@@ -288,8 +288,8 @@ void FactoryGraph::deserialize(const nlohmann::json& j) {
             node.id = node_json["id"];
             node.name = node_json["name"];
             node.type = static_cast<NodeType>(node_json["type"]);
-            node.machine_id = node_json["machine_id"];
-            node.selected_recipe_id = node_json["selected_recipe_id"];
+            node.machine_key = node_json["machine_key"];
+            node.selected_recipe_key = node_json["selected_recipe_key"];
             node.input_ports = node_json["input_ports"].get<std::vector<int>>();
             node.output_ports = node_json["output_ports"].get<std::vector<int>>();
 
@@ -301,7 +301,7 @@ void FactoryGraph::deserialize(const nlohmann::json& j) {
     // Deserialize ports
     if (j.contains("ports")) {
         for (const auto& port_json : j["ports"]) {
-            Port port(port_json["id"], port_json["node_id"], port_json["resource_id"], port_json["isInput"]);
+            Port port(port_json["id"], port_json["node_id"], port_json["resource_key"], port_json["isInput"]);
             port.user_constraint = port_json["user_constraint"];
 
             ports.push_back(port);
@@ -313,7 +313,7 @@ void FactoryGraph::deserialize(const nlohmann::json& j) {
     if (j.contains("connections")) {
         for (const auto& conn_json : j["connections"]) {
             Connection connection(conn_json["id"], conn_json["from_port"],
-                                conn_json["to_port"], conn_json["resource_id"]);
+                                conn_json["to_port"], conn_json["resource_key"]);
 
             connections.push_back(connection);
             addConnectionToIndex(connection.id, connections.size() - 1);
@@ -334,25 +334,25 @@ void FactoryGraph::deserialize(const nlohmann::json& j) {
     }
 }
 
-bool FactoryGraph::setNodeRecipe(int node_id, int recipe_id) {
+bool FactoryGraph::setNodeRecipe(int node_id, std::string recipe_key) {
     Node *node = getNode(node_id);
     if (!node) {
         return false;
     }
-    if (recipe_id > game_data.recipes.size()) {
+    if (game_data.recipes.count(recipe_key) == 0) {
         return false;
     }
-    const Recipe &recipe = game_data.recipes.at(recipe_id);
-    node->selected_recipe_id = recipe_id;
-    node->machine_id = recipe.produced_in_machines_ids.empty() ? -1 : recipe.produced_in_machines_ids[0];
+    const Recipe &recipe = game_data.recipes.at(recipe_key);
+    node->selected_recipe_key = recipe_key;
+    node->machine_key = recipe.produced_in_machines_keys.empty() ? "" : recipe.produced_in_machines_keys[0]; // todo: allow selection of machine
     node->output_ports.resize(recipe.output_ports.size());
     node->input_ports.resize(recipe.input_ports.size());
     for (int i = 0; i < recipe.input_ports.size(); ++i) {
-        int port_id = addPort(recipe.input_ports.at(i).resource_id, node_id, true);
+        int port_id = addPort(recipe.input_ports.at(i).resource_key, node_id, true);
         node->input_ports[i] = port_id;
     }
     for (int i = 0; i < recipe.output_ports.size(); ++i) {
-        int port_id = addPort(recipe.output_ports.at(i).resource_id, node_id, false);
+        int port_id = addPort(recipe.output_ports.at(i).resource_key, node_id, false);
         node->output_ports[i] = port_id;
     }
     return true;
@@ -368,7 +368,7 @@ bool FactoryGraph::isValidConnection(int from_port, int to_port) {
     if (!from_port_ptr || !to_port_ptr) {
         return false;
     }
-    if (from_port_ptr->resource_id != to_port_ptr->resource_id) {
+    if (from_port_ptr->resource_key != to_port_ptr->resource_key) {
         auto resource_names = game_data.resources;
         return false;
     }

@@ -46,7 +46,7 @@ void UndoRedoManager::trimUndoStack() {
 
 void AddNodeCommand::execute(FactoryGraph &graph) {
     if (!executed) {
-        int newNodeId = graph.addNode(nodeName, nodeType, recipeId);
+        int newNodeId = graph.addNode(nodeName, nodeType, recipeKey);
         ed::SetNodePosition(IdUtils::ToNodeId(newNodeId), position);
 
         if (fromPort != -1) {
@@ -56,7 +56,7 @@ void AddNodeCommand::execute(FactoryGraph &graph) {
                                                 ? graph.getNode(newNodeId)->output_ports
                                                 : graph.getNode(newNodeId)->input_ports;
             for (int new_port_id: ports_on_new_node) {
-                if (graph.getPort(new_port_id)->resource_id == graph.getPort(fromPort)->resource_id) {
+                if (graph.getPort(new_port_id)->resource_key == graph.getPort(fromPort)->resource_key) {
                     // Determine connection direction dynamically
                     int source_id = fromInput ? new_port_id : fromPort;
                     int target_id = fromInput ? fromPort : new_port_id;
@@ -67,7 +67,7 @@ void AddNodeCommand::execute(FactoryGraph &graph) {
                 }
             }
         } else {
-            connectionData = Connection(-1, -1, -1, -1); // No connection data if no port is specified
+            connectionData = Connection(-1, -1, -1, ""); // No connection data if no port is specified
         }
         auto node = graph.getNode(newNodeId);
         if (node) {
@@ -207,7 +207,7 @@ void PasteCommand::execute(FactoryGraph &graph) {
         for (const auto &pair: copy_buffer.nodes) {
             int oldId = pair.first;
             const auto &node = pair.second;
-            int newId = graph.addNode(node.name, node.type, node.selected_recipe_id);
+            int newId = graph.addNode(node.name, node.type, node.selected_recipe_key);
             ImVec2 oldPos = copy_buffer.nodePositions[oldId];
             ImVec2 newPos = ImVec2(oldPos.x + offset.x, oldPos.y + offset.y);
 
