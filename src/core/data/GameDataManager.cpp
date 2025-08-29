@@ -59,6 +59,8 @@ bool GameDataManager::saveToFile(const std::string &path, std::string &outError)
             return false;
         }
         ofs << j.dump(2);
+        j = gameDataToJson(_data);
+        std::cout << "Saved game data to " << path << ":\n" << j.dump(2) << std::endl;
         return true;
     } catch (const std::exception &ex) {
         outError = std::string("Exception while saving: ") + ex.what();
@@ -289,6 +291,14 @@ std::vector<std::string> GameDataManager::validate(const GameData &gd) {
                 messages.push_back("Recipe '" + r.name + "' references unknown output resource id " + std::to_string(p.resource_id));
             }
         }
+        if (r.produced_in_machines_ids.empty()) {
+            messages.push_back("Recipe '" + r.name + "' is not assigned to any machines.");
+        }
+        for (int mid : r.produced_in_machines_ids) {
+            if (std::none_of(gd.machines.begin(), gd.machines.end(), [&](const Machine &m){ return m.id == mid; })) {
+                messages.push_back("Recipe '" + r.name + "' references unknown machine id " + std::to_string(mid));
+            }
+        }
     }
     return messages;
 }
@@ -349,13 +359,11 @@ GameData GameDataManager::jsonToGameData(const json &j, std::string &outError) {
                 std::string name = mj.value("name", std::string());
                 std::string key = mj.value("key_name", std::string());
                 double eff = mj.value("base_crafting_speed", 1.0);
-                int maxClock = mj.value("max_clock", 100);
                 Machine mm;
                 mm.id = nextMachineId++;
                 mm.key_name = key;
                 mm.name = name.empty() ? key : name;
                 mm.base_crafting_speed = eff <= 0.0 ? 1.0 : eff;
-                mm.max_clock = maxClock <= 0 ? 100 : maxClock;
                 gd.machines.push_back(mm);
                 if (!mm.key_name.empty()) gd.machineKeyToId[mm.key_name] = mm.id;
             }
@@ -478,7 +486,6 @@ json GameDataManager::gameDataToJson(const GameData &gd) {
             mj["name"] = m.name;
             mj["key_name"] = m.key_name;
             mj["base_crafting_speed"] = m.base_crafting_speed;
-            mj["max_clock"] = m.max_clock;
             marr.push_back(mj);
         }
         j["machines"] = marr;
