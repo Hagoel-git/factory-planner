@@ -168,7 +168,7 @@ void FactorySolver::addAllConstraints(const FactoryGraph &factory_graph) {
     // Add constraints for each node in the factory graph
     const auto &nodes = factory_graph.getNodes();
     for (const auto &node: nodes) {
-        Recipe recipe = factory_graph.getGameData().recipes[node.selected_recipe_id];
+        Recipe recipe = factory_graph.getGameData().recipes.find(node.selected_recipe_key)->second;
         addRecipeConstraints(node, recipe);
     }
 
@@ -268,7 +268,7 @@ void FactorySolver::updateFactoryGraph(FactoryGraph &factory_graph) const {
         time_unit = 1; // default to seconds
     }
     for (const auto &node: nodes) {
-        const Recipe &recipe = factory_graph.getGameData().recipes.at(node.selected_recipe_id);
+        const Recipe &recipe = factory_graph.getGameData().recipes.find(node.selected_recipe_key)->second;
         double machine_count = factory_graph.getPort(node.input_ports.at(0))->rate / (recipe.input_ports.at(0).amount / recipe.time_seconds * time_unit * (node.clock_speed / 100.0));
         node.machine_count = machine_count;
     }

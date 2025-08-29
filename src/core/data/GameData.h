@@ -9,38 +9,30 @@
 #include <string>
 #include <vector>
 #include <filesystem>
+#include <map>
 
 struct Resource {
-    int id = -1; // 0 reserved for "nothing"
-    std::string key_name;
     std::string name;
 };
 
 
 struct Machine {
-    int id = -1;
-    std::string key_name;
     std::string name;
-
     double base_crafting_speed = 1.0; // linear crafting speed multiplier. Default 1.0 means recipe time is used as-is.
 };
 
 
 struct RecipePort {
     double amount = 0.0;
-    int resource_id = -1;
+    std::string resource_key = "";
 };
 
 
 struct Recipe {
-    int id = -1;
-    std::string key_name;
     std::string name;
-
     double time_seconds = 0.0;
 
-    std::vector<int> produced_in_machines_ids;
-
+    std::vector<std::string> produced_in_machines_keys;
     std::vector<RecipePort> input_ports;
     std::vector<RecipePort> output_ports;
 
@@ -53,16 +45,10 @@ struct GameData {
     std::string time_unit = "seconds"; // original unit from JSON
     int schema_version = 2;
 
-
-    std::vector<Resource> resources; // resource with id 0 is reserved for "nothing"
-    std::vector<Machine> machines;
-    std::vector<Recipe> recipes;
-
-
-    // helper maps for quick lookups
-    std::unordered_map<std::string,int> resourceKeyToId;
-    std::unordered_map<std::string,int> machineKeyToId;
-    std::unordered_map<std::string,int> recipeKeyToId;
+    // Using maps for easy lookup by key_name
+    std::map<std::string, Resource> resources;
+    std::map<std::string, Machine> machines;
+    std::map<std::string, Recipe> recipes;
 };
 
 

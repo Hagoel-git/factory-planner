@@ -13,6 +13,8 @@
 
 #include <../../../external/nlohmann/json.hpp>
 
+#include "StringUtils.h"
+
 using json = nlohmann::json;
 
 GameDataManager::GameDataManager() {
@@ -75,25 +77,10 @@ GameData GameDataManager::createNew(const std::string &gameName, const std::stri
     gd.gameDataFilePath = "";
     gd.time_unit = timeUnit;
     gd.schema_version = 2;
-    // ensure "nothing" resource at id 0
     Resource nothing;
-    nothing.id = 0;
-    nothing.key_name = "nothing";
     nothing.name = "Nothing";
-    gd.resources.push_back(nothing);
-    gd.resourceKeyToId["nothing"] = 0;
+    gd.resources["nothing"] = nothing;
     _data = gd;
-    notifyChange();
-    return _data;
-}
-
-GameData GameDataManager::duplicateConfig(const GameData &source, const std::string &newName) {
-    std::lock_guard<std::mutex> lk(_mutex);
-    GameData copy = source;
-    copy.gameName = newName;
-    // ensure maps are rebuilt
-    rebuildMaps(copy);
-    _data = copy;
     notifyChange();
     return _data;
 }
@@ -103,200 +90,223 @@ GameData& GameDataManager::current() {
     return _data;
 }
 
-int GameDataManager::addResource(const Resource &r) {
+bool GameDataManager::addResource(const Resource &r) {
     std::lock_guard<std::mutex> lk(_mutex);
+    std::string key = slugify(r.name);
     // don't allow adding key "nothing"
-    if (r.key_name == "nothing") return 0;
-    int id = nextResourceId();
+    if (key == "nothing") return false;
+    if (_data.resources.count(key)) return false; // already exists
     Resource rr = r;
-    rr.id = id;
-    _data.resources.push_back(rr);
-    _data.resourceKeyToId[rr.key_name] = id;
-    notifyChange();
-    return id;
-}
-
-bool GameDataManager::editResource(int id, const Resource &r, std::string &outError) {
-    std::lock_guard<std::mutex> lk(_mutex);
-    if (id == 0) {
-        outError = "Cannot edit reserved resource 'nothing' (id 0).";
-        return false;
-    }
-    auto it = std::find_if(_data.resources.begin(), _data.resources.end(), [&](const Resource &res){ return res.id == id; });
-    if (it == _data.resources.end()) {
-        outError = "Resource id not found.";
-        return false;
-    }
-    // Check for key_name conflict
-    if (r.key_name != it->key_name && _data.resourceKeyToId.count(r.key_name)) {
-        outError = "Another resource already uses key_name '" + r.key_name + "'.";
-        return false;
-    }
-    // update map
-    _data.resourceKeyToId.erase(it->key_name);
-    it->key_name = r.key_name;
-    it->name = r.name;
-    _data.resourceKeyToId[it->key_name] = it->id;
+    _data.resources[key] = rr;
     notifyChange();
     return true;
 }
 
-bool GameDataManager::deleteResource(int id, std::string &outError) {
+bool GameDataManager::editResource(std::string key_name, const Resource &r, std::string &outError) {
     std::lock_guard<std::mutex> lk(_mutex);
-    if (id == 0) {
-        outError = "Cannot delete reserved resource 'nothing' (id 0).";
+    if (key_name == "nothing") {
+        outError = "Cannot edit reserved resource 'nothing'.";
         return false;
     }
-    auto it = std::find_if(_data.resources.begin(), _data.resources.end(), [&](const Resource &res){ return res.id == id; });
-    if (it == _data.resources.end()) {
-        outError = "Resource id not found.";
+    if (!_data.resources.count(key_name)) {
+        outError = "Resource key_name not found.";
         return false;
     }
-    // Ensure no recipes reference this resource
-    for (const auto &r : _data.recipes) {
-        for (const auto &p : r.input_ports) if (p.resource_id == id) {
-            outError = "Resource is referenced by recipe '" + r.name + "'";
-            return false;
+    std::string key = slugify(r.name);
+    if (_data.resources.count(key)) {
+        outError = "Cannot change to that name; another resource uses it.";
+    }
+    // update
+    Resource rr = r;
+    _data.resources.erase(key);
+    _data.resources[key] = rr;
+    // update any recipes that referenced the old key_name
+    for (auto &recPair : _data.recipes) {
+        Recipe &rec = recPair.second;
+        for (auto &p : rec.input_ports) {
+            if (p.resource_key == key_name) p.resource_key = key;
         }
-        for (const auto &p : r.output_ports) if (p.resource_id == id) {
-            outError = "Resource is referenced by recipe '" + r.name + "'";
-            return false;
+        for (auto &p : rec.output_ports) {
+            if (p.resource_key == key_name) p.resource_key = key;
         }
     }
-    // remove
-    _data.resourceKeyToId.erase(it->key_name);
-    _data.resources.erase(it);
     notifyChange();
     return true;
 }
 
-int GameDataManager::addMachine(const Machine &m) {
+bool GameDataManager::deleteResource(std::string key_name, std::string &outError) {
     std::lock_guard<std::mutex> lk(_mutex);
-    int id = nextMachineId();
+    if (key_name == "nothing") {
+        outError = "Cannot delete reserved resource 'nothing'.";
+        return false;
+    }
+    if (!_data.resources.count(key_name)) {
+        outError = "Resource key_name not found.";
+        return false;
+    }
+    // check references in recipes
+    for (const auto &recPair : _data.recipes) {
+        const Recipe &rec = recPair.second;
+        for (const auto &p : rec.input_ports) {
+            if (p.resource_key == key_name) {
+                outError = "Resource is used in a recipe input (" + _data.recipes.find(rec.name)->first + "); cannot delete.";
+                return false;
+            }
+        }
+        for (const auto &p : rec.output_ports) {
+            if (p.resource_key == key_name) {
+                outError = "Resource is used in a recipe output (" + _data.recipes.find(rec.name)->first + "); cannot delete.";
+                return false;
+            }
+        }
+    }
+    _data.resources.erase(key_name);
+    notifyChange();
+    return true;
+}
+
+bool GameDataManager::addMachine(const Machine &m) {
+    std::lock_guard<std::mutex> lk(_mutex);
+    std::string key = slugify(m.name);
+    if (_data.machines.count(key)) return false; // already exists
     Machine mm = m;
-    mm.id = id;
-    _data.machines.push_back(mm);
-    _data.machineKeyToId[mm.key_name] = id;
-    notifyChange();
-    return id;
-}
-
-bool GameDataManager::editMachine(int id, const Machine &m, std::string &outError) {
-    std::lock_guard<std::mutex> lk(_mutex);
-    auto it = std::find_if(_data.machines.begin(), _data.machines.end(), [&](const Machine &mm){ return mm.id == id; });
-    if (it == _data.machines.end()) { outError = "Machine id not found."; return false; }
-    if (m.key_name != it->key_name && _data.machineKeyToId.count(m.key_name)) { outError = "Another machine uses that key_name."; return false; }
-    _data.machineKeyToId.erase(it->key_name);
-    it->key_name = m.key_name;
-    it->name = m.name;
-    it->base_crafting_speed = m.base_crafting_speed <= 0.0 ? 1.0 : m.base_crafting_speed;
-    _data.machineKeyToId[it->key_name] = it->id;
+    _data.machines[key] = mm;
     notifyChange();
     return true;
 }
 
-bool GameDataManager::deleteMachine(int id, std::string &outError) {
+bool GameDataManager::editMachine(std::string key_name, const Machine &m, std::string &outError) {
     std::lock_guard<std::mutex> lk(_mutex);
-    auto it = std::find_if(_data.machines.begin(), _data.machines.end(), [&](const Machine &mm){ return mm.id == id; });
-    if (it == _data.machines.end()) { outError = "Machine id not found."; return false; }
-    // Optionally check references (e.g., saved default assignments). We skip checks here.
-    _data.machineKeyToId.erase(it->key_name);
-    _data.machines.erase(it);
-    notifyChange();
-    return true;
-}
-
-int GameDataManager::addRecipe(const Recipe &r) {
-    std::lock_guard<std::mutex> lk(_mutex);
-    int id = nextRecipeId();
-    Recipe rr = r;
-    rr.id = id;
-    // if input empty, ensure nothing input
-    if (rr.input_ports.empty()) {
-        rr.input_ports.push_back(RecipePort{0.0, 0});
+    if (!_data.machines.count(key_name)) {
+        outError = "Machine key_name not found.";
+        return false;
     }
-    _data.recipes.push_back(rr);
-    if (!rr.key_name.empty()) _data.recipeKeyToId[rr.key_name] = rr.id;
-    notifyChange();
-    return id;
-}
-
-bool GameDataManager::editRecipe(int id, const Recipe &r, std::string &outError) {
-    std::lock_guard<std::mutex> lk(_mutex);
-    auto it = std::find_if(_data.recipes.begin(), _data.recipes.end(), [&](const Recipe &rr){ return rr.id == id; });
-    if (it == _data.recipes.end()) { outError = "Recipe id not found."; return false; }
-    if (r.key_name != it->key_name && _data.recipeKeyToId.count(r.key_name)) { outError = "Another recipe uses that key_name."; return false; }
-    // update maps
-    _data.recipeKeyToId.erase(it->key_name);
-    *it = r;
-    if (it->input_ports.empty()) it->input_ports.push_back(RecipePort{0.0, 0});
-    if (!it->key_name.empty()) _data.recipeKeyToId[it->key_name] = it->id;
+    std::string key = slugify(m.name);
+    if (_data.machines.count(key)) {
+        outError = "Cannot change to that name; another machine uses it.";
+    }
+    // update
+    Machine mm = m;
+    _data.machines.erase(key_name);
+    _data.machines[key] = mm;
+    // update any recipes that referenced the old key_name
+    for (auto &recPair : _data.recipes) {
+        Recipe &rec = recPair.second;
+        for (auto &mk : rec.produced_in_machines_keys) {
+            if (mk == key_name) mk = key;
+        }
+    }
     notifyChange();
     return true;
 }
 
-bool GameDataManager::deleteRecipe(int id, std::string &outError) {
+bool GameDataManager::deleteMachine(std::string key_name, std::string &outError) {
     std::lock_guard<std::mutex> lk(_mutex);
-    auto it = std::find_if(_data.recipes.begin(), _data.recipes.end(), [&](const Recipe &rr){ return rr.id == id; });
-    if (it == _data.recipes.end()) { outError = "Recipe id not found."; return false; }
-    _data.recipeKeyToId.erase(it->key_name);
-    _data.recipes.erase(it);
+    if (!_data.machines.count(key_name)) {
+        outError = "Machine key_name not found.";
+        return false;
+    }
+    // check references in recipes
+    for (const auto &recPair : _data.recipes) {
+        const Recipe &rec = recPair.second;
+        for (const auto &mk : rec.produced_in_machines_keys) {
+            if (mk == key_name) {
+                outError = "Machine is used in a recipe (" + _data.recipes.find(rec.name)->first + "); cannot delete.";
+                return false;
+            }
+        }
+    }
+    _data.machines.erase(key_name);
+    notifyChange();
+    return true;
+}
+
+bool GameDataManager::addRecipe(const Recipe &r) {
+    std::lock_guard<std::mutex> lk(_mutex);
+    std::string key = slugify(r.name);
+    if (_data.recipes.count(key)) return false; // already exists
+    Recipe rr = r;
+    // if no input or output ports, add a "nothing" port to avoid issues
+    if (rr.input_ports.empty()) {
+        rr.input_ports.push_back(RecipePort{0.0, "nothing"});
+    }
+    if (rr.output_ports.empty()) {
+        rr.output_ports.push_back(RecipePort{0.0, "nothing"});
+    }
+    _data.recipes[key] = rr;
+    notifyChange();
+    return true;
+}
+
+bool GameDataManager::editRecipe(std::string key_name, const Recipe &r, std::string &outError) {
+    std::lock_guard<std::mutex> lk(_mutex);
+    if (!_data.recipes.count(key_name)) {
+        outError = "Recipe key_name not found.";
+        return false;
+    }
+    std::string key = slugify(r.name);
+    if (_data.recipes.count(key)) {
+        outError = "Cannot change to that name; another recipe uses it.";
+        return false;
+    }
+    // update
+    Recipe rr = r;
+    // if no input or output ports, add a "nothing" port to avoid issues
+    if (rr.input_ports.empty()) {
+        rr.input_ports.push_back(RecipePort{0.0, "nothing"});
+    }
+    if (rr.output_ports.empty()) {
+        rr.output_ports.push_back(RecipePort{0.0, "nothing"});
+    }
+    _data.recipes.erase(key_name);
+    _data.recipes[key] = rr;
+    notifyChange();
+    return true;
+}
+
+bool GameDataManager::deleteRecipe(std::string key_name, std::string &outError) {
+    std::lock_guard<std::mutex> lk(_mutex);
+    if (!_data.recipes.count(key_name)) {
+        outError = "Recipe key_name not found.";
+        return false;
+    }
+    _data.recipes.erase(key_name);
     notifyChange();
     return true;
 }
 
 std::vector<std::string> GameDataManager::validate(const GameData &gd) {
     std::vector<std::string> messages;
-    // check nothing resource exists and has id 0
-    bool foundNothing = false;
-    for (const auto &res : gd.resources) {
-        if (res.id == 0) {
-            foundNothing = true;
-            if (res.key_name != "nothing") messages.push_back("Resource id 0 should use key_name 'nothing'.");
-            break;
-        }
+    // check nothing resource exists
+    if (!gd.resources.count("nothing")) {
+        messages.push_back("Missing required resource with key_name 'nothing'.");
     }
-    if (!foundNothing) {
-        messages.push_back("Missing reserved resource with id 0 ('nothing').");
-    }
-    // unique key_name checks
-    std::unordered_map<std::string,int> seen;
-    for (const auto &res : gd.resources) {
-        if (res.key_name.empty()) { messages.push_back("Resource with empty key_name: '" + res.name + "'."); continue; }
-        if (seen.count(res.key_name)) messages.push_back("Duplicate resource key_name: '" + res.key_name + "'.");
-        seen[res.key_name] = 1;
-    }
-    seen.clear();
+
     for (const auto &m : gd.machines) {
-        if (m.key_name.empty()) messages.push_back("Machine with empty key_name: '" + m.name + "'.");
-        if (!m.key_name.empty() && seen.count(m.key_name)) messages.push_back("Duplicate machine key_name: '" + m.key_name + "'.");
-        seen[m.key_name] = 1;
-        if (m.base_crafting_speed <= 0.0) messages.push_back("Machine '" + m.name + "' has non-positive base_crafting_speed.");
+        if (m.second.base_crafting_speed <= 0.0) {
+            messages.push_back("Machine '" + m.second.name + "' has non-positive base_crafting_speed.");
+        }
     }
-    seen.clear();
     for (const auto &r : gd.recipes) {
-        if (r.key_name.empty()) messages.push_back("Recipe with empty key_name: '" + r.name + "'.");
-        if (!r.key_name.empty() && seen.count(r.key_name)) messages.push_back("Duplicate recipe key_name: '" + r.key_name + "'.");
-        seen[r.key_name] = 1;
-        if (r.time_seconds < 0.0) messages.push_back("Recipe '" + r.name + "' has negative time.");
-        for (const auto &p : r.input_ports) {
-            if (p.amount < 0.0) messages.push_back("Recipe '" + r.name + "' has negative ingredient amount.");
-            if (std::none_of(gd.resources.begin(), gd.resources.end(), [&](const Resource &res){ return res.id == p.resource_id; })) {
-                messages.push_back("Recipe '" + r.name + "' references unknown input resource id " + std::to_string(p.resource_id));
+        if (r.second.time_seconds < 0.0) messages.push_back("Recipe '" + r.second.name + "' has negative time.");
+        for (const auto &p : r.second.input_ports) {
+            if (p.amount < 0.0) messages.push_back("Recipe '" + r.second.name + "' has negative ingredient amount.");
+            if (gd.resources.find(p.resource_key) == gd.resources.end()) {
+                messages.push_back("Recipe '" + r.second.name + "' references unknown input resource key '" + p.resource_key + "'.");
             }
         }
-        for (const auto &p : r.output_ports) {
-            if (p.amount <= 0.0) messages.push_back("Recipe '" + r.name + "' has non-positive product amount.");
-            if (std::none_of(gd.resources.begin(), gd.resources.end(), [&](const Resource &res){ return res.id == p.resource_id; })) {
-                messages.push_back("Recipe '" + r.name + "' references unknown output resource id " + std::to_string(p.resource_id));
+        for (const auto &p : r.second.output_ports) {
+            if (p.amount <= 0.0) messages.push_back("Recipe '" + r.second.name + "' has non-positive product amount.");
+            if (gd.resources.find(p.resource_key) == gd.resources.end()) {
+                messages.push_back("Recipe '" + r.second.name + "' references unknown output resource key '" + p.resource_key + "'.");
             }
         }
-        if (r.produced_in_machines_ids.empty()) {
-            messages.push_back("Recipe '" + r.name + "' is not assigned to any machines.");
+        if (r.second.produced_in_machines_keys.empty()) {
+            messages.push_back("Recipe '" + r.second.name + "' is not assigned to any machines.");
         }
-        for (int mid : r.produced_in_machines_ids) {
-            if (std::none_of(gd.machines.begin(), gd.machines.end(), [&](const Machine &m){ return m.id == mid; })) {
-                messages.push_back("Recipe '" + r.name + "' references unknown machine id " + std::to_string(mid));
+        for (const auto mid : r.second.produced_in_machines_keys) {
+            if (gd.machines.count(mid) == 0) {
+                messages.push_back("Recipe '" + r.second.name + "' references unknown machine key '" + mid + "'.");
             }
         }
     }
@@ -325,11 +335,9 @@ GameData GameDataManager::jsonToGameData(const json &j, std::string &outError) {
         gd.gameName = j.value("gameName", std::string("unknown"));
         gd.time_unit = j.value("time_unit", std::string("seconds"));
         gd.gameDataFilePath = path;
-        // Ensure nothing resource at id 0
-        Resource nothing{0, "nothing", "Nothing"};
-        gd.resources.push_back(nothing);
-        gd.resourceKeyToId["nothing"] = 0;
-        int nextResourceId = 1;
+        // Ensure nothing resource exists
+        Resource nothing{ "Nothing"};
+        gd.resources["nothing"] = nothing;
         // Items (resources). Accepts arrays named "items", "resources", and "fluids" (fluids appended)
         auto handleResourceArray = [&](const json &arr) {
             if (!arr.is_array()) return;
@@ -337,116 +345,103 @@ GameData GameDataManager::jsonToGameData(const json &j, std::string &outError) {
                 std::string name = rj.value("name", std::string());
                 std::string key = rj.value("key_name", std::string());
                 if (key.empty()) {
-                    // skip or create key from name
+                    // skip
                     continue;
                 }
+                if (gd.resources.count(key)) continue; // skip duplicates
                 // avoid duplicating "nothing"
                 if (key == "nothing") continue;
                 Resource res;
-                res.id = nextResourceId++;
-                res.key_name = key;
                 res.name = name.empty() ? key : name;
-                gd.resources.push_back(res);
-                gd.resourceKeyToId[res.key_name] = res.id;
+                gd.resources[key] = res;
             }
         };
         if (j.contains("resources")) handleResourceArray(j["resources"]);
 
         // Machines
-        int nextMachineId = 0;
         if (j.contains("machines") && j["machines"].is_array()) {
             for (const auto &mj : j["machines"]) {
                 std::string name = mj.value("name", std::string());
                 std::string key = mj.value("key_name", std::string());
                 double eff = mj.value("base_crafting_speed", 1.0);
+                if (key.empty()) continue; // skip
+                if (gd.machines.count(key)) continue; // skip duplicates
                 Machine mm;
-                mm.id = nextMachineId++;
-                mm.key_name = key;
                 mm.name = name.empty() ? key : name;
                 mm.base_crafting_speed = eff <= 0.0 ? 1.0 : eff;
-                gd.machines.push_back(mm);
-                if (!mm.key_name.empty()) gd.machineKeyToId[mm.key_name] = mm.id;
+                gd.machines[key] = mm;
             }
         }
 
         // Recipes
-        int nextRecipeId = 0;
         if (j.contains("recipes") && j["recipes"].is_array()) {
             for (const auto &rj : j["recipes"]) {
                 Recipe r;
-                r.id = nextRecipeId++;
-                r.key_name = rj.value("key_name", std::string());
-                r.name = rj.value("name", r.key_name);
+                std::string key= rj.value("key_name", std::string());
+                r.name = rj.value("name", key);
                 r.time_seconds = rj.value("time", 0.0);
+
+                if (key.empty()) {
+                    // generate key from name
+                    key = slugify(r.name);
+                    if (key.empty()) {
+                        // skip
+                        continue;
+                    }
+                }
 
                 // ingredients
                 if (rj.contains("ingredients") && rj["ingredients"].is_array()) {
                     const auto &ing = rj["ingredients"];
                     if (ing.empty()) {
                         // inject nothing
-                        r.input_ports.push_back(RecipePort{0.0, 0});
+                        r.input_ports.push_back(RecipePort{0.0, "nothing"});
                     } else {
                         for (const auto &pair : ing) {
                             if (!pair.is_array() || pair.size() < 2) continue;
-                            std::string key = pair[0].get<std::string>();
+                            std::string kkey = pair[0].get<std::string>();
                             double amount = pair[1].get<double>();
-                            if (!gd.resourceKeyToId.count(key)) {
+                            if (!gd.resources.count(kkey)) {
                                 // auto-create resource
                                 Resource res;
-                                res.id = nextResourceId++;
-                                res.key_name = key;
-                                res.name = key;
-                                gd.resources.push_back(res);
-                                gd.resourceKeyToId[key] = res.id;
+                                res.name = kkey;
+                                gd.resources[kkey] = res;
                             }
-                            int resId = gd.resourceKeyToId[key];
-                            r.input_ports.push_back(RecipePort{amount, resId});
+                            r.input_ports.push_back(RecipePort{amount, kkey});
                         }
                     }
                 } else {
                     // treat missing field as nothing
-                    r.input_ports.push_back(RecipePort{0.0, 0});
+                    r.input_ports.push_back(RecipePort{0.0, "nothing"});
                 }
-
-
                 // products
                 if (rj.contains("products") && rj["products"].is_array()) {
                     for (const auto &pair : rj["products"]) {
                         if (!pair.is_array() || pair.size() < 2) continue;
-                        std::string key = pair[0].get<std::string>();
+                        std::string kkey = pair[0].get<std::string>();
                         double amount = pair[1].get<double>();
-                        if (!gd.resourceKeyToId.count(key)) {
+                        if (!gd.resources.count(kkey)) {
                             Resource res;
-                            res.id = nextResourceId++;
-                            res.key_name = key;
-                            res.name = key;
-                            gd.resources.push_back(res);
-                            gd.resourceKeyToId[key] = res.id;
+                            res.name = kkey;
+                            gd.resources[kkey] = res;
                         }
-                        int resId = gd.resourceKeyToId[key];
-                        r.output_ports.push_back(RecipePort{amount, resId});
+                        r.output_ports.push_back(RecipePort{amount, kkey});
                     }
                 }
-
                 // produced_in
                 if (rj.contains("produced_in") && rj["produced_in"].is_array()) {
                     for (const auto &mk : rj["produced_in"]) {
-                        std::string key = mk.get<std::string>();
-                        if (gd.machineKeyToId.count(key)) {
-                            int mid = gd.machineKeyToId[key];
-                            r.produced_in_machines_ids.push_back(mid);
+                        std::string kkey = mk.get<std::string>();
+                        if (gd.machines.count(kkey)) {
+                            r.produced_in_machines_keys.push_back(kkey);
                         }
                     }
                 }
-
-                if (!r.key_name.empty()) gd.recipeKeyToId[r.key_name] = r.id;
-                gd.recipes.push_back(std::move(r));
+                gd.recipes[key] = std::move(r);
             }
         }
 
 
-        // rebuild maps for safety
-        rebuildMaps(gd);
         // perform light validation; if critical issues found, add to outError (but do not fail on warnings)
         auto errors = validate(gd);
         if (!errors.empty()) {
@@ -470,10 +465,10 @@ json GameDataManager::gameDataToJson(const GameData &gd) {
     // resources: write all except the reserved "nothing" with id 0
     json resources = json::array();
     for (const auto &res : gd.resources) {
-        if (res.id == 0) continue; // skip internal 'nothing'
+        if (res.first == "nothing") continue; // skip reserved
         json rj;
-        rj["name"] = res.name;
-        rj["key_name"] = res.key_name;
+        rj["name"] = res.second.name;
+        rj["key_name"] = res.first;
         resources.push_back(rj);
     }
     if (!resources.empty()) j["resources"] = resources;
@@ -483,9 +478,9 @@ json GameDataManager::gameDataToJson(const GameData &gd) {
         json marr = json::array();
         for (const auto &m : gd.machines) {
             json mj;
-            mj["name"] = m.name;
-            mj["key_name"] = m.key_name;
-            mj["base_crafting_speed"] = m.base_crafting_speed;
+            mj["name"] = m.second.name;
+            mj["key_name"] = m.first;
+            mj["base_crafting_speed"] = m.second.base_crafting_speed;
             marr.push_back(mj);
         }
         j["machines"] = marr;
@@ -497,43 +492,36 @@ json GameDataManager::gameDataToJson(const GameData &gd) {
         json rarr = json::array();
         for (const auto &r : gd.recipes) {
             json rj;
-            rj["name"] = r.name;
-            rj["key_name"] = r.key_name;
-            rj["time"] = r.time_seconds;
+            rj["name"] = r.second.name;
+            rj["key_name"] = r.first;
+            rj["time"] = r.second.time_seconds;
 
             // ingredients
             json ing = json::array();
-            for (const auto &p : r.input_ports) {
-                // if the input is the reserved nothing with amount 0, write empty array to be consistent with original style
-                if (p.resource_id == 0 && p.amount == 0.0) continue;
-                // lookup resource key
-                auto it = std::find_if(gd.resources.begin(), gd.resources.end(), [&](const Resource &res){ return res.id == p.resource_id; });
-                std::string key = it == gd.resources.end() ? std::to_string(p.resource_id) : it->key_name;
-                json pair = json::array({ key, p.amount });
+            for (const auto &p : r.second.input_ports) {
+                // if the input is the reserved nothing, write empty array to be consistent with original style
+                if (p.resource_key == "nothing") continue;
+                json pair = json::array({ p.resource_key, p.amount });
                 ing.push_back(pair);
             }
             // if ing remains empty, write [] to indicate mining/no input
             rj["ingredients"] = ing;
 
-
             // products
             json prod = json::array();
-            for (const auto &p : r.output_ports) {
-                auto it = std::find_if(gd.resources.begin(), gd.resources.end(), [&](const Resource &res){ return res.id == p.resource_id; });
-                std::string key = it == gd.resources.end() ? std::to_string(p.resource_id) : it->key_name;
-                json pair = json::array({ key, p.amount });
+            for (const auto &p : r.second.output_ports) {
+                // skip nothing outputs
+                if (p.resource_key == "nothing") continue;
+                json pair = json::array({ p.resource_key, p.amount });
                 prod.push_back(pair);
             }
             rj["products"] = prod;
 
             // machines produced in
-            if (!r.produced_in_machines_ids.empty()) {
+            if (!r.second.produced_in_machines_keys.empty()) {
                 json midarr = json::array();
-                for (int mid : r.produced_in_machines_ids) {
-                    auto it = std::find_if(gd.machines.begin(), gd.machines.end(), [&](const Machine &m){ return m.id == mid; });
-                    if (it != gd.machines.end()) {
-                        midarr.push_back(it->key_name);
-                    }
+                for (const auto key : r.second.produced_in_machines_keys) {
+                    midarr.push_back(key);
                 }
                 if (!midarr.empty()) rj["produced_in"] = midarr;
             }
@@ -542,37 +530,5 @@ json GameDataManager::gameDataToJson(const GameData &gd) {
         }
         j["recipes"] = rarr;
     }
-
-
     return j;
-}
-
-void GameDataManager::rebuildMaps(GameData &gd) {
-    gd.resourceKeyToId.clear();
-    for (const auto &r : gd.resources) gd.resourceKeyToId[r.key_name] = r.id;
-    gd.machineKeyToId.clear();
-    for (const auto &m : gd.machines) gd.machineKeyToId[m.key_name] = m.id;
-    gd.recipeKeyToId.clear();
-    for (const auto &r : gd.recipes) gd.recipeKeyToId[r.key_name] = r.id;
-}
-
-
-int GameDataManager::nextResourceId() const {
-    int maxId = 0;
-    for (const auto &r : _data.resources) if (r.id > maxId) maxId = r.id;
-    return maxId + 1;
-}
-
-
-int GameDataManager::nextMachineId() const {
-    int maxId = 0;
-    for (const auto &m : _data.machines) if (m.id > maxId) maxId = m.id;
-    return maxId + 1;
-}
-
-
-int GameDataManager::nextRecipeId() const {
-    int maxId = 0;
-    for (const auto &r : _data.recipes) if (r.id > maxId) maxId = r.id;
-    return maxId + 1;
 }
