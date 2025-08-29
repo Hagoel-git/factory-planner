@@ -138,7 +138,7 @@ void GameDataEditor::DrawRightSide() {
         ImGui::EndChild();
         return;
     }
-    // header: Game name + time unit + save
+    // header: Game name + time unit + save + rename + delete
     GameData &gd = gameDataManager.current();
 
     // --- Header row ---
@@ -160,6 +160,8 @@ void GameDataEditor::DrawRightSide() {
     if (ImGui::Combo("Time Unit", &curUnit, units, IM_ARRAYSIZE(units))) {
         gd.time_unit = units[curUnit];
     }
+
+    // File operation buttons
     if (ImGui::Button("Save")) {
         std::string err;
         if (!gameDataManager.saveToFile(m_currentlyEditingFile, err)) {
@@ -168,11 +170,28 @@ void GameDataEditor::DrawRightSide() {
             // optional success toast/notification
         }
     }
+
+    ImGui::SameLine();
+    if (ImGui::Button("Rename")) {
+        ImGui::OpenPopup("Rename File");
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button("Delete File")) {
+        ImGui::OpenPopup("Delete File");
+    }
+
+    // Save error popup
     if (ImGui::BeginPopupModal("SaveError", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextWrapped("Failed to save:\n%s", "Unable to write file");
         if (ImGui::Button("OK")) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
+
+    // Draw the rename and delete dialogs
+    DrawRenameFileDialog();
+    DrawDeleteFileDialog();
+
     ImGui::PopID();
 
     ImGui::Separator();
@@ -233,6 +252,117 @@ void GameDataEditor::DrawRightSide() {
     }
 
     ImGui::EndChild();
+}
+
+void GameDataEditor::DrawRenameFileDialog() {
+    // Always center the popup when it appears
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+    if (ImGui::BeginPopupModal("Rename File", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+        static char renameBuffer[128] = "";
+        static std::string renameErrorMessage = "";
+
+        // Auto-focus the input field when the popup opens and initialize with current filename
+        if (ImGui::IsWindowAppearing()) {
+            ImGui::SetKeyboardFocusHere();
+            // Initialize with current filename (without extension)
+            std::string currentName = m_currentlyEditingFile.stem().string();
+            strncpy(renameBuffer, currentName.c_str(), sizeof(renameBuffer));
+            renameBuffer[sizeof(renameBuffer) - 1] = '\0';
+            renameErrorMessage.clear();
+        }
+
+        ImGui::Text("Enter new file name:");
+        ImGui::PushItemWidth(-1);
+
+        // Request rename on pressing Enter or clicking the "Rename" button
+        bool renameRequested = ImGui::InputText("##renamefield", renameBuffer, sizeof(renameBuffer),
+                                                ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::PopItemWidth();
+
+        ImGui::Spacing();
+
+        if (ImGui::Button("Rename", ImVec2(120, 0))) {
+            renameRequested = true;
+        }
+
+        if (renameRequested) {
+            std::string newFilenameStr(renameBuffer);
+            if (newFilenameStr.empty()) {
+                renameErrorMessage = "File name cannot be empty.";
+            } else {
+                const auto &gameDataPath = SettingsManager::instance().getSettings().gameDataPath;
+                std::filesystem::path newFilePath = gameDataPath / newFilenameStr;
+                newFilePath.replace_extension(".json");
+
+                // Check if target file already exists
+                if (std::filesystem::exists(newFilePath) && newFilePath != m_currentlyEditingFile) {
+                    renameErrorMessage = "A file with this name already exists.";
+                } else {
+                    try {
+                        // Rename the file
+                        std::filesystem::rename(m_currentlyEditingFile, newFilePath);
+                        m_currentlyEditingFile = newFilePath;
+                        ImGui::CloseCurrentPopup();
+                    } catch (const std::filesystem::filesystem_error& e) {
+                        renameErrorMessage = "Failed to rename file: " + std::string(e.what());
+                    }
+                }
+            }
+        }
+
+        ImGui::SameLine();
+
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+            ImGui::CloseCurrentPopup();
+        }
+
+        // Display error message if something went wrong during rename
+        if (!renameErrorMessage.empty()) {
+            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "%s", renameErrorMessage.c_str());
+        }
+
+        ImGui::EndPopup();
+    }
+}
+
+void GameDataEditor::DrawDeleteFileDialog() {
+    // Always center the popup when it appears
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+    if (ImGui::BeginPopupModal("Delete File", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Are you sure you want to delete this file?");
+        ImGui::Text("File: %s", m_currentlyEditingFile.filename().string().c_str());
+        ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "This action cannot be undone!");
+
+        ImGui::Spacing();
+
+        if (ImGui::Button("Delete", ImVec2(120, 0))) {
+            try {
+                // Delete the file
+                std::filesystem::remove(m_currentlyEditingFile);
+                // Clear current file and reset state
+                m_currentlyEditingFile.clear();
+                gameDataManager.clear();
+                m_fileLoadError.clear();
+                ImGui::CloseCurrentPopup();
+            } catch (const std::filesystem::filesystem_error& e) {
+                // Could store error message to show in a separate error popup
+                // For now, we'll just close the popup and the file will remain
+                ImGui::CloseCurrentPopup();
+            }
+        }
+
+        ImGui::SameLine();
+
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
 }
 
 void GameDataEditor::DrawResourcesTab(const GameData &gd) {
