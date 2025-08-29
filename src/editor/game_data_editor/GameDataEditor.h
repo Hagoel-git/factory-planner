@@ -67,6 +67,10 @@ private:
 
     void DrawRightSide();
 
+    void DrawRenameFileDialog();
+
+    void DrawDeleteFileDialog();
+
     void DrawResourcesTab(const GameData &gd);
 
     void DrawMachinesTab(const GameData &gd);
