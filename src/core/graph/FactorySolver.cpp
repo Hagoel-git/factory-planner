@@ -1,5 +1,5 @@
 #include "FactorySolver.h"
-
+#include "FactoryGraph.h"
 #include <queue>
 
 FactorySolver::FactorySolver(const std::string &solver_name) {
@@ -244,28 +244,24 @@ void FactorySolver::updateFactoryGraph(FactoryGraph &factory_graph) const {
     // Output the results to factory_graph
     const auto &ports = factory_graph.getPorts();
     for (const auto &port: ports) {
-        double value = variables.at(port.id)->solution_value();
+        const double value = variables.at(port.id)->solution_value();
         factory_graph.getPort(port.id)->rate = value; // Update the port rate in the factory graph
     }
 
     const auto &connections = factory_graph.getConnections();
     for (const auto &conn: connections) {
         const int connection_var_id = -(static_cast<int>(conn.id) + 1); // Use conn.id consistently
-        double value = variables.at(connection_var_id)->solution_value();
+        const double value = variables.at(connection_var_id)->solution_value();
         factory_graph.getConnection(conn.id)->rate = value;
     }
 
     // calculate machine counts and power usage for each node
     const auto &nodes = factory_graph.getNodes();
-    int time_unit = 0;
-    if (factory_graph.getGameData().time_unit == "seconds") {
-        time_unit = 1;
-    } else if (factory_graph.getGameData().time_unit == "minutes") {
+    int time_unit = 1;
+    if (const std::string &unit = factory_graph.getGameData().time_unit; unit == "minutes") {
         time_unit = 60;
-    } else if (factory_graph.getGameData().time_unit == "hours") {
+    } else if (unit == "hours") {
         time_unit = 3600;
-    } else {
-        time_unit = 1; // default to seconds
     }
     for (const auto &node: nodes) {
         const Recipe &recipe = factory_graph.getGameData().recipes.find(node.selected_recipe_key)->second;
@@ -275,7 +271,7 @@ void FactorySolver::updateFactoryGraph(FactoryGraph &factory_graph) const {
 }
 
 FactorySolver::SolverResult FactorySolver::convertSolverStatus(
-    operations_research::MPSolver::ResultStatus status) const {
+    const operations_research::MPSolver::ResultStatus status) const {
     switch (status) {
         case operations_research::MPSolver::OPTIMAL:
             return SolverResult::SUCCESS;

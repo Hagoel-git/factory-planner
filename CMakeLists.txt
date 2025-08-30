@@ -66,7 +66,6 @@ set(SRC
         src/app/Application.h
         src/app/Application.cpp
 
-        src/common/NodeType.h
         src/common/FilesystemUtils.h
         src/common/CopyBuffer.h
         src/common/IdUtils.h

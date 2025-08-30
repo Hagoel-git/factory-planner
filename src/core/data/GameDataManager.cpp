@@ -1,17 +1,10 @@
-//
-// Created by hagoel on 8/22/25.
-//
-
 #include "GameDataManager.h"
 
-#include <unordered_map>
 #include <fstream>
 #include <sstream>
 #include <algorithm>
-#include <chrono>
-#include <iostream>
 
-#include <../../../external/nlohmann/json.hpp>
+#include <nlohmann/json.hpp>
 
 #include "StringUtils.h"
 
@@ -61,8 +54,6 @@ bool GameDataManager::saveToFile(const std::string &path, std::string &outError)
             return false;
         }
         ofs << j.dump(2);
-        j = gameDataToJson(_data);
-        std::cout << "Saved game data to " << path << ":\n" << j.dump(2) << std::endl;
         return true;
     } catch (const std::exception &ex) {
         outError = std::string("Exception while saving: ") + ex.what();
@@ -85,7 +76,7 @@ GameData GameDataManager::createNew(const std::string &gameName, const std::stri
     return _data;
 }
 
-// Access current in-memory config (thread-unsafe reference; protect yourself if using multi-threaded)
+// Access current in-memory config (thread-unsafe reference; protect yourself if using multithreaded)
 GameData& GameDataManager::current() {
     return _data;
 }
@@ -96,13 +87,12 @@ bool GameDataManager::addResource(const Resource &r) {
     // don't allow adding key "nothing"
     if (key == "nothing") return false;
     if (_data.resources.count(key)) return false; // already exists
-    Resource rr = r;
-    _data.resources[key] = rr;
+    _data.resources[key] = r;
     notifyChange();
     return true;
 }
 
-bool GameDataManager::editResource(std::string key_name, const Resource &r, std::string &outError) {
+bool GameDataManager::editResource(const std::string& key_name, const Resource &r, std::string &outError) {
     std::lock_guard<std::mutex> lk(_mutex);
     if (key_name == "nothing") {
         outError = "Cannot edit reserved resource 'nothing'.";
@@ -113,13 +103,12 @@ bool GameDataManager::editResource(std::string key_name, const Resource &r, std:
         return false;
     }
     std::string key = slugify(r.name);
-    if (_data.resources.count(key)) {
+    if (_data.resources.count(key) && key != key_name) {
         outError = "Cannot change to that name; another resource uses it.";
     }
     // update
-    Resource rr = r;
-    _data.resources.erase(key);
-    _data.resources[key] = rr;
+    _data.resources.erase(key_name);
+    _data.resources[key] = r;
     // update any recipes that referenced the old key_name
     for (auto &recPair : _data.recipes) {
         Recipe &rec = recPair.second;
@@ -134,7 +123,7 @@ bool GameDataManager::editResource(std::string key_name, const Resource &r, std:
     return true;
 }
 
-bool GameDataManager::deleteResource(std::string key_name, std::string &outError) {
+bool GameDataManager::deleteResource(const std::string& key_name, std::string &outError) {
     std::lock_guard<std::mutex> lk(_mutex);
     if (key_name == "nothing") {
         outError = "Cannot delete reserved resource 'nothing'.";
@@ -169,26 +158,24 @@ bool GameDataManager::addMachine(const Machine &m) {
     std::lock_guard<std::mutex> lk(_mutex);
     std::string key = slugify(m.name);
     if (_data.machines.count(key)) return false; // already exists
-    Machine mm = m;
-    _data.machines[key] = mm;
+    _data.machines[key] = m;
     notifyChange();
     return true;
 }
 
-bool GameDataManager::editMachine(std::string key_name, const Machine &m, std::string &outError) {
+bool GameDataManager::editMachine(const std::string& key_name, const Machine &m, std::string &outError) {
     std::lock_guard<std::mutex> lk(_mutex);
     if (!_data.machines.count(key_name)) {
         outError = "Machine key_name not found.";
         return false;
     }
     std::string key = slugify(m.name);
-    if (_data.machines.count(key)) {
+    if (_data.machines.count(key) && key != key_name) {
         outError = "Cannot change to that name; another machine uses it.";
     }
     // update
-    Machine mm = m;
     _data.machines.erase(key_name);
-    _data.machines[key] = mm;
+    _data.machines[key] = m;
     // update any recipes that referenced the old key_name
     for (auto &recPair : _data.recipes) {
         Recipe &rec = recPair.second;
@@ -200,7 +187,7 @@ bool GameDataManager::editMachine(std::string key_name, const Machine &m, std::s
     return true;
 }
 
-bool GameDataManager::deleteMachine(std::string key_name, std::string &outError) {
+bool GameDataManager::deleteMachine(const std::string& key_name, std::string &outError) {
     std::lock_guard<std::mutex> lk(_mutex);
     if (!_data.machines.count(key_name)) {
         outError = "Machine key_name not found.";
@@ -238,14 +225,14 @@ bool GameDataManager::addRecipe(const Recipe &r) {
     return true;
 }
 
-bool GameDataManager::editRecipe(std::string key_name, const Recipe &r, std::string &outError) {
+bool GameDataManager::editRecipe(const std::string& key_name, const Recipe &r, std::string &outError) {
     std::lock_guard<std::mutex> lk(_mutex);
     if (!_data.recipes.count(key_name)) {
         outError = "Recipe key_name not found.";
         return false;
     }
     std::string key = slugify(r.name);
-    if (_data.recipes.count(key)) {
+    if (_data.recipes.count(key) && key != key_name) {
         outError = "Cannot change to that name; another recipe uses it.";
         return false;
     }
@@ -264,7 +251,7 @@ bool GameDataManager::editRecipe(std::string key_name, const Recipe &r, std::str
     return true;
 }
 
-bool GameDataManager::deleteRecipe(std::string key_name, std::string &outError) {
+bool GameDataManager::deleteRecipe(const std::string& key_name, std::string &outError) {
     std::lock_guard<std::mutex> lk(_mutex);
     if (!_data.recipes.count(key_name)) {
         outError = "Recipe key_name not found.";
@@ -279,7 +266,7 @@ std::vector<std::string> GameDataManager::validate(const GameData &gd) {
     std::vector<std::string> messages;
     // check nothing resource exists
     if (!gd.resources.count("nothing")) {
-        messages.push_back("Missing required resource with key_name 'nothing'.");
+        messages.emplace_back("Missing required resource with key_name 'nothing'.");
     }
 
     for (const auto &m : gd.machines) {
@@ -304,9 +291,9 @@ std::vector<std::string> GameDataManager::validate(const GameData &gd) {
         if (r.second.produced_in_machines_keys.empty()) {
             messages.push_back("Recipe '" + r.second.name + "' is not assigned to any machines.");
         }
-        for (const auto mid : r.second.produced_in_machines_keys) {
-            if (gd.machines.count(mid) == 0) {
-                messages.push_back("Recipe '" + r.second.name + "' references unknown machine key '" + mid + "'.");
+        for (const auto& mkey : r.second.produced_in_machines_keys) {
+            if (gd.machines.count(mkey) == 0) {
+                messages.push_back("Recipe '" + r.second.name + "' references unknown machine key '" + mkey + "'.");
             }
         }
     }
@@ -519,11 +506,11 @@ json GameDataManager::gameDataToJson(const GameData &gd) {
 
             // machines produced in
             if (!r.second.produced_in_machines_keys.empty()) {
-                json midarr = json::array();
-                for (const auto key : r.second.produced_in_machines_keys) {
-                    midarr.push_back(key);
+                json mKeyArr = json::array();
+                for (const auto& key : r.second.produced_in_machines_keys) {
+                    mKeyArr.push_back(key);
                 }
-                if (!midarr.empty()) rj["produced_in"] = midarr;
+                if (!mKeyArr.empty()) rj["produced_in"] = mKeyArr;
             }
 
             rarr.push_back(rj);

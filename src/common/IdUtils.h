@@ -1,13 +1,8 @@
-//
-// Created by hagoel on 8/21/25.
-//
-
 #ifndef IDUTILS_H
 #define IDUTILS_H
-#pragma once // Or use traditional #ifndef guards
 
 #include <cstdint>
-#include "imgui_node_editor.h" // Assuming this is where ed:: types are defined
+#include "imgui_node_editor.h"
 
 namespace IdUtils
 {

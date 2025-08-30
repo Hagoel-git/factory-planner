@@ -1,5 +1,6 @@
 #include "GameDataEditor.h"
 #include <imgui.h>
+#include <iostream>
 
 #include "FilesystemUtils.h"
 #include "SettingsManager.h"
@@ -76,11 +77,11 @@ void GameDataEditor::DrawNewFileDialog() {
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
-    if (ImGui::BeginPopupModal("New File", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+    if (ImGui::BeginPopupModal("New File", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         static char fileNameBuffer[128] = "";
-        static std::string errorMessage = "";
+        static std::string errorMessage;
 
-        // Auto-focus the input field when the popup opens
+        // Autofocus the input field when the popup opens
         if (ImGui::IsWindowAppearing()) {
             ImGui::SetKeyboardFocusHere();
             // Clear state from previous openings
@@ -190,7 +191,7 @@ void GameDataEditor::DrawRightSide() {
     }
 
     // Save error popup
-    if (ImGui::BeginPopupModal("SaveError", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+    if (ImGui::BeginPopupModal("SaveError", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextWrapped("Failed to save:\n%s", "Unable to write file");
         if (ImGui::Button("OK")) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
@@ -242,7 +243,7 @@ void GameDataEditor::DrawRightSide() {
     // Delete confirmation modal:
     if (showDeleteConfirm) {
         ImGui::OpenPopup("ConfirmDelete");
-        if (ImGui::BeginPopupModal("ConfirmDelete", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+        if (ImGui::BeginPopupModal("ConfirmDelete", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             ImGui::Text("Are you sure you want to delete this item? This cannot be undone.");
             if (ImGui::Button("Yes")) {
                 std::string err;
@@ -269,9 +270,9 @@ void GameDataEditor::DrawRenameFileDialog() {
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
-    if (ImGui::BeginPopupModal("Rename File", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+    if (ImGui::BeginPopupModal("Rename File", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         static char renameBuffer[128] = "";
-        static std::string renameErrorMessage = "";
+        static std::string renameErrorMessage;
 
         // Auto-focus the input field when the popup opens and initialize with current filename
         if (ImGui::IsWindowAppearing()) {
@@ -342,7 +343,7 @@ void GameDataEditor::DrawDeleteFileDialog() {
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
-    if (ImGui::BeginPopupModal("Delete File", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+    if (ImGui::BeginPopupModal("Delete File", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("Are you sure you want to delete this file?");
         ImGui::Text("File: %s", m_currentlyEditingFile.filename().string().c_str());
         ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "This action cannot be undone!");
@@ -359,8 +360,7 @@ void GameDataEditor::DrawDeleteFileDialog() {
                 m_fileLoadError.clear();
                 ImGui::CloseCurrentPopup();
             } catch (const std::filesystem::filesystem_error &e) {
-                // Could store error message to show in a separate error popup
-                // For now, we'll just close the popup and the file will remain
+                std::cerr << "Failed to delete file: " << e.what() << std::endl;
                 ImGui::CloseCurrentPopup();
             }
         }
@@ -390,7 +390,7 @@ void GameDataEditor::DrawResourcesTab(const GameData &gd) {
         strncpy(resNameBuf, "New Resource", sizeof(resNameBuf));
     }
     ImGui::SameLine();
-    if (ImGui::Button("Delete##res") && selResourceKey != "") {
+    if (ImGui::Button("Delete##res") && !selResourceKey.empty()) {
         deleteTargetType = 1;
         deleteTargetKey = selResourceKey;
         showDeleteConfirm = true;
@@ -422,7 +422,7 @@ void GameDataEditor::DrawResourcesTab(const GameData &gd) {
     // Right: details
     ImGui::NextColumn();
     ImGui::BeginChild("ResDetail", ImVec2(0, 0), false);
-    if (selResourceKey == "") {
+    if (selResourceKey.empty()) {
         ImGui::TextDisabled("Select resource to edit or press Add.");
     } else {
         ImGui::InputText("Name", resNameBuf, sizeof(resNameBuf));
@@ -463,7 +463,7 @@ void GameDataEditor::DrawMachinesTab(const GameData &gd) {
         machBaseSpeed = 1.0;
     }
     ImGui::SameLine();
-    if (ImGui::Button("Delete##mach") && selMachineKey != "") {
+    if (ImGui::Button("Delete##mach") && !selMachineKey.empty()) {
         deleteTargetType = 2;
         deleteTargetKey = selMachineKey;
         showDeleteConfirm = true;
@@ -489,7 +489,7 @@ void GameDataEditor::DrawMachinesTab(const GameData &gd) {
     // Right: machine detail
     ImGui::NextColumn();
     ImGui::BeginChild("MachDetail", ImVec2(0, 0), false);
-    if (selMachineKey == "") {
+    if (selMachineKey.empty()) {
         ImGui::TextDisabled("Select machine or press Add.");
     } else {
         ImGui::InputText("Name", machNameBuf, sizeof(machNameBuf));
@@ -537,7 +537,7 @@ void GameDataEditor::DrawRecipesTab(const GameData &gd) {
     }
 
     ImGui::SameLine();
-    if (ImGui::Button("Delete##rec") && selRecipeKey != "") {
+    if (ImGui::Button("Delete##rec") && !selRecipeKey.empty()) {
         deleteTargetType = 3;
         deleteTargetKey = selRecipeKey;
         showDeleteConfirm = true;
@@ -571,7 +571,7 @@ void GameDataEditor::DrawRecipesTab(const GameData &gd) {
                 strcpy(recOutputNameBufs.emplace_back().data(), p.resource_key.c_str());
                 recOutputFilterBufs.emplace_back()[0] = '\0';
             }
-            for (const auto m: r.second.produced_in_machines_keys) recMachines.insert(m);
+            for (const auto& m: r.second.produced_in_machines_keys) recMachines.insert(m);
 
             recipeDirty = false;
         }
@@ -584,7 +584,7 @@ void GameDataEditor::DrawRecipesTab(const GameData &gd) {
     ImGui::NextColumn();
     ImGui::BeginChild("RecDetail", ImVec2(0, 0), false);
 
-    if (selRecipeKey == "") {
+    if (selRecipeKey.empty()) {
         ImGui::TextDisabled("Select or create a recipe.");
     } else {
         ImGui::InputText("Name", recNameBuf, sizeof(recNameBuf));
@@ -840,7 +840,7 @@ void GameDataEditor::DrawRecipesTab(const GameData &gd) {
 
             // Before copying ports, ensure any typed-but-uncreated resources are created.
             for (auto &p: recInputs) {
-                if (p.first == "") continue;
+                if (p.first.empty()) continue;
                 if (gd.resources.find(p.first) == gd.resources.end()) {
                     Resource newRes;
                     newRes.name = p.first; // use key as name if not found
@@ -855,7 +855,7 @@ void GameDataEditor::DrawRecipesTab(const GameData &gd) {
                 }
             }
             for (auto &p: recOutputs) {
-                if (p.first == "") continue;
+                if (p.first.empty()) continue;
                 if (gd.resources.find(p.first) == gd.resources.end()) {
                     Resource newRes;
                     newRes.name = p.first;
@@ -876,7 +876,7 @@ void GameDataEditor::DrawRecipesTab(const GameData &gd) {
             for (auto &p: recOutputs) r.output_ports.push_back(RecipePort{p.second, p.first});
 
             r.produced_in_machines_keys.clear();
-            for (const auto key: recMachines) r.produced_in_machines_keys.push_back(key);
+            for (const auto& key: recMachines) r.produced_in_machines_keys.push_back(key);
 
             std::string err;
             if (!gameDataManager.editRecipe(selRecipeKey, r, err)) {
@@ -908,7 +908,7 @@ void GameDataEditor::DrawRecipesTab(const GameData &gd) {
                 strcpy(recOutputNameBufs.emplace_back().data(), p.resource_key.c_str());
                 recOutputFilterBufs.emplace_back()[0] = '\0';
             }
-            for (const auto m: r.produced_in_machines_keys) recMachines.insert(m);
+            for (const auto& m: r.produced_in_machines_keys) recMachines.insert(m);
             recipeDirty = false;
         }
     }

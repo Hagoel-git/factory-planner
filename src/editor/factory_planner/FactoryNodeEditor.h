@@ -27,17 +27,17 @@ struct NodeQuadtreeData {
 // Functor to get bounding box for quadtree
 struct GetNodeBox {
     quadtree::Box<float> operator()(const NodeQuadtreeData& nodeData) const {
-        return quadtree::Box<float>(
+        return quadtree::Box<float>{
             quadtree::Vector2<float>(nodeData.position.x, nodeData.position.y),
             quadtree::Vector2<float>(nodeData.size.x, nodeData.size.y)
-        );
+        };
     }
 };
 
 class FactoryNodeEditor {
 public:
 
-    FactoryNodeEditor(GameData game_data, const std::string& projectFilePath, const std::string& title );
+    FactoryNodeEditor(const GameData& game_data, const std::string& projectFilePath, std::string  title );
 
     ~FactoryNodeEditor();
 
@@ -122,7 +122,6 @@ private:
     // Quadtree for spatial optimization
     std::unique_ptr<quadtree::Quadtree<NodeQuadtreeData, GetNodeBox>> nodeQuadtree;
     bool quadtreeNeedsRebuild = true;
-    bool first_frame = true;
 
     void executeCommand(std::unique_ptr<Command> command) {
         if (!command) return;

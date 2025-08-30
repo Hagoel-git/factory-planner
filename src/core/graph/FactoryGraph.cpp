@@ -1,18 +1,15 @@
-//
-// Created by hagoel on 8/1/25.
-//
-
-#include <nlohmann/json.hpp>
 #include "FactoryGraph.h"
+#include "GameDataManager.h"
 #include <iostream>
 #include <unordered_set>
+#include <utility>
 
 int FactoryGraph::addNode(const std::string &name, NodeType type, std::string recipe_key) {
     int id = next_node_id++;
     size_t index = nodes.size();
     nodes.emplace_back(name, type, id);
     addNodeToIndex(id, index);
-    setNodeRecipe(id, recipe_key);
+    setNodeRecipe(id, std::move(recipe_key));
     return id;
 }
 
@@ -20,7 +17,7 @@ void FactoryGraph::restoreNode(const Node &node, const std::vector<Port> &ports)
     nodes.push_back(node);
     size_t index = nodes.size() - 1;
     addNodeToIndex(node.id, index);
-    for (auto port : ports) {
+    for (const auto& port : ports) {
         this->ports.push_back(port);
         addPortToIndex(port.id, this->ports.size() - 1);
     }
@@ -68,7 +65,7 @@ Node *FactoryGraph::getNode(int id) {
     return (it != node_id_to_index_.end()) ? &nodes[it->second] : nullptr;
 }
 
-int FactoryGraph::addPort(std::string resource_key, int node_id, bool isInput) {
+int FactoryGraph::addPort(const std::string& resource_key, int node_id, bool isInput) {
     int port_id = next_port_id++;
     size_t index = ports.size();
     ports.emplace_back(port_id, node_id, resource_key, isInput);
@@ -345,7 +342,7 @@ void FactoryGraph::deserialize(const nlohmann::json& j) {
     }
 }
 
-bool FactoryGraph::setNodeRecipe(int node_id, std::string recipe_key) {
+bool FactoryGraph::setNodeRecipe(int node_id, const std::string& recipe_key) {
     Node *node = getNode(node_id);
     if (!node) {
         return false;

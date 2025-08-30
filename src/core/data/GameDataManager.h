@@ -24,16 +24,16 @@ public:
 
     // CRUD operations
     bool addResource(const Resource &r);
-    bool editResource(std::string key_name, const Resource &r, std::string &outError);
-    bool deleteResource(std::string key_name, std::string &err);
+    bool editResource(const std::string& key_name, const Resource &r, std::string &outError);
+    bool deleteResource(const std::string& key_name, std::string &err);
 
     bool addMachine(const Machine &m);
-    bool editMachine(std::string key_name, const Machine &m, std::string &err);
-    bool deleteMachine(std::string key_name, std::string &err);
+    bool editMachine(const std::string& key_name, const Machine &m, std::string &err);
+    bool deleteMachine(const std::string& key_name, std::string &err);
 
     bool addRecipe(const Recipe &r);
-    bool editRecipe(std::string key_name, const Recipe &r, std::string &err);
-    bool deleteRecipe(std::string key_name, std::string &err);
+    bool editRecipe(const std::string& key_name, const Recipe &r, std::string &err);
+    bool deleteRecipe(const std::string& key_name, std::string &err);
 
     // Validation - returns vector of human readable errors/warnings
     std::vector<std::string> validate(const GameData &gd);

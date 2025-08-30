@@ -40,8 +40,8 @@ int main(int, char **) {
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 #endif
 
-    GLFWwindow *window = glfwCreateWindow(1280, 720, "Factory Planner", NULL, NULL);
-    if (window == NULL) return 1;
+    GLFWwindow *window = glfwCreateWindow(1280, 720, "Factory Planner", nullptr, nullptr);
+    if (window == nullptr) return 1;
 
     glfwMakeContextCurrent(window);
 
@@ -64,7 +64,7 @@ int main(int, char **) {
         return 1;
     }
     // Prepare args (zero-init)
-    nfdopendialogu8args_t args = {0};
+    nfdopendialogu8args_t args = {nullptr};
     // parentWindow will be filled by this helper
     NFD_GetNativeWindowFromGLFWWindow(window, &args.parentWindow);
 
@@ -76,8 +76,8 @@ int main(int, char **) {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
-    io.IniFilename = NULL;
-    io.LogFilename = NULL;
+    io.IniFilename = nullptr;
+    io.LogFilename = nullptr;
 
     // Setup Dear ImGui style
     ImGui::StyleColorsDark();
