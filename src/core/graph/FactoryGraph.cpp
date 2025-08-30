@@ -273,6 +273,7 @@ nlohmann::json FactoryGraph::serialize() const {
     j["next_node_id"] = next_node_id;
     j["next_port_id"] = next_port_id;
     j["next_connection_id"] = next_connection_id;
+    j["game_data_path"] = game_data.gameDataFilePath;
 
     return j;
 }
@@ -331,6 +332,16 @@ void FactoryGraph::deserialize(const nlohmann::json& j) {
     }
     if (j.contains("next_connection_id")) {
         next_connection_id = j["next_connection_id"];
+    }
+    if (j.contains("game_data_path")) {
+        std::string path = j["game_data_path"];
+        GameDataManager gdm;
+        std::string load_error;
+        gdm.loadFromFile(path, load_error);
+        if (!load_error.empty()) {
+            std::cerr << "Error loading game data from " << path << ": " << std::endl << load_error << std::endl;
+        }
+        game_data = gdm.current();
     }
 }
 
