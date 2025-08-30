@@ -10,7 +10,6 @@ struct CommandFlags {
     bool needsRebuild;
 };
 
-
 class Command {
 public:
     virtual ~Command() = default;
@@ -26,12 +25,12 @@ private:
     std::string description;
     CommandFlags flags;
 public:
-    CompositeCommand(const std::string& desc, CommandFlags flags = {true, true}) : description(desc), flags(flags) {}
+    explicit CompositeCommand(std::string desc, CommandFlags flags = {true, true}) : description(std::move(desc)), flags(flags) {}
     void addCommand(std::unique_ptr<Command> command) {
         commands.push_back(std::move(command));
     }
     void execute(FactoryGraph& graph) override {
-        for (auto& cmd : commands) {
+        for (const auto& cmd : commands) {
             cmd->execute(graph);
         }
     }
@@ -40,7 +39,7 @@ public:
             (*it)->undo(graph);
         }
     }
-    virtual CommandFlags GetFlags() const { return flags; }
+    CommandFlags GetFlags() const override { return flags; }
     std::string getDescription() const override {
         return description;
     }
@@ -62,12 +61,12 @@ private:
     Connection connectionData;
     bool executed;
 public:
-    AddNodeCommand(const std::string& name, NodeType type, std::string recipeKey, int fromPort, const ImVec2& pos)
-        : nodeName(name), nodeType(type), recipeKey(recipeKey), fromPort(fromPort), position(pos), nodeData(), connectionData(), executed(false) {
+    AddNodeCommand(std::string  name, NodeType type, std::string recipeKey, int fromPort, const ImVec2& pos)
+        : nodeName(std::move(name)), nodeType(type), recipeKey(std::move(recipeKey)), fromPort(fromPort), position(pos), nodeData(), connectionData(), executed(false) {
     }
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
-    virtual CommandFlags GetFlags() const { return CommandFlags{true, true}; }
+    CommandFlags GetFlags() const override { return CommandFlags{true, true}; }
     std::string getDescription() const override { return "Add Node: " + nodeName; }
 };
 
@@ -80,12 +79,12 @@ private:
     std::vector<Connection> connections_data;
     ImVec2 position;
 public:
-    RemoveNodeCommand(int id)
+    explicit RemoveNodeCommand(int id)
         : id(id), nodeData(), position(0, 0) {
     }
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
-    virtual CommandFlags GetFlags() const { return CommandFlags{true, true}; }
+    CommandFlags GetFlags() const override { return CommandFlags{true, true}; }
     std::string getDescription() const override { return "Remove Node: " + nodeData.name; }
 
 };
@@ -103,7 +102,7 @@ public:
     }
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
-    virtual CommandFlags GetFlags() const { return CommandFlags{true, false}; }
+    CommandFlags GetFlags() const override { return CommandFlags{true, false}; }
     std::string getDescription() const override { return "Add Connection: " + std::to_string(fromPort) + " -> " + std::to_string(toPort); }
 };
 
@@ -119,7 +118,7 @@ private:
     }
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
-    virtual CommandFlags GetFlags() const { return CommandFlags{true, false}; }
+    CommandFlags GetFlags() const override { return CommandFlags{true, false}; }
     std::string getDescription() const override { return "Remove Connection: " + std::to_string(fromPort) + " -> " + std::to_string(toPort); }
 };
 
@@ -134,14 +133,14 @@ private:
     std::unordered_map<int, ImVec2> pastedNodePositions;
     bool executed;
 public:
-    PasteCommand(const CopyBuffer &copy_buffer, bool map_external_connections)
-        : copy_buffer(copy_buffer),
+    PasteCommand(CopyBuffer copy_buffer, bool map_external_connections)
+        : copy_buffer(std::move(copy_buffer)),
           mapExternalConnections(map_external_connections), executed(false) {
     }
 
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
-    virtual CommandFlags GetFlags() const { return CommandFlags{true, true}; }
+    CommandFlags GetFlags() const override { return CommandFlags{true, true}; }
     std::string getDescription() const override { return "Pasted " + std::to_string(pastedNodes.size()) + " nodes";}
 };
 
@@ -156,7 +155,7 @@ public:
     }
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
-    virtual CommandFlags GetFlags() const { return CommandFlags{true, false}; }
+    CommandFlags GetFlags() const override { return CommandFlags{true, false}; }
     std::string getDescription() const override {
         return "Set Port Constraint: Port ID " + std::to_string(portId) + " from " + std::to_string(oldConstraint) + " to " + std::to_string(newConstraint);
     }
@@ -169,11 +168,11 @@ private:
     int nodeId;
 public:
     MoveNodeCommand(int nodeId, const ImVec2& oldPosition, const ImVec2& newPosition)
-        : nodeId(nodeId), oldPosition(oldPosition), newPosition(newPosition) {
+        : oldPosition(oldPosition), newPosition(newPosition), nodeId(nodeId) {
     }
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
-    virtual CommandFlags GetFlags() const { return CommandFlags{false, true}; }
+    CommandFlags GetFlags() const override { return CommandFlags{false, true}; }
     std::string getDescription() const override {
         return "Change Node Position: Node ID " + std::to_string(nodeId) + " from (" + std::to_string(oldPosition.x) + ", " + std::to_string(oldPosition.y) + ") to (" + std::to_string(newPosition.x) + ", " + std::to_string(newPosition.y) + ")";
     }
@@ -185,7 +184,7 @@ private:
     std::vector<std::unique_ptr<Command>> redoStack;
     size_t maxHistorySize;
 public:
-    UndoRedoManager(size_t maxSize = 100) : maxHistorySize(maxSize) {};
+    explicit UndoRedoManager(size_t maxSize = 100) : maxHistorySize(maxSize) {};
 
     void executeCommand(std::unique_ptr<Command> command, FactoryGraph& graph);
     bool canUndo() const { return !undoStack.empty(); }
