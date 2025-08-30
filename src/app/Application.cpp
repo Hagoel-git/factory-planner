@@ -419,9 +419,6 @@ static std::atomic<bool> fileDialogCancelled = false;
 void Application::DrawOpenProjectDialog() {
     if (!showOpenProjectDialog) return;
 
-    std::filesystem::path gameDataPath = SettingsManager::instance().getSettings().gameDataPath;
-    std::vector<std::filesystem::path> gameDataFiles = GetGameDataFiles(gameDataPath);
-
     if (!fileDialogRunning && fileDialogResult.empty() && !fileDialogCancelled) {
         fileDialogRunning = true;
         fileDialogCancelled = false;
@@ -453,7 +450,7 @@ void Application::DrawOpenProjectDialog() {
     // Handle successful file selection
     if (!fileDialogResult.empty()) {
         std::string projectName = std::filesystem::path(fileDialogResult).stem().string();
-        CreateNewEditor(gameDataPath / gameDataFiles.at(1), fileDialogResult, projectName);
+        CreateNewEditor("", fileDialogResult, projectName);
         showOpenProjectDialog = false;
         fileDialogResult.clear();
     }
@@ -537,15 +534,20 @@ void Application::CreateNewEditor(const std::string &gameDataFilePath, const std
         return; // Do not create a new editor if the name already exists
     }
     // Create new editor with its own graph and solver
-    gameDataManager.loadFromFile(gameDataFilePath,gameDataManagerError);
-    if (!gameDataManagerError.empty()) {
-        // todo: show error to user
-        std::cerr << gameDataManagerError << std::endl;
-        //return;
+    if (gameDataFilePath.empty()) {
+        auto editor = std::make_unique<FactoryNodeEditor>(GameData(), location, name);
+        editors.push_back(std::move(editor));
+    } else {
+        gameDataManager.loadFromFile(gameDataFilePath,gameDataManagerError);
+        if (!gameDataManagerError.empty()) {
+            // todo: show error to user
+            std::cerr << gameDataManagerError << std::endl;
+        }
+
+        auto editor = std::make_unique<FactoryNodeEditor>(gameDataManager.current(), location, name);
+        editors.push_back(std::move(editor));
+        gameDataManager.clear();
     }
-    auto editor = std::make_unique<FactoryNodeEditor>(gameDataManager.current(), location, name);
-    gameDataManager.clear();
-    editors.push_back(std::move(editor));
 
     // Switch to the new tab
     activeEditor = static_cast<int>(editors.size()) - 1;

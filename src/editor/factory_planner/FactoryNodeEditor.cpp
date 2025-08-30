@@ -14,17 +14,9 @@
 namespace ed = ax::NodeEditor;
 
 FactoryNodeEditor::FactoryNodeEditor(GameData game_data, const std::string &projectFilePath, const std::string &title)
-    : name(title), projectFilePath(projectFilePath), gameData(std::move(game_data)), m_contextNodeId(0), m_contextPinId(0), m_contextLinkId(0), undoRedoManager(SettingsManager::instance().getSettings().maxUndoHistory) {
-    Initialize();
-}
-
-FactoryNodeEditor::~FactoryNodeEditor() {
-    Close();
-}
-
-bool FactoryNodeEditor::Initialize() {
+    : name(title), projectFilePath(projectFilePath), m_contextNodeId(0), m_contextPinId(0), m_contextLinkId(0), undoRedoManager(SettingsManager::instance().getSettings().maxUndoHistory) {
     try {
-        graph = std::make_unique<FactoryGraph>(gameData);
+        graph = std::make_unique<FactoryGraph>(game_data);
         solver = std::make_unique<FactorySolver>();
 
         ed::Config cfg = ed::Config();
@@ -38,6 +30,8 @@ bool FactoryNodeEditor::Initialize() {
         context = ed::CreateEditor(&cfg);
         ed::SetCurrentEditor(context);
 
+        ProjectIO::LoadProject(projectFilePath, *graph);
+
         // Initialize quadtree with large world bounds to handle extreme zoom levels
         float worldSize = 262144.0f; // 2^18, very large world
         float halfWorldSize = worldSize * 0.5f;
@@ -47,11 +41,20 @@ bool FactoryNodeEditor::Initialize() {
             quadtree::Vector2<float>(worldSize, worldSize)
         );
         nodeQuadtree = std::make_unique<quadtree::Quadtree<NodeQuadtreeData, GetNodeBox>>(worldBounds);
-        return true;
+
+        solver->solve(*graph);
+        quadtreeNeedsRebuild = true;
     } catch (const std::exception &e) {
         std::cerr << "Error initializing FactoryNodeEditor: " << e.what() << std::endl;
-        return false;
     }
+}
+
+FactoryNodeEditor::~FactoryNodeEditor() {
+    Close();
+}
+
+bool FactoryNodeEditor::Initialize() {
+    return true;
 }
 
 bool FactoryNodeEditor::Close() {
@@ -90,7 +93,6 @@ void FactoryNodeEditor::Draw() {
     // Begin the node editor canvas
     windowPos = ImGui::GetWindowPos();
     windowSize = ImGui::GetWindowSize();
-    HandleFirstFrame();
     ed::Begin(name.c_str());
 
     // Rebuild quadtree if needed
@@ -140,7 +142,7 @@ void FactoryNodeEditor::copy(CopyBuffer &copy_buffer) {
 
     copy_buffer.clear();
 
-    copy_buffer.gameDataFilePath = gameData.gameDataFilePath; // Store game data file path
+    copy_buffer.gameDataFilePath = GetGameDataFilePath(); // Store game data file path
 
     for (const auto &nodeId : selectedNodes) {
         int nodeIdInt = IdUtils::FromNodeId(nodeId);
@@ -240,15 +242,6 @@ void FactoryNodeEditor::DrawToolbar() {
     ImGui::SameLine();
     if (ImGui::Button("Fit View")) {
         ed::NavigateToContent();
-    }
-}
-
-void FactoryNodeEditor::HandleFirstFrame() {
-    if (first_frame) {
-        ProjectIO::LoadProject(projectFilePath, *graph);
-        solver->solve(*graph);
-        quadtreeNeedsRebuild = true;
-        first_frame = false; // Reset after first frame
     }
 }
 
@@ -370,7 +363,7 @@ void FactoryNodeEditor::DrawNodes() {
                 if (p->resource_key != "nothing") {
                     ed::PinId pinId = IdUtils::ToPinId(p->id);
                     ed::BeginPin(pinId, ed::PinKind::Input);
-                    ImGui::Text("<%.2f> %s",p->rate ,gameData.resources.at(p->resource_key).name.c_str()); // Display resource name
+                    ImGui::Text("<%.2f> %s",p->rate ,graph->getGameData().resources.at(p->resource_key).name.c_str()); // Display resource name
                     ed::EndPin();
                 }
             } else {
@@ -384,7 +377,7 @@ void FactoryNodeEditor::DrawNodes() {
                     // Skip ports with no resource
                     ed::PinId pinId = IdUtils::ToPinId(p->id);
                     ed::BeginPin(pinId, ed::PinKind::Output);
-                    ImGui::Text("%s <%.2f>",p->rate, gameData.resources.at(p->resource_key).name.c_str()); // Display resource name
+                    ImGui::Text("%s <%.2f>",p->rate, graph->getGameData().resources.at(p->resource_key).name.c_str()); // Display resource name
                     ed::EndPin();
                 }
             } else {
@@ -689,7 +682,7 @@ void FactoryNodeEditor::HandlePopups() {
 
     if (ImGui::BeginPopup("Create new node")) {
         if (selected_port_id != -1) {
-            std::string resourceFilter = gameData.resources.find(graph->getPort(selected_port_id)->resource_key)->first;
+            std::string resourceFilter = graph->getGameData().resources.find(graph->getPort(selected_port_id)->resource_key)->first;
             bool fromInput = graph->getPort(selected_port_id)->isInput;
             for (const auto& recipe : graph->getGameData().recipes) {
                 const auto& ports = fromInput ? recipe.second.output_ports : recipe.second.input_ports;

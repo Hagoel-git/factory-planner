@@ -87,7 +87,7 @@ public:
     ed::EditorContext* GetContext() { return context; }
 
     const std::string& GetName() const { return name; }
-    const std::filesystem::path& GetGameDataFilePath() const { return gameData.gameDataFilePath; }
+    const std::filesystem::path& GetGameDataFilePath() const { return graph->getGameData().gameDataFilePath; }
     void SetName(const std::string& newName) { name = newName; }
 private:
     std::unique_ptr<FactoryGraph> graph;
@@ -117,7 +117,6 @@ private:
     ImVec2 windowSize;
     std::string name;
     std::filesystem::path projectFilePath;
-    GameData gameData;
     int selected_port_id = 0;
 
     // Quadtree for spatial optimization
@@ -141,8 +140,6 @@ private:
 
     void DrawHeader();
     void DrawToolbar();
-
-    void HandleFirstFrame();
 
     void DrawNodes();
     void DrawConnections();
