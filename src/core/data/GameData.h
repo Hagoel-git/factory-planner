@@ -1,11 +1,6 @@
-//
-// Created by hagoel on 8/5/25.
-//
-
 #ifndef GAMEDATA_H
 #define GAMEDATA_H
 
-#include <iostream>
 #include <string>
 #include <vector>
 #include <filesystem>
@@ -24,7 +19,7 @@ struct Machine {
 
 struct RecipePort {
     double amount = 0.0;
-    std::string resource_key = "";
+    std::string resource_key;
 };
 
 

@@ -9,12 +9,13 @@
 
 #include <unordered_map>
 #include <string>
+#include <utility>
 
 #include "SettingsManager.h"
 namespace ed = ax::NodeEditor;
 
-FactoryNodeEditor::FactoryNodeEditor(GameData game_data, const std::string &projectFilePath, const std::string &title)
-    : name(title), projectFilePath(projectFilePath), m_contextNodeId(0), m_contextPinId(0), m_contextLinkId(0), undoRedoManager(SettingsManager::instance().getSettings().maxUndoHistory) {
+FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::string &projectFilePath, std::string title)
+    : name(std::move(title)), projectFilePath(projectFilePath), m_contextNodeId(0), m_contextPinId(0), m_contextLinkId(0), undoRedoManager(SettingsManager::instance().getSettings().maxUndoHistory) {
     try {
         graph = std::make_unique<FactoryGraph>(game_data);
         solver = std::make_unique<FactorySolver>();
@@ -50,14 +51,6 @@ FactoryNodeEditor::FactoryNodeEditor(GameData game_data, const std::string &proj
 }
 
 FactoryNodeEditor::~FactoryNodeEditor() {
-    Close();
-}
-
-bool FactoryNodeEditor::Initialize() {
-    return true;
-}
-
-bool FactoryNodeEditor::Close() {
     // Clear graph and solver
     if (graph) graph->clear();
     solver = nullptr;
@@ -77,9 +70,6 @@ bool FactoryNodeEditor::Close() {
     m_contextPinId = 0;
     m_contextLinkId = 0;
     quadtreeNeedsRebuild = false;
-    first_frame = true;
-
-    return true;
 }
 
 void FactoryNodeEditor::Draw() {
@@ -135,7 +125,7 @@ static long copyBufferSize = 0;
 void FactoryNodeEditor::copy(CopyBuffer &copy_buffer) {
     std::vector<ed::NodeId> selectedNodes;
     selectedNodes.resize(ed::GetSelectedObjectCount());
-    int nodeCount = ed::GetSelectedNodes(selectedNodes.data(), selectedNodes.size());
+    int nodeCount = ed::GetSelectedNodes(selectedNodes.data(), static_cast<int>(selectedNodes.size()));
     selectedNodes.resize(nodeCount);
 
     if (nodeCount == 0) return;
@@ -511,7 +501,7 @@ void FactoryNodeEditor::HandleUserInteractions() {
         if (draggingNodes) {
             std::vector<ed::NodeId> selectedNodes;
             selectedNodes.resize(ed::GetSelectedObjectCount());
-            int nodeCount = ed::GetSelectedNodes(selectedNodes.data(), selectedNodes.size());
+            int nodeCount = ed::GetSelectedNodes(selectedNodes.data(), static_cast<int>(selectedNodes.size()));
             selectedNodes.resize(nodeCount);
 
             draggedNodeNewPos = ed::GetNodePosition(draggedNodeId);

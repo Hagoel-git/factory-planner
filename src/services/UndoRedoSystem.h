@@ -1,13 +1,9 @@
-//
-// Created by hagoel on 8/19/25.
-//
-
 #ifndef UNDOREDOSYSTEM_H
 #define UNDOREDOSYSTEM_H
 #include <imgui.h>
 
 #include "CopyBuffer.h"
-#include "FactoryGraph.h"
+class FactoryGraph;
 
 struct CommandFlags {
     bool needsSolve;

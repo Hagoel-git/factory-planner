@@ -4,10 +4,12 @@
 #include <vector>
 #include <memory>
 #include <string>
-#include "FactoryNodeEditor.h"
 #include "CopyBuffer.h"
 #include "GameDataEditor.h"
 #include "GameDataManager.h"
+
+class FactoryNodeEditor;
+enum class SaveAsMode;
 
 class Application {
 public:

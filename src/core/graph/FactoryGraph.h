@@ -1,7 +1,3 @@
-//
-// Created by hagoel on 8/1/25.
-//
-
 #ifndef FACTORYGRAPH_H
 #define FACTORYGRAPH_H
 #include <utility>
@@ -12,14 +8,14 @@
 #include "Node.h"
 #include "Port.h"
 #include "GameData.h"
-#include "GameDataManager.h"
+#include <nlohmann/json.hpp>
 
 class FactoryGraph {
 public:
     int addNode(const std::string& name, NodeType type, std::string recipe_key);
     void restoreNode(const Node& node, const std::vector<Port>& ports);
     bool removeNode(int node_id);
-    bool setNodeRecipe(int node_id, std::string recipe_key);
+    bool setNodeRecipe(int node_id, const std::string& recipe_key);
     Node* getNode(int id);
     [[nodiscard]] const std::vector<Node>& getNodes() const;
 
@@ -33,7 +29,7 @@ public:
     std::vector<Connection*> getConnectionsForPort(int id);
     [[nodiscard]] const std::vector<Connection>& getConnections() const;
 
-    int addPort(std::string resource_key, int node_id, bool isInput);
+    int addPort(const std::string& resource_key, int node_id, bool isInput);
     bool removePort(int port_id);
     Port* getPort(int id);
     [[nodiscard]] const std::vector<Port>& getPorts() const;

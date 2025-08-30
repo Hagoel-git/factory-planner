@@ -4,7 +4,6 @@
 
 #include "GameDataManager.h"
 
-
 class GameDataEditor {
 public:
     GameDataEditor();
@@ -17,9 +16,9 @@ private:
 
     std::string m_fileLoadError;
 
-    std::string selResourceKey = "";
-    std::string selMachineKey = "";
-    std::string selRecipeKey = "";
+    std::string selResourceKey;
+    std::string selMachineKey;
+    std::string selRecipeKey;
 
     char gameNameBuf[128] = "";
 
@@ -46,7 +45,7 @@ private:
     // UI flow
     bool showDeleteConfirm = false;
     int deleteTargetType = 0; // 1=res,2=mach,3=rec
-    std::string deleteTargetKey = "";
+    std::string deleteTargetKey;
 
     // search filters
     char resourceFilter[128] = "";

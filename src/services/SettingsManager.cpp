@@ -32,7 +32,7 @@ void SettingsManager::setSettings(const AppSettings &settings) {
     m_settings = settings;
 }
 
-SettingsManager::SettingsManager() {}
+SettingsManager::SettingsManager() = default;
 
 void SettingsManager::loadAppSettings() {
     const auto path = get_executable_directory().value() / "app_settings.json";

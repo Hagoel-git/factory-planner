@@ -5,8 +5,11 @@
 #include <unordered_set>
 #include <filesystem>
 
-#include "imgui.h"
-#include "FactoryGraph.h"
+#include "Node.h"
+#include "Port.h"
+#include "Connection.h"
+
+struct ImVec2;
 
 struct CopyBuffer {
     std::unordered_map<int, Node> nodes;    // id->Node; copies of Node (value-copied)

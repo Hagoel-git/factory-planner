@@ -1,12 +1,9 @@
-//
-// Enhanced ProjectIO with better error handling and safety
-//
-
 #include "ProjectIo.h"
 #include <fstream>
 #include <iostream>
 #include <imgui-node-editor/imgui_node_editor.h>
-#include "../common/IdUtils.h"
+#include "IdUtils.h"
+#include "FactoryGraph.h"
 
 bool ProjectIO::SaveProject(const std::string &path, const FactoryGraph &factoryGraph, ed::EditorContext *context) {
     try {
@@ -120,7 +117,7 @@ bool ProjectIO::LoadProject(const std::string &path, FactoryGraph &factoryGraph)
 
                     for (auto it = nodesJson.begin(); it != nodesJson.end(); ++it) {
                         try {
-                            const std::string key = it.key();
+                            const std::string& key = it.key();
                             const auto &nodeVal = it.value();
 
                             // Extract numeric portion after ':' if present
@@ -153,8 +150,8 @@ bool ProjectIO::LoadProject(const std::string &path, FactoryGraph &factoryGraph)
                                 if (location.contains("x") && location.contains("y") &&
                                     location["x"].is_number() && location["y"].is_number()) {
 
-                                    float x = static_cast<float>(location["x"].get<double>());
-                                    float y = static_cast<float>(location["y"].get<double>());
+                                    auto x = static_cast<float>(location["x"].get<double>());
+                                    auto y = static_cast<float>(location["y"].get<double>());
 
                                     ed::NodeId editorNodeId = IdUtils::ToNodeId(engineNodeId);
                                     ed::SetNodePosition(editorNodeId, ImVec2(x, y));

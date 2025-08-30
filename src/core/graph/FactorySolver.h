@@ -1,14 +1,11 @@
-//
-// Created by hagoel on 8/4/25.
-//
-
 #ifndef FACTORYSOLVER_H
 #define FACTORYSOLVER_H
 
-
-#include "FactoryGraph.h"
 #include "ortools/linear_solver/linear_solver.h"
 
+class FactoryGraph;
+struct Node;
+struct Recipe;
 
 class FactorySolver {
 public:
@@ -19,7 +16,7 @@ public:
         ERROR
     };
 
-    FactorySolver(const std::string& solver_name = "GLOP");
+    explicit FactorySolver(const std::string& solver_name = "GLOP");
     ~FactorySolver() = default;
 
     // Delete copy constructor and assignment operator to prevent issues with solver ownership

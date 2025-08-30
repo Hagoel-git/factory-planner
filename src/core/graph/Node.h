@@ -1,22 +1,30 @@
-//
-// Created by hagoel on 8/1/25.
-//
-
 #ifndef NODE_H
 #define NODE_H
 #include <string>
-#include <iostream>
-#include <unordered_map>
+#include <vector>
 
-#include "../common/NodeType.h"
+enum class NodeType {
+    PRODUCER,
+    PROCESSOR,
+    CONSUMER
+};
+
+inline const char *toString(NodeType type) {
+    switch (type) {
+        case NodeType::PRODUCER: return "Producer";
+        case NodeType::PROCESSOR: return "Processor";
+        case NodeType::CONSUMER: return "Consumer";
+        default: return "Unknown";
+    }
+}
 
 struct Node {
     std::string name;
     NodeType type;
 
     int id;
-    std::string machine_key = "";
-    std::string selected_recipe_key = "";
+    std::string machine_key;
+    std::string selected_recipe_key;
 
     mutable double machine_count = 0.0;
     mutable double clock_speed = 100.0; // percentage, 100% is normal speed, 200% is double speed, etc.

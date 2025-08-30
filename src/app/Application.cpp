@@ -12,6 +12,7 @@
 #include "nativefiledialog-extended/src/include/nfd.h"
 #include "FilesystemUtils.h"
 #include "SettingsManager.h"
+#include "FactoryNodeEditor.h"
 
 Application::Application() {
     SettingsManager::instance().load();
