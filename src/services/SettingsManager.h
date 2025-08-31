@@ -9,6 +9,8 @@ struct AppSettings {
     std::filesystem::path gameDataPath = executablePath / "game_data";
     std::filesystem::path defaultProjectPath = executablePath / "projects";
     std::string themeName = "Dark"; //todo
+    std::string fontName = "NotoSans-Regular.ttf"; // must match ImFont debug name
+    float fontSize = 20;
     bool autoSaveEnabled = true; // todo
     int autoSaveIntervalMinutes = 5; //todo
     int maxUndoHistory = 100;
