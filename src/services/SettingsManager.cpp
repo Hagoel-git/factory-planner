@@ -60,6 +60,12 @@ void SettingsManager::loadAppSettings() {
         if (j.contains("themeName") && j["themeName"].is_string()) {
             m_settings.themeName = j["themeName"].get<std::string>();
         }
+        if (j.contains("fontName") && j["fontName"].is_string()) {
+            m_settings.fontName = j["fontName"].get<std::string>();
+        }
+        if (j.contains("fontSize") && j["fontSize"].is_number_float()) {
+            m_settings.fontSize = j["fontSize"].get<float>();
+        }
         if (j.contains("autoSaveEnabled") && j["autoSaveEnabled"].is_boolean()) {
             m_settings.autoSaveEnabled = j["autoSaveEnabled"].get<bool>();
         }
@@ -80,6 +86,8 @@ void SettingsManager::saveAppSettings() const {
     j["gameDataPath"] = m_settings.gameDataPath.string();
     j["defaultProjectPath"] = m_settings.defaultProjectPath.string();
     j["themeName"] = m_settings.themeName;
+    j["fontName"] = m_settings.fontName;
+    j["fontSize"] = m_settings.fontSize;
     j["autoSaveEnabled"] = m_settings.autoSaveEnabled;
     j["autoSaveIntervalMinutes"] = m_settings.autoSaveIntervalMinutes;
     j["maxUndoHistory"] = m_settings.maxUndoHistory;

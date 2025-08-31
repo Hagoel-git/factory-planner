@@ -163,6 +163,33 @@ void SettingsEditor::DrawRightPanel() {
         }
         ImGui::SameLine();
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Select the editor theme.");
+        ImGui::Spacing();
+        ImGuiIO& io = ImGui::GetIO();
+
+        if (ImGui::BeginCombo("Fonts###Selector", m_editSettings.fontName.c_str()))
+        {
+            for (ImFont* font : io.Fonts->Fonts)
+            {
+                ImGui::PushID(font);
+                if (ImGui::Selectable(font->GetDebugName(), font->GetDebugName() == m_editSettings.fontName)) {
+                    m_editSettings.fontName = font->GetDebugName();
+                    m_isDirty = true;
+                }
+                if (font->GetDebugName() == m_editSettings.fontName)
+                    ImGui::SetItemDefaultFocus();
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Select the application font.");
+        ImGui::Spacing();
+        if (ImGui::DragFloat("FontSizeBase", &m_editSettings.fontSize, 0.20f, 5.0f, 100.0f, "%.0f")) {
+            m_editSettings.fontSize = std::max(5.0f, std::min(100.0f, m_editSettings.fontSize));
+            m_isDirty = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Base font size for scaling UI elements.");
     }
 
     ImGui::EndChild();
@@ -240,6 +267,17 @@ void SettingsEditor::ApplyChanges() {
     SettingsManager::instance().setSettings(m_editSettings);
     SettingsManager::instance().save();
 
+    ImFont* font = nullptr;
+
+    for (ImFont* f : ImGui::GetIO().Fonts->Fonts) {
+        if (f->GetDebugName() == m_editSettings.fontName) {
+            font = f;
+            break;
+        }
+    }
+
+    if (font) ImGui::GetIO().FontDefault = font;
+    ImGui::GetStyle()._NextFrameFontSizeBase = m_editSettings.fontSize;
     // update saved copy + dirty flag
     m_savedSettings = m_editSettings;
     m_isDirty = false;

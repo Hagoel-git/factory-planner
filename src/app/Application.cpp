@@ -16,6 +16,52 @@
 
 Application::Application() {
     SettingsManager::instance().load();
+
+    auto io = ImGui::GetIO();
+    std::filesystem::path folderPath = SettingsManager::instance().getSettings().executablePath / "assets" / "fonts";
+    std::vector<std::string> fontFiles;
+    try {
+        for (auto const &entry : std::filesystem::recursive_directory_iterator(folderPath)) {
+            if (!entry.is_regular_file()) continue;
+            auto ext = entry.path().extension().string();
+            std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+            if (ext == ".ttf" || ext == ".otf") {
+                fontFiles.push_back(entry.path().string());
+            }
+        }
+    } catch (const std::exception &e) {
+        std::cerr << "Error scanning fonts folder: " << e.what() << std::endl;
+        return;
+    }
+
+    if (fontFiles.empty()) {
+        std::cout << "No .ttf/.otf files found in " << folderPath << std::endl;
+        return;
+    }
+
+    std::sort(fontFiles.begin(), fontFiles.end());
+
+    // Add each font
+    for (auto &fp : fontFiles) {
+        ImFont* font = io.Fonts->AddFontFromFileTTF(fp.c_str());
+        if (!font) {
+            std::cerr << "Failed to load font: " << fp << std::endl;
+        }
+    }
+
+    ImFont* font = nullptr;
+
+    for (ImFont* f : ImGui::GetIO().Fonts->Fonts) {
+        if (f->GetDebugName() == SettingsManager::instance().getSettings().fontName) {
+            font = f;
+            break;
+        }
+    }
+
+    if (font) ImGui::GetIO().FontDefault = font;
+    auto style = &ImGui::GetStyle();
+    style->_NextFrameFontSizeBase = SettingsManager::instance().getSettings().fontSize;
+
 }
 
 Application::~Application() {
@@ -109,7 +155,6 @@ void Application::DrawDebugWindow() {
     ImGui::Begin("Debug Window", &showDebugWindow, flags);
     ImGui::PopStyleVar();
     ImGui::SeparatorText("General");
-    //fps
     auto &io = ImGui::GetIO();
     ImGui::Text("FPS: %.2f (%.2gms)", io.Framerate, io.Framerate ? 1000.0f / io.Framerate : 0.0f);
     ImGui::Text("Number of open editors: %zu", editors.size());
@@ -124,7 +169,7 @@ void Application::DrawDebugWindow() {
         ImGui::Text("Total nodes: %d", debugInfo.totalNodes);
         ImGui::Text("Total connections: %d", debugInfo.totalConnections);
         ImGui::Text("Total ports: %d", debugInfo.totalPorts);
-        ImGui::Text("Visible nodes: %d", debugInfo.visibleNodes);
+        ImGui::Text("Visible nodes: %d / %d", debugInfo.visibleNodes, debugInfo.totalNodes);
         ImGui::Text("Selection size: %d", debugInfo.selectionSize);
         ImGui::Text("Solver time: %.2fms", debugInfo.lastTotalSolveDurationMs);
         ImGui::Text(" - Setup time: %.2fms", debugInfo.lastSetupSolveDurationMs);
