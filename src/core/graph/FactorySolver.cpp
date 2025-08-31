@@ -21,19 +21,21 @@ FactorySolver::SolverResult FactorySolver::solve(FactoryGraph &factory_graph) {
     constraints.clear();
     solver_->Clear(); // Clear any previous state in the solver
 
+    absl::Time t_start, t_end_setup, t_end_solve, t_end_update;
+
     try {
+        t_start = absl::Now();
         createAllVariables(factory_graph);
         addObjectiveFunction(factory_graph);
         addAllConstraints(factory_graph);
+        t_end_setup = absl::Now();
 
         const auto result_status = solver_->Solve();
-        last_solve_time = absl::ToDoubleMilliseconds(solver_->DurationSinceConstruction());
+        t_end_solve = absl::Now();
 
-        const SolverResult result = convertSolverStatus(result_status);
-        last_solver_status = std::to_string(result_status);
-        std::cout << last_solve_time << std::endl;
+        const SolverResultStatus result = convertSolverStatus(result_status);
 
-        if (result == SolverResult::SUCCESS) {
+        if (result == SolverResultStatus::SUCCESS) {
             updateFactoryGraph(factory_graph);
         } else {
             const auto &ports = factory_graph.getPorts();
@@ -46,11 +48,24 @@ FactorySolver::SolverResult FactorySolver::solve(FactoryGraph &factory_graph) {
             }
             std::cerr << "Solver failed with status: " << last_solver_status << std::endl;
         }
+        t_end_update = absl::Now();
 
-        return result;
+        return {
+            result,
+            absl::ToDoubleMilliseconds(t_end_update - t_start),
+            absl::ToDoubleMilliseconds(t_end_setup - t_start),
+            absl::ToDoubleMilliseconds(t_end_solve - t_end_setup),
+            absl::ToDoubleMilliseconds(t_end_update - t_end_solve)
+        };
     } catch (const std::exception &e) {
         std::cerr << e.what() << std::endl;
-        return SolverResult::ERROR;
+        return {
+            SolverResultStatus::ERROR,
+            absl::ToDoubleMilliseconds(t_end_update - t_start),
+            absl::ToDoubleMilliseconds(t_end_setup - t_start),
+            absl::ToDoubleMilliseconds(t_end_solve - t_end_setup),
+            absl::ToDoubleMilliseconds(t_end_update - t_end_solve)
+        };
     }
 }
 
@@ -270,16 +285,16 @@ void FactorySolver::updateFactoryGraph(FactoryGraph &factory_graph) const {
     }
 }
 
-FactorySolver::SolverResult FactorySolver::convertSolverStatus(
+FactorySolver::SolverResultStatus FactorySolver::convertSolverStatus(
     const operations_research::MPSolver::ResultStatus status) const {
     switch (status) {
         case operations_research::MPSolver::OPTIMAL:
-            return SolverResult::SUCCESS;
+            return SolverResultStatus::SUCCESS;
         case operations_research::MPSolver::INFEASIBLE:
-            return SolverResult::INFEASIBLE;
+            return SolverResultStatus::INFEASIBLE;
         case operations_research::MPSolver::UNBOUNDED:
-            return SolverResult::UNBOUNDED;
+            return SolverResultStatus::UNBOUNDED;
         default:
-            return SolverResult::ERROR;
+            return SolverResultStatus::ERROR;
     }
 }

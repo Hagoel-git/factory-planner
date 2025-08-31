@@ -23,6 +23,7 @@ Application::~Application() {
 }
 void Application::Draw() {
     HandleShortcuts();
+    DrawDebugWindow();
     DrawMenuBar();
     DrawNewProjectDialog();
     DrawOpenProjectDialog();
@@ -98,6 +99,50 @@ void Application::Draw() {
         }
         ImGui::EndPopup();
     }
+    ImGui::End();
+}
+
+void Application::DrawDebugWindow() {
+    if (!showDebugWindow) return;
+    int flags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoNav;
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(500, 600));
+    ImGui::Begin("Debug Window", &showDebugWindow, flags);
+    ImGui::PopStyleVar();
+    ImGui::SeparatorText("General");
+    //fps
+    auto &io = ImGui::GetIO();
+    ImGui::Text("FPS: %.2f (%.2gms)", io.Framerate, io.Framerate ? 1000.0f / io.Framerate : 0.0f);
+    ImGui::Text("Number of open editors: %zu", editors.size());
+    ImGui::Text("Active editor index: %d", activeEditor);
+    ImGui::Text("Copy buffer size: Nodes: %d, Ports: %d, Connections: % d", copyBuffer.nodes.size(), copyBuffer.ports.size(), copyBuffer.connections.size());
+
+    ImGui::SeparatorText("Editor Specific");
+    if (activeEditor != -1 && activeEditor < static_cast<int>(editors.size())) {
+        const DebugInfo &debugInfo = editors[activeEditor]->GetDebugInfo();
+        ImGui::TextWrapped("File path: %s", debugInfo.filePath.c_str());
+        ImGui::TextWrapped("Game data path: %s", debugInfo.gameDataPath.c_str());
+        ImGui::Text("Total nodes: %d", debugInfo.totalNodes);
+        ImGui::Text("Total connections: %d", debugInfo.totalConnections);
+        ImGui::Text("Total ports: %d", debugInfo.totalPorts);
+        ImGui::Text("Visible nodes: %d", debugInfo.visibleNodes);
+        ImGui::Text("Selection size: %d", debugInfo.selectionSize);
+        ImGui::Text("Solver time: %.2fms", debugInfo.lastTotalSolveDurationMs);
+        ImGui::Text(" - Setup time: %.2fms", debugInfo.lastSetupSolveDurationMs);
+        ImGui::Text(" - Solve time: %.2fms", debugInfo.lastSolverDurationMs);
+        ImGui::Text(" - Update factory time: %.2fms", debugInfo.lastUpdateFactoryDurationMs);
+        ImGui::Text("Last solver status: %s", debugInfo.lastSolverStatus.c_str());
+        ImGui::Text("Quadtree bounds: (%.1f, %.1f) to (%.1f, %.1f)",
+                    debugInfo.quadtreeBoundsMin[0], debugInfo.quadtreeBoundsMin[1],
+                    debugInfo.quadtreeBoundsMax[0], debugInfo.quadtreeBoundsMax[1]);
+        ImGui::Text("View bounds: (%.1f, %.1f) to (%.1f, %.1f)",
+                    debugInfo.viewBoundsMin[0], debugInfo.viewBoundsMin[1],
+                    debugInfo.viewBoundsMax[0], debugInfo.viewBoundsMax[1]);
+        ImGui::Text("Undo stack size: %zu", debugInfo.undoStackSize);
+        ImGui::Text("Redo stack size: %zu", debugInfo.redoStackSize);
+    } else {
+        ImGui::Text("No active editor.");
+    }
+
     ImGui::End();
 }
 
@@ -184,6 +229,9 @@ void Application::HandleShortcuts() {
     ImGuiIO &io = ImGui::GetIO();
     if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
         showNewProjectDialog = false;
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_F3))
+        showDebugWindow = !showDebugWindow;{
     }
     if (io.KeyCtrl) {
         if (ImGui::IsKeyPressed(ImGuiKey_N)) {

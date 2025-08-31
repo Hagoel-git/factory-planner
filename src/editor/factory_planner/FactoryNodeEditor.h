@@ -34,6 +34,28 @@ struct GetNodeBox {
     }
 };
 
+struct DebugInfo {
+    std::filesystem::path filePath;
+    std::filesystem::path gameDataPath;
+    int totalNodes = 0;
+    int totalConnections = 0;
+    int totalPorts = 0;
+    int visibleNodes = 0;
+    int selectionSize = 0;
+    double lastTotalSolveDurationMs = 0;
+    double lastSetupSolveDurationMs = 0;
+    double lastSolverDurationMs = 0;
+    double lastUpdateFactoryDurationMs = 0;
+    FactorySolver::SolverResultStatus lastSolverResult = FactorySolver::SolverResultStatus::ERROR;
+    std::string lastSolverStatus;
+    float quadtreeBoundsMin[2] = {0, 0};
+    float quadtreeBoundsMax[2] = {0, 0};
+    float viewBoundsMin[2] = {0, 0};
+    float viewBoundsMax[2] = {0, 0};
+    size_t undoStackSize = 0;
+    size_t redoStackSize = 0;
+};
+
 class FactoryNodeEditor {
 public:
 
@@ -41,8 +63,6 @@ public:
 
     ~FactoryNodeEditor();
 
-    bool Initialize();
-    bool Close();
     void Draw();
 
     bool Save();
@@ -65,7 +85,14 @@ public:
 
         undoRedoManager.undo(*graph);
 
-        if (flags.needsSolve) solver->solve(*graph);
+        if (flags.needsSolve) {
+            FactorySolver::SolverResult result = solver->solve(*graph);
+            debugInfo.lastTotalSolveDurationMs = result.total_solve_time_ms;
+            debugInfo.lastSetupSolveDurationMs = result.setup_time_ms;
+            debugInfo.lastSolverDurationMs = result.solve_time_ms;
+            debugInfo.lastUpdateFactoryDurationMs = result.update_factory_time_ms;
+            debugInfo.lastSolverResult = result.status;
+        }
         quadtreeNeedsRebuild = flags.needsRebuild;
     }
     void redo() {
@@ -78,13 +105,22 @@ public:
 
         undoRedoManager.redo(*graph);
 
-        if (flags.needsSolve) solver->solve(*graph);
+        if (flags.needsSolve) {
+            FactorySolver::SolverResult result = solver->solve(*graph);
+            debugInfo.lastTotalSolveDurationMs = result.total_solve_time_ms;
+            debugInfo.lastSetupSolveDurationMs = result.setup_time_ms;
+            debugInfo.lastSolverDurationMs = result.solve_time_ms;
+            debugInfo.lastUpdateFactoryDurationMs = result.update_factory_time_ms;
+            debugInfo.lastSolverResult = result.status;
+        }
         quadtreeNeedsRebuild = flags.needsRebuild;
     }
     bool canUndo() const { return undoRedoManager.canUndo(); }
     bool canRedo() const { return undoRedoManager.canRedo(); }
 
     ed::EditorContext* GetContext() { return context; }
+
+    const DebugInfo& GetDebugInfo() const { return debugInfo; }
 
     const std::string& GetName() const { return name; }
     const std::filesystem::path& GetGameDataFilePath() const { return graph->getGameData().gameDataFilePath; }
@@ -94,6 +130,8 @@ private:
     std::unique_ptr<FactorySolver> solver;
     UndoRedoManager undoRedoManager;
     ed::EditorContext* context = nullptr;
+
+    DebugInfo debugInfo;
 
     bool wasDragging = false;
     bool draggingNodes = false;
@@ -133,11 +171,21 @@ private:
         }
         CommandFlags flags = command->GetFlags();
         undoRedoManager.executeCommand(std::move(command), *graph);
-        if (flags.needsSolve) solver->solve(*graph);
+        if (flags.needsSolve) {
+            FactorySolver::SolverResult result = solver->solve(*graph);
+            debugInfo.lastTotalSolveDurationMs = result.total_solve_time_ms;
+            debugInfo.lastSetupSolveDurationMs = result.setup_time_ms;
+            debugInfo.lastSolverDurationMs = result.solve_time_ms;
+            debugInfo.lastUpdateFactoryDurationMs = result.update_factory_time_ms;
+            debugInfo.lastSolverResult = result.status;
+        }
         quadtreeNeedsRebuild = flags.needsRebuild;
     }
 
     void DrawHeader();
+
+    void UpdateDebugInfo();
+
     void DrawToolbar();
 
     void DrawNodes();

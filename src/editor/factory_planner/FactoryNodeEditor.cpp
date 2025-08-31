@@ -43,7 +43,13 @@ FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::strin
         );
         nodeQuadtree = std::make_unique<quadtree::Quadtree<NodeQuadtreeData, GetNodeBox>>(worldBounds);
 
-        solver->solve(*graph);
+        FactorySolver::SolverResult result = solver->solve(*graph);
+        debugInfo.lastTotalSolveDurationMs = result.total_solve_time_ms;
+        debugInfo.lastSetupSolveDurationMs = result.setup_time_ms;
+        debugInfo.lastSolverDurationMs = result.solve_time_ms;
+        debugInfo.lastUpdateFactoryDurationMs = result.update_factory_time_ms;
+        debugInfo.lastSolverResult = result.status;
+
         quadtreeNeedsRebuild = true;
     } catch (const std::exception &e) {
         std::cerr << "Error initializing FactoryNodeEditor: " << e.what() << std::endl;
@@ -77,7 +83,7 @@ void FactoryNodeEditor::Draw() {
 
     ed::SetCurrentEditor(context);
 
-    DrawHeader();
+    UpdateDebugInfo();
     DrawToolbar();
 
     // Begin the node editor canvas
@@ -120,7 +126,6 @@ bool FactoryNodeEditor::SaveAs(const std::string &newFilePath, SaveAsMode mode) 
     return false;
 
 }
-static long copyBufferSize = 0;
 
 void FactoryNodeEditor::copy(CopyBuffer &copy_buffer) {
     std::vector<ed::NodeId> selectedNodes;
@@ -163,9 +168,6 @@ void FactoryNodeEditor::copy(CopyBuffer &copy_buffer) {
             }
         }
     }
-    copyBufferSize = copy_buffer.nodes.size() << 32 |
-                     copy_buffer.ports.size() << 16 |
-                     copy_buffer.connections.size();
 }
 
 void FactoryNodeEditor::cut(CopyBuffer &copyBuffer) {
@@ -193,34 +195,28 @@ void FactoryNodeEditor::selectAll() {
     }
 }
 
-static int drawnNodeCount = 0;
-void FactoryNodeEditor::DrawHeader() {
-    auto &io = ImGui::GetIO();
-    ImGui::Text("FPS: %.2f (%.2gms)", io.Framerate, io.Framerate ? 1000.0f / io.Framerate : 0.0f);
-    ImGui::Text("Nodes: %d, Connections: %d, Ports: %d", graph->getNodes().size(), graph->getConnections().size(), graph->getPorts().size());
-    ImGui::Text("Copy Buffer Size: Nodes: %d, Ports: %d, Connections: % d",
-                copyBufferSize >> 32, (copyBufferSize >> 16) & 0xFFFF, copyBufferSize & 0xFFFF);
-    ImGui::Text("Selection size: %d", ed::GetSelectedObjectCount());
-
-    // Debug info for quadtree
+void FactoryNodeEditor::UpdateDebugInfo() {
+    debugInfo.filePath = projectFilePath;
+    debugInfo.gameDataPath = graph->getGameData().gameDataFilePath;
+    debugInfo.totalNodes = static_cast<int>(graph->getNodes().size());
+    debugInfo.totalConnections = static_cast<int>(graph->getConnections().size());
+    debugInfo.totalPorts = static_cast<int>(graph->getPorts().size());
+    debugInfo.selectionSize = ed::GetSelectedObjectCount();
     if (nodeQuadtree) {
         auto bounds = nodeQuadtree->getBox();
-        ImGui::Text("Quadtree bounds: (%.1f, %.1f) size: (%.1f, %.1f)",
-                   bounds.getTopLeft().x, bounds.getTopLeft().y,
-                   bounds.getSize().x, bounds.getSize().y);
+        debugInfo.quadtreeBoundsMin[0] = bounds.getTopLeft().x;
+        debugInfo.quadtreeBoundsMin[1] = bounds.getTopLeft().y;
+        debugInfo.quadtreeBoundsMax[0] = bounds.getTopLeft().x + bounds.getSize().x;
+        debugInfo.quadtreeBoundsMax[1] = bounds.getTopLeft().y + bounds.getSize().y;
 
-        // Show current view bounds
-        ImVec2 viewMin = windowPos;
-        ImVec2 viewMax = viewMin + windowSize;
-        ImVec2 canvasMin = ed::ScreenToCanvas(viewMin);
-        ImVec2 canvasMax = ed::ScreenToCanvas(viewMax);
-        ImGui::Text("View bounds: (%.1f, %.1f) to (%.1f, %.1f)", canvasMin.x, canvasMin.y, canvasMax.x, canvasMax.y);
-        ImGui::Text("Visible nodes: %d / %d", drawnNodeCount, graph->getNodes().size());
-        ImGui::Text("Undo Stack: %zu, Redo Stack: %zu", undoRedoManager.getUndoStackSize(), undoRedoManager.getRedoStackSize());
+        debugInfo.viewBoundsMin[0] = bounds.getTopLeft().x;
+        debugInfo.viewBoundsMin[1] = bounds.getTopLeft().y;
+        debugInfo.viewBoundsMax[0] = bounds.getTopLeft().x + bounds.getSize().x;
+        debugInfo.viewBoundsMax[1] = bounds.getTopLeft().y + bounds.getSize().y;
     }
-    ImGui::Text("File path: %s", projectFilePath.c_str());
 
-    ImGui::Separator();
+    debugInfo.undoStackSize = undoRedoManager.getUndoStackSize();
+    debugInfo.redoStackSize = undoRedoManager.getRedoStackSize();
 }
 
 void FactoryNodeEditor::DrawToolbar() {
@@ -335,7 +331,7 @@ void FactoryNodeEditor::DrawNodes() {
         }
     }
 
-    drawnNodeCount = static_cast<int>(nodesToRegister.size());
+    debugInfo.visibleNodes = static_cast<int>(nodesToRegister.size());
     // Draw only visible nodes
     for (const auto& nodeData : nodesToRegister) {
         auto node = graph->getNode(nodeData);
@@ -631,7 +627,12 @@ void FactoryNodeEditor::HandlePopups() {
                 }
 
                 graph->setPortDemand(port->id, m_contextPinCurrentConstraint);
-                solver->solve(*graph);
+                FactorySolver::SolverResult result = solver->solve(*graph);
+                debugInfo.lastTotalSolveDurationMs = result.total_solve_time_ms;
+                debugInfo.lastSetupSolveDurationMs = result.setup_time_ms;
+                debugInfo.lastSolverDurationMs = result.solve_time_ms;
+                debugInfo.lastUpdateFactoryDurationMs = result.update_factory_time_ms;
+                debugInfo.lastSolverResult = result.status;
             }
 
             // --- Deactivation Logic (Enter pressed or focus lost) ---
