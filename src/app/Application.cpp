@@ -22,6 +22,7 @@ Application::~Application() {
     SettingsManager::instance().save();
 }
 void Application::Draw() {
+    HandleShortcuts();
     DrawMenuBar();
     DrawNewProjectDialog();
     DrawOpenProjectDialog();
@@ -176,7 +177,9 @@ void Application::DrawMenuBar() {
         }
         ImGui::EndMainMenuBar();
     }
+}
 
+void Application::HandleShortcuts() {
     // Handle keyboard shortcuts
     ImGuiIO &io = ImGui::GetIO();
     if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {

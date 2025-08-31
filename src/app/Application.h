@@ -17,6 +17,7 @@ public:
     Application();
     ~Application();
 
+
     void Draw();
     bool quitRequested = false;
 private:
@@ -37,6 +38,8 @@ private:
     bool isSaveAsCopy = false;
 
     void DrawMenuBar();
+
+    void HandleShortcuts();
 
     void DrawNewProjectDialog();
     void DrawOpenProjectDialog();
