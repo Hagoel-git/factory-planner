@@ -9,11 +9,29 @@ struct Recipe;
 
 class FactorySolver {
 public:
-    enum class SolverResult {
+    enum class SolverResultStatus {
         SUCCESS,
         INFEASIBLE,
         UNBOUNDED,
         ERROR
+    };
+
+    static std::string toString(SolverResultStatus status) {
+        switch (status) {
+            case SolverResultStatus::SUCCESS: return "SUCCESS";
+            case SolverResultStatus::INFEASIBLE: return "INFEASIBLE";
+            case SolverResultStatus::UNBOUNDED: return "UNBOUNDED";
+            case SolverResultStatus::ERROR: return "ERROR";
+            default: return "UNKNOWN";
+        }
+    }
+
+    struct SolverResult {
+        SolverResultStatus status;
+        double total_solve_time_ms;
+        double setup_time_ms;
+        double solve_time_ms;
+        double update_factory_time_ms;
     };
 
     explicit FactorySolver(const std::string& solver_name = "GLOP");
@@ -27,7 +45,7 @@ public:
     FactorySolver(FactorySolver&&) = default;
     FactorySolver& operator=(FactorySolver&&) = default;
 
-    SolverResult solve(FactoryGraph &factory_graph);
+    [[nodiscard]] SolverResult solve(FactoryGraph &factory_graph);
 
     double getLastSolveTime() const { return last_solve_time; }
     std::string getLastSolverStatus() const { return last_solver_status; }
@@ -52,7 +70,7 @@ private:
     void addConnectionConstraints(const FactoryGraph &factory_graph);
 
     void updateFactoryGraph(FactoryGraph &factory_graph) const;
-    SolverResult convertSolverStatus(operations_research::MPSolver::ResultStatus status) const;
+    SolverResultStatus convertSolverStatus(operations_research::MPSolver::ResultStatus status) const;
 };
 
 

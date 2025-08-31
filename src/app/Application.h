@@ -19,6 +19,9 @@ public:
 
 
     void Draw();
+
+    void DrawDebugWindow();
+
     bool quitRequested = false;
 private:
     std::vector<std::unique_ptr<FactoryNodeEditor>> editors;
@@ -31,6 +34,7 @@ private:
 
     CopyBuffer copyBuffer;
 
+    bool showDebugWindow = false;
     bool showNewProjectDialog = false;
     bool showOpenProjectDialog = false;
     bool showFileAlreadyOpenPopup = false;
