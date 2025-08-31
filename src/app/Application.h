@@ -7,6 +7,7 @@
 #include "CopyBuffer.h"
 #include "GameDataEditor.h"
 #include "GameDataManager.h"
+#include "settings_editor/SettingsEditor.h"
 
 class FactoryNodeEditor;
 enum class SaveAsMode;
@@ -21,6 +22,7 @@ public:
 private:
     std::vector<std::unique_ptr<FactoryNodeEditor>> editors;
     GameDataEditor gameDataEditor;
+    SettingsEditor settingsEditor;
     GameDataManager gameDataManager;
     std::string gameDataManagerError;
     bool dockInitialized = false;

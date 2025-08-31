@@ -95,6 +95,8 @@ set(SRC
         src/services/SettingsManager.cpp
         src/services/SettingsManager.h
         src/common/StringUtils.h
+        src/editor/settings_editor/SettingsEditor.cpp
+        src/editor/settings_editor/SettingsEditor.h
 )
 
 add_executable(factory_planner ${SRC})

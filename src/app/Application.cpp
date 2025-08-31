@@ -27,6 +27,7 @@ void Application::Draw() {
     DrawOpenProjectDialog();
     DrawSaveAsDialog();
     gameDataEditor.Draw();
+    settingsEditor.Draw();
     ImGuiViewport *viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->WorkPos);
     ImGui::SetNextWindowSize(viewport->WorkSize);
@@ -98,6 +99,7 @@ void Application::Draw() {
     }
     ImGui::End();
 }
+
 void Application::DrawMenuBar() {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
@@ -135,6 +137,9 @@ void Application::DrawMenuBar() {
             ImGui::Separator();
             if (ImGui::MenuItem("Game Data Manager")) {
                 gameDataEditor.SetOpen(true);
+            }
+            if (ImGui::MenuItem("Settings")) {
+                settingsEditor.SetOpen(true);
             }
             if (ImGui::MenuItem("Quit", "Ctrl+Q")) {
                 editors.clear();
