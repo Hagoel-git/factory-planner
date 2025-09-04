@@ -139,6 +139,8 @@ private:
     ImVec2 draggedNodeOriginalPos = ImVec2(0, 0);
     ImVec2 draggedNodeNewPos = ImVec2(0, 0);
 
+    std::chrono::time_point<std::chrono::steady_clock> nextAutosaveTime;
+
     ed::NodeId m_contextNodeId;
 
     ed::PinId m_contextPinId;

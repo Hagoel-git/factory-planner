@@ -15,10 +15,14 @@
 namespace ed = ax::NodeEditor;
 
 FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::string &projectFilePath, std::string title)
-    : name(std::move(title)), projectFilePath(projectFilePath), m_contextNodeId(0), m_contextPinId(0), m_contextLinkId(0), undoRedoManager(SettingsManager::instance().getSettings().maxUndoHistory) {
+    : name(std::move(title)), projectFilePath(projectFilePath), m_contextNodeId(0), m_contextPinId(0),
+      m_contextLinkId(0), undoRedoManager(SettingsManager::instance().getSettings().maxUndoHistory) {
     try {
         graph = std::make_unique<FactoryGraph>(game_data);
         solver = std::make_unique<FactorySolver>();
+
+        nextAutosaveTime = std::chrono::steady_clock::now() +
+                           std::chrono::minutes(SettingsManager::instance().getSettings().autoSaveIntervalMinutes);
 
         ed::Config cfg = ed::Config();
         cfg.AutoSaveEnabled = false;
@@ -41,7 +45,7 @@ FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::strin
             quadtree::Vector2<float>(-halfWorldSize, -halfWorldSize),
             quadtree::Vector2<float>(worldSize, worldSize)
         );
-        nodeQuadtree = std::make_unique<quadtree::Quadtree<NodeQuadtreeData, GetNodeBox>>(worldBounds);
+        nodeQuadtree = std::make_unique<quadtree::Quadtree<NodeQuadtreeData, GetNodeBox> >(worldBounds);
 
         FactorySolver::SolverResult result = solver->solve(*graph);
         debugInfo.lastTotalSolveDurationMs = result.total_solve_time_ms;
@@ -80,6 +84,13 @@ FactoryNodeEditor::~FactoryNodeEditor() {
 
 void FactoryNodeEditor::Draw() {
     if (!context) return;
+
+    if (std::chrono::steady_clock::now() > nextAutosaveTime && SettingsManager::instance().getSettings().autoSaveEnabled) {
+        Save();
+        std::cout << "Auto-saved project: " << projectFilePath << std::endl;
+        nextAutosaveTime = std::chrono::steady_clock::now() +
+                           std::chrono::minutes(SettingsManager::instance().getSettings().autoSaveIntervalMinutes);
+    }
 
     ed::SetCurrentEditor(context);
 
