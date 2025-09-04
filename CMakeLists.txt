@@ -105,6 +105,19 @@ set(SRC
 
 add_executable(factory_planner ${SRC})
 
+# ---- Copy runtime assets to the binary directory ----
+add_custom_command(
+        TARGET factory_planner POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_SOURCE_DIR}/data/game_data"
+        "$<TARGET_FILE_DIR:factory_planner>/game_data"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_SOURCE_DIR}/data/assets"
+        "$<TARGET_FILE_DIR:factory_planner>/assets"
+        COMMENT "Copying runtime data and assets to output directory..."
+)
+# Include directories for the target
+
 target_include_directories(factory_planner PRIVATE
         ${CMAKE_SOURCE_DIR}/external
         ${CMAKE_SOURCE_DIR}/src
