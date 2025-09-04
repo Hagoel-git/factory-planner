@@ -107,6 +107,14 @@ void SettingsEditor::DrawRightPanel() {
             m_editSettings.gameDataPath = newGameDataPath;
             m_isDirty = true;
         }
+
+        ImGui::Spacing();
+
+        if (ImGui::Checkbox("Open previous projects on startup", &m_editSettings.restorePreviousSession)) {
+            m_isDirty = true;
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("If enabled, the application will reopen the projects that were open when it was last closed.");
+
         ImGui::PopID();
     }
     else if (m_selCategory == "Editor") {
