@@ -115,6 +115,16 @@ void SettingsEditor::DrawRightPanel() {
         }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("If enabled, the application will reopen the projects that were open when it was last closed.");
 
+        ImGui::Spacing();
+
+        if (ImGui::InputInt("Max Recent Files", &m_editSettings.maxRecentFiles)) {
+            m_editSettings.maxRecentFiles = std::max(1, std::min(50, m_editSettings.maxRecentFiles));
+            m_isDirty = true;
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("(1 - 50)");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Maximum number of recent files to track in the File menu.");
+
         ImGui::PopID();
     }
     else if (m_selCategory == "Editor") {
