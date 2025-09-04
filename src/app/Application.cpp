@@ -13,10 +13,13 @@
 #include "FilesystemUtils.h"
 #include "SettingsManager.h"
 #include "FactoryNodeEditor.h"
+#include "RecentFiles.h"
 #include "SessionManager.h"
 
 Application::Application() {
     SettingsManager::instance().load();
+
+    RecentFiles::instance().load();
 
     if (SettingsManager::instance().getSettings().restorePreviousSession) {
         RestoreSession();
@@ -71,6 +74,7 @@ Application::Application() {
 
 Application::~Application() {
     SettingsManager::instance().save();
+    RecentFiles::instance().save();
     SaveSession();
     editors.clear();
 }
@@ -217,8 +221,18 @@ void Application::DrawMenuBar() {
             if (ImGui::MenuItem("Open", "Ctrl+O")) {
                 showOpenProjectDialog = true; // Show dialog to open existing project
             }
-            if (ImGui::MenuItem("Open Recent (WIP)")) {
-                // todo: Implement recent files functionality
+            if (ImGui::BeginMenu("Open Recent")) {
+                const auto &recentFiles = RecentFiles::instance().getFiles();
+                if (recentFiles.empty()) {
+                    ImGui::TextDisabled("No recent files");
+                } else {
+                    for (const auto &file : recentFiles) {
+                        if (ImGui::MenuItem(file.stem().string().c_str())) {
+                            CreateNewEditor("", file, file.stem().string());
+                        }
+                    }
+                }
+                ImGui::EndMenu();
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Save", "Ctrl+S")) {
@@ -250,6 +264,7 @@ void Application::DrawMenuBar() {
             if (ImGui::MenuItem("Settings")) {
                 settingsEditor.SetOpen(true);
             }
+            ImGui::Separator();
             if (ImGui::MenuItem("Quit", "Ctrl+Q")) {
                 quitRequested = true;
             }
@@ -702,6 +717,7 @@ void Application::CreateNewEditor(const std::string &gameDataFilePath, const std
     activeEditor = static_cast<int>(editors.size()) - 1;
 
     SaveSession();
+    RecentFiles::instance().addFile(location);
 }
 
 bool Application::SaveActiveEditor() {

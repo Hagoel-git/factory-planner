@@ -99,6 +99,8 @@ set(SRC
         src/editor/settings_editor/SettingsEditor.h
         src/services/SessionManager.cpp
         src/services/SessionManager.h
+        src/services/RecentFiles.cpp
+        src/services/RecentFiles.h
 )
 
 add_executable(factory_planner ${SRC})

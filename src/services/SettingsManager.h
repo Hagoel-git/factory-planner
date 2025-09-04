@@ -15,6 +15,7 @@ struct AppSettings {
     bool autoSaveEnabled = true;
     int autoSaveIntervalMinutes = 5;
     int maxUndoHistory = 100;
+    int maxRecentFiles = 10;
 };
 
 class SettingsManager {
