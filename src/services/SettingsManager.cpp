@@ -78,6 +78,9 @@ void SettingsManager::loadAppSettings() {
         if (j.contains("maxUndoHistory") && j["maxUndoHistory"].is_number_integer()) {
             m_settings.maxUndoHistory = j["maxUndoHistory"].get<int>();
         }
+        if (j.contains("maxRecentFiles") && j["maxRecentFiles"].is_number_integer()) {
+            m_settings.maxRecentFiles = j["maxRecentFiles"].get<int>();
+        }
 
     } catch (const std::exception& e) {
         std::cerr << "Failed to parse settings file, using defaults. Error: " << e.what() << std::endl;
@@ -95,6 +98,7 @@ void SettingsManager::saveAppSettings() const {
     j["autoSaveEnabled"] = m_settings.autoSaveEnabled;
     j["autoSaveIntervalMinutes"] = m_settings.autoSaveIntervalMinutes;
     j["maxUndoHistory"] = m_settings.maxUndoHistory;
+    j["maxRecentFiles"] = m_settings.maxRecentFiles;
     const auto path = get_executable_directory().value() / "app_settings.json";
     std::ofstream o(path);
     if (!o.is_open()) {
