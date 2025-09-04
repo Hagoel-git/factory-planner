@@ -11,8 +11,8 @@ struct AppSettings {
     std::string themeName = "Dark"; //todo
     std::string fontName = "DroidSans.ttf"; // must match ImFont debug name
     float fontSize = 18;
-    bool autoSaveEnabled = true; // todo
-    int autoSaveIntervalMinutes = 5; //todo
+    bool autoSaveEnabled = true;
+    int autoSaveIntervalMinutes = 5;
     int maxUndoHistory = 100;
 };
 
