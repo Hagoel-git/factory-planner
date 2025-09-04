@@ -220,10 +220,13 @@ void FactoryNodeEditor::UpdateDebugInfo() {
         debugInfo.quadtreeBoundsMax[0] = bounds.getTopLeft().x + bounds.getSize().x;
         debugInfo.quadtreeBoundsMax[1] = bounds.getTopLeft().y + bounds.getSize().y;
 
-        debugInfo.viewBoundsMin[0] = bounds.getTopLeft().x;
-        debugInfo.viewBoundsMin[1] = bounds.getTopLeft().y;
-        debugInfo.viewBoundsMax[0] = bounds.getTopLeft().x + bounds.getSize().x;
-        debugInfo.viewBoundsMax[1] = bounds.getTopLeft().y + bounds.getSize().y;
+        ImVec2 canvasMin = ed::ScreenToCanvas(windowPos);
+        ImVec2 canvasMax = ed::ScreenToCanvas(windowPos + windowSize);
+
+        debugInfo.viewBoundsMin[0] = canvasMin.x;
+        debugInfo.viewBoundsMin[1] = canvasMin.y;
+        debugInfo.viewBoundsMax[0] = canvasMax.x;
+        debugInfo.viewBoundsMax[1] = canvasMax.y;
     }
 
     debugInfo.undoStackSize = undoRedoManager.getUndoStackSize();
