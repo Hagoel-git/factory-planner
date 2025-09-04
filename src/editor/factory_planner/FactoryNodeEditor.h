@@ -123,6 +123,7 @@ public:
     const DebugInfo& GetDebugInfo() const { return debugInfo; }
 
     const std::string& GetName() const { return name; }
+    const std::filesystem::path& GetProjectFilePath() const { return projectFilePath; }
     const std::filesystem::path& GetGameDataFilePath() const { return graph->getGameData().gameDataFilePath; }
     void SetName(const std::string& newName) { name = newName; }
 private:
