@@ -13,9 +13,14 @@
 #include "FilesystemUtils.h"
 #include "SettingsManager.h"
 #include "FactoryNodeEditor.h"
+#include "SessionManager.h"
 
 Application::Application() {
     SettingsManager::instance().load();
+
+    if (SettingsManager::instance().getSettings().restorePreviousSession) {
+        RestoreSession();
+    }
 
     auto io = ImGui::GetIO();
     std::filesystem::path folderPath = SettingsManager::instance().getSettings().executablePath / "assets" / "fonts";
@@ -66,7 +71,10 @@ Application::Application() {
 
 Application::~Application() {
     SettingsManager::instance().save();
+    SaveSession();
+    editors.clear();
 }
+
 void Application::Draw() {
     HandleShortcuts();
     DrawDebugWindow();
@@ -132,6 +140,15 @@ void Application::Draw() {
             }
         }
     }
+
+    if (focusRequested != -1) {
+        if (focusRequested >= 0 && focusRequested < static_cast<int>(editors.size())) {
+            ImGui::SetWindowFocus(editors[focusRequested]->GetName().c_str());
+            activeEditor = focusRequested;
+        }
+        focusRequested = -1; // Reset after focusing
+    }
+
     if (showFileAlreadyOpenPopup) {
         ImGui::OpenPopup("FileAlreadyOpen");
         showFileAlreadyOpenPopup = false; // Reset after drawing
@@ -224,6 +241,7 @@ void Application::DrawMenuBar() {
             if (ImGui::MenuItem("Close All")) {
                 editors.clear();
                 activeEditor = -1; // Reset active editor
+                SaveSession();
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Game Data Manager")) {
@@ -233,7 +251,6 @@ void Application::DrawMenuBar() {
                 settingsEditor.SetOpen(true);
             }
             if (ImGui::MenuItem("Quit", "Ctrl+Q")) {
-                editors.clear();
                 quitRequested = true;
             }
 
@@ -296,7 +313,6 @@ void Application::HandleShortcuts() {
             }
         }
         if (ImGui::IsKeyPressed(ImGuiKey_Q)) {
-            editors.clear();
             quitRequested = true;
         }
         if (ImGui::IsKeyPressed(ImGuiKey_Y)) {
@@ -626,6 +642,37 @@ void Application::DrawSaveAsDialog() {
     }
 }
 
+void Application::RestoreSession() {
+    restoringSession = true;
+    SessionManager::instance().load();
+    const auto& session = SessionManager::instance().getSessionState();
+    for (const auto& path : session.openProjectPaths) {
+        if (std::filesystem::exists(path)) {
+            CreateNewEditor("", path, path.stem().string());
+        } else {
+            std::cerr << "Warning: Project file from previous session does not exist: " << path << std::endl;
+        }
+    }
+    if (session.activeProjectIndex >= 0 && session.activeProjectIndex < static_cast<int>(editors.size())) {
+        focusRequested = session.activeProjectIndex;
+    }
+    restoringSession = false;
+}
+
+void Application::SaveSession() {
+    if (restoringSession) return; // Don't save while restoring
+
+    SessionState state;
+    for (auto &editor : editors) {
+        if (editor) {
+            state.openProjectPaths.push_back(editor->GetProjectFilePath());
+        }
+    }
+    state.activeProjectIndex = activeEditor;
+    SessionManager::instance().setSessionState(state);
+    SessionManager::instance().save();
+}
+
 void Application::CreateNewEditor(const std::string &gameDataFilePath, const std::string &location,
                                   const std::string &name) {
     // Check if an editor with the same name already exists
@@ -653,6 +700,8 @@ void Application::CreateNewEditor(const std::string &gameDataFilePath, const std
 
     // Switch to the new tab
     activeEditor = static_cast<int>(editors.size()) - 1;
+
+    SaveSession();
 }
 
 bool Application::SaveActiveEditor() {
@@ -776,6 +825,8 @@ void Application::CloseEditor(int index) {
     } else if (activeEditor >= static_cast<int>(editors.size())) {
         activeEditor = static_cast<int>(editors.size()) - 1;
     }
+
+    SaveSession();
 }
 
 void Application::CloseEditorByName(const std::string& name) {

@@ -57,6 +57,9 @@ void SettingsManager::loadAppSettings() {
         if (j.contains("defaultProjectPath") && j["defaultProjectPath"].is_string()) {
             m_settings.defaultProjectPath = j["defaultProjectPath"].get<std::string>();
         }
+        if (j.contains("restorePreviousSession") && j["restorePreviousSession"].is_boolean()) {
+            m_settings.restorePreviousSession = j["restorePreviousSession"].get<bool>();
+        }
         if (j.contains("themeName") && j["themeName"].is_string()) {
             m_settings.themeName = j["themeName"].get<std::string>();
         }
@@ -85,6 +88,7 @@ void SettingsManager::saveAppSettings() const {
     json j;
     j["gameDataPath"] = m_settings.gameDataPath.string();
     j["defaultProjectPath"] = m_settings.defaultProjectPath.string();
+    j["restorePreviousSession"] = m_settings.restorePreviousSession;
     j["themeName"] = m_settings.themeName;
     j["fontName"] = m_settings.fontName;
     j["fontSize"] = m_settings.fontSize;

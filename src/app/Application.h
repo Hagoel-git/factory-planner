@@ -31,6 +31,7 @@ private:
     std::string gameDataManagerError;
     bool dockInitialized = false;
     int activeEditor = -1; // No active editor initially
+    int focusRequested = -1; // No focus request initially
 
     CopyBuffer copyBuffer;
 
@@ -41,6 +42,8 @@ private:
     bool showSaveDialog = false;
     bool isSaveAsCopy = false;
 
+    bool restoringSession = false;
+
     void DrawMenuBar();
 
     void HandleShortcuts();
@@ -49,6 +52,10 @@ private:
     void DrawOpenProjectDialog();
 
     void DrawSaveAsDialog();
+
+    void RestoreSession();
+
+    void SaveSession();
 
     void CreateNewEditor(const std::string &gameDataFilePath, const std::string &location, const std::string &name);
 
