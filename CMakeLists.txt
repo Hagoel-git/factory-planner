@@ -101,6 +101,8 @@ set(SRC
         src/services/SessionManager.h
         src/services/RecentFiles.cpp
         src/services/RecentFiles.h
+        src/common/TextureUtils.h
+        src/common/TextureUtils.cpp
 )
 
 add_executable(factory_planner ${SRC})

@@ -190,8 +190,8 @@ void Application::ChangeTheme() {
             if (SettingsManager::instance().getSettings().themeName == "Dark") {
                 ed_style.Colors[ed::StyleColor_Bg] = ImColor(24, 24, 27, 255);
                 ed_style.Colors[ed::StyleColor_Grid] = ImColor(36, 37, 40, 255);
-                ed_style.Colors[ed::StyleColor_NodeBg] = ImColor(48, 49, 54, 205);
-                ed_style.Colors[ed::StyleColor_NodeBorder] = ImColor(96, 96, 96, 255);
+                ed_style.Colors[ed::StyleColor_NodeBg] = ImColor(68, 70, 76, 205);
+                ed_style.Colors[ed::StyleColor_NodeBorder] = ImColor(106, 106, 106, 255);
                 ed_style.Colors[ed::StyleColor_HovNodeBorder] = ImColor(50, 175, 255, 255);
                 ed_style.Colors[ed::StyleColor_HovLinkBorder] = ImColor(50, 175, 255, 255);
                 ed_style.Colors[ed::StyleColor_SelNodeBorder] = ImColor(255, 176,  50, 255);
