@@ -67,9 +67,9 @@ Application::Application() {
     }
 
     if (font) ImGui::GetIO().FontDefault = font;
-    auto style = &ImGui::GetStyle();
-    style->_NextFrameFontSizeBase = SettingsManager::instance().getSettings().fontSize;
-
+    auto im_gui_style = &ImGui::GetStyle();
+    im_gui_style->_NextFrameFontSizeBase = SettingsManager::instance().getSettings().fontSize;
+    //
 }
 
 Application::~Application() {
@@ -80,6 +80,12 @@ Application::~Application() {
 }
 
 void Application::Draw() {
+    if (SettingsManager::instance().getSettings().themeName != currentTheme || SettingsManager::instance().getSettings().showGrid != currentShowGrid) {
+        currentTheme = SettingsManager::instance().getSettings().themeName;
+        currentShowGrid = SettingsManager::instance().getSettings().showGrid;
+        ChangeTheme();
+    }
+
     HandleShortcuts();
     DrawDebugWindow();
     DrawMenuBar();
@@ -167,6 +173,46 @@ void Application::Draw() {
         ImGui::EndPopup();
     }
     ImGui::End();
+}
+
+void Application::ChangeTheme() {
+    if (SettingsManager::instance().getSettings().themeName == "Dark") {
+        ImGui::StyleColorsDark();
+    } else {
+        ImGui::StyleColorsLight();
+    }
+
+    for (auto &editor : editors) {
+        if (editor) {
+            ed::SetCurrentEditor(editor->GetContext());
+            auto& ed_style = ed::GetStyle();
+
+            if (SettingsManager::instance().getSettings().themeName == "Dark") {
+                ed_style.Colors[ed::StyleColor_Bg] = ImColor(24, 24, 27, 255);
+                ed_style.Colors[ed::StyleColor_Grid] = ImColor(36, 37, 40, 255);
+                ed_style.Colors[ed::StyleColor_NodeBg] = ImColor(48, 49, 54, 205);
+                ed_style.Colors[ed::StyleColor_NodeBorder] = ImColor(96, 96, 96, 255);
+                ed_style.Colors[ed::StyleColor_HovNodeBorder] = ImColor(50, 175, 255, 255);
+                ed_style.Colors[ed::StyleColor_HovLinkBorder] = ImColor(50, 175, 255, 255);
+                ed_style.Colors[ed::StyleColor_SelNodeBorder] = ImColor(255, 176,  50, 255);
+                ed_style.Colors[ed::StyleColor_SelLinkBorder] = ImColor(255, 176,  50, 255);
+            } else {
+                ed_style.Colors[ed::StyleColor_Bg]            = ImColor(248, 248, 248, 255);
+                ed_style.Colors[ed::StyleColor_Grid]          = ImColor(220, 220, 220, 255);
+                ed_style.Colors[ed::StyleColor_NodeBg]        = ImColor(255, 255, 255, 205);
+                ed_style.Colors[ed::StyleColor_NodeBorder]    = ImColor(200, 200, 200, 255);
+                ed_style.Colors[ed::StyleColor_HovNodeBorder] = ImColor(0, 120, 215, 255);
+                ed_style.Colors[ed::StyleColor_HovLinkBorder] = ImColor(0, 120, 215, 255);
+                ed_style.Colors[ed::StyleColor_SelNodeBorder] = ImColor(255, 130, 255, 255);
+                ed_style.Colors[ed::StyleColor_SelLinkBorder] = ImColor(255, 130, 255, 255);
+            }
+
+            if (!SettingsManager::instance().getSettings().showGrid) {
+                ed_style.Colors[ed::StyleColor_Grid] = ed_style.Colors[ed::StyleColor_Bg];
+            }
+            ed::SetCurrentEditor(nullptr);
+        }
+    }
 }
 
 void Application::DrawDebugWindow() {

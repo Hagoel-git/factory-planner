@@ -182,6 +182,14 @@ void SettingsEditor::DrawRightPanel() {
         ImGui::SameLine();
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Select the editor theme.");
         ImGui::Spacing();
+
+        if (ImGui::Checkbox("Show Grid in Node Editor", &m_editSettings.showGrid)) {
+            m_isDirty = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Toggle background grid visibility in the node editor.");
+
+        ImGui::Spacing();
         ImGuiIO& io = ImGui::GetIO();
 
         if (ImGui::BeginCombo("Fonts###Selector", m_editSettings.fontName.c_str()))

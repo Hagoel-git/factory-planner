@@ -11,6 +11,7 @@
 #include <string>
 #include <utility>
 
+#include "imgui_node_editor_internal.h"
 #include "SettingsManager.h"
 namespace ed = ax::NodeEditor;
 
@@ -34,6 +35,19 @@ FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::strin
         cfg.UserPointer = nullptr;
         context = ed::CreateEditor(&cfg);
         ed::SetCurrentEditor(context);
+
+        auto& ed_style = ed::GetStyle();
+        ed_style.NodeRounding = 2.0f;
+        ed_style.PinRounding = 0.0f;
+        ed_style.NodeBorderWidth = 1.0f;
+        ed_style.HoveredNodeBorderWidth = 1.5f;
+        ed_style.HoverNodeBorderOffset = ed_style.NodeBorderWidth;
+        ed_style.SelectedNodeBorderWidth = 1.5f;
+        ed_style.SelectedNodeBorderOffset = ed_style.NodeBorderWidth;
+        ed_style.PinRadius = 0.0f;
+        ed_style.PivotAlignment = ImVec2(0.5f, 0.5f);
+
+        ed_style.FlowDuration = 6.0f;
 
         ProjectIO::LoadProject(projectFilePath, *graph);
 
@@ -364,6 +378,7 @@ void FactoryNodeEditor::DrawNodes() {
                     ed::PinId pinId = IdUtils::ToPinId(p->id);
                     ed::BeginPin(pinId, ed::PinKind::Input);
                     ImGui::Text("<%.2f> %s",p->rate ,graph->getGameData().resources.at(p->resource_key).name.c_str()); // Display resource name
+                    ed::PinPivotAlignment(ImVec2{0.0f, 0.5f});
                     ed::EndPin();
                 }
             } else {
@@ -378,6 +393,7 @@ void FactoryNodeEditor::DrawNodes() {
                     ed::PinId pinId = IdUtils::ToPinId(p->id);
                     ed::BeginPin(pinId, ed::PinKind::Output);
                     ImGui::Text("%s <%.2f>",p->rate, graph->getGameData().resources.at(p->resource_key).name.c_str()); // Display resource name
+                    ed::PinPivotAlignment(ImVec2{1.0f, 0.5f});
                     ed::EndPin();
                 }
             } else {
@@ -391,7 +407,8 @@ void FactoryNodeEditor::DrawNodes() {
 
 void FactoryNodeEditor::DrawConnections() {
     for (const auto &c: graph->getConnections()) {
-        ed::Link(IdUtils::ToLinkId(c.id), IdUtils::ToPinId(c.from_port), IdUtils::ToPinId(c.to_port));
+        ImVec4 color = SettingsManager::instance().getSettings().themeName == "Dark" ? ImVec4(1.0f, 1.0f, 1.0f, 1.0f) : ImVec4(0.0f, 0.0f, 0.0f,  1.0f);
+        ed::Link(IdUtils::ToLinkId(c.id), IdUtils::ToPinId(c.from_port), IdUtils::ToPinId(c.to_port), color, 1.5f);
     }
 }
 

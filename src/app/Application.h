@@ -20,6 +20,8 @@ public:
 
     void Draw();
 
+    void ChangeTheme();
+
     void DrawDebugWindow();
 
     bool quitRequested = false;
@@ -29,6 +31,9 @@ private:
     SettingsEditor settingsEditor;
     GameDataManager gameDataManager;
     std::string gameDataManagerError;
+    std::string currentTheme;
+    bool currentShowGrid = false;
+
     bool dockInitialized = false;
     int activeEditor = -1; // No active editor initially
     int focusRequested = -1; // No focus request initially
