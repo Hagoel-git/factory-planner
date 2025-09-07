@@ -69,6 +69,9 @@ void SettingsManager::loadAppSettings() {
         if (j.contains("fontSize") && j["fontSize"].is_number_float()) {
             m_settings.fontSize = j["fontSize"].get<float>();
         }
+        if (j.contains("showGrid") && j["showGrid"].is_boolean()) {
+            m_settings.showGrid = j["showGrid"].get<bool>();
+        }
         if (j.contains("autoSaveEnabled") && j["autoSaveEnabled"].is_boolean()) {
             m_settings.autoSaveEnabled = j["autoSaveEnabled"].get<bool>();
         }
@@ -95,6 +98,7 @@ void SettingsManager::saveAppSettings() const {
     j["themeName"] = m_settings.themeName;
     j["fontName"] = m_settings.fontName;
     j["fontSize"] = m_settings.fontSize;
+    j["showGrid"] = m_settings.showGrid;
     j["autoSaveEnabled"] = m_settings.autoSaveEnabled;
     j["autoSaveIntervalMinutes"] = m_settings.autoSaveIntervalMinutes;
     j["maxUndoHistory"] = m_settings.maxUndoHistory;

@@ -9,9 +9,10 @@ struct AppSettings {
     bool restorePreviousSession = true;
     std::filesystem::path gameDataPath = executablePath / "game_data";
     std::filesystem::path defaultProjectPath = executablePath / "projects";
-    std::string themeName = "Dark"; //todo
+    std::string themeName = "Dark";
     std::string fontName = "DroidSans.ttf"; // must match ImFont debug name
     float fontSize = 18;
+    bool showGrid = false;
     bool autoSaveEnabled = true;
     int autoSaveIntervalMinutes = 5;
     int maxUndoHistory = 100;
