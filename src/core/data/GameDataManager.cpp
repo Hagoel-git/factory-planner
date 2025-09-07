@@ -3,10 +3,14 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
+#include <iostream>
+#include <GL/gl.h>
 
 #include <nlohmann/json.hpp>
 
+#include "SettingsManager.h"
 #include "StringUtils.h"
+#include "TextureUtils.h"
 
 using json = nlohmann::json;
 
@@ -318,6 +322,11 @@ GameData GameDataManager::jsonToGameData(const json &j, std::string &outError) {
     outError.clear();
     std::filesystem::path path = _data.gameDataFilePath;
     GameData gd;
+
+    GLuint unknownTexture;
+    std::filesystem::path path_unknown = SettingsManager::instance().getSettings().executablePath / "assets" / "icons" / "unknown.png";
+    TextureUtils::LoadTextureFromFile(path_unknown.c_str(), &unknownTexture, nullptr, nullptr);
+    ImTextureID unknownTextureID = (ImTextureID)(intptr_t)unknownTexture;
     try {
         gd.gameName = j.value("gameName", std::string("unknown"));
         gd.time_unit = j.value("time_unit", std::string("seconds"));
@@ -340,6 +349,16 @@ GameData GameDataManager::jsonToGameData(const json &j, std::string &outError) {
                 if (key == "nothing") continue;
                 Resource res;
                 res.name = name.empty() ? key : name;
+                std::filesystem::path texturePath = SettingsManager::instance().getSettings().gameDataPath / path.stem() / "textures/resources" / (key + ".png");
+                std::cout << "Loading texture for resource '" << key << "' from " << texturePath << std::endl;
+                if (std::filesystem::exists(texturePath)) {
+                    // load texture (defer actual loading to caller)
+                    GLuint texture;
+                    TextureUtils::LoadTextureFromFile(texturePath.string().c_str(), &texture, nullptr, nullptr);
+                    res.texture = (ImTextureID)(intptr_t)texture;
+                } else {
+                    res.texture = unknownTextureID;
+                }
                 gd.resources[key] = res;
             }
         };

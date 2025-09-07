@@ -134,6 +134,8 @@ private:
 
     DebugInfo debugInfo;
 
+    ImTextureID textureID;
+
     bool wasDragging = false;
     bool draggingNodes = false;
     ed::NodeId draggedNodeId;

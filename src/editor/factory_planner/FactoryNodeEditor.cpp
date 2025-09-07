@@ -13,6 +13,7 @@
 
 #include "imgui_node_editor_internal.h"
 #include "SettingsManager.h"
+#include "TextureUtils.h"
 namespace ed = ax::NodeEditor;
 
 FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::string &projectFilePath, std::string title)
@@ -375,9 +376,11 @@ void FactoryNodeEditor::DrawNodes() {
                 Port *p = graph->getPort(node->input_ports[i]);
                 if (!p) continue; // Skip invalid ports
                 if (p->resource_key != "nothing") {
+                    Resource res = graph->getGameData().resources.at(p->resource_key);
                     ed::PinId pinId = IdUtils::ToPinId(p->id);
                     ed::BeginPin(pinId, ed::PinKind::Input);
-                    ImGui::Text("<%.2f> %s",p->rate ,graph->getGameData().resources.at(p->resource_key).name.c_str()); // Display resource name
+                    ImGui::Image(res.texture, ImVec2(24,24)); ImGui::SameLine();
+                    ImGui::Text("<%.2f> %s",p->rate ,res.name.c_str()); // Display resource name
                     ed::PinPivotAlignment(ImVec2{0.0f, 0.5f});
                     ed::EndPin();
                 }
@@ -390,9 +393,11 @@ void FactoryNodeEditor::DrawNodes() {
                 if (!p) continue; // Skip invalid ports
                 if (p->resource_key != "nothing") {
                     // Skip ports with no resource
+                    Resource res = graph->getGameData().resources.at(p->resource_key);
                     ed::PinId pinId = IdUtils::ToPinId(p->id);
                     ed::BeginPin(pinId, ed::PinKind::Output);
-                    ImGui::Text("%s <%.2f>",p->rate, graph->getGameData().resources.at(p->resource_key).name.c_str()); // Display resource name
+                    ImGui::Image(res.texture, ImVec2(24,24)); ImGui::SameLine();
+                    ImGui::Text("%s <%.2f>",p->rate, res.name.c_str()); // Display resource name
                     ed::PinPivotAlignment(ImVec2{1.0f, 0.5f});
                     ed::EndPin();
                 }
