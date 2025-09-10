@@ -757,6 +757,8 @@ void Application::CreateNewEditor(const std::string &gameDataFilePath, const std
         auto editor = std::make_unique<FactoryNodeEditor>(gameDataManager.current(), location, name);
         editors.push_back(std::move(editor));
         gameDataManager.clear();
+
+        ChangeTheme(); // Apply current theme to new editor
     }
 
     // Switch to the new tab

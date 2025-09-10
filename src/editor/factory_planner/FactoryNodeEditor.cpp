@@ -38,6 +38,7 @@ FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::strin
         ed::SetCurrentEditor(context);
 
         auto& ed_style = ed::GetStyle();
+        ed_style.NodePadding = ImVec4(2,6,2,6);
         ed_style.NodeRounding = 2.0f;
         ed_style.PinRounding = 0.0f;
         ed_style.NodeBorderWidth = 1.0f;
@@ -367,61 +368,110 @@ void FactoryNodeEditor::DrawNodes() {
         if (!node) continue;
 
         ed::NodeId nodeId = IdUtils::ToNodeId(node->id);
-
         ed::BeginNode(nodeId);
 
-        ImGui::BeginGroup(); // Group inputs/outputs
-        ImGui::Dummy(ImVec2(0, 0));
-        {
-            if (!node->input_ports.empty()) {
-                ImGui::BeginGroup();
-                for (int port : node->input_ports) {
-                    Port *p = graph->getPort(port);
-                    if (!p || p->resource_key == "nothing") continue;
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0,0));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(2,0));
 
-                    Resource res = graph->getGameData().resources.at(p->resource_key);
-                    ed::BeginPin(IdUtils::ToPinId(p->id), ed::PinKind::Input);
-                    ImGui::Image(res.texture, ImVec2(24,24)); ImGui::SameLine();
-                    ImGui::Text("%.2f",p->rate); // Display resource name
-                    ed::PinPivotAlignment(ImVec2{0.0f, 0.5f});
-                    ed::EndPin();
-                }
-                ImGui::EndGroup();
+        // --- PRE-CALC: count visible ports and heights ----
+        ImGuiStyle &style = ImGui::GetStyle();
+        float font_h = ImGui::GetFontSize();                // text height
+        float port_img_h = 24.0f;                          // the image height for pins
+        float port_line_h = std::max(port_img_h, font_h);  // effective per-pin height
+        float spacing_y = style.ItemSpacing.y;             // vertical spacing between items
+
+        // Count only visible ports (skip resource_key == "nothing")
+        int visible_inputs = 0, visible_outputs = 0;
+        for (int portId : node->input_ports) {
+            Port *p = graph->getPort(portId);
+            if (p && p->resource_key != "nothing") ++visible_inputs;
+        }
+        for (int portId : node->output_ports) {
+            Port *p = graph->getPort(portId);
+            if (p && p->resource_key != "nothing") ++visible_outputs;
+        }
+
+        // Heights of each column
+        float inputs_h = (visible_inputs > 0) ? (visible_inputs * port_line_h + (visible_inputs - 1) * spacing_y) : 0.0f;
+        float outputs_h = (visible_outputs > 0) ? (visible_outputs * port_line_h + (visible_outputs - 1) * spacing_y) : 0.0f;
+        float machine_h = 48.0f; // the machine image height
+        // Node height = tallest column
+        float node_h = std::max(machine_h, std::max(inputs_h, outputs_h));
+
+        // Offsets to vertically center each column within node_h
+        float inputs_offset = (node_h - inputs_h) * 0.5f;
+        float machine_offset = (node_h - machine_h) * 0.5f;
+        float outputs_offset = (node_h - outputs_h) * 0.5f;
+
+        // --- LEFT (inputs) ---
+        ImGui::BeginGroup();
+        // add vertical offset to center inputs column
+        if (inputs_offset > 0.0f) ImGui::Dummy(ImVec2(0, inputs_offset));
+
+        if (visible_inputs > 0) {
+            ImGui::BeginGroup();
+            for (int port : node->input_ports) {
+                Port *p = graph->getPort(port);
+                if (!p || p->resource_key == "nothing") continue;
+
+                Resource res = graph->getGameData().resources.at(p->resource_key);
+                ed::BeginPin(IdUtils::ToPinId(p->id), ed::PinKind::Input);
+                ImGui::Image(res.texture, ImVec2(24,24)); ImGui::SameLine();
+                ImGui::Text("%.2f", p->rate);
+                ed::PinPivotAlignment(ImVec2{0.0f, 0.5f});
+                ed::EndPin();
             }
+            ImGui::EndGroup();
         }
         ImGui::EndGroup();
 
         ImGui::SameLine();
+
+        // --- MIDDLE (machine) ---
         ImGui::BeginGroup();
-        ImGui::Dummy(ImVec2(0, 0));
+        if (machine_offset > 0.0f) ImGui::Dummy(ImVec2(0, machine_offset));
         if (graph->getGameData().machines.find(node->machine_key) != graph->getGameData().machines.end()) {
             ImGui::Image(graph->getGameData().machines.at(node->machine_key).texture, ImVec2(48,48));
+        } else {
+            // reserve the same space if machine missing
+            ImGui::Dummy(ImVec2(48, machine_h));
         }
+        const char* countText = ImGui::GetCurrentContext() ? "%.2f" : "%.2f";
+        char buf[32];
+        snprintf(buf, sizeof(buf), countText, node->machine_count);
+        float textWidth = ImGui::CalcTextSize(buf).x;
+        float imageWidth = 48.0f;
+        float groupStartX = ImGui::GetCursorPosX();
+        ImGui::SetCursorPosX(groupStartX + (imageWidth - textWidth) * 0.5f);
+        ImGui::Text("%s", buf);
         ImGui::EndGroup();
 
         ImGui::SameLine();
 
+        // --- RIGHT (outputs) ---
         ImGui::BeginGroup();
-        ImGui::Dummy(ImVec2(0, 0));
-        {
-            if (!node->output_ports.empty()) {
-                ImGui::BeginGroup();
-                for (int port : node->output_ports) {
-                    Port *p = graph->getPort(port);
-                    if (!p || p->resource_key == "nothing") continue;
-                    // Skip ports with no resource
-                    Resource res = graph->getGameData().resources.at(p->resource_key);
-                    ed::BeginPin(IdUtils::ToPinId(p->id), ed::PinKind::Output);
-                    ImGui::Text("%.2f",p->rate); // Display resource name
-                    ImGui::SameLine();
-                    ImGui::Image(res.texture, ImVec2(24,24)); ImGui::SameLine();
-                    ed::PinPivotAlignment(ImVec2{1.0f, 0.5f});
-                    ed::EndPin();
-                }
-                ImGui::EndGroup();
+        if (outputs_offset > 0.0f) ImGui::Dummy(ImVec2(0, outputs_offset));
+
+        if (visible_outputs > 0) {
+            ImGui::BeginGroup();
+            for (int port : node->output_ports) {
+                Port *p = graph->getPort(port);
+                if (!p || p->resource_key == "nothing") continue;
+
+                Resource res = graph->getGameData().resources.at(p->resource_key);
+                ed::BeginPin(IdUtils::ToPinId(p->id), ed::PinKind::Output);
+                // text first then image on the right (keeps pin pivot consistent)
+                ImGui::Text("%.2f", p->rate); ImGui::SameLine();
+                ImGui::Image(res.texture, ImVec2(24,24));
+                // depending on your desired layout you can switch order above
+                ed::PinPivotAlignment(ImVec2{1.0f, 0.5f});
+                ed::EndPin();
             }
+            ImGui::EndGroup();
         }
-        ImGui::EndGroup(); // End inputs/outputs group
+        ImGui::EndGroup();
+
+        ImGui::PopStyleVar(2);
         ed::EndNode();
     }
 }
