@@ -35,8 +35,8 @@ struct Node {
 
     Node() = default;
 
-    Node(std::string name, NodeType type, int id)
-        : name(std::move(name)), type(type), id(id) {
+    Node(std::string name, int id)
+        : name(std::move(name)), type(NodeType::PROCESSOR), id(id) {
     }
 
     friend bool operator==(const Node &lhs, const Node &rhs) {
