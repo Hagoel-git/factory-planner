@@ -418,6 +418,9 @@ void FactoryNodeEditor::DrawNodes() {
                 ed::BeginPin(IdUtils::ToPinId(p->id), ed::PinKind::Input);
                 ImGui::Image(res.texture, ImVec2(24,24)); ImGui::SameLine();
                 ImGui::Text("%.2f", p->rate);
+                if (SettingsManager::instance().getSettings().showResourceNames) {
+                    ImGui::Text("%s", res.name.c_str());
+                }
                 ed::PinPivotAlignment(ImVec2{0.0f, 0.5f});
                 ed::EndPin();
             }
@@ -463,6 +466,9 @@ void FactoryNodeEditor::DrawNodes() {
                 // text first then image on the right (keeps pin pivot consistent)
                 ImGui::Text("%.2f", p->rate); ImGui::SameLine();
                 ImGui::Image(res.texture, ImVec2(24,24));
+                if (SettingsManager::instance().getSettings().showResourceNames) {
+                    ImGui::Text("%s", res.name.c_str());
+                }
                 // depending on your desired layout you can switch order above
                 ed::PinPivotAlignment(ImVec2{1.0f, 0.5f});
                 ed::EndPin();

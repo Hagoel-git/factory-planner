@@ -186,8 +186,13 @@ void SettingsEditor::DrawRightPanel() {
         if (ImGui::Checkbox("Show Grid in Node Editor", &m_editSettings.showGrid)) {
             m_isDirty = true;
         }
-        ImGui::SameLine();
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Toggle background grid visibility in the node editor.");
+
+        if (ImGui::Checkbox("Show Resource Names in Node Editor", &m_editSettings.showResourceNames)) {
+            m_isDirty = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Toggle display of resource names next to their icons in the node editor.");
 
         ImGui::Spacing();
         ImGuiIO& io = ImGui::GetIO();
