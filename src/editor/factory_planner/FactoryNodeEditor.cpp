@@ -782,7 +782,7 @@ void FactoryNodeEditor::HandlePopups() {
                 for (const auto& port : ports) {
                     if (port.resource_key == resourceFilter) {
                         if (ImGui::Selectable(recipe.second.name.c_str())) {
-                            executeCommand(std::make_unique<AddNodeCommand>(recipe.second.name, NodeType::PROCESSOR, recipe.first, selected_port_id, ed::ScreenToCanvas(m_storedPopupPosition)));
+                            executeCommand(std::make_unique<AddNodeCommand>(recipe.second.name, recipe.first, selected_port_id, ed::ScreenToCanvas(m_storedPopupPosition)));
                             ImGui::CloseCurrentPopup();
                         }
                     }
@@ -791,7 +791,7 @@ void FactoryNodeEditor::HandlePopups() {
         } else {
             for (const auto& recipe : graph->getGameData().recipes) {
                 if (ImGui::Selectable(recipe.second.name.c_str())) {
-                    executeCommand(std::make_unique<AddNodeCommand>(recipe.second.name, NodeType::PROCESSOR, recipe.first, -1, m_storedPopupPosition));
+                    executeCommand(std::make_unique<AddNodeCommand>(recipe.second.name, recipe.first, -1, m_storedPopupPosition));
                     ImGui::CloseCurrentPopup();
                 }
             }

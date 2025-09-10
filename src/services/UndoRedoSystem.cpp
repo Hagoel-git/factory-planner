@@ -43,7 +43,7 @@ void UndoRedoManager::trimUndoStack() {
 
 void AddNodeCommand::execute(FactoryGraph &graph) {
     if (!executed) {
-        int newNodeId = graph.addNode(nodeName, nodeType, recipeKey);
+        int newNodeId = graph.addNode(nodeName, recipeKey);
         ed::SetNodePosition(IdUtils::ToNodeId(newNodeId), position);
 
         if (fromPort != -1) {
@@ -204,7 +204,7 @@ void PasteCommand::execute(FactoryGraph &graph) {
         for (const auto &pair: copy_buffer.nodes) {
             int oldId = pair.first;
             const auto &node = pair.second;
-            int newId = graph.addNode(node.name, node.type, node.selected_recipe_key);
+            int newId = graph.addNode(node.name, node.selected_recipe_key);
             ImVec2 oldPos = copy_buffer.nodePositions[oldId];
             ImVec2 newPos = ImVec2(oldPos.x + offset.x, oldPos.y + offset.y);
 

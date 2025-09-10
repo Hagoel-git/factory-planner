@@ -4,10 +4,10 @@
 #include <unordered_set>
 #include <utility>
 
-int FactoryGraph::addNode(const std::string &name, NodeType type, std::string recipe_key) {
+int FactoryGraph::addNode(const std::string &name, std::string recipe_key) {
     int id = next_node_id++;
     size_t index = nodes.size();
-    nodes.emplace_back(name, type, id);
+    nodes.emplace_back(name, id);
     addNodeToIndex(id, index);
     setNodeRecipe(id, std::move(recipe_key));
     return id;
@@ -235,11 +235,8 @@ nlohmann::json FactoryGraph::serialize() const {
         nlohmann::json node_json;
         node_json["id"] = node.id;
         node_json["name"] = node.name;
-        node_json["type"] = node.type;
         node_json["machine_key"] = node.machine_key;
         node_json["selected_recipe_key"] = node.selected_recipe_key;
-        node_json["input_ports"] = node.input_ports;
-        node_json["output_ports"] = node.output_ports;
         j["nodes"].push_back(node_json);
     }
 
@@ -362,6 +359,13 @@ bool FactoryGraph::setNodeRecipe(int node_id, const std::string& recipe_key) {
     for (int i = 0; i < recipe.output_ports.size(); ++i) {
         int port_id = addPort(recipe.output_ports.at(i).resource_key, node_id, false);
         node->output_ports[i] = port_id;
+    }
+    if (recipe.input_ports.size() == 1 && recipe.input_ports.at(0).resource_key == "nothing") {
+        node->type = NodeType::PRODUCER;
+    } else if (recipe.output_ports.size() == 1 && recipe.output_ports.at(0).resource_key == "nothing") {
+        node->type = NodeType::CONSUMER;
+    } else {
+        node->type = NodeType::PROCESSOR;
     }
     return true;
 }
