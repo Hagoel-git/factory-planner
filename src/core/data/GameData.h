@@ -17,7 +17,7 @@ struct Resource {
 struct Machine {
     std::string name;
     double base_crafting_speed = 1.0; // linear crafting speed multiplier. Default 1.0 means recipe time is used as-is.
-    // ImTextureID texture;
+    ImTextureID texture;
 };
 
 

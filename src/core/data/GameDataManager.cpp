@@ -350,7 +350,6 @@ GameData GameDataManager::jsonToGameData(const json &j, std::string &outError) {
                 Resource res;
                 res.name = name.empty() ? key : name;
                 std::filesystem::path texturePath = SettingsManager::instance().getSettings().gameDataPath / path.stem() / "textures/resources" / (key + ".png");
-                std::cout << "Loading texture for resource '" << key << "' from " << texturePath << std::endl;
                 if (std::filesystem::exists(texturePath)) {
                     // load texture (defer actual loading to caller)
                     GLuint texture;
@@ -375,6 +374,15 @@ GameData GameDataManager::jsonToGameData(const json &j, std::string &outError) {
                 Machine mm;
                 mm.name = name.empty() ? key : name;
                 mm.base_crafting_speed = eff <= 0.0 ? 1.0 : eff;
+                std::filesystem::path texturePath = SettingsManager::instance().getSettings().gameDataPath / path.stem() / "textures/machines" / (key + ".png");
+                if (std::filesystem::exists(texturePath)) {
+                    // load texture (defer actual loading to caller)
+                    GLuint texture;
+                    TextureUtils::LoadTextureFromFile(texturePath.string().c_str(), &texture, nullptr, nullptr);
+                    mm.texture = (ImTextureID)(intptr_t)texture;
+                } else {
+                    mm.texture = unknownTextureID;
+                }
                 gd.machines[key] = mm;
             }
         }
