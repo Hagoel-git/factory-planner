@@ -282,9 +282,9 @@ void FactorySolver::updateFactoryGraph(FactoryGraph &factory_graph) const {
         const Recipe &recipe = factory_graph.getGameData().recipes.find(node.selected_recipe_key)->second;
         double machine_count;
         if (recipe.input_ports.size() == 1 && recipe.input_ports.at(0).resource_key == "nothing") {
-            machine_count = factory_graph.getPort(node.input_ports.at(0))->rate / (recipe.input_ports.at(0).amount / recipe.time_seconds * time_unit * (node.clock_speed / 100.0));
-        } else {
             machine_count = factory_graph.getPort(node.output_ports.at(0))->rate / (recipe.output_ports.at(0).amount / recipe.time_seconds * time_unit * (node.clock_speed / 100.0));
+        } else {
+            machine_count = factory_graph.getPort(node.input_ports.at(0))->rate / (recipe.input_ports.at(0).amount / recipe.time_seconds * time_unit * (node.clock_speed / 100.0));
         }
         node.machine_count = machine_count;
     }
