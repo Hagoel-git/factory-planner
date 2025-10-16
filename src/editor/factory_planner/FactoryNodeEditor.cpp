@@ -257,7 +257,43 @@ void FactoryNodeEditor::DrawToolbar() {
     }
     ImGui::SameLine();
     if (ImGui::Button("Fit View")) {
-        ed::NavigateToContent();
+        const auto& allNodes = graph->getNodes();
+        if (!allNodes.empty()) {
+            ImRect contentBounds;
+            bool isFirstNode = true;
+
+            for (const auto& node : allNodes) {
+                ed::NodeId nodeId = IdUtils::ToNodeId(node.id);
+                ImVec2 nodePos = ed::GetNodePosition(nodeId);
+                ImVec2 nodeSize = ed::GetNodeSize(nodeId);
+
+                // A node that has never been drawn will have a size of (0,0).
+                // We'll use a default fallback size to ensure it's included in the bounds.
+                if (nodeSize.x <= 0.0f || nodeSize.y <= 0.0f) {
+                    nodeSize = ImVec2(300.0f, 100.0f); // A reasonable default estimate.
+                }
+
+                ImRect nodeBounds(nodePos, nodePos + nodeSize);
+
+                if (isFirstNode) {
+                    contentBounds = nodeBounds;
+                    isFirstNode = false;
+                } else {
+                    contentBounds.Add(nodeBounds);
+                }
+            }
+
+            // Add some padding so nodes aren't right at the edge of the view
+            const float padding = 100.0f;
+            contentBounds.Min.x -= padding;
+            contentBounds.Min.y -= padding;
+            contentBounds.Max.x += padding;
+            contentBounds.Max.y += padding;
+
+            ed::NavigateTo(contentBounds);
+        } else {
+            ed::NavigateToContent();
+        }
     }
 }
 
