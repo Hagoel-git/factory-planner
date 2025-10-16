@@ -119,6 +119,11 @@ Port *FactoryGraph::getPort(uint64_t id) {
     return (it != port_id_to_index_.end()) ? &ports[it->second] : nullptr;
 }
 
+const Port *FactoryGraph::getPort(uint64_t id) const {
+    auto it = port_id_to_index_.find(id);
+    return (it != port_id_to_index_.end()) ? &ports[it->second] : nullptr;
+}
+
 uint64_t FactoryGraph::addConnection(uint64_t from_port, uint64_t to_port) {
     if (!isValidConnection(from_port, to_port)) {
         return -1;
@@ -238,18 +243,23 @@ nlohmann::json FactoryGraph::serialize() const {
         node_json["selected_recipe_key"] = node.selected_recipe_key;
         node_json["input_ports"] = node.input_ports;
         node_json["output_ports"] = node.output_ports;
-        j["nodes"].push_back(node_json);
-    }
 
-    // Serialize ports
-    j["ports"] = nlohmann::json::array();
-    for (const auto& port : ports) {
-        nlohmann::json port_json;
-        port_json["id"] = port.id;
-        port_json["node_id"] = port.node_id;
-        port_json["isInput"] = port.isInput;
-        port_json["user_constraint"] = port.user_constraint;
-        j["ports"].push_back(port_json);
+        // Save constraints in a simple map of { "port_id": constraint_value }
+        nlohmann::json port_constraints = nlohmann::json::object();
+        for (uint64_t port_id : node.input_ports) {
+            const Port* port = getPort(port_id);
+            if (port && port->user_constraint != -1.0) { // Only save non-default values
+                port_constraints[std::to_string(port_id)] = port->user_constraint;
+            }
+        }
+        for (uint64_t port_id : node.output_ports) {
+            const Port* port = getPort(port_id);
+            if (port && port->user_constraint != -1.0) {
+                port_constraints[std::to_string(port_id)] = port->user_constraint;
+            }
+        }
+        node_json["port_constraints"] = port_constraints;
+        j["nodes"].push_back(node_json);
     }
 
     // Serialize connections
@@ -312,6 +322,7 @@ void FactoryGraph::deserialize(const nlohmann::json& j, const GameData &game_dat
                 std::cerr << "Warning: Recipe '" << recipeKey << "' has no associated machines." << std::endl;
             }
 
+            const auto& portConstraints = node_json.value("port_constraints", nlohmann::json::object());
             const auto& savedInputPorts = node_json.value("input_ports", nlohmann::json::array());
             for (size_t i = 0; i < savedInputPorts.size(); ++i) {
                 const auto& recipePort = recipe.input_ports[i];
@@ -320,8 +331,14 @@ void FactoryGraph::deserialize(const nlohmann::json& j, const GameData &game_dat
                 p.isInput = true;
                 p.resource_key = recipePort.resource_key;
 
+
                 if (i < savedInputPorts.size()) {
-                    oldToNewPortIdMap[savedInputPorts[i]] = p.id;
+                    uint64_t oldPortId = savedInputPorts[i].get<uint64_t>();
+                    oldToNewPortIdMap[oldPortId] = p.id;
+
+                    if (portConstraints.contains(std::to_string(oldPortId))) {
+                        p.user_constraint = portConstraints[std::to_string(oldPortId)].get<double>();
+                    }
                 }
 
                 node.input_ports.push_back(p.id);
@@ -338,7 +355,12 @@ void FactoryGraph::deserialize(const nlohmann::json& j, const GameData &game_dat
                 p.resource_key = recipePort.resource_key;
 
                 if (i < savedOutputPorts.size()) {
-                    oldToNewPortIdMap[savedOutputPorts[i]] = p.id;
+                    uint64_t oldPortId = savedOutputPorts[i].get<uint64_t>();
+                    oldToNewPortIdMap[oldPortId] = p.id;
+
+                    if (portConstraints.contains(std::to_string(oldPortId))) {
+                        p.user_constraint = portConstraints[std::to_string(oldPortId)].get<double>();
+                    }
                 }
 
                 node.output_ports.push_back(p.id);
