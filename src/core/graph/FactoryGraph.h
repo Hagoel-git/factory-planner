@@ -32,6 +32,7 @@ public:
     uint64_t addPort(const std::string& resource_key, uint64_t node_id, bool isInput);
     bool removePort(uint64_t port_id);
     Port* getPort(uint64_t id);
+    const Port* getPort(uint64_t id) const;
     [[nodiscard]] const std::vector<Port>& getPorts() const;
     bool setPortDemand(uint64_t port_id, double demand);
 
