@@ -20,7 +20,7 @@ public:
 
     void Draw();
 
-    void ChangeTheme();
+    void ApplyThemeToAllEditors();
 
     void DrawDebugWindow();
 
