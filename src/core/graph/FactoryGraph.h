@@ -12,34 +12,34 @@
 
 class FactoryGraph {
 public:
-    int addNode(const std::string& name, std::string recipe_key);
+    uint64_t addNode(const std::string& name, std::string recipe_key);
     void restoreNode(const Node& node, const std::vector<Port>& ports);
-    bool removeNode(int node_id);
-    bool setNodeRecipe(int node_id, const std::string& recipe_key);
-    Node* getNode(int id);
+    bool removeNode(uint64_t node_id);
+    bool setNodeRecipe(uint64_t node_id, const std::string& recipe_key);
+    Node* getNode(uint64_t id);
     [[nodiscard]] const std::vector<Node>& getNodes() const;
 
-    bool isValidConnection(int from_port, int to_port);
-    bool connectionExists(int from_port, int to_port);
-    int addConnection(int from_port, int to_port);
+    bool isValidConnection(uint64_t from_port, uint64_t to_port);
+    bool connectionExists(uint64_t from_port, uint64_t to_port);
+    uint64_t addConnection(uint64_t from_port, uint64_t to_port);
     void restoreConnection(const Connection& connection);
-    bool removeConnection(int from_port, int to_port);
-    Connection* getConnection(int id);
-    Connection* getConnection(int from_port, int to_port);
-    std::vector<Connection*> getConnectionsForPort(int id);
+    bool removeConnection(uint64_t from_port, uint64_t to_port);
+    Connection* getConnection(uint64_t id);
+    Connection* getConnection(uint64_t from_port, uint64_t to_port);
+    std::vector<Connection*> getConnectionsForPort(uint64_t id);
     [[nodiscard]] const std::vector<Connection>& getConnections() const;
 
-    int addPort(const std::string& resource_key, int node_id, bool isInput);
-    bool removePort(int port_id);
-    Port* getPort(int id);
+    uint64_t addPort(const std::string& resource_key, uint64_t node_id, bool isInput);
+    bool removePort(uint64_t port_id);
+    Port* getPort(uint64_t id);
     [[nodiscard]] const std::vector<Port>& getPorts() const;
-    bool setPortDemand(int port_id, double demand);
+    bool setPortDemand(uint64_t port_id, double demand);
 
     void clear();
 
     nlohmann::json serialize() const;
 
-    void deserialize(const nlohmann::json &j);
+    void deserialize(const nlohmann::json &j, const GameData &game_data);
 
     const GameData& getGameData() const {
         return game_data;
@@ -59,23 +59,23 @@ private:
     std::vector<Connection> connections;
 
     // Hash maps for O(1) lookups
-    std::unordered_map<int, size_t> node_id_to_index_;
-    std::unordered_map<int, size_t> port_id_to_index_;
-    std::unordered_map<int, size_t> connection_id_to_index_;
+    std::unordered_map<uint64_t, size_t> node_id_to_index_;
+    std::unordered_map<uint64_t, size_t> port_id_to_index_;
+    std::unordered_map<uint64_t, size_t> connection_id_to_index_;
 
-    std::unordered_multimap<int, int> connectionsByPort; // Maps port_id to connection_id for quick access
+    std::unordered_multimap<uint64_t, uint64_t> connectionsByPort; // Maps port_id to connection_id for quick access
 
-    int next_node_id = 0;
-    int next_port_id = 0;
-    int next_connection_id = 0;
+    uint64_t next_node_id = 0;
+    uint64_t next_port_id = 0;
+    uint64_t next_connection_id = 0;
 
     // Helper methods to maintain hash maps
-    void addNodeToIndex(int id, size_t index) { node_id_to_index_[id] = index; }
-    void addPortToIndex(int id, size_t index) { port_id_to_index_[id] = index; }
-    void addConnectionToIndex(int id, size_t index) { connection_id_to_index_[id] = index; }
-    void removeNodeFromIndex(int id) { node_id_to_index_.erase(id); }
-    void removePortFromIndex(int id) { port_id_to_index_.erase(id); }
-    void removeConnectionFromIndex(int id) { connection_id_to_index_.erase(id); }
+    void addNodeToIndex(uint64_t id, size_t index) { node_id_to_index_[id] = index; }
+    void addPortToIndex(uint64_t id, size_t index) { port_id_to_index_[id] = index; }
+    void addConnectionToIndex(uint64_t id, size_t index) { connection_id_to_index_[id] = index; }
+    void removeNodeFromIndex(uint64_t id) { node_id_to_index_.erase(id); }
+    void removePortFromIndex(uint64_t id) { port_id_to_index_.erase(id); }
+    void removeConnectionFromIndex(uint64_t id) { connection_id_to_index_.erase(id); }
 };
 
 #endif //FACTORYGRAPH_H

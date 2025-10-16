@@ -3,9 +3,10 @@
 #include <iostream>
 #include <unordered_set>
 #include <utility>
+#include <cstdint>
 
-int FactoryGraph::addNode(const std::string &name, std::string recipe_key) {
-    int id = next_node_id++;
+uint64_t FactoryGraph::addNode(const std::string &name, std::string recipe_key) {
+    uint64_t id = next_node_id++;
     size_t index = nodes.size();
     nodes.emplace_back(name, id);
     addNodeToIndex(id, index);
@@ -23,7 +24,7 @@ void FactoryGraph::restoreNode(const Node &node, const std::vector<Port> &ports)
     }
 }
 
-bool FactoryGraph::removeNode(int node_id) {
+bool FactoryGraph::removeNode(uint64_t node_id) {
     auto map_it = node_id_to_index_.find(node_id);
     if (map_it == node_id_to_index_.end()) {
         return false;
@@ -33,10 +34,10 @@ bool FactoryGraph::removeNode(int node_id) {
     Node& node = nodes[index];
 
     // Remove all associated ports (these functions already handle their own swap-and-pop)
-    for (int port_id : node.input_ports) {
+    for (uint64_t port_id : node.input_ports) {
         removePort(port_id);
     }
-    for (int port_id : node.output_ports) {
+    for (uint64_t port_id : node.output_ports) {
         removePort(port_id);
     }
 
@@ -46,7 +47,7 @@ bool FactoryGraph::removeNode(int node_id) {
         std::swap(nodes[index], nodes[last_index]);
 
         // Update index of swapped node
-        int swapped_id = nodes[index].id;
+        uint64_t swapped_id = nodes[index].id;
         node_id_to_index_[swapped_id] = index;
     }
 
@@ -60,20 +61,20 @@ bool FactoryGraph::removeNode(int node_id) {
 }
 
 
-Node *FactoryGraph::getNode(int id) {
+Node *FactoryGraph::getNode(uint64_t id) {
     auto it = node_id_to_index_.find(id);
     return (it != node_id_to_index_.end()) ? &nodes[it->second] : nullptr;
 }
 
-int FactoryGraph::addPort(const std::string& resource_key, int node_id, bool isInput) {
-    int port_id = next_port_id++;
+uint64_t FactoryGraph::addPort(const std::string& resource_key, uint64_t node_id, bool isInput) {
+    uint64_t port_id = next_port_id++;
     size_t index = ports.size();
     ports.emplace_back(port_id, node_id, resource_key, isInput);
     addPortToIndex(port_id, index);
     return port_id;
 }
 
-bool FactoryGraph::removePort(int port_id) {
+bool FactoryGraph::removePort(uint64_t port_id) {
     auto map_it = port_id_to_index_.find(port_id);
     if (map_it == port_id_to_index_.end()) {
         return false;
@@ -84,11 +85,11 @@ bool FactoryGraph::removePort(int port_id) {
     // Remove all connections involving this port
     // We'll use removeConnection() so it keeps indices consistent
     auto range = connectionsByPort.equal_range(port_id);
-    std::vector<int> connections_to_remove;
+    std::vector<uint64_t> connections_to_remove;
     for (auto it = range.first; it != range.second; ++it) {
         connections_to_remove.push_back(it->second);
     }
-    for (int conn_id : connections_to_remove) {
+    for (uint64_t conn_id : connections_to_remove) {
         const auto& conn = connections[connection_id_to_index_[conn_id]];
         removeConnection(conn.from_port, conn.to_port);
     }
@@ -99,7 +100,7 @@ bool FactoryGraph::removePort(int port_id) {
         std::swap(ports[index], ports[last_index]);
 
         // Update index of swapped port
-        int swapped_id = ports[index].id;
+        uint64_t swapped_id = ports[index].id;
         port_id_to_index_[swapped_id] = index;
     }
 
@@ -113,16 +114,16 @@ bool FactoryGraph::removePort(int port_id) {
 }
 
 
-Port *FactoryGraph::getPort(int id) {
+Port *FactoryGraph::getPort(uint64_t id) {
     auto it = port_id_to_index_.find(id);
     return (it != port_id_to_index_.end()) ? &ports[it->second] : nullptr;
 }
 
-int FactoryGraph::addConnection(int from_port, int to_port) {
+uint64_t FactoryGraph::addConnection(uint64_t from_port, uint64_t to_port) {
     if (!isValidConnection(from_port, to_port)) {
         return -1;
     }
-    int id = next_connection_id++;
+    uint64_t id = next_connection_id++;
     size_t index = connections.size();
     connections.emplace_back(id, from_port, to_port, getPort(from_port)->resource_key);
     addConnectionToIndex(id, index);
@@ -139,12 +140,12 @@ void FactoryGraph::restoreConnection(const Connection &connection) {
     connectionsByPort.insert({connection.to_port, connection.id});
 }
 
-bool FactoryGraph::removeConnection(int from_port, int to_port) {
+bool FactoryGraph::removeConnection(uint64_t from_port, uint64_t to_port) {
     for (size_t index = 0; index < connections.size(); ++index) {
         if (connections[index].from_port == from_port &&
             connections[index].to_port == to_port) {
 
-            int connection_id = connections[index].id;
+            uint64_t connection_id = connections[index].id;
 
             // Remove from connectionsByPort before erasing
             auto range_from = connectionsByPort.equal_range(from_port);
@@ -168,7 +169,7 @@ bool FactoryGraph::removeConnection(int from_port, int to_port) {
                 std::swap(connections[index], connections[last_index]);
 
                 // Update index map for the swapped element
-                int swapped_id = connections[index].id;
+                uint64_t swapped_id = connections[index].id;
                 connection_id_to_index_[swapped_id] = index;
             }
 
@@ -184,15 +185,15 @@ bool FactoryGraph::removeConnection(int from_port, int to_port) {
     return false;
 }
 
-Connection *FactoryGraph::getConnection(int id) {
+Connection *FactoryGraph::getConnection(uint64_t id) {
     auto it = connection_id_to_index_.find(id);
     return (it != connection_id_to_index_.end()) ? &connections[it->second] : nullptr;
 }
 
-Connection *FactoryGraph::getConnection(int from_port, int to_port) {
+Connection *FactoryGraph::getConnection(uint64_t from_port, uint64_t to_port) {
     auto range = connectionsByPort.equal_range(from_port);
     for (auto it = range.first; it != range.second; ++it) {
-        int conn_id = it->second;
+        uint64_t conn_id = it->second;
         auto idx_it = connection_id_to_index_.find(conn_id);
         if (idx_it == connection_id_to_index_.end()) continue;
         const Connection &c = connections[idx_it->second];
@@ -203,7 +204,7 @@ Connection *FactoryGraph::getConnection(int from_port, int to_port) {
     return nullptr;
 }
 
-std::vector<Connection *> FactoryGraph::getConnectionsForPort(int id) {
+std::vector<Connection *> FactoryGraph::getConnectionsForPort(uint64_t id) {
     std::vector<Connection*> result;
     auto range = connectionsByPort.equal_range(id);
     for (auto it = range.first; it != range.second; ++it) {
@@ -234,9 +235,9 @@ nlohmann::json FactoryGraph::serialize() const {
     for (const auto& node : nodes) {
         nlohmann::json node_json;
         node_json["id"] = node.id;
-        node_json["name"] = node.name;
-        node_json["machine_key"] = node.machine_key;
         node_json["selected_recipe_key"] = node.selected_recipe_key;
+        node_json["input_ports"] = node.input_ports;
+        node_json["output_ports"] = node.output_ports;
         j["nodes"].push_back(node_json);
     }
 
@@ -246,7 +247,6 @@ nlohmann::json FactoryGraph::serialize() const {
         nlohmann::json port_json;
         port_json["id"] = port.id;
         port_json["node_id"] = port.node_id;
-        port_json["resource_key"] = port.resource_key;
         port_json["isInput"] = port.isInput;
         port_json["user_constraint"] = port.user_constraint;
         j["ports"].push_back(port_json);
@@ -259,87 +259,130 @@ nlohmann::json FactoryGraph::serialize() const {
         conn_json["id"] = connection.id;
         conn_json["from_port"] = connection.from_port;
         conn_json["to_port"] = connection.to_port;
-        conn_json["resource_key"] = connection.resource_key;
         j["connections"].push_back(conn_json);
     }
 
     // Serialize ID counters
     j["next_node_id"] = next_node_id;
-    j["next_port_id"] = next_port_id;
     j["next_connection_id"] = next_connection_id;
     j["game_data_path"] = game_data.gameDataFilePath;
 
     return j;
 }
 
-void FactoryGraph::deserialize(const nlohmann::json& j) {
+void FactoryGraph::deserialize(const nlohmann::json& j, const GameData &game_data) {
     // Clear existing data
     clear();
 
+    this->game_data = game_data;
+
+    next_node_id = j.value("next_node_id", 0);
+    next_connection_id = j.value("next_connection_id", 0);
+    next_port_id = 0;
+
+    std::unordered_map<uint64_t, uint64_t> oldToNewPortIdMap;
+
     // Deserialize nodes
-    if (j.contains("nodes")) {
+    if (j.contains("nodes") && j["nodes"].is_array()) {
         for (const auto& node_json : j["nodes"]) {
+            uint64_t nodeId = node_json.value("id", -1);
+            std::string recipeKey = node_json.value("selected_recipe_key", "");
+
+            if (nodeId == -1 || recipeKey.empty()) {
+                std::cerr << "Invalid node id" << std::endl;
+                continue;
+            }
+
+            auto recipeIt = game_data.recipes.find(recipeKey);
+            if (recipeIt == game_data.recipes.end()) {
+                std::cerr << "Invalid recipe key" << std::endl;
+                continue;
+            }
+
+            const Recipe& recipe = recipeIt->second;
+
             Node node;
-            node.id = node_json["id"];
-            node.name = node_json["name"];
-            node.type = static_cast<NodeType>(node_json["type"]);
-            node.machine_key = node_json["machine_key"];
-            node.selected_recipe_key = node_json["selected_recipe_key"];
-            node.input_ports = node_json["input_ports"].get<std::vector<int>>();
-            node.output_ports = node_json["output_ports"].get<std::vector<int>>();
+            node.id = nodeId;
+            node.selected_recipe_key = recipeKey;
+            node.name = recipe.name;
+
+            if (!recipe.produced_in_machines_keys.empty()) {
+                node.machine_key = recipe.produced_in_machines_keys[0]; // todo: make proper machine save/load
+            } else {
+                std::cerr << "Warning: Recipe '" << recipeKey << "' has no associated machines." << std::endl;
+            }
+
+            const auto& savedInputPorts = node_json.value("input_ports", nlohmann::json::array());
+            for (size_t i = 0; i < savedInputPorts.size(); ++i) {
+                const auto& recipePort = recipe.input_ports[i];
+                Port p;
+                p.id = next_port_id++;
+                p.isInput = true;
+                p.resource_key = recipePort.resource_key;
+
+                if (i < savedInputPorts.size()) {
+                    oldToNewPortIdMap[savedInputPorts[i]] = p.id;
+                }
+
+                node.input_ports.push_back(p.id);
+                ports.push_back(p);
+                addPortToIndex(p.id, ports.size() - 1);
+            }
+
+            const auto& savedOutputPorts = node_json.value("output_ports", nlohmann::json::array());
+            for (size_t i = 0; i < savedOutputPorts.size(); ++i) {
+                const auto& recipePort = recipe.output_ports[i];
+                Port p;
+                p.id = next_port_id++;
+                p.resource_key = recipePort.resource_key;
+
+                if (i < savedOutputPorts.size()) {
+                    oldToNewPortIdMap[savedOutputPorts[i]] = p.id;
+                }
+
+                node.output_ports.push_back(p.id);
+                ports.push_back(p);
+                addPortToIndex(p.id, ports.size() - 1);
+            }
 
             nodes.push_back(node);
             addNodeToIndex(node.id, nodes.size() - 1);
         }
     }
 
-    // Deserialize ports
-    if (j.contains("ports")) {
-        for (const auto& port_json : j["ports"]) {
-            Port port(port_json["id"], port_json["node_id"], port_json["resource_key"], port_json["isInput"]);
-            port.user_constraint = port_json["user_constraint"];
-
-            ports.push_back(port);
-            addPortToIndex(port.id, ports.size() - 1);
-        }
-    }
-
     // Deserialize connections
-    if (j.contains("connections")) {
+    if (j.contains("connections") && j["connections"].is_array()) {
         for (const auto& conn_json : j["connections"]) {
-            Connection connection(conn_json["id"], conn_json["from_port"],
-                                conn_json["to_port"], conn_json["resource_key"]);
+            uint64_t oldFromPort = conn_json.value("from_port", -1);
+            uint64_t oldToPort = conn_json.value("to_port", -1);
 
-            connections.push_back(connection);
-            addConnectionToIndex(connection.id, connections.size() - 1);
-            connectionsByPort.insert({connection.from_port, connection.id});
-            connectionsByPort.insert({connection.to_port, connection.id});
-        }
-    }
+            if (oldFromPort == -1 || oldToPort == -1) {
+                std::cerr << "Invalid connection loaded" << std::endl;
+                continue;
+            }
 
-    // Deserialize ID counters
-    if (j.contains("next_node_id")) {
-        next_node_id = j["next_node_id"];
-    }
-    if (j.contains("next_port_id")) {
-        next_port_id = j["next_port_id"];
-    }
-    if (j.contains("next_connection_id")) {
-        next_connection_id = j["next_connection_id"];
-    }
-    if (j.contains("game_data_path")) {
-        std::string path = j["game_data_path"];
-        GameDataManager gdm;
-        std::string load_error;
-        gdm.loadFromFile(path, load_error);
-        if (!load_error.empty()) {
-            std::cerr << "Error loading game data from " << path << ": " << std::endl << load_error << std::endl;
+            if (oldToNewPortIdMap.count(oldFromPort) && oldToNewPortIdMap.count(oldToPort)) {
+                uint64_t newFromPort = oldToNewPortIdMap[oldFromPort];
+                uint64_t newToPort = oldToNewPortIdMap[oldToPort];
+
+                Connection conn;
+                conn.id = conn_json.value("id", -1);
+                if (conn.id == -1) {
+                    std::cerr << "Invalid connection id" << std::endl;
+                    continue;
+                }
+                conn.from_port = newFromPort;
+                conn.to_port = newToPort;
+                connections.push_back(conn);
+                addConnectionToIndex(conn.id, connections.size() - 1);
+                connectionsByPort.insert({conn.from_port, conn.id});
+                connectionsByPort.insert({conn.to_port, conn.id});
+            }
         }
-        game_data = gdm.current();
     }
 }
 
-bool FactoryGraph::setNodeRecipe(int node_id, const std::string& recipe_key) {
+bool FactoryGraph::setNodeRecipe(uint64_t node_id, const std::string& recipe_key) {
     Node *node = getNode(node_id);
     if (!node) {
         return false;
@@ -353,20 +396,21 @@ bool FactoryGraph::setNodeRecipe(int node_id, const std::string& recipe_key) {
     node->output_ports.resize(recipe.output_ports.size());
     node->input_ports.resize(recipe.input_ports.size());
     for (int i = 0; i < recipe.input_ports.size(); ++i) {
-        int port_id = addPort(recipe.input_ports.at(i).resource_key, node_id, true);
+        uint64_t port_id = addPort(recipe.input_ports.at(i).resource_key, node_id, true);
         node->input_ports[i] = port_id;
     }
     for (int i = 0; i < recipe.output_ports.size(); ++i) {
-        int port_id = addPort(recipe.output_ports.at(i).resource_key, node_id, false);
+        uint64_t port_id = addPort(recipe.output_ports.at(i).resource_key, node_id, false);
         node->output_ports[i] = port_id;
     }
-    if (recipe.input_ports.size() == 1 && recipe.input_ports.at(0).resource_key == "nothing") {
-        node->type = NodeType::PRODUCER;
-    } else if (recipe.output_ports.size() == 1 && recipe.output_ports.at(0).resource_key == "nothing") {
-        node->type = NodeType::CONSUMER;
-    } else {
-        node->type = NodeType::PROCESSOR;
-    }
+
+    // if (recipe.input_ports.size() == 1 && recipe.input_ports.at(0).resource_key == "nothing") {
+    //     //node->type = NodeType::PRODUCER;
+    // } else if (recipe.output_ports.size() == 1 && recipe.output_ports.at(0).resource_key == "nothing") {
+    //     //node->type = NodeType::CONSUMER;
+    // } else {
+    //     //node->type = NodeType::PROCESSOR;
+    // }
     return true;
 }
 
@@ -374,7 +418,7 @@ const std::vector<Node> &FactoryGraph::getNodes() const {
     return nodes;
 }
 
-bool FactoryGraph::isValidConnection(int from_port, int to_port) {
+bool FactoryGraph::isValidConnection(uint64_t from_port, uint64_t to_port) {
     Port *from_port_ptr = getPort(from_port);
     Port *to_port_ptr = getPort(to_port);
     if (!from_port_ptr || !to_port_ptr) {
@@ -390,10 +434,10 @@ bool FactoryGraph::isValidConnection(int from_port, int to_port) {
     return true;
 }
 
-bool FactoryGraph::connectionExists(int from_port, int to_port) {
+bool FactoryGraph::connectionExists(uint64_t from_port, uint64_t to_port) {
     auto range = connectionsByPort.equal_range(from_port);
     for (auto it = range.first; it != range.second; ++it) {
-        int conn_id = it->second;
+        uint64_t conn_id = it->second;
         auto idx_it = connection_id_to_index_.find(conn_id);
         if (idx_it == connection_id_to_index_.end()) continue;
         const Connection &c = connections[idx_it->second];
@@ -410,7 +454,7 @@ const std::vector<Port> &FactoryGraph::getPorts() const {
     return ports;
 }
 
-bool FactoryGraph::setPortDemand(int port_id, double demand) {
+bool FactoryGraph::setPortDemand(uint64_t port_id, double demand) {
     Port *port = getPort(port_id);
     if (!port) {
         return false;
