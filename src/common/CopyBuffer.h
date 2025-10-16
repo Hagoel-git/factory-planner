@@ -12,10 +12,10 @@
 struct ImVec2;
 
 struct CopyBuffer {
-    std::unordered_map<int, Node> nodes;    // id->Node; copies of Node (value-copied)
-    std::unordered_map<int, Port> ports;    // id->Port copies of Port (value-copied) for quick lookup
+    std::unordered_map<uint64_t, Node> nodes;    // id->Node; copies of Node (value-copied)
+    std::unordered_map<uint64_t, Port> ports;    // id->Port copies of Port (value-copied) for quick lookup
     std::unordered_set<Connection> connections;    // copies of Connection that touch selected nodes
-    std::unordered_map<int, ImVec2> nodePositions; // nodeId -> canvas position (ed::GetNodePosition)
+    std::unordered_map<uint64_t, ImVec2> nodePositions; // nodeId -> canvas position (ed::GetNodePosition)
 
     std::filesystem::path gameDataFilePath; // Path to the game data file used for this copy buffer
 

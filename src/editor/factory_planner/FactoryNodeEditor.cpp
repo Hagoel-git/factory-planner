@@ -167,7 +167,7 @@ void FactoryNodeEditor::copy(CopyBuffer &copy_buffer) {
     copy_buffer.gameDataFilePath = GetGameDataFilePath(); // Store game data file path
 
     for (const auto &nodeId : selectedNodes) {
-        int nodeIdInt = IdUtils::FromNodeId(nodeId);
+        uint64_t nodeIdInt = IdUtils::FromNodeId(nodeId);
         auto node = graph->getNode(nodeIdInt);
         if (!node) continue; // Skip invalid nodes
 
@@ -205,7 +205,7 @@ void FactoryNodeEditor::cut(CopyBuffer &copyBuffer) {
     auto cmd = std::make_unique<CompositeCommand>("Cut Nodes");
 
     for (const auto &pair : copyBuffer.nodes) {
-        int nodeId = pair.first;
+        uint64_t nodeId = pair.first;
         cmd->addCommand(std::make_unique<RemoveNodeCommand>(nodeId));
     }
     executeCommand(std::move(cmd));
@@ -319,19 +319,19 @@ void FactoryNodeEditor::DrawNodes() {
     auto visibleNodes = GetVisibleNodes(canvasMin, canvasMax);
 
     // Build set of visible node ids
-    std::unordered_set<int> visibleNodeIds;
+    std::unordered_set<uint64_t> visibleNodeIds;
     visibleNodeIds.reserve(visibleNodes.size());
     for (const auto &nd : visibleNodes) visibleNodeIds.insert(nd.nodeId);
 
-    std::unordered_set<int> nodesToRegister = visibleNodeIds;
+    std::unordered_set<uint64_t> nodesToRegister = visibleNodeIds;
 
     // Iterate only through the visible nodes
-    for (int nodeId : visibleNodeIds) {
+    for (uint64_t nodeId : visibleNodeIds) {
         auto node = graph->getNode(nodeId);
         if (!node) continue;
 
         // Check input ports
-        for (int portId : node->input_ports) {
+        for (uint64_t portId : node->input_ports) {
             for (const auto& conn : graph->getConnectionsForPort(portId)) {
                 // Check if the connection is incoming or outgoing to determine the remote node
                 if (conn->to_port == portId) {
@@ -346,7 +346,7 @@ void FactoryNodeEditor::DrawNodes() {
         }
 
         // Check output ports
-        for (int portId : node->output_ports) {
+        for (uint64_t portId : node->output_ports) {
             for (const auto& conn : graph->getConnectionsForPort(portId)) {
                 // Check if the connection is incoming or outgoing to determine the remote node
                 if (conn->from_port == portId) {
@@ -382,11 +382,11 @@ void FactoryNodeEditor::DrawNodes() {
 
         // Count only visible ports (skip resource_key == "nothing")
         int visible_inputs = 0, visible_outputs = 0;
-        for (int portId : node->input_ports) {
+        for (uint64_t portId : node->input_ports) {
             Port *p = graph->getPort(portId);
             if (p && p->resource_key != "nothing") ++visible_inputs;
         }
-        for (int portId : node->output_ports) {
+        for (uint64_t portId : node->output_ports) {
             Port *p = graph->getPort(portId);
             if (p && p->resource_key != "nothing") ++visible_outputs;
         }
@@ -410,7 +410,7 @@ void FactoryNodeEditor::DrawNodes() {
 
         if (visible_inputs > 0) {
             ImGui::BeginGroup();
-            for (int port : node->input_ports) {
+            for (uint64_t port : node->input_ports) {
                 Port *p = graph->getPort(port);
                 if (!p || p->resource_key == "nothing") continue;
 
@@ -457,7 +457,7 @@ void FactoryNodeEditor::DrawNodes() {
 
         if (visible_outputs > 0) {
             ImGui::BeginGroup();
-            for (int port : node->output_ports) {
+            for (uint64_t port : node->output_ports) {
                 Port *p = graph->getPort(port);
                 if (!p || p->resource_key == "nothing") continue;
 
@@ -511,8 +511,8 @@ void FactoryNodeEditor::HandleUserInteractions() {
     if (ed::BeginCreate()) {
         ed::PinId start, end;
         if (ed::QueryNewLink(&start, &end)) {
-            int startId = IdUtils::FromPinId(start);
-            int endId = IdUtils::FromPinId(end);
+            uint64_t startId = IdUtils::FromPinId(start);
+            uint64_t endId = IdUtils::FromPinId(end);
 
             selected_port_id = startId;
 
@@ -558,8 +558,8 @@ void FactoryNodeEditor::HandleUserInteractions() {
 
     if (ed::BeginDelete()) {
         // Collect all deletions first
-        std::vector<int> nodesToDelete;
-        std::vector<int> linksToDelete;
+        std::vector<uint64_t> nodesToDelete;
+        std::vector<uint64_t> linksToDelete;
 
         ed::NodeId nodeId = 0;
         while (ed::QueryDeletedNode(&nodeId)) {
@@ -576,14 +576,14 @@ void FactoryNodeEditor::HandleUserInteractions() {
         }
 
         auto cmd = std::make_unique<CompositeCommand>("Delete operation");
-        for (int id : linksToDelete) {
+        for (uint64_t id : linksToDelete) {
             auto connection = graph->getConnection(id);
             if (connection != nullptr) {
                 cmd->addCommand(std::make_unique<RemoveConnectionCommand>(connection->from_port, connection->to_port));
             }
         }
 
-        for (int id : nodesToDelete) {
+        for (uint64_t id : nodesToDelete) {
             cmd->addCommand(std::make_unique<RemoveNodeCommand>(id));
         }
 
@@ -671,7 +671,7 @@ void FactoryNodeEditor::HandlePopups() {
             ImGui::Text("Machine count: %.2f", node->machine_count);
             // Display input ports
             ImGui::Text("Input Ports:");
-            for (int portId : node->input_ports) {
+            for (uint64_t portId : node->input_ports) {
                 auto port = graph->getPort(portId);
                 if (port) {
                     ImGui::BulletText("Port ID: %d, Resource ID: %s, Rate: %.2f", port->id, port->resource_key.c_str(), port->rate);
@@ -679,7 +679,7 @@ void FactoryNodeEditor::HandlePopups() {
             }
             // Display output ports
             ImGui::Text("Output Ports:");
-            for (int portId : node->output_ports) {
+            for (uint64_t portId : node->output_ports) {
                 auto port = graph->getPort(portId);
                 if (port) {
                     ImGui::BulletText("Port ID: %d, Resource ID: %s, Rate: %.2f", port->id, port->resource_key.c_str(), port->rate);

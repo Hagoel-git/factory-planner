@@ -52,7 +52,7 @@ class AddNodeCommand : public Command {
 private:
     std::string nodeName;
     std::string recipeKey;
-    int fromPort;
+    uint64_t fromPort;
     ImVec2 position;
 
     Node nodeData;
@@ -60,7 +60,7 @@ private:
     Connection connectionData;
     bool executed;
 public:
-    AddNodeCommand(std::string  name, std::string recipeKey, int fromPort, const ImVec2& pos)
+    AddNodeCommand(std::string  name, std::string recipeKey, uint64_t fromPort, const ImVec2& pos)
         : nodeName(std::move(name)), recipeKey(std::move(recipeKey)), fromPort(fromPort), position(pos), nodeData(), connectionData(), executed(false) {
     }
     void execute(FactoryGraph& graph) override;
@@ -71,14 +71,14 @@ public:
 
 class RemoveNodeCommand : public Command {
 private:
-    int id;
+    uint64_t id;
 
     Node nodeData;
     std::vector<Port> ports_data;
     std::vector<Connection> connections_data;
     ImVec2 position;
 public:
-    explicit RemoveNodeCommand(int id)
+    explicit RemoveNodeCommand(uint64_t id)
         : id(id), nodeData(), position(0, 0) {
     }
     void execute(FactoryGraph& graph) override;
@@ -90,13 +90,13 @@ public:
 
 class AddConnectionCommand : public Command {
 private:
-    int fromPort;
-    int toPort;
+    uint64_t fromPort;
+    uint64_t toPort;
 
     Connection connectionData;
     bool executed;
 public:
-    AddConnectionCommand(int fromPort, int toPort)
+    AddConnectionCommand(uint64_t fromPort, uint64_t toPort)
         : fromPort(fromPort), toPort(toPort), connectionData(), executed(false) {
     }
     void execute(FactoryGraph& graph) override;
@@ -107,12 +107,12 @@ public:
 
 class RemoveConnectionCommand : public Command {
 private:
-    int fromPort;
-    int toPort;
+    uint64_t fromPort;
+    uint64_t toPort;
 
     Connection connectionData;
     public:
-    RemoveConnectionCommand(int fromPort, int toPort)
+    RemoveConnectionCommand(uint64_t fromPort, uint64_t toPort)
         : fromPort(fromPort), toPort(toPort), connectionData() {
     }
     void execute(FactoryGraph& graph) override;
@@ -127,9 +127,9 @@ private:
     bool mapExternalConnections;
 
     std::vector<Node> pastedNodes;
-    std::unordered_multimap<int, Port> pastedPorts;
+    std::unordered_multimap<uint64_t, Port> pastedPorts;
     std::vector<Connection> pastedConnections;
-    std::unordered_map<int, ImVec2> pastedNodePositions;
+    std::unordered_map<uint64_t, ImVec2> pastedNodePositions;
     bool executed;
 public:
     PasteCommand(CopyBuffer copy_buffer, bool map_external_connections)
@@ -145,11 +145,11 @@ public:
 
 class SetPortConstraintCommand : public Command {
 private:
-    int portId;
+    uint64_t portId;
     double oldConstraint;
     double newConstraint;
 public:
-    SetPortConstraintCommand(int portId, double oldConstraint, double newConstraint)
+    SetPortConstraintCommand(uint64_t portId, double oldConstraint, double newConstraint)
         : portId(portId), oldConstraint(oldConstraint), newConstraint(newConstraint) {
     }
     void execute(FactoryGraph& graph) override;
@@ -164,9 +164,9 @@ class MoveNodeCommand : public Command {
 private:
     ImVec2 oldPosition;
     ImVec2 newPosition;
-    int nodeId;
+    uint64_t nodeId;
 public:
-    MoveNodeCommand(int nodeId, const ImVec2& oldPosition, const ImVec2& newPosition)
+    MoveNodeCommand(uint64_t nodeId, const ImVec2& oldPosition, const ImVec2& newPosition)
         : oldPosition(oldPosition), newPosition(newPosition), nodeId(nodeId) {
     }
     void execute(FactoryGraph& graph) override;
