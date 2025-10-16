@@ -566,6 +566,11 @@ int ax::NodeEditor::BreakLinks(PinId pinId)
     return s_Editor->BreakLinks(pinId);
 }
 
+void ax::NodeEditor::NavigateTo(const ImRect& bounds, bool zoomIn, float duration)
+{
+    s_Editor->NavigateTo(bounds, zoomIn, duration);
+}
+
 void ax::NodeEditor::NavigateToContent(float duration)
 {
     s_Editor->NavigateTo(s_Editor->GetContentBounds(), true, duration);
