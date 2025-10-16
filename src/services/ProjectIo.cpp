@@ -4,6 +4,7 @@
 #include <imgui-node-editor/imgui_node_editor.h>
 #include "IdUtils.h"
 #include "FactoryGraph.h"
+#include "GameDataManager.h"
 
 bool ProjectIO::SaveProject(const std::string &path, const FactoryGraph &factoryGraph, ed::EditorContext *context) {
     try {
@@ -94,10 +95,19 @@ bool ProjectIO::LoadProject(const std::string &path, FactoryGraph &factoryGraph)
             return false;
         }
 
+
         // Load graph data first
         if (projectData.contains("graph_data")) {
             try {
-                factoryGraph.deserialize(projectData["graph_data"]);
+                std::string gameDataPath = projectData["graph_data"]["game_data_path"];
+                GameDataManager game_data_manager;
+                std::string error;
+                if (!game_data_manager.loadFromFile(gameDataPath, error)) {
+                    std::cerr << "Failed to load game data from file: " << error << std::endl;
+                    return false;
+                }
+
+                factoryGraph.deserialize(projectData["graph_data"], game_data_manager.current());
             } catch (const std::exception& e) {
                 std::cerr << "Failed to deserialize graph data: " << e.what() << std::endl;
                 return false;
@@ -110,7 +120,7 @@ bool ProjectIO::LoadProject(const std::string &path, FactoryGraph &factoryGraph)
                 std::string editorSettings = projectData["editor_settings"].dump();
                 ed::ApplySettingsFromString(editorSettings);
 
-                // Apply node positions with improved error handling
+                // Apply node positions
                 const auto &editorJson = projectData["editor_settings"];
                 if (editorJson.contains("nodes") && editorJson["nodes"].is_object()) {
                     const auto &nodesJson = editorJson["nodes"];
@@ -150,8 +160,8 @@ bool ProjectIO::LoadProject(const std::string &path, FactoryGraph &factoryGraph)
                                 if (location.contains("x") && location.contains("y") &&
                                     location["x"].is_number() && location["y"].is_number()) {
 
-                                    auto x = static_cast<float>(location["x"].get<double>());
-                                    auto y = static_cast<float>(location["y"].get<double>());
+                                    auto x = location.value("x", 0.0f);
+                                    auto y = location.value("y", 0.0f);
 
                                     ed::NodeId editorNodeId = IdUtils::ToNodeId(engineNodeId);
                                     ed::SetNodePosition(editorNodeId, ImVec2(x, y));

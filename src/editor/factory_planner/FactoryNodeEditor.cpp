@@ -666,7 +666,6 @@ void FactoryNodeEditor::HandlePopups() {
         if (node) {
             ImGui::Text("Node ID: %d", node->id);
             ImGui::Text("Name: %s", node->name.c_str());
-            ImGui::Text("Type: %s", toString(node->type));
             ImGui::Text("Machine: %s", node->machine_key.c_str());
             ImGui::Text("Selected Recipe: %s", node->selected_recipe_key.c_str());
             ImGui::Text("Machine count: %.2f", node->machine_count);

@@ -1054,7 +1054,7 @@
         {
             "ingredients": [
                 [
-                    "em-control-rod",
+                    "electromagnetic-control-rod",
                     1.0
                 ],
                 [
@@ -1145,7 +1145,7 @@
             ],
             "products": [
                 [
-                    "em-control-rod",
+                    "electromagnetic-control-rod",
                     2.0
                 ]
             ],
@@ -2670,7 +2670,7 @@
                     3.0
                 ],
                 [
-                    "em-control-rod",
+                    "electromagnetic-control-rod",
                     1.0
                 ],
                 [
@@ -2762,7 +2762,7 @@
                     9.0
                 ],
                 [
-                    "em-control-rod",
+                    "electromagnetic-control-rod",
                     5.0
                 ],
                 [
@@ -2846,7 +2846,7 @@
                     100.0
                 ],
                 [
-                    "em-control-rod",
+                    "electromagnetic-control-rod",
                     10.0
                 ],
                 [
@@ -3817,7 +3817,7 @@
             ],
             "products": [
                 [
-                    "em-control-rod",
+                    "electromagnetic-control-rod",
                     2.0
                 ]
             ],
@@ -4137,7 +4137,7 @@
                     2.0
                 ],
                 [
-                    "em-control-rod",
+                    "electromagnetic-control-rod",
                     2.0
                 ],
                 [
@@ -4663,7 +4663,7 @@
                     5.0
                 ],
                 [
-                    "em-control-rod",
+                    "electromagnetic-control-rod",
                     2.0
                 ]
             ],
@@ -5342,7 +5342,7 @@
                     18.0
                 ],
                 [
-                    "em-control-rod",
+                    "electromagnetic-control-rod",
                     6.0
                 ],
                 [
@@ -6899,7 +6899,7 @@
                     3.0
                 ],
                 [
-                    "em-control-rod",
+                    "electromagnetic-control-rod",
                     5.0
                 ]
             ],
@@ -7174,7 +7174,7 @@
             "name": "Dissolved Silica"
         },
         {
-            "key_name": "em-control-rod",
+            "key_name": "electromagnetic-control-rod",
             "name": "Electromagnetic Control Rod"
         },
         {
