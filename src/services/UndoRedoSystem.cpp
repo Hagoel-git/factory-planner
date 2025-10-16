@@ -2,6 +2,7 @@
 #include "FactoryGraph.h"
 #include "imgui_node_editor.h"
 #include "../common/IdUtils.h"
+#include <cstdint>
 
 namespace ed = ax::NodeEditor;
 
@@ -43,7 +44,7 @@ void UndoRedoManager::trimUndoStack() {
 
 void AddNodeCommand::execute(FactoryGraph &graph) {
     if (!executed) {
-        int newNodeId = graph.addNode(nodeName, recipeKey);
+        uint64_t newNodeId = graph.addNode(nodeName, recipeKey);
         ed::SetNodePosition(IdUtils::ToNodeId(newNodeId), position);
 
         if (fromPort != -1) {
@@ -52,12 +53,12 @@ void AddNodeCommand::execute(FactoryGraph &graph) {
             const auto &ports_on_new_node = fromInput
                                                 ? graph.getNode(newNodeId)->output_ports
                                                 : graph.getNode(newNodeId)->input_ports;
-            for (int new_port_id: ports_on_new_node) {
+            for (uint64_t new_port_id: ports_on_new_node) {
                 if (graph.getPort(new_port_id)->resource_key == graph.getPort(fromPort)->resource_key) {
                     // Determine connection direction dynamically
-                    int source_id = fromInput ? new_port_id : fromPort;
-                    int target_id = fromInput ? fromPort : new_port_id;
-                    int conn_id = graph.addConnection(source_id, target_id);
+                    uint64_t source_id = fromInput ? new_port_id : fromPort;
+                    uint64_t target_id = fromInput ? fromPort : new_port_id;
+                    uint64_t conn_id = graph.addConnection(source_id, target_id);
                     connectionData = *graph.getConnection(conn_id); // Store connection data for undo
 
                     break; // Connect to the first available port and stop searching
@@ -70,13 +71,13 @@ void AddNodeCommand::execute(FactoryGraph &graph) {
         if (node) {
             nodeData = *node; // Store the node data for undo
         }
-        for (int port_id: nodeData.input_ports) {
+        for (uint64_t port_id: nodeData.input_ports) {
             auto port = graph.getPort(port_id);
             if (port) {
                 ports_data.push_back(*port); // Store input port data
             }
         }
-        for (int port_id: nodeData.output_ports) {
+        for (uint64_t port_id: nodeData.output_ports) {
             auto port = graph.getPort(port_id);
             if (port) {
                 ports_data.push_back(*port); // Store output port data
@@ -104,7 +105,7 @@ void RemoveNodeCommand::execute(FactoryGraph &graph) {
     nodeData = *node; // Store the node data for undo
     position = ed::GetNodePosition(IdUtils::ToNodeId(id));
     // Store all ports and connections for undo
-    for (int port_id: nodeData.input_ports) {
+    for (uint64_t port_id: nodeData.input_ports) {
         auto port = graph.getPort(port_id);
         if (port) {
             ports_data.push_back(*port); // Store input port data
@@ -113,7 +114,7 @@ void RemoveNodeCommand::execute(FactoryGraph &graph) {
             connections_data.push_back(*conn); // Store connection data
         }
     }
-    for (int port_id: nodeData.output_ports) {
+    for (uint64_t port_id: nodeData.output_ports) {
         auto port = graph.getPort(port_id);
         if (port) {
             ports_data.push_back(*port); // Store output port data
@@ -141,7 +142,7 @@ void RemoveNodeCommand::undo(FactoryGraph &graph) {
 
 void AddConnectionCommand::execute(FactoryGraph &graph) {
     if (!executed) {
-        int connId = graph.addConnection(fromPort, toPort);
+        uint64_t connId = graph.addConnection(fromPort, toPort);
         connectionData = *graph.getConnection(connId); // Store connection data for undo
         executed = true;
     } else {
@@ -199,12 +200,12 @@ void PasteCommand::execute(FactoryGraph &graph) {
 
         ImVec2 offset = ImVec2(mousePos.x - originalCenter.x, mousePos.y - originalCenter.y);
 
-        std::unordered_map<int, int> nodeIdMap;
+        std::unordered_map<uint64_t, uint64_t> nodeIdMap;
 
         for (const auto &pair: copy_buffer.nodes) {
-            int oldId = pair.first;
+            uint64_t oldId = pair.first;
             const auto &node = pair.second;
-            int newId = graph.addNode(node.name, node.selected_recipe_key);
+            uint64_t newId = graph.addNode(node.name, node.selected_recipe_key);
             ImVec2 oldPos = copy_buffer.nodePositions[oldId];
             ImVec2 newPos = ImVec2(oldPos.x + offset.x, oldPos.y + offset.y);
 
@@ -215,18 +216,18 @@ void PasteCommand::execute(FactoryGraph &graph) {
             ed::SelectNode(IdUtils::ToNodeId(newId), true);
             nodeIdMap[oldId] = newId; // Map old node ID to new node
         }
-        std::unordered_map<int, int> oldToNewPortMap;
+        std::unordered_map<uint64_t, uint64_t> oldToNewPortMap;
         for (const auto &pair: nodeIdMap) {
-            int oldNodeId = pair.first;
-            int newNodeId = pair.second;
+            uint64_t oldNodeId = pair.first;
+            uint64_t newNodeId = pair.second;
 
             const auto& oldNode = copy_buffer.nodes.at(oldNodeId);
             auto newNode = graph.getNode(newNodeId);
 
             if (newNode) {
                 for (size_t i = 0; i < oldNode.input_ports.size(); ++i) {
-                    int oldPortId = oldNode.input_ports[i];
-                    int newPortId = newNode->input_ports[i];
+                    uint64_t oldPortId = oldNode.input_ports[i];
+                    uint64_t newPortId = newNode->input_ports[i];
                     oldToNewPortMap[oldPortId] = newPortId;
 
                     // Copy constraints
@@ -234,8 +235,8 @@ void PasteCommand::execute(FactoryGraph &graph) {
                     pastedPorts.insert({newNodeId, *graph.getPort(newPortId)});
                 }
                 for (size_t i = 0; i < oldNode.output_ports.size(); ++i) {
-                    int oldPortId = oldNode.output_ports[i];
-                    int newPortId = newNode->output_ports[i];
+                    uint64_t oldPortId = oldNode.output_ports[i];
+                    uint64_t newPortId = newNode->output_ports[i];
                     oldToNewPortMap[oldPortId] = newPortId;
 
                     // Copy constraints
@@ -246,33 +247,33 @@ void PasteCommand::execute(FactoryGraph &graph) {
         }
 
         for (const auto &conn: copy_buffer.connections) {
-            int fromPort = conn.from_port;
-            int toPort = conn.to_port;
+            uint64_t fromPort = conn.from_port;
+            uint64_t toPort = conn.to_port;
 
             bool fromIsCopied = oldToNewPortMap.find(fromPort) != oldToNewPortMap.end();
             bool toIsCopied = oldToNewPortMap.find(toPort) != oldToNewPortMap.end();
 
             // Case 1: Both ports are copied
             if (fromIsCopied && toIsCopied) {
-                int newFromPort = oldToNewPortMap[fromPort];
-                int newToPort = oldToNewPortMap[toPort];
-                int newConnId = graph.addConnection(newFromPort, newToPort);
+                uint64_t newFromPort = oldToNewPortMap[fromPort];
+                uint64_t newToPort = oldToNewPortMap[toPort];
+                uint64_t newConnId = graph.addConnection(newFromPort, newToPort);
                 pastedConnections.push_back(*graph.getConnection(newConnId));
             }
 
             if (mapExternalConnections) {
                 // Case 2: From port is copied, to port is external
                 if (fromIsCopied && !toIsCopied) {
-                    int newFromPort = oldToNewPortMap[fromPort];
-                    int originalToPort = toPort;
-                    int newConnId = graph.addConnection(newFromPort, originalToPort);
+                    uint64_t newFromPort = oldToNewPortMap[fromPort];
+                    uint64_t originalToPort = toPort;
+                    uint64_t newConnId = graph.addConnection(newFromPort, originalToPort);
                     pastedConnections.push_back(*graph.getConnection(newConnId));
                 }
                 // Case 3: From port is external, to port is copied
                 else if (!fromIsCopied && toIsCopied) {
-                    int originalFromPort = fromPort;
-                    int newToPort = oldToNewPortMap[toPort];
-                    int newConnId = graph.addConnection(originalFromPort, newToPort);
+                    uint64_t originalFromPort = fromPort;
+                    uint64_t newToPort = oldToNewPortMap[toPort];
+                    uint64_t newConnId = graph.addConnection(originalFromPort, newToPort);
                     pastedConnections.push_back(*graph.getConnection(newConnId));
                 }
             }

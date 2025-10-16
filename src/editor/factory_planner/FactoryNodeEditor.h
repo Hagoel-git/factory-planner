@@ -16,11 +16,11 @@ enum class SaveAsMode {
 
 // Structure to hold node data for quadtree
 struct NodeQuadtreeData {
-    int nodeId;
+    uint64_t nodeId;
     ImVec2 position;
     ImVec2 size;
 
-    NodeQuadtreeData(int id, const ImVec2& pos, const ImVec2& sz)
+    NodeQuadtreeData(uint64_t id, const ImVec2& pos, const ImVec2& sz)
         : nodeId(id), position(pos), size(sz) {}
 };
 
@@ -160,7 +160,7 @@ private:
     ImVec2 windowSize;
     std::string name;
     std::filesystem::path projectFilePath;
-    int selected_port_id = 0;
+    uint64_t selected_port_id = 0;
 
     // Quadtree for spatial optimization
     std::unique_ptr<quadtree::Quadtree<NodeQuadtreeData, GetNodeBox>> nodeQuadtree;
