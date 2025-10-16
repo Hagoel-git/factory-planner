@@ -83,7 +83,7 @@ void Application::Draw() {
     if (SettingsManager::instance().getSettings().themeName != currentTheme || SettingsManager::instance().getSettings().showGrid != currentShowGrid) {
         currentTheme = SettingsManager::instance().getSettings().themeName;
         currentShowGrid = SettingsManager::instance().getSettings().showGrid;
-        ChangeTheme();
+        ApplyThemeToAllEditors();
     }
 
     HandleShortcuts();
@@ -175,7 +175,7 @@ void Application::Draw() {
     ImGui::End();
 }
 
-void Application::ChangeTheme() {
+void Application::ApplyThemeToAllEditors() {
     if (SettingsManager::instance().getSettings().themeName == "Dark") {
         ImGui::StyleColorsDark();
     } else {
@@ -758,8 +758,9 @@ void Application::CreateNewEditor(const std::string &gameDataFilePath, const std
         editors.push_back(std::move(editor));
         gameDataManager.clear();
 
-        ChangeTheme(); // Apply current theme to new editor
     }
+
+    ApplyThemeToAllEditors(); // Apply current theme
 
     // Switch to the new tab
     activeEditor = static_cast<int>(editors.size()) - 1;
