@@ -47,7 +47,7 @@ void AddNodeCommand::execute(FactoryGraph &graph) {
         ed::SetNodePosition(IdUtils::ToNodeId(newNodeId), position);
 
         if (fromPort != -1) {
-            bool fromInput = graph.getPort(fromPort)->isInput;
+            bool fromInput = graph.isInputPort(graph.getPort(fromPort)->id);
             // Find the corresponding port on the newly created node to connect to
             const auto &ports_on_new_node = fromInput
                                                 ? graph.getNode(newNodeId)->output_ports
@@ -166,11 +166,11 @@ void RemoveConnectionCommand::undo(FactoryGraph &graph) {
 }
 
 void SetPortConstraintCommand::execute(FactoryGraph &graph) {
-    graph.setPortDemand(portId, newConstraint);
+    graph.setPortConstraint(portId, newConstraint);
 }
 
 void SetPortConstraintCommand::undo(FactoryGraph &graph) {
-    graph.setPortDemand(portId, oldConstraint);
+    graph.setPortConstraint(portId, oldConstraint);
 }
 
 void MoveNodeCommand::execute(FactoryGraph &graph) {

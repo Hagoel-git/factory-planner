@@ -66,10 +66,15 @@ Node *FactoryGraph::getNode(uint64_t id) {
     return (it != node_id_to_index_.end()) ? &nodes[it->second] : nullptr;
 }
 
-uint64_t FactoryGraph::addPort(const std::string& resource_key, uint64_t node_id, bool isInput) {
+const Node *FactoryGraph::getNode(uint64_t id) const {
+    auto it = node_id_to_index_.find(id);
+    return (it != node_id_to_index_.end()) ? &nodes[it->second] : nullptr;
+}
+
+uint64_t FactoryGraph::addPort(const std::string& resource_key, uint64_t node_id) {
     uint64_t port_id = next_port_id++;
     size_t index = ports.size();
-    ports.emplace_back(port_id, node_id, resource_key, isInput);
+    ports.emplace_back(port_id, node_id, resource_key);
     addPortToIndex(port_id, index);
     return port_id;
 }
@@ -328,7 +333,6 @@ void FactoryGraph::deserialize(const nlohmann::json& j, const GameData &game_dat
                 const auto& recipePort = recipe.input_ports[i];
                 Port p;
                 p.id = next_port_id++;
-                p.isInput = true;
                 p.resource_key = recipePort.resource_key;
 
 
@@ -351,7 +355,6 @@ void FactoryGraph::deserialize(const nlohmann::json& j, const GameData &game_dat
                 const auto& recipePort = recipe.output_ports[i];
                 Port p;
                 p.id = next_port_id++;
-                p.isInput = false;
                 p.resource_key = recipePort.resource_key;
 
                 if (i < savedOutputPorts.size()) {
@@ -419,11 +422,11 @@ bool FactoryGraph::setNodeRecipe(uint64_t node_id, const std::string& recipe_key
     node->output_ports.resize(recipe.output_ports.size());
     node->input_ports.resize(recipe.input_ports.size());
     for (int i = 0; i < recipe.input_ports.size(); ++i) {
-        uint64_t port_id = addPort(recipe.input_ports.at(i).resource_key, node_id, true);
+        uint64_t port_id = addPort(recipe.input_ports.at(i).resource_key, node_id);
         node->input_ports[i] = port_id;
     }
     for (int i = 0; i < recipe.output_ports.size(); ++i) {
-        uint64_t port_id = addPort(recipe.output_ports.at(i).resource_key, node_id, false);
+        uint64_t port_id = addPort(recipe.output_ports.at(i).resource_key, node_id);
         node->output_ports[i] = port_id;
     }
 
@@ -451,7 +454,7 @@ bool FactoryGraph::isValidConnection(uint64_t from_port, uint64_t to_port) {
         auto resource_names = game_data.resources;
         return false;
     }
-    if (from_port_ptr->isInput || !to_port_ptr->isInput) {
+    if (isInputPort(from_port_ptr->id) || !isInputPort(to_port_ptr->id)) {
         return false;
     }
     return true;
@@ -477,11 +480,17 @@ const std::vector<Port> &FactoryGraph::getPorts() const {
     return ports;
 }
 
-bool FactoryGraph::setPortDemand(uint64_t port_id, double demand) {
+bool FactoryGraph::setPortConstraint(uint64_t port_id, double demand) {
     Port *port = getPort(port_id);
     if (!port) {
         return false;
     }
     port->user_constraint = demand;
     return true;
+}
+
+bool FactoryGraph::isInputPort(uint64_t port_id) const {
+    const Port *port = getPort(port_id);
+    const Node *node = port ? getNode(port->node_id) : nullptr;
+    return port && node && std::find(node->input_ports.begin(), node->input_ports.end(), port_id) != node->input_ports.end();
 }

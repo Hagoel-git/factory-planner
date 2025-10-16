@@ -516,7 +516,7 @@ void FactoryNodeEditor::HandleUserInteractions() {
 
             selected_port_id = startId;
 
-            if (graph->getPort(startId)->isInput) {
+            if (graph->isInputPort(startId)) {
                 std::swap(startId, endId); // Ensure start is always output
             }
 
@@ -715,7 +715,7 @@ void FactoryNodeEditor::HandlePopups() {
             // --- Display Port Info ---
             ImGui::Text("Port ID: %d", port->id);
             ImGui::Text("Resource Key: %s", port->resource_key.c_str());
-            ImGui::Text("Is Input: %s", port->isInput ? "Yes" : "No");
+            ImGui::Text("Is Input: %s", graph->isInputPort(port->id) ? "Yes" : "No");
             ImGui::Text("Current rate: %.2f", port->rate);
             ImGui::Text("Limit: %.2f", port->user_constraint);
             ImGui::Separator();
@@ -733,7 +733,7 @@ void FactoryNodeEditor::HandlePopups() {
                     m_contextPinCurrentConstraint = (v < 0.0) ? 0.0 : v;
                 }
 
-                graph->setPortDemand(port->id, m_contextPinCurrentConstraint);
+                graph->setPortConstraint(port->id, m_contextPinCurrentConstraint);
                 FactorySolver::SolverResult result = solver->solve(*graph);
                 debugInfo.lastTotalSolveDurationMs = result.total_solve_time_ms;
                 debugInfo.lastSetupSolveDurationMs = result.setup_time_ms;
@@ -781,7 +781,7 @@ void FactoryNodeEditor::HandlePopups() {
     if (ImGui::BeginPopup("Create new node")) {
         if (selected_port_id != -1) {
             std::string resourceFilter = graph->getGameData().resources.find(graph->getPort(selected_port_id)->resource_key)->first;
-            bool fromInput = graph->getPort(selected_port_id)->isInput;
+            bool fromInput = graph->isInputPort(selected_port_id);
             for (const auto& recipe : graph->getGameData().recipes) {
                 const auto& ports = fromInput ? recipe.second.output_ports : recipe.second.input_ports;
                 for (const auto& port : ports) {

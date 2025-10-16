@@ -1,6 +1,7 @@
 #ifndef PORT_H
 #define PORT_H
 #include <cstdint>
+#include <utility>
 
 
 struct Port {
@@ -9,12 +10,12 @@ struct Port {
     uint64_t id;
     uint64_t node_id;
     std::string resource_key; // ID of the resource associated with this port
-    bool isInput;
+    //bool isInput;
 
     Port() = default;
 
-    Port(uint64_t id, uint64_t node_id, std::string resource_key, bool isInput)
-        : id(id), node_id(node_id), resource_key(resource_key), isInput(isInput) {
+    Port(uint64_t id, uint64_t node_id, std::string resource_key)
+        : id(id), node_id(node_id), resource_key(std::move(resource_key)) {
     }
 
     friend bool operator==(const Port &lhs, const Port &rhs) {

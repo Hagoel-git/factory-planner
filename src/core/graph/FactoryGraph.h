@@ -17,6 +17,9 @@ public:
     bool removeNode(uint64_t node_id);
     bool setNodeRecipe(uint64_t node_id, const std::string& recipe_key);
     Node* getNode(uint64_t id);
+
+    const Node *getNode(uint64_t id) const;
+
     [[nodiscard]] const std::vector<Node>& getNodes() const;
 
     bool isValidConnection(uint64_t from_port, uint64_t to_port);
@@ -29,12 +32,13 @@ public:
     std::vector<Connection*> getConnectionsForPort(uint64_t id);
     [[nodiscard]] const std::vector<Connection>& getConnections() const;
 
-    uint64_t addPort(const std::string& resource_key, uint64_t node_id, bool isInput);
+    uint64_t addPort(const std::string& resource_key, uint64_t node_id);
     bool removePort(uint64_t port_id);
     Port* getPort(uint64_t id);
     const Port* getPort(uint64_t id) const;
     [[nodiscard]] const std::vector<Port>& getPorts() const;
-    bool setPortDemand(uint64_t port_id, double demand);
+    bool setPortConstraint(uint64_t port_id, double demand);
+    bool isInputPort(uint64_t port_id) const;
 
     void clear();
 
