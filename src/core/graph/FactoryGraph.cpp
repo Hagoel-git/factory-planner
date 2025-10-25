@@ -280,7 +280,8 @@ nlohmann::json FactoryGraph::serialize() const {
     // Serialize ID counters
     j["next_node_id"] = next_node_id;
     j["next_connection_id"] = next_connection_id;
-    j["game_data_path"] = game_data.gameDataFilePath;
+    j["game_data_filename"] = game_data.gameDataFilePath.filename();
+    j["game_name"] = game_data.gameName;
 
     return j;
 }

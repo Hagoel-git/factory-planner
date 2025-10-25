@@ -5,6 +5,8 @@
 #include "IdUtils.h"
 #include "FactoryGraph.h"
 #include "GameDataManager.h"
+#include "GameDataScanner.h"
+#include "SettingsManager.h"
 
 bool ProjectIO::SaveProject(const std::string &path, const FactoryGraph &factoryGraph, ed::EditorContext *context) {
     try {
@@ -99,9 +101,23 @@ bool ProjectIO::LoadProject(const std::string &path, FactoryGraph &factoryGraph)
         // Load graph data first
         if (projectData.contains("graph_data")) {
             try {
-                std::string gameDataPath = projectData["graph_data"]["game_data_path"];
+                std::string gameDataName = projectData["graph_data"]["game_data_filename"];
+                std::string gameName = projectData["graph_data"]["game_name"];
                 GameDataManager game_data_manager;
                 std::string error;
+                std::vector<GameDataPackage> packages = ScanForGameData(SettingsManager::instance().getSettings().gameDataPath);
+                // search for path from name in packages
+                std::filesystem::path gameDataPath;
+                for (const auto& pkg : packages) {
+                    if (pkg.dataName == gameDataName && pkg.gameName == gameName) {
+                        gameDataPath = SettingsManager::instance().getSettings().gameDataPath / pkg.dataFilePath;
+                        break;
+                    }
+                }
+                if (gameDataPath.empty()) {
+                    std::cerr << "Game data file not found for project: " << gameDataName << " (" << gameName << ")" << std::endl;
+                    return false;
+                }
                 if (!game_data_manager.loadFromFile(gameDataPath, error)) {
                     std::cerr << "Failed to load game data from file: " << error << std::endl;
                     return false;
