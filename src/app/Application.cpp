@@ -416,11 +416,11 @@ void Application::DrawNewProjectDialog() {
                        ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking)) {
         ImGui::End();
         return;
-    }
+                       }
 
     // Gather game data files (fresh each frame in case files change)
     std::filesystem::path gameDataPath = SettingsManager::instance().getSettings().gameDataPath;
-    std::vector<GameDataPackage> gameDataFiles = ScanForGameData(gameDataPath);
+    std::vector<GameDataPackage> game_data_packages = ScanForGameData(gameDataPath);
 
     // One-time initialization of buffers
     if (!initialized) {
@@ -433,7 +433,7 @@ void Application::DrawNewProjectDialog() {
         std::strncpy(locationBuf, defaultLocation.string().c_str(), sizeof(locationBuf));
         locationBuf[sizeof(locationBuf) - 1] = '\0';
 
-        selectedGameDataFile = gameDataFiles.empty() ? -1 : 0;
+        selectedGameDataFile = game_data_packages.empty() ? -1 : 0;
     }
 
     // --- Header ---
@@ -455,7 +455,7 @@ void Application::DrawNewProjectDialog() {
         if (s.size() > std::strlen(kProjectExtension) &&
             s.compare(s.size() - std::strlen(kProjectExtension), std::strlen(kProjectExtension), kProjectExtension) == 0) {
             s.resize(s.size() - std::strlen(kProjectExtension));
-        }
+            }
         // Remove any remaining slashes
         s.erase(std::remove_if(s.begin(), s.end(), [](char c){ return c == '/' || c == '\\' || c == ':'; }), s.end());
         std::strncpy(projectNameBuf, s.c_str(), sizeof(projectNameBuf));
@@ -515,20 +515,81 @@ void Application::DrawNewProjectDialog() {
     // --- Game configuration list ---
     ImGui::Text("Select Game Configuration:");
     ImGui::BeginChild("GameSelection", ImVec2(0, 180), true);
-    if (gameDataFiles.empty()) {
+
+    if (game_data_packages.empty()) {
         ImGui::TextDisabled("No game configuration files found in %s", gameDataPath.string().c_str());
         selectedGameDataFile = -1;
     } else {
-        // Ensure selected index is valid
-        if (selectedGameDataFile < 0) selectedGameDataFile = 0;
-        if (selectedGameDataFile >= static_cast<int>(gameDataFiles.size())) selectedGameDataFile = static_cast<int>(gameDataFiles.size()) - 1;
+        // Helper structs for sorting
+        struct FoldableGroup {
+            std::string gameName;
+            std::vector<std::pair<std::string, int>> items; // {dataName, originalIndex}
+        };
 
-        for (int i = 0; i < static_cast<int>(gameDataFiles.size()); ++i) {
-            const auto &p = gameDataFiles[i];
-            const std::string display = p.dataName;
-            bool isSelected = (selectedGameDataFile == i);
-            if (ImGui::Selectable(display.c_str(), isSelected)) {
-                selectedGameDataFile = i;
+        struct SelectableItem {
+            std::string gameName;
+            std::string dataName;
+            int originalIndex;
+        };
+
+        // Temporary map to group packages by gameName
+        std::map<std::string, std::vector<std::pair<std::string, int>>> groupedMap;
+        for (int i = 0; i < static_cast<int>(game_data_packages.size()); ++i) {
+            const auto& pkg = game_data_packages[i];
+            groupedMap[pkg.gameName].push_back({pkg.dataName, i});
+        }
+
+        // Two lists to store the two types of UI elements
+        std::vector<FoldableGroup> foldableGroups;
+        std::vector<SelectableItem> selectableItems;
+
+        // Sort the map into the two lists
+        for (const auto& pair : groupedMap) {
+            const std::string& gameName = pair.first;
+            const auto& items = pair.second;
+
+            if (items.size() == 1) {
+                // Rule A: Only one item, add to selectableItems
+                const auto& item = items[0];
+                selectableItems.push_back({gameName, item.first, item.second});
+            } else {
+                // Rule B: More than one item, add to foldableGroups
+                foldableGroups.push_back({gameName, items});
+            }
+        }
+
+        // Render Foldable Groups first
+        for (const auto& group : foldableGroups) {
+            if (ImGui::TreeNode(group.gameName.c_str())) {
+                for (const auto& item : group.items) {
+                    // item.first is dataName, item.second is originalIndex
+                    bool isSelected = (selectedGameDataFile == item.second);
+                    if (ImGui::Selectable(item.first.c_str(), isSelected)) {
+                        selectedGameDataFile = item.second;
+                    }
+                    if (isSelected) {
+                        ImGui::SetItemDefaultFocus();
+                    }
+                }
+                ImGui::TreePop();
+            }
+        }
+
+        if (!foldableGroups.empty() && !selectableItems.empty()) {
+            ImGui::Separator();
+        }
+
+        // Render Single Selectable Items last
+        for (const auto& item : selectableItems) {
+            // Display as "GameName - DataName" for context
+            std::string displayName = item.gameName + " - " + item.dataName;
+            bool isSelected = (selectedGameDataFile == item.originalIndex);
+
+            if (ImGui::Selectable(displayName.c_str(), isSelected)) {
+                selectedGameDataFile = item.originalIndex;
+            }
+            if (isSelected) {
+                ImGui::SetItemDefaultFocus();
             }
         }
     }
@@ -536,7 +597,7 @@ void Application::DrawNewProjectDialog() {
 
     ImGui::Spacing();
 
-    // --- Validation checks ---
+    // Validation checks
     bool nameEmpty = projectNameStr.empty();
     bool nameExists = std::any_of(editors.begin(), editors.end(), [&](const auto &editor) {
         return editor->GetName() == projectNameStr;
@@ -556,8 +617,8 @@ void Application::DrawNewProjectDialog() {
         std::error_code ec;
         std::filesystem::create_directories(locationPath, ec);
         // Create the editor/project (call existing function)
-        if (selectedGameDataFile >= 0 && selectedGameDataFile < static_cast<int>(gameDataFiles.size())) {
-            std::filesystem::path selectedGameData = gameDataPath / gameDataFiles.at(selectedGameDataFile).dataFilePath;
+        if (selectedGameDataFile >= 0 && selectedGameDataFile < static_cast<int>(game_data_packages.size())) {
+            std::filesystem::path selectedGameData = gameDataPath / game_data_packages.at(selectedGameDataFile).dataFilePath;
             CreateNewEditor(selectedGameData, fullPath, projectNameStr);
         }
         showNewProjectDialog = false;

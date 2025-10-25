@@ -42,10 +42,87 @@ void GameDataEditor::DrawLeftSide() {
     const auto &gameDataPath = SettingsManager::instance().getSettings().gameDataPath;
     std::vector<GameDataPackage> packages = ScanForGameData(gameDataPath);
 
-    for (const auto &package: packages) {
-        const bool isSelected = (m_currentlyEditingFile.filename() == package.dataFilePath.filename());
-        if (ImGui::Selectable(package.dataFilePath.filename().string().c_str(), isSelected)) {
-            m_currentlyEditingFile = gameDataPath / package.dataFilePath.filename();
+    // Helper structs for sorting
+    struct FoldableGroup {
+        std::string gameName;
+        // {dataName, fullPath}
+        std::vector<std::pair<std::string, std::filesystem::path>> items;
+    };
+
+    struct SelectableItem {
+        std::string gameName;
+        std::string dataName;
+        std::filesystem::path fullPath;
+    };
+
+    // Temporary map to group packages by gameName
+    std::map<std::string, std::vector<std::pair<std::string, std::filesystem::path>>> groupedMap;
+    for (const auto& pkg : packages) {
+        // Use dataName for the display and dataFilePath for the action
+        groupedMap[pkg.gameName].emplace_back(pkg.dataName, pkg.dataFilePath);
+    }
+
+    // Two lists to store the two types of UI elements
+    std::vector<FoldableGroup> foldableGroups;
+    std::vector<SelectableItem> selectableItems;
+
+    // Sort the map into the two lists
+    for (const auto& pair : groupedMap) {
+        const std::string& gameName = pair.first;
+        const auto& items = pair.second;
+
+        if (items.size() == 1) {
+            // Rule A: Only one item, add to selectableItems
+            const auto& item = items[0];
+            selectableItems.push_back({gameName, item.first, item.second});
+        } else {
+            // Rule B: More than one item, add to foldableGroups
+            foldableGroups.push_back({gameName, items});
+        }
+    }
+
+    // Render Foldable Groups first
+    for (const auto& group : foldableGroups) {
+        if (ImGui::TreeNode(group.gameName.c_str())) {
+            for (const auto& item : group.items) {
+                // item.first is dataName, item.second is fullPath
+                const bool isSelected = (m_currentlyEditingFile == item.second);
+                if (ImGui::Selectable(item.first.c_str(), isSelected)) {
+                    m_currentlyEditingFile = item.second; // Use the full path
+                    // clear all buffers
+                    selResourceKey.clear();
+                    selMachineKey.clear();
+                    selRecipeKey.clear();
+                    resourceDirty = false;
+                    machineDirty = false;
+                    recipeDirty = false;
+
+                    if (!gameDataManager.loadFromFile(m_currentlyEditingFile.string(), m_fileLoadError)) {
+                        // Loading failed, error message is in m_fileLoadError
+                    } else {
+                        m_fileLoadError.clear();
+                    }
+                }
+                if (isSelected) {
+                    ImGui::SetItemDefaultFocus();
+                }
+            }
+            ImGui::TreePop();
+        }
+    }
+
+    if (!foldableGroups.empty() && !selectableItems.empty()) {
+        ImGui::Separator();
+    }
+
+    // Render Single Selectable Items last
+    for (const auto& item : selectableItems) {
+        // Display as "GameName - DataName" for context
+        std::string displayName = item.gameName + " - " + item.dataName;
+        const bool isSelected = (m_currentlyEditingFile == item.fullPath);
+
+        if (ImGui::Selectable(displayName.c_str(), isSelected)) {
+            m_currentlyEditingFile = item.fullPath; // Use the full path
             // clear all buffers
             selResourceKey.clear();
             selMachineKey.clear();
@@ -54,11 +131,14 @@ void GameDataEditor::DrawLeftSide() {
             machineDirty = false;
             recipeDirty = false;
 
-            if (!gameDataManager.loadFromFile(m_currentlyEditingFile, m_fileLoadError)) {
+            if (!gameDataManager.loadFromFile(m_currentlyEditingFile.string(), m_fileLoadError)) {
                 // Loading failed, error message is in m_fileLoadError
             } else {
                 m_fileLoadError.clear();
             }
+        }
+        if (isSelected) {
+            ImGui::SetItemDefaultFocus();
         }
     }
 
