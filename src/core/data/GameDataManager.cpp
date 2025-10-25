@@ -20,7 +20,6 @@ GameDataManager::GameDataManager() {
 }
 
 bool GameDataManager::loadFromFile(const std::string &path, std::string &outError) {
-    std::lock_guard<std::mutex> lk(_mutex);
     try {
         if (!std::filesystem::exists(path)) {
             outError = "File does not exist: " + path;
@@ -33,14 +32,19 @@ bool GameDataManager::loadFromFile(const std::string &path, std::string &outErro
         }
         json j;
         ifs >> j;
+
+        std::filesystem::path dataFilePath(path);
+        std::filesystem::path packageRoot = dataFilePath.parent_path().parent_path(); // structure: <package_root>/game_datas/<datafile>.gd
+        std::filesystem::path iconRoot = packageRoot / "icons";
+
         _data.gameDataFilePath = path;
-        _data = jsonToGameData(j, outError);
+        _data = jsonToGameData(j, iconRoot, outError);
+
         if (!outError.empty()) {
             // jsonToGameData will put validation messages into outError when parse problems occur
             return false;
         }
         // successful load
-        notifyChange();
         return true;
     } catch (const std::exception &ex) {
         outError = std::string("Exception while loading: ") + ex.what();
@@ -49,7 +53,6 @@ bool GameDataManager::loadFromFile(const std::string &path, std::string &outErro
 }
 
 bool GameDataManager::saveToFile(const std::string &path, std::string &outError) {
-    std::lock_guard<std::mutex> lk(_mutex);
     try {
         json j = gameDataToJson(_data);
         std::ofstream ofs(path);
@@ -66,7 +69,6 @@ bool GameDataManager::saveToFile(const std::string &path, std::string &outError)
 }
 
 GameData GameDataManager::createNew(const std::string &gameName, const std::string &timeUnit) {
-    std::lock_guard<std::mutex> lk(_mutex);
     GameData gd;
     gd.gameName = gameName;
     gd.gameDataFilePath = "";
@@ -76,7 +78,6 @@ GameData GameDataManager::createNew(const std::string &gameName, const std::stri
     nothing.name = "Nothing";
     gd.resources["nothing"] = nothing;
     _data = gd;
-    notifyChange();
     return _data;
 }
 
@@ -86,18 +87,15 @@ GameData& GameDataManager::current() {
 }
 
 bool GameDataManager::addResource(const Resource &r) {
-    std::lock_guard<std::mutex> lk(_mutex);
     std::string key = slugify(r.name);
     // don't allow adding key "nothing"
     if (key == "nothing") return false;
     if (_data.resources.count(key)) return false; // already exists
     _data.resources[key] = r;
-    notifyChange();
     return true;
 }
 
 bool GameDataManager::editResource(const std::string& key_name, const Resource &r, std::string &outError) {
-    std::lock_guard<std::mutex> lk(_mutex);
     if (key_name == "nothing") {
         outError = "Cannot edit reserved resource 'nothing'.";
         return false;
@@ -123,12 +121,10 @@ bool GameDataManager::editResource(const std::string& key_name, const Resource &
             if (p.resource_key == key_name) p.resource_key = key;
         }
     }
-    notifyChange();
     return true;
 }
 
 bool GameDataManager::deleteResource(const std::string& key_name, std::string &outError) {
-    std::lock_guard<std::mutex> lk(_mutex);
     if (key_name == "nothing") {
         outError = "Cannot delete reserved resource 'nothing'.";
         return false;
@@ -154,21 +150,17 @@ bool GameDataManager::deleteResource(const std::string& key_name, std::string &o
         }
     }
     _data.resources.erase(key_name);
-    notifyChange();
     return true;
 }
 
 bool GameDataManager::addMachine(const Machine &m) {
-    std::lock_guard<std::mutex> lk(_mutex);
     std::string key = slugify(m.name);
     if (_data.machines.count(key)) return false; // already exists
     _data.machines[key] = m;
-    notifyChange();
     return true;
 }
 
 bool GameDataManager::editMachine(const std::string& key_name, const Machine &m, std::string &outError) {
-    std::lock_guard<std::mutex> lk(_mutex);
     if (!_data.machines.count(key_name)) {
         outError = "Machine key_name not found.";
         return false;
@@ -187,12 +179,10 @@ bool GameDataManager::editMachine(const std::string& key_name, const Machine &m,
             if (mk == key_name) mk = key;
         }
     }
-    notifyChange();
     return true;
 }
 
 bool GameDataManager::deleteMachine(const std::string& key_name, std::string &outError) {
-    std::lock_guard<std::mutex> lk(_mutex);
     if (!_data.machines.count(key_name)) {
         outError = "Machine key_name not found.";
         return false;
@@ -208,12 +198,10 @@ bool GameDataManager::deleteMachine(const std::string& key_name, std::string &ou
         }
     }
     _data.machines.erase(key_name);
-    notifyChange();
     return true;
 }
 
 bool GameDataManager::addRecipe(const Recipe &r) {
-    std::lock_guard<std::mutex> lk(_mutex);
     std::string key = slugify(r.name);
     if (_data.recipes.count(key)) return false; // already exists
     Recipe rr = r;
@@ -225,12 +213,10 @@ bool GameDataManager::addRecipe(const Recipe &r) {
         rr.output_ports.push_back(RecipePort{0.0, "nothing"});
     }
     _data.recipes[key] = rr;
-    notifyChange();
     return true;
 }
 
 bool GameDataManager::editRecipe(const std::string& key_name, const Recipe &r, std::string &outError) {
-    std::lock_guard<std::mutex> lk(_mutex);
     if (!_data.recipes.count(key_name)) {
         outError = "Recipe key_name not found.";
         return false;
@@ -251,18 +237,15 @@ bool GameDataManager::editRecipe(const std::string& key_name, const Recipe &r, s
     }
     _data.recipes.erase(key_name);
     _data.recipes[key] = rr;
-    notifyChange();
     return true;
 }
 
 bool GameDataManager::deleteRecipe(const std::string& key_name, std::string &outError) {
-    std::lock_guard<std::mutex> lk(_mutex);
     if (!_data.recipes.count(key_name)) {
         outError = "Recipe key_name not found.";
         return false;
     }
     _data.recipes.erase(key_name);
-    notifyChange();
     return true;
 }
 
@@ -304,21 +287,7 @@ std::vector<std::string> GameDataManager::validate(const GameData &gd) {
     return messages;
 }
 
-void GameDataManager::setChangeCallback(std::function<void()> cb) {
-    std::lock_guard<std::mutex> lk(_mutex);
-    _onChange = std::move(cb);
-}
-
-void GameDataManager::notifyChange() {
-    if (_onChange) {
-        // call without holding a lock to avoid deadlocks in callback
-        auto cb = _onChange;
-        // unlock happens as lock_guard goes out of scope in callers; here just call
-        cb();
-    }
-}
-
-GameData GameDataManager::jsonToGameData(const json &j, std::string &outError) {
+GameData GameDataManager::jsonToGameData(const json &j, std::filesystem::path& packageIconRoot, std::string &outError) {
     outError.clear();
     std::filesystem::path path = _data.gameDataFilePath;
     GameData gd;
@@ -349,7 +318,7 @@ GameData GameDataManager::jsonToGameData(const json &j, std::string &outError) {
                 if (key == "nothing") continue;
                 Resource res;
                 res.name = name.empty() ? key : name;
-                std::filesystem::path texturePath = SettingsManager::instance().getSettings().gameDataPath / path.stem() / "textures/resources" / (key + ".png");
+                std::filesystem::path texturePath = packageIconRoot / "resources" / (key + ".png");
                 if (std::filesystem::exists(texturePath)) {
                     // load texture (defer actual loading to caller)
                     GLuint texture;
@@ -374,7 +343,7 @@ GameData GameDataManager::jsonToGameData(const json &j, std::string &outError) {
                 Machine mm;
                 mm.name = name.empty() ? key : name;
                 mm.base_crafting_speed = eff <= 0.0 ? 1.0 : eff;
-                std::filesystem::path texturePath = SettingsManager::instance().getSettings().gameDataPath / path.stem() / "textures/machines" / (key + ".png");
+                std::filesystem::path texturePath = packageIconRoot / "machines" / (key + ".png");
                 if (std::filesystem::exists(texturePath)) {
                     // load texture (defer actual loading to caller)
                     GLuint texture;

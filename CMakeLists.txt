@@ -103,6 +103,7 @@ set(SRC
         src/services/RecentFiles.h
         src/common/TextureUtils.h
         src/common/TextureUtils.cpp
+        src/core/data/GameDataScanner.h
 )
 
 add_executable(factory_planner ${SRC})

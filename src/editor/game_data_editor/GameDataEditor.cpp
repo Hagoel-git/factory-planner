@@ -3,6 +3,7 @@
 #include <iostream>
 
 #include "FilesystemUtils.h"
+#include "GameDataScanner.h"
 #include "SettingsManager.h"
 #include "StringUtils.h"
 
@@ -39,12 +40,12 @@ void GameDataEditor::DrawLeftSide() {
 
     // List all game data files
     const auto &gameDataPath = SettingsManager::instance().getSettings().gameDataPath;
-    std::vector<std::filesystem::path> files = GetGameDataFiles(gameDataPath);
+    std::vector<GameDataPackage> packages = ScanForGameData(gameDataPath);
 
-    for (const auto &file: files) {
-        const bool isSelected = (m_currentlyEditingFile.filename() == file.filename());
-        if (ImGui::Selectable(file.filename().string().c_str(), isSelected)) {
-            m_currentlyEditingFile = gameDataPath / file.filename();
+    for (const auto &package: packages) {
+        const bool isSelected = (m_currentlyEditingFile.filename() == package.dataFilePath.filename());
+        if (ImGui::Selectable(package.dataFilePath.filename().string().c_str(), isSelected)) {
+            m_currentlyEditingFile = gameDataPath / package.dataFilePath.filename();
             // clear all buffers
             selResourceKey.clear();
             selMachineKey.clear();

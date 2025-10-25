@@ -13,6 +13,7 @@
 #include "FilesystemUtils.h"
 #include "SettingsManager.h"
 #include "FactoryNodeEditor.h"
+#include "GameDataScanner.h"
 #include "RecentFiles.h"
 #include "SessionManager.h"
 
@@ -419,12 +420,12 @@ void Application::DrawNewProjectDialog() {
 
     // Gather game data files (fresh each frame in case files change)
     std::filesystem::path gameDataPath = SettingsManager::instance().getSettings().gameDataPath;
-    std::vector<std::filesystem::path> gameDataFiles = GetGameDataFiles(gameDataPath);
+    std::vector<GameDataPackage> gameDataFiles = ScanForGameData(gameDataPath);
 
     // One-time initialization of buffers
     if (!initialized) {
         initialized = true;
-        std::string defaultName = GenerateDefaultEditorName();
+        std::string defaultName = GenerateDefaultEditorName(); // todo: enhance generate name
         std::strncpy(projectNameBuf, defaultName.c_str(), sizeof(projectNameBuf));
         projectNameBuf[sizeof(projectNameBuf) - 1] = '\0';
 
@@ -524,7 +525,7 @@ void Application::DrawNewProjectDialog() {
 
         for (int i = 0; i < static_cast<int>(gameDataFiles.size()); ++i) {
             const auto &p = gameDataFiles[i];
-            const std::string display = p.filename().string();
+            const std::string display = p.dataName;
             bool isSelected = (selectedGameDataFile == i);
             if (ImGui::Selectable(display.c_str(), isSelected)) {
                 selectedGameDataFile = i;
@@ -556,7 +557,7 @@ void Application::DrawNewProjectDialog() {
         std::filesystem::create_directories(locationPath, ec);
         // Create the editor/project (call existing function)
         if (selectedGameDataFile >= 0 && selectedGameDataFile < static_cast<int>(gameDataFiles.size())) {
-            std::filesystem::path selectedGameData = gameDataPath / gameDataFiles.at(selectedGameDataFile);
+            std::filesystem::path selectedGameData = gameDataPath / gameDataFiles.at(selectedGameDataFile).dataFilePath;
             CreateNewEditor(selectedGameData, fullPath, projectNameStr);
         }
         showNewProjectDialog = false;

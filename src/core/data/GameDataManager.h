@@ -3,8 +3,6 @@
 
 #include <string>
 #include <vector>
-#include <functional>
-#include <mutex>
 
 #include "GameData.h"
 #include <nlohmann/json.hpp>
@@ -19,7 +17,6 @@ public:
     // Save to file (writes JSON)
     bool saveToFile(const std::string &path, std::string &outError);
 
-    // Create new blank config
     GameData createNew(const std::string &gameName, const std::string &timeUnit="seconds");
 
     // CRUD operations
@@ -41,20 +38,12 @@ public:
     GameData &current();
 
     void clear() {
-        std::lock_guard<std::mutex> lk(_mutex);
         _data = {};
-        notifyChange();
     }
-    // Observers (simple) - you can use signals/slots or function callbacks
-    void setChangeCallback(std::function<void()> cb);
 private:
-    void notifyChange();
-    GameData jsonToGameData(const json &j, std::string &outError);
+    GameData jsonToGameData(const json &j, std::filesystem::path& packageIconRoot, std::string &outError);
     json gameDataToJson(const GameData &gd);
-private:
     GameData _data;
-    std::function<void()> _onChange;
-    std::mutex _mutex; // thread-safety if used from UI thread background tasks
 };
 
 
