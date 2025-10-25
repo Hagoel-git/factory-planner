@@ -87,6 +87,8 @@ bool FactoryGraph::removePort(uint64_t port_id) {
 
     size_t index = map_it->second;
 
+    uint64_t node_id = ports[index].node_id;
+
     // Remove all connections involving this port
     // We'll use removeConnection() so it keeps indices consistent
     auto range = connectionsByPort.equal_range(port_id);
@@ -97,6 +99,23 @@ bool FactoryGraph::removePort(uint64_t port_id) {
     for (uint64_t conn_id : connections_to_remove) {
         const auto& conn = connections[connection_id_to_index_[conn_id]];
         removeConnection(conn.from_port, conn.to_port);
+    }
+
+    Node* parent_node = getNode(node_id);
+
+    if (parent_node) {
+        auto& in_ports = parent_node->input_ports;
+        auto in_it = std::find(in_ports.begin(), in_ports.end(), port_id);
+
+        if (in_it != in_ports.end()) {
+            in_ports.erase(in_it);
+        } else {
+            auto& out_ports = parent_node->output_ports;
+            auto out_it = std::find(out_ports.begin(), out_ports.end(), port_id);
+            if (out_it != out_ports.end()) {
+                out_ports.erase(out_it);
+            }
+        }
     }
 
     // If it's not the last port, swap with the last
@@ -200,6 +219,11 @@ Connection *FactoryGraph::getConnection(uint64_t id) {
     return (it != connection_id_to_index_.end()) ? &connections[it->second] : nullptr;
 }
 
+const Connection *FactoryGraph::getConnection(uint64_t id) const {
+    auto it = connection_id_to_index_.find(id);
+    return (it != connection_id_to_index_.end()) ? &connections[it->second] : nullptr;
+}
+
 Connection *FactoryGraph::getConnection(uint64_t from_port, uint64_t to_port) {
     auto range = connectionsByPort.equal_range(from_port);
     for (auto it = range.first; it != range.second; ++it) {
@@ -292,8 +316,13 @@ void FactoryGraph::deserialize(const nlohmann::json& j, const GameData &game_dat
 
     this->game_data = game_data;
 
-    next_node_id = j.value("next_node_id", 0);
-    next_connection_id = j.value("next_connection_id", 0);
+    if (j.contains("next_node_id") && j["next_node_id"].is_number()) {
+        next_node_id = j.value("next_node_id", 0);
+    }
+    if (j.contains("next_connection_id") && j["next_connection_id"].is_number()) {
+        next_connection_id = j.value("next_connection_id", 0);
+    }
+
     next_port_id = 0;
 
     std::unordered_map<uint64_t, uint64_t> oldToNewPortIdMap;
@@ -330,14 +359,14 @@ void FactoryGraph::deserialize(const nlohmann::json& j, const GameData &game_dat
 
             const auto& portConstraints = node_json.value("port_constraints", nlohmann::json::object());
             const auto& savedInputPorts = node_json.value("input_ports", nlohmann::json::array());
-            for (size_t i = 0; i < savedInputPorts.size(); ++i) {
+            for (size_t i = 0; i < recipe.input_ports.size(); ++i) {
                 const auto& recipePort = recipe.input_ports[i];
                 Port p;
                 p.id = next_port_id++;
                 p.resource_key = recipePort.resource_key;
                 p.node_id = nodeId;
 
-                if (i < savedInputPorts.size()) {
+                if (savedInputPorts.is_array() && i < savedInputPorts.size() && savedInputPorts[i].is_number()) {
                     uint64_t oldPortId = savedInputPorts[i].get<uint64_t>();
                     oldToNewPortIdMap[oldPortId] = p.id;
 
@@ -352,15 +381,14 @@ void FactoryGraph::deserialize(const nlohmann::json& j, const GameData &game_dat
             }
 
             const auto& savedOutputPorts = node_json.value("output_ports", nlohmann::json::array());
-            for (size_t i = 0; i < savedOutputPorts.size(); ++i) {
+            for (size_t i = 0; i < recipe.output_ports.size(); ++i) {
                 const auto& recipePort = recipe.output_ports[i];
                 Port p;
                 p.id = next_port_id++;
                 p.resource_key = recipePort.resource_key;
                 p.node_id = nodeId;
 
-                if (i < savedOutputPorts.size()) {
-                    uint64_t oldPortId = savedOutputPorts[i].get<uint64_t>();
+                if (savedOutputPorts.is_array() && i < savedOutputPorts.size() && savedOutputPorts[i].is_number()) {                    uint64_t oldPortId = savedOutputPorts[i].get<uint64_t>();
                     oldToNewPortIdMap[oldPortId] = p.id;
 
                     if (portConstraints.contains(std::to_string(oldPortId))) {
