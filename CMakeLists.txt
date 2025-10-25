@@ -11,6 +11,14 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 list(APPEND CMAKE_MODULE_PATH ${FACTORY_PLANNER_ROOT_DIR}/misc/cmake-modules)
 
+include(FetchContent)
+FetchContent_Declare(
+        googletest
+        URL https://github.com/google/googletest/archive/03597a01ee50ed33e9dfd640b249b4be3799d395.zip
+)
+
+FetchContent_MakeAvailable(googletest)
+
 # Find system packages
 find_package(OpenGL REQUIRED)
 find_package(glfw3 REQUIRED)    # provide glfw3Config.cmake on system or provide via subdir
@@ -60,9 +68,7 @@ add_library(imgui_node_editor STATIC ${NODE_EDITOR_SOURCES})
 target_include_directories(imgui_node_editor PUBLIC ${EXTERNAL_DIR}/imgui-node-editor)
 target_link_libraries(imgui_node_editor PUBLIC imgui)
 
-# ---- main executable ----
-set(SRC
-        src/app/main.cpp
+set(FACTORY_PLANNER_LIB_SRC
         src/app/Application.h
         src/app/Application.cpp
 
@@ -106,7 +112,9 @@ set(SRC
         src/core/data/GameDataScanner.h
 )
 
-add_executable(factory_planner ${SRC})
+add_library(factory_planner_lib STATIC ${FACTORY_PLANNER_LIB_SRC})
+
+add_executable(factory_planner src/app/main.cpp)
 
 # ---- Copy runtime assets to the binary directory ----
 add_custom_command(
@@ -121,7 +129,7 @@ add_custom_command(
 )
 # Include directories for the target
 
-target_include_directories(factory_planner PRIVATE
+target_include_directories(factory_planner_lib PUBLIC
         ${CMAKE_SOURCE_DIR}/external
         ${CMAKE_SOURCE_DIR}/src
         ${CMAKE_SOURCE_DIR}/src/core
@@ -136,31 +144,26 @@ target_include_directories(factory_planner PRIVATE
 )
 
 # Organize sources in IDEs
-source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SRC})
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${FACTORY_PLANNER_LIB_SRC})
 
 # Link libraries using modern target_link_libraries
-target_link_libraries(factory_planner
-        PRIVATE
+target_link_libraries(factory_planner_lib
+        PUBLIC
         imgui
         imgui_node_editor
         nfd
         glfw
         OpenGL::GL
         # Optional: link external libraries if found
-        PRIVATE
+        PUBLIC
         ortools            # if find_package found it
         absl::time         # if absl CMake package is present and you need absl_time
 )
 
-# If ortools/absl not found by CMake, you can still allow the project to build
-# by searching for libraries (fallback) or by requiring the user to supply them.
-if (NOT TARGET ortools)
-    message(WARNING "ortools CMake package not found - make sure ortools library is available for linking.")
-endif()
-
-if (NOT TARGET absl::time)
-    message(STATUS "absl::time not found via CMake; link manually if needed.")
-endif()
+target_link_libraries(factory_planner
+        PRIVATE
+        factory_planner_lib
+)
 
 # Set runtime output dir
 set(_BinDir ${CMAKE_BINARY_DIR}/bin)
@@ -173,3 +176,6 @@ set_target_properties(factory_planner PROPERTIES
 
 # Install rules (optional)
 install(TARGETS factory_planner RUNTIME DESTINATION bin)
+
+enable_testing()
+add_subdirectory(tests)
