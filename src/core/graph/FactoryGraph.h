@@ -28,6 +28,7 @@ public:
     void restoreConnection(const Connection& connection);
     bool removeConnection(uint64_t from_port, uint64_t to_port);
     Connection* getConnection(uint64_t id);
+    const Connection *getConnection(uint64_t id) const;
     Connection* getConnection(uint64_t from_port, uint64_t to_port);
     std::vector<Connection*> getConnectionsForPort(uint64_t id);
     [[nodiscard]] const std::vector<Connection>& getConnections() const;
@@ -49,6 +50,7 @@ public:
     const GameData& getGameData() const {
         return game_data;
     }
+
 
     explicit FactoryGraph(GameData game_data) {
         this->game_data = std::move(game_data);

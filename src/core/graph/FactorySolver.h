@@ -37,11 +37,9 @@ public:
     explicit FactorySolver(const std::string& solver_name = "GLOP");
     ~FactorySolver() = default;
 
-    // Delete copy constructor and assignment operator to prevent issues with solver ownership
     FactorySolver(FactorySolver&) = delete;
     FactorySolver& operator=(const FactorySolver&) = delete;
 
-    // Move constructor and assignment are okay
     FactorySolver(FactorySolver&&) = default;
     FactorySolver& operator=(FactorySolver&&) = default;
 
