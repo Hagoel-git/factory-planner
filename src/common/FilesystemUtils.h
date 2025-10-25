@@ -82,17 +82,4 @@ inline std::optional<std::filesystem::path> get_executable_directory() {
     return result_dir;
 }
 
-inline std::vector<std::filesystem::path> GetGameDataFiles(const std::filesystem::path &directory) {
-    if (!exists(directory)) {
-        create_directories(directory);
-    }
-    std::vector<std::filesystem::path> jsonFiles;
-    for (const auto &entry: std::filesystem::directory_iterator(directory)) {
-        if (entry.is_regular_file() && entry.path().extension() == ".json") {
-            jsonFiles.push_back(entry.path().filename());
-        }
-    }
-    return jsonFiles;
-}
-
 #endif //FILESYSTEMUTILS_H
