@@ -5,6 +5,7 @@ include(GoogleTest)
 add_executable(
         run_tests
         test_factory_graph.cpp
+        test_factory_solver.cpp
 )
 
 target_link_libraries(
