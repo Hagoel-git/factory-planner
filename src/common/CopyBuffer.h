@@ -5,9 +5,9 @@
 #include <unordered_set>
 #include <filesystem>
 
-#include "Node.h"
-#include "Port.h"
-#include "Connection.h"
+#include "core/graph/Node.h"
+#include "core/graph/Port.h"
+#include "core/graph/Connection.h"
 
 struct ImVec2;
 

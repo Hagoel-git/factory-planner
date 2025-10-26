@@ -2,7 +2,7 @@
 #define GAMEDATAEDITOR_H
 #include <unordered_set>
 
-#include "GameDataManager.h"
+#include "core/data/GameDataManager.h"
 
 class GameDataEditor {
 public:

@@ -2,7 +2,7 @@
 #define UNDOREDOSYSTEM_H
 #include <imgui.h>
 
-#include "CopyBuffer.h"
+#include "common/CopyBuffer.h"
 class FactoryGraph;
 
 struct CommandFlags {

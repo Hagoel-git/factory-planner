@@ -128,15 +128,6 @@ add_custom_command(
 target_include_directories(factory_planner_lib PUBLIC
         ${CMAKE_SOURCE_DIR}/external
         ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_SOURCE_DIR}/src/core
-        ${CMAKE_SOURCE_DIR}/src/core/graph
-        ${CMAKE_SOURCE_DIR}/src/core/data
-        ${CMAKE_SOURCE_DIR}/src/editor
-        ${CMAKE_SOURCE_DIR}/src/editor/factory_planner
-        ${CMAKE_SOURCE_DIR}/src/editor/game_data_editor
-        ${CMAKE_SOURCE_DIR}/src/app
-        ${CMAKE_SOURCE_DIR}/src/services
-        ${CMAKE_SOURCE_DIR}/src/common
 )
 
 # Organize sources in IDEs

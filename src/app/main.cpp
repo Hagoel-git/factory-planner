@@ -7,7 +7,7 @@
 #include <thread>
 
 #include "nfd_glfw3.h"
-#include "Application.h"
+#include "app/Application.h"
 
 #include "absl/log/log.h"
 #include "absl/log/log_sink.h"

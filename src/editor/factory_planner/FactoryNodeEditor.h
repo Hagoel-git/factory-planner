@@ -1,10 +1,10 @@
 #pragma once
 #include "imgui.h"
 #include "imgui_node_editor.h"
-#include "UndoRedoSystem.h"
+#include "services/UndoRedoSystem.h"
 #include "pvigier/Quadtree.h"
-#include "FactorySolver.h"
-#include "FactoryGraph.h"
+#include "core/graph/FactorySolver.h"
+#include "core/graph/FactoryGraph.h"
 
 struct CopyBuffer;
 namespace ed = ax::NodeEditor;

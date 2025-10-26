@@ -2,7 +2,7 @@
 #define SETTINGSMANAGER_H
 #include <filesystem>
 
-#include "FilesystemUtils.h"
+#include "common/FilesystemUtils.h"
 
 struct AppSettings {
     std::filesystem::path executablePath = get_executable_directory().value_or(std::filesystem::current_path());

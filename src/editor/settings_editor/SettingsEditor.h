@@ -3,7 +3,7 @@
 #include <array>
 #include <string>
 #include <vector>
-#include "SettingsManager.h"
+#include "services/SettingsManager.h"
 
 class SettingsEditor {
 public:

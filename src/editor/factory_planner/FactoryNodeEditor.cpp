@@ -1,19 +1,18 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "FactoryNodeEditor.h"
 #include "imgui.h"
-#include "imgui_node_editor.h"
 #include "imgui_internal.h"
-#include "ProjectIo.h"
-#include "IdUtils.h"
-#include "CopyBuffer.h"
+#include "imgui_node_editor.h"
+#include "imgui_node_editor_internal.h"
 
 #include <unordered_map>
 #include <string>
 #include <utility>
 
-#include "imgui_node_editor_internal.h"
-#include "SettingsManager.h"
-#include "TextureUtils.h"
+#include "common/IdUtils.h"
+#include "common/CopyBuffer.h"
+#include "services/ProjectIo.h"
+#include "services/SettingsManager.h"
 namespace ed = ax::NodeEditor;
 
 FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::string &projectFilePath, std::string title)

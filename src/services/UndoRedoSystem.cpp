@@ -1,7 +1,7 @@
 #include "UndoRedoSystem.h"
-#include "FactoryGraph.h"
 #include "imgui_node_editor.h"
-#include "../common/IdUtils.h"
+#include "core/graph/FactoryGraph.h"
+#include "common/IdUtils.h"
 #include <cstdint>
 
 namespace ed = ax::NodeEditor;

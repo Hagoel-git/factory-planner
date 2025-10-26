@@ -7,7 +7,7 @@
 #include "Connection.h"
 #include "Node.h"
 #include "Port.h"
-#include "GameData.h"
+#include "core/data/GameData.h"
 #include <nlohmann/json.hpp>
 
 class FactoryGraph {

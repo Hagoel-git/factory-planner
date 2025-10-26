@@ -2,10 +2,10 @@
 #include <imgui.h>
 #include <iostream>
 
-#include "FilesystemUtils.h"
-#include "GameDataScanner.h"
-#include "SettingsManager.h"
-#include "StringUtils.h"
+#include "common/FilesystemUtils.h"
+#include "core/data/GameDataScanner.h"
+#include "services/SettingsManager.h"
+#include "common/StringUtils.h"
 
 GameDataEditor::GameDataEditor() {
     gameDataManager.clear();
