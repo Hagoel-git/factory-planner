@@ -22,14 +22,10 @@ FetchContent_MakeAvailable(googletest)
 # Find system packages
 find_package(OpenGL REQUIRED)
 find_package(glfw3 REQUIRED)    # provide glfw3Config.cmake on system or provide via subdir
-
-# Optional: try to find ortools and absl if installed via CMake config
-find_package(ortools QUIET)
-find_package(absl QUIET)
+find_package(ortools REQUIRED)
 
 # Define a project-wide compile definition (equivalent to -DOR_PROTO_DLL=)
 add_compile_definitions(OR_PROTO_DLL=)
-# assume top-level CMakeLists is in project root
 set(EXTERNAL_DIR ${CMAKE_SOURCE_DIR}/external)
 message(STATUS "EXTERNAL_DIR = ${EXTERNAL_DIR}")
 
@@ -127,8 +123,8 @@ add_custom_command(
         "$<TARGET_FILE_DIR:factory_planner>/assets"
         COMMENT "Copying runtime data and assets to output directory..."
 )
-# Include directories for the target
 
+# Include directories for the target
 target_include_directories(factory_planner_lib PUBLIC
         ${CMAKE_SOURCE_DIR}/external
         ${CMAKE_SOURCE_DIR}/src
@@ -154,10 +150,10 @@ target_link_libraries(factory_planner_lib
         nfd
         glfw
         OpenGL::GL
-        # Optional: link external libraries if found
-        PUBLIC
-        ortools            # if find_package found it
-        absl::time         # if absl CMake package is present and you need absl_time
+        absl::log
+        absl::flags
+        absl::log_sink
+        ortools::ortools
 )
 
 target_link_libraries(factory_planner

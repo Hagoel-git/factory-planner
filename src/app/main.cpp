@@ -9,6 +9,29 @@
 #include "nfd_glfw3.h"
 #include "Application.h"
 
+#include "absl/log/log.h"
+#include "absl/log/log_sink.h"
+#include "absl/log/initialize.h"
+#include "absl/flags/flag.h"
+#include "absl/flags/parse.h"
+#include "absl/log/globals.h"
+#include "absl/log/log_sink_registry.h"
+#include <fstream>
+
+class FileLogSink : public absl::LogSink {
+public:
+    FileLogSink(const std::string& filename)
+        : file_(filename, std::ofstream::app) {
+    }
+    void Send(const absl::LogEntry& entry) override {
+        // Write the formatted message to our file
+        file_ << entry.text_message_with_prefix_and_newline();
+        file_.flush(); // Ensure it's written immediately
+    }
+private:
+    std::ofstream file_;
+};
+
 // Return true if current session *looks like* Wayland.
 static bool RunningOnWayland()
 {
@@ -22,15 +45,35 @@ static bool RunningOnWayland()
 }
 
 static void glfw_error_callback(int error, const char *description) {
-    fprintf(stderr, "GLFW Error %d: %s\n", error, description);
+    LOG(ERROR) << "GLFW Error " << error << ": " << description;
 }
 
-int main(int, char **) {
+int main(int argc, char **argv) {
+    absl::InitializeLog();
+
+    const std::string latest_log_name = "factory_planner.log";
+    const std::string prev_log_name = "factory_planner.previous.log";
+
+    try {
+        if (std::filesystem::exists(latest_log_name)) {
+            std::filesystem::rename(latest_log_name, prev_log_name);
+        }
+    } catch (const std::filesystem::filesystem_error& e) {
+        std::cerr << "Failed to rotate log file: " << e.what() << std::endl;
+    }
+
+    static FileLogSink file_sink(latest_log_name);
+    absl::AddLogSink(&file_sink);
+
+    absl::ParseCommandLine(argc, argv);
+    LOG(INFO) << "Starting Factory Planner Application";
     // Setup window
     glfwSetErrorCallback(glfw_error_callback);
-    if (!glfwInit())
+    if (!glfwInit()) {
+        LOG(FATAL) << "Failed to initialize GLFW";
         return 1;
-
+    }
+    LOG(INFO) << "GLFW initialized successfully";
     // GL 3.2 + GLSL 150
     const char *glsl_version = "#version 150";
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -41,12 +84,18 @@ int main(int, char **) {
 #endif
 
     GLFWwindow *window = glfwCreateWindow(1280, 720, "Factory Planner", nullptr, nullptr);
-    if (window == nullptr) return 1;
+    if (window == nullptr) {
+        LOG(FATAL) << "Failed to create GLFW window";
+        return 1;
+    }
+
+    DLOG(INFO) << "Window created";
 
     glfwMakeContextCurrent(window);
-
+#if __linux__
     bool is_wayland = RunningOnWayland();
 
+    LOG(INFO) << "Running on " << (is_wayland ? "Wayland" : "X11");
     if (is_wayland) {
         // disable EGL-level vsync so we won't block inside glfwSwapBuffers()
         glfwSwapInterval(0);
@@ -58,9 +107,11 @@ int main(int, char **) {
     const double targetFrameRate = 60.0;
     const double targetTime = 1.0f / targetFrameRate;
     auto nextFrame = std::chrono::steady_clock::now();
+#endif
+
 
     if (NFD_Init() != NFD_OKAY) {
-        fprintf(stderr, "Failed to initialize Native File Dialog\n");
+        LOG(FATAL) << "Failed to initialize Native File Dialog";
         return 1;
     }
     // Prepare args (zero-init)
@@ -82,9 +133,13 @@ int main(int, char **) {
     // Setup Dear ImGui style
     ImGui::StyleColorsDark();
 
+    LOG(INFO) << "ImGui context created";
+
     // Setup Platform/Renderer backends
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
+
+    LOG(INFO) << "ImGui backends initialized";
 
     // Create our application
     Application app;
@@ -109,15 +164,22 @@ int main(int, char **) {
         glClearColor(0.1569f, 0.1647f, 0.1726f, 1.00f);
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-
+#if __linux__
         // fix for Wayland: Application not responding with vsync enabled, so we use a manual frame rate control
         if (is_wayland) {
             nextFrame += std::chrono::duration_cast<std::chrono::steady_clock::duration>(
                 std::chrono::duration<double>(targetTime));
             std::this_thread::sleep_until(nextFrame);
         }
+#endif
 
         glfwSwapBuffers(window);
+    }
+
+    if (app.quitRequested) {
+        LOG(INFO) << "Shutting down application (quit requested by app)";
+    } else {
+        LOG(INFO) << "Shutting down application (window closed)";
     }
 
     // Cleanup
@@ -128,6 +190,8 @@ int main(int, char **) {
     NFD_Quit();
     glfwDestroyWindow(window);
     glfwTerminate();
+
+    LOG(INFO) << "Shutdown complete";
 
     return 0;
 }
