@@ -2,6 +2,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <absl/log/log.h>
 #include <nlohmann/json.hpp>
 
 #include "common/FilesystemUtils.h"
@@ -17,7 +18,7 @@ void SessionManager::load() {
     std::error_code ec;
     std::filesystem::create_directories(get_executable_directory().value(), ec);
     if (ec) {
-        std::cerr << "Failed to create settings directory: " << ec.message() << std::endl;
+        LOG(ERROR) << "Failed to create settings directory: " << ec.message();
     }
     loadSession();
 }
@@ -35,14 +36,15 @@ void SessionManager::setSessionState(const SessionState &state) {
 }
 
 void SessionManager::loadSession() {
+    DLOG(INFO) << "Loading session from file.";
     const auto path = get_executable_directory().value() / "session.json";
     if (!std::filesystem::exists(path)) {
-        std::cerr << "Session does not exist: " << path << std::endl;
+        LOG(INFO) << "Session file does not exist, using defaults.";
         return;
     }
     std::ifstream f(path);
     if (!f) {
-        std::cerr << "Failed to open settings file." << std::endl;
+        LOG(ERROR) << "Failed to open session file: " << path;
         return;
     }
 
@@ -62,11 +64,14 @@ void SessionManager::loadSession() {
             m_state.activeProjectIndex = j["activeProjectIndex"].get<int>();
         }
     } catch (const std::exception &e) {
-        std::cerr << "Failed to parse session file, using defaults: " << e.what() << std::endl;
+        LOG(ERROR) << "Failed to parse session file: " << e.what();
     }
+    DLOG(INFO) << "Session loaded: " << m_state.openProjectPaths.size()
+               << " open projects, active index: " << m_state.activeProjectIndex;
 }
 
 void SessionManager::saveSession() const {
+    DLOG(INFO) << "Saving session to file.";
     auto file = get_executable_directory().value() / "session.json";
     try {
         nlohmann::json j;
@@ -77,11 +82,12 @@ void SessionManager::saveSession() const {
         j["activeProjectIndex"] = m_state.activeProjectIndex;
         std::ofstream ofs(file);
         if (!ofs) {
-            std::cerr << "Failed to open session file for write: " << file << std::endl;
+            LOG(ERROR) << "Failed to open session file for write: " << file;
             return;
         }
         ofs << j.dump(2);
     } catch (const std::exception &e) {
-        std::cerr << "Exception while saving session: " << e.what() << std::endl;
+        LOG(ERROR) << "Exception while saving session: " << e.what();
     }
+    DLOG(INFO) << "Session saved.";
 }

@@ -1,6 +1,7 @@
 #include "RecentFiles.h"
 #include <iostream>
 #include <fstream>
+#include <absl/log/log.h>
 #include <nlohmann/json.hpp>
 #include "common/FilesystemUtils.h"
 #include "services/SettingsManager.h"
@@ -14,7 +15,7 @@ void RecentFiles::load() {
     std::error_code ec;
     std::filesystem::create_directories(get_executable_directory().value(), ec);
     if (ec) {
-        std::cerr << "Failed to create settings directory: " << ec.message() << std::endl;
+        LOG(ERROR) << "Failed to create settings directory: " << ec.message();
     }
     loadRecentFiles();
 }
@@ -24,6 +25,7 @@ void RecentFiles::save() {
 }
 
 void RecentFiles::addFile(const std::filesystem::path &filePath) {
+    DLOG(INFO) << "Adding recent file: " << filePath;
     files.erase(std::remove(files.begin(), files.end(), filePath), files.end());
     files.insert(files.begin(), filePath);
     const int maxFiles = SettingsManager::instance().getSettings().maxRecentFiles;
@@ -37,14 +39,15 @@ const std::vector<std::filesystem::path> &RecentFiles::getFiles() const {
 }
 
 void RecentFiles::loadRecentFiles() {
+    DLOG(INFO) << "Loading recent files.";
     const auto path = get_executable_directory().value() / "recent.json";
     if (!std::filesystem::exists(path)) {
-        std::cerr << "Recent does not exist: " << path << std::endl;
+        LOG(INFO) << "Recent files does not exist: " << path;
         return;
     }
     std::ifstream f(path);
     if (!f) {
-        std::cerr << "Failed to open recent file." << std::endl;
+        LOG(ERROR) << "Failed to open recent file: " << path;
         return;
     }
 
@@ -61,11 +64,13 @@ void RecentFiles::loadRecentFiles() {
             }
         }
     } catch (const std::exception &e) {
-        std::cerr << "Error parsing recent files: " << e.what() << std::endl;
+        LOG(ERROR) << "Error parsing recent files: " << e.what();
     }
+    DLOG(INFO) << "Loaded " << files.size() << " recent files.";
 }
 
 void RecentFiles::saveRecentFiles() const {
+    DLOG(INFO) << "Saving recent files.";
     nlohmann::json j;
     j["recentFiles"] = nlohmann::json::array();
     for (const auto &path : files) {
@@ -75,11 +80,12 @@ void RecentFiles::saveRecentFiles() const {
     try {
         std::ofstream ofs(file);
         if (!ofs) {
-            std::cerr << "Failed to open recent file for write: " << file << std::endl;
+            LOG(ERROR) << "Failed to open recent file for write: " << file;
             return;
         }
         ofs << j.dump(2);
     } catch (const std::exception &e) {
-        std::cerr << "Error saving recent files: " << e.what() << std::endl;
+        LOG(ERROR) << "Error saving recent files: " << e.what();
     }
+    DLOG(INFO) << "Recent files saved to: " << file;
 }
