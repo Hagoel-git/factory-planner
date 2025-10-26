@@ -19,6 +19,7 @@ FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::strin
     : name(std::move(title)), projectFilePath(projectFilePath), m_contextNodeId(0), m_contextPinId(0),
       m_contextLinkId(0), undoRedoManager(SettingsManager::instance().getSettings().maxUndoHistory) {
     try {
+        DLOG(INFO) << "Initializing FactoryNodeEditor for project: " << projectFilePath;
         graph = std::make_unique<FactoryGraph>(game_data);
         solver = std::make_unique<FactorySolver>();
 
@@ -70,8 +71,9 @@ FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::strin
         debugInfo.lastSolverResult = result.status;
 
         quadtreeNeedsRebuild = true;
+        LOG(INFO) << "FactoryNodeEditor initialized successfully for project: " << projectFilePath;
     } catch (const std::exception &e) {
-        std::cerr << "Error initializing FactoryNodeEditor: " << e.what() << std::endl;
+        LOG(ERROR) << "Exception initializing FactoryNodeEditor: " << e.what();
     }
 }
 
@@ -95,14 +97,15 @@ FactoryNodeEditor::~FactoryNodeEditor() {
     m_contextPinId = 0;
     m_contextLinkId = 0;
     quadtreeNeedsRebuild = false;
+    LOG(INFO) << "FactoryNodeEditor destroyed for project: " << projectFilePath;
 }
 
 void FactoryNodeEditor::Draw() {
     if (!context) return;
 
     if (std::chrono::steady_clock::now() > nextAutosaveTime && SettingsManager::instance().getSettings().autoSaveEnabled) {
+        LOG(INFO) << "Auto-saved project: " << projectFilePath;
         Save();
-        std::cout << "Auto-saved project: " << projectFilePath << std::endl;
         nextAutosaveTime = std::chrono::steady_clock::now() +
                            std::chrono::minutes(SettingsManager::instance().getSettings().autoSaveIntervalMinutes);
     }
@@ -147,8 +150,10 @@ bool FactoryNodeEditor::SaveAs(const std::string &newFilePath, SaveAsMode mode) 
             projectFilePath = newFilePath;
             name = std::filesystem::path(newFilePath).stem().string();
         }
+        LOG(INFO) << "Project saved as: " << newFilePath;
         return true;
     }
+    LOG(ERROR) << "Failed to save project as: " << newFilePath;
     return false;
 
 }
@@ -194,6 +199,7 @@ void FactoryNodeEditor::copy(CopyBuffer &copy_buffer) {
             }
         }
     }
+    DLOG(INFO) << "Copied " << copy_buffer.nodes.size() << " nodes to clipboard. At " << name;
 }
 
 void FactoryNodeEditor::cut(CopyBuffer &copyBuffer) {
@@ -208,10 +214,12 @@ void FactoryNodeEditor::cut(CopyBuffer &copyBuffer) {
         cmd->addCommand(std::make_unique<RemoveNodeCommand>(nodeId));
     }
     executeCommand(std::move(cmd));
+    DLOG(INFO) << "Cut " << copyBuffer.nodes.size() << " nodes to clipboard. At " << name;
 }
 
 void FactoryNodeEditor::paste(const CopyBuffer &copy_buffer, bool mapExternalConnections) {
     executeCommand(std::make_unique<PasteCommand>(copy_buffer, mapExternalConnections));
+    DLOG(INFO) << "Pasted " << copy_buffer.nodes.size() << " nodes from clipboard. At " << name;
 }
 
 void FactoryNodeEditor::selectAll() {
@@ -219,6 +227,7 @@ void FactoryNodeEditor::selectAll() {
     for (const auto &node : graph->getNodes()) {
         ed::SelectNode(IdUtils::ToNodeId(node.id), true); // Select all nodes
     }
+    DLOG(INFO) << "Selected all nodes in the graph. At " << name;
 }
 
 void FactoryNodeEditor::UpdateDebugInfo() {
@@ -374,7 +383,7 @@ void FactoryNodeEditor::DrawNodes() {
                     if (fromPort) {
                         nodesToRegister.insert(fromPort->node_id);
                     } else {
-                        std::cout << "Warning: Input port " << portId << " of node " << nodeId << " has no valid connection." << std::endl;
+                        LOG(WARNING) << "Input port " << portId << " of node " << nodeId << " has no valid connection.";
                     }
                 }
             }
@@ -389,7 +398,7 @@ void FactoryNodeEditor::DrawNodes() {
                     if (toPort) {
                         nodesToRegister.insert(toPort->node_id);
                     } else {
-                        std::cout << "Warning: Output port " << portId << " of node " << nodeId << " has no valid connection." << std::endl;
+                        LOG(WARNING) << "Output port " << portId << " of node " << nodeId << " has no valid connection.";
                     }
                 }
             }

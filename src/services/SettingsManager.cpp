@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <fstream>
+#include <absl/log/log.h>
 #include <nlohmann/json.hpp>
 
 using json = nlohmann::json;
@@ -15,7 +16,7 @@ void SettingsManager::load() {
     std::error_code ec;
     std::filesystem::create_directories(get_executable_directory().value(), ec);
     if (ec) {
-        std::cerr << "Failed to create settings directory: " << ec.message() << std::endl;
+        LOG(ERROR) << "Failed to create settings directory: " << ec.message();
     }
     loadAppSettings();
 }
@@ -35,15 +36,16 @@ void SettingsManager::setSettings(const AppSettings &settings) {
 SettingsManager::SettingsManager() = default;
 
 void SettingsManager::loadAppSettings() {
+    DLOG(INFO) << "Loading app settings from file.";
     const auto path = get_executable_directory().value() / "app_settings.json";
     if (!std::filesystem::exists(path)) {
-        std::cerr << "Settings file does not exist, using defaults." << std::endl;
+        LOG(WARNING) << "Settings file does not exist, using defaults.";
         return;
     }
 
     std::ifstream f(path);
     if (!f) {
-        std::cerr << "Failed to open settings file, using defaults." << std::endl;
+        LOG(ERROR) << "Failed to open settings file: " << path;
         return;
     }
     std::filesystem::path executablePath = get_executable_directory().value_or(std::filesystem::current_path());
@@ -89,11 +91,13 @@ void SettingsManager::loadAppSettings() {
         }
 
     } catch (const std::exception& e) {
-        std::cerr << "Failed to parse settings file, using defaults. Error: " << e.what() << std::endl;
+        LOG(ERROR) << "Failed to parse settings file: " << e.what();
     }
+    DLOG(INFO) << "App settings loaded successfully.";
 }
 
 void SettingsManager::saveAppSettings() const {
+    DLOG(INFO) << "Saving app settings to file.";
     json j;
     j["gameDataPath"] = m_settings.gameDataPath.string();
     j["defaultProjectPath"] = m_settings.defaultProjectPath.string();
@@ -110,9 +114,10 @@ void SettingsManager::saveAppSettings() const {
     const auto path = get_executable_directory().value() / "app_settings.json";
     std::ofstream o(path);
     if (!o.is_open()) {
-        std::cerr << "Failed to open settings file for writing: " << path << std::endl;
+        LOG(ERROR) << "Failed to open settings file for writing: " << path;
         return;
     }
     o << j.dump(4);
     o.close();
+    DLOG(INFO) << "App settings saved successfully.";
 }

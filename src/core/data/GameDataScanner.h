@@ -2,6 +2,7 @@
 #define FACTORY_PLANNER_GAMEDATASCANNER_H
 #include <filesystem>
 #include <vector>
+#include <absl/log/log.h>
 
 struct GameDataPackage {
     std::string gameName;
@@ -31,6 +32,7 @@ static std::vector<GameDataPackage> ScanForGameData(const std::filesystem::path&
             }
         }
     }
+    DLOG(INFO) << "Found " << packages.size() << " game data packages.";
     return packages;
 }
 #endif //FACTORY_PLANNER_GAMEDATASCANNER_H

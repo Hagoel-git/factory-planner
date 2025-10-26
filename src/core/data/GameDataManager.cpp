@@ -3,6 +3,7 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
+#include <absl/log/log.h>
 #include <GL/gl.h>
 
 #include <nlohmann/json.hpp>
@@ -15,17 +16,20 @@ using json = nlohmann::json;
 
 GameDataManager::GameDataManager() {
     // initialize an empty GameData with the "nothing" resource
+    DLOG(INFO) << "Initializing GameDataManager with default data.";
     createNew("New Game", "seconds");
 }
 
 bool GameDataManager::loadFromFile(const std::string &path, std::string &outError) {
     try {
         if (!std::filesystem::exists(path)) {
+            LOG(ERROR) << "File does not exist: " << path;
             outError = "File does not exist: " + path;
             return false;
         }
         std::ifstream ifs(path);
         if (!ifs) {
+            LOG(ERROR) << "Failed to open file: " << path;
             outError = "Failed to open file: " + path;
             return false;
         }
@@ -40,13 +44,13 @@ bool GameDataManager::loadFromFile(const std::string &path, std::string &outErro
         _data = jsonToGameData(j, iconRoot, outError);
 
         if (!outError.empty()) {
-            // jsonToGameData will put validation messages into outError when parse problems occur
+            LOG(ERROR) << "Validation errors while loading game data from file: " << outError;
             return false;
         }
-        // successful load
+        LOG(INFO) << "GameData loaded successfully from file: " << path;
         return true;
     } catch (const std::exception &ex) {
-        outError = std::string("Exception while loading: ") + ex.what();
+        LOG(ERROR) << "Exception while loading: " << ex.what();
         return false;
     }
 }
@@ -56,18 +60,22 @@ bool GameDataManager::saveToFile(const std::string &path, std::string &outError)
         json j = gameDataToJson(_data);
         std::ofstream ofs(path);
         if (!ofs) {
+            LOG(ERROR) << "Failed to open file for write: " << path;
             outError = "Failed to open file for write: " + path;
             return false;
         }
         ofs << j.dump(2);
+        LOG(INFO) << "GameData saved successfully to file: " << path;
         return true;
     } catch (const std::exception &ex) {
+        LOG(ERROR) << "Exception while saving: " << ex.what();
         outError = std::string("Exception while saving: ") + ex.what();
         return false;
     }
 }
 
 GameData GameDataManager::createNew(const std::string &gameName, const std::string &timeUnit) {
+    DLOG(INFO) << "Creating new GameData: " << gameName << " with time unit: " << timeUnit;
     GameData gd;
     gd.gameName = gameName;
     gd.gameDataFilePath = "";
@@ -88,23 +96,33 @@ GameData& GameDataManager::current() {
 bool GameDataManager::addResource(const Resource &r) {
     std::string key = slugify(r.name);
     // don't allow adding key "nothing"
-    if (key == "nothing") return false;
-    if (_data.resources.count(key)) return false; // already exists
+    if (key == "nothing") {
+        LOG(WARNING) << "Cannot add reserved resource 'nothing'.";
+        return false;
+    }
+    if (_data.resources.count(key)) {
+        LOG(WARNING) << "Resource with key '" << key << "' already exists.";
+        return false;
+    }// already exists
     _data.resources[key] = r;
+    DLOG(INFO) << "Resource added successfully: " << key;
     return true;
 }
 
 bool GameDataManager::editResource(const std::string& key_name, const Resource &r, std::string &outError) {
     if (key_name == "nothing") {
+        LOG(WARNING) << "Cannot edit reserved resource 'nothing'.";
         outError = "Cannot edit reserved resource 'nothing'.";
         return false;
     }
     if (!_data.resources.count(key_name)) {
+        LOG(WARNING) << "Resource key_name not found: " << key_name;
         outError = "Resource key_name not found.";
         return false;
     }
     std::string key = slugify(r.name);
     if (_data.resources.count(key) && key != key_name) {
+        LOG(WARNING) << "Cannot change to that name; another resource uses it: " << key;
         outError = "Cannot change to that name; another resource uses it.";
     }
     // update
@@ -120,15 +138,18 @@ bool GameDataManager::editResource(const std::string& key_name, const Resource &
             if (p.resource_key == key_name) p.resource_key = key;
         }
     }
+    DLOG(INFO) << "Resource edited successfully: " << key;
     return true;
 }
 
 bool GameDataManager::deleteResource(const std::string& key_name, std::string &outError) {
     if (key_name == "nothing") {
+        LOG(WARNING) << "Cannot delete reserved resource 'nothing'.";
         outError = "Cannot delete reserved resource 'nothing'.";
         return false;
     }
     if (!_data.resources.count(key_name)) {
+        LOG(WARNING) << "Resource key_name not found: " << key_name;
         outError = "Resource key_name not found.";
         return false;
     }
@@ -137,35 +158,44 @@ bool GameDataManager::deleteResource(const std::string& key_name, std::string &o
         const Recipe &rec = recPair.second;
         for (const auto &p : rec.input_ports) {
             if (p.resource_key == key_name) {
+                LOG(WARNING) << "Resource is used in a recipe input: " << _data.recipes.find(rec.name)->first << "; cannot delete.";
                 outError = "Resource is used in a recipe input (" + _data.recipes.find(rec.name)->first + "); cannot delete.";
                 return false;
             }
         }
         for (const auto &p : rec.output_ports) {
             if (p.resource_key == key_name) {
+                LOG(WARNING) << "Resource is used in a recipe output: " << _data.recipes.find(rec.name)->first << "; cannot delete.";
                 outError = "Resource is used in a recipe output (" + _data.recipes.find(rec.name)->first + "); cannot delete.";
                 return false;
             }
         }
     }
     _data.resources.erase(key_name);
+    DLOG(INFO) << "Resource deleted successfully: " << key_name;
     return true;
 }
 
 bool GameDataManager::addMachine(const Machine &m) {
     std::string key = slugify(m.name);
-    if (_data.machines.count(key)) return false; // already exists
+    if (_data.machines.count(key)) {
+        LOG(WARNING) << "Machine with key '" << key << "' already exists.";
+        return false;
+    } // already exists
     _data.machines[key] = m;
+    DLOG(INFO) << "Machine added successfully: " << key;
     return true;
 }
 
 bool GameDataManager::editMachine(const std::string& key_name, const Machine &m, std::string &outError) {
     if (!_data.machines.count(key_name)) {
+        LOG(WARNING) << "Machine key_name not found: " << key_name;
         outError = "Machine key_name not found.";
         return false;
     }
     std::string key = slugify(m.name);
     if (_data.machines.count(key) && key != key_name) {
+        LOG(WARNING) << "Cannot change to that name; another machine uses it: " << key;
         outError = "Cannot change to that name; another machine uses it.";
     }
     // update
@@ -178,11 +208,13 @@ bool GameDataManager::editMachine(const std::string& key_name, const Machine &m,
             if (mk == key_name) mk = key;
         }
     }
+    DLOG(INFO) << "Machine edited successfully: " << key;
     return true;
 }
 
 bool GameDataManager::deleteMachine(const std::string& key_name, std::string &outError) {
     if (!_data.machines.count(key_name)) {
+        LOG(WARNING) << "Machine key_name not found: " << key_name;
         outError = "Machine key_name not found.";
         return false;
     }
@@ -191,18 +223,23 @@ bool GameDataManager::deleteMachine(const std::string& key_name, std::string &ou
         const Recipe &rec = recPair.second;
         for (const auto &mk : rec.produced_in_machines_keys) {
             if (mk == key_name) {
+                LOG(WARNING) << "Machine is used in a recipe: " << _data.recipes.find(rec.name)->first << "; cannot delete.";
                 outError = "Machine is used in a recipe (" + _data.recipes.find(rec.name)->first + "); cannot delete.";
                 return false;
             }
         }
     }
     _data.machines.erase(key_name);
+    DLOG(INFO) << "Machine deleted successfully: " << key_name;
     return true;
 }
 
 bool GameDataManager::addRecipe(const Recipe &r) {
     std::string key = slugify(r.name);
-    if (_data.recipes.count(key)) return false; // already exists
+    if (_data.recipes.count(key)) {
+        LOG(WARNING) << "Recipe with key '" << key << "' already exists.";
+        return false;
+    } // already exists
     Recipe rr = r;
     // if no input or output ports, add a "nothing" port to avoid issues
     if (rr.input_ports.empty()) {
@@ -212,16 +249,19 @@ bool GameDataManager::addRecipe(const Recipe &r) {
         rr.output_ports.push_back(RecipePort{0.0, "nothing"});
     }
     _data.recipes[key] = rr;
+    DLOG(INFO) << "Recipe added successfully: " << key;
     return true;
 }
 
 bool GameDataManager::editRecipe(const std::string& key_name, const Recipe &r, std::string &outError) {
     if (!_data.recipes.count(key_name)) {
+        LOG(WARNING) << "Recipe key_name not found: " << key_name;
         outError = "Recipe key_name not found.";
         return false;
     }
     std::string key = slugify(r.name);
     if (_data.recipes.count(key) && key != key_name) {
+        LOG(WARNING) << "Cannot change to that name; another recipe uses it: " << key;
         outError = "Cannot change to that name; another recipe uses it.";
         return false;
     }
@@ -236,15 +276,18 @@ bool GameDataManager::editRecipe(const std::string& key_name, const Recipe &r, s
     }
     _data.recipes.erase(key_name);
     _data.recipes[key] = rr;
+    DLOG(INFO) << "Recipe edited successfully: " << key;
     return true;
 }
 
 bool GameDataManager::deleteRecipe(const std::string& key_name, std::string &outError) {
     if (!_data.recipes.count(key_name)) {
+        LOG(WARNING) << "Recipe key_name not found: " << key_name;
         outError = "Recipe key_name not found.";
         return false;
     }
     _data.recipes.erase(key_name);
+    DLOG(INFO) << "Recipe deleted successfully: " << key_name;
     return true;
 }
 
@@ -283,10 +326,12 @@ std::vector<std::string> GameDataManager::validate(const GameData &gd) {
             }
         }
     }
+    DLOG(INFO) << "Validation completed with " << messages.size() << " messages.";
     return messages;
 }
 
 GameData GameDataManager::jsonToGameData(const json &j, std::filesystem::path& packageIconRoot, std::string &outError) {
+    DLOG(INFO) << "Converting JSON to GameData.";
     outError.clear();
     std::filesystem::path path = _data.gameDataFilePath;
     GameData gd;
@@ -423,24 +468,22 @@ GameData GameDataManager::jsonToGameData(const json &j, std::filesystem::path& p
             }
         }
 
+        DLOG(INFO) << "JSON parsed successfully into GameData.";
 
         // perform light validation; if critical issues found, add to outError (but do not fail on warnings)
         auto errors = validate(gd);
         if (!errors.empty()) {
-            // aggregate as single string (caller may still accept config but wants to see warnings)
-            std::ostringstream oss;
-            for (const auto &m : errors) oss << m << "\n";
-            outError = oss.str();
-            // We choose to still return the parsed GD; caller may inspect messages.
+            LOG(WARNING) << "Validation issues found in GameData: " << outError;
         }
         return gd;
     } catch (const std::exception &ex) {
-        outError = std::string("Exception while parsing JSON: ") + ex.what();
+        LOG(ERROR) << "Exception while parsing JSON into GameData: " << ex.what();
         return {};
     }
 }
 
 json GameDataManager::gameDataToJson(const GameData &gd) {
+    DLOG(INFO) << "Converting GameData to JSON.";
     json j;
     j["gameName"] = gd.gameName;
     j["time_unit"] = gd.time_unit;
@@ -512,5 +555,6 @@ json GameDataManager::gameDataToJson(const GameData &gd) {
         }
         j["recipes"] = rarr;
     }
+    DLOG(INFO) << "GameData converted successfully to JSON.";
     return j;
 }
