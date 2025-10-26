@@ -1,21 +1,20 @@
 #include "Application.h"
 #include <algorithm>
 #include <fstream>
-#include "imgui/imgui_internal.h"
-
 #include <thread>
 #include <atomic>
 #include <iostream>
 #include <set>
-#include <GLFW/glfw3.h>
 
+#include <GLFW/glfw3.h>
+#include "imgui/imgui_internal.h"
 #include "nativefiledialog-extended/src/include/nfd.h"
-#include "FilesystemUtils.h"
-#include "SettingsManager.h"
-#include "FactoryNodeEditor.h"
-#include "GameDataScanner.h"
-#include "RecentFiles.h"
-#include "SessionManager.h"
+
+#include "editor/factory_planner/FactoryNodeEditor.h"
+#include "core/data/GameDataScanner.h"
+#include "services/SettingsManager.h"
+#include "services/RecentFiles.h"
+#include "services/SessionManager.h"
 
 Application::Application() {
     SettingsManager::instance().load();

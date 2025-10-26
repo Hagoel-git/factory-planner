@@ -2,8 +2,8 @@
 #include <iostream>
 #include <fstream>
 #include <nlohmann/json.hpp>
-#include "FilesystemUtils.h"
-#include "SettingsManager.h"
+#include "common/FilesystemUtils.h"
+#include "services/SettingsManager.h"
 
 RecentFiles &RecentFiles::instance() {
     static RecentFiles instance;

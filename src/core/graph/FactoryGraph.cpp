@@ -1,5 +1,6 @@
 #include "FactoryGraph.h"
-#include "GameDataManager.h"
+#include "core/data/GameDataManager.h"
+
 #include <iostream>
 #include <unordered_set>
 #include <utility>

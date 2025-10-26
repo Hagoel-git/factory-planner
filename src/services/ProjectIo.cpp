@@ -1,12 +1,14 @@
 #include "ProjectIo.h"
 #include <fstream>
 #include <iostream>
+
 #include <imgui-node-editor/imgui_node_editor.h>
-#include "IdUtils.h"
-#include "FactoryGraph.h"
-#include "GameDataManager.h"
-#include "GameDataScanner.h"
-#include "SettingsManager.h"
+
+#include "common/IdUtils.h"
+#include "core/graph/FactoryGraph.h"
+#include "core/data/GameDataManager.h"
+#include "core/data/GameDataScanner.h"
+#include "services/SettingsManager.h"
 
 bool ProjectIO::SaveProject(const std::string &path, const FactoryGraph &factoryGraph, ed::EditorContext *context) {
     try {

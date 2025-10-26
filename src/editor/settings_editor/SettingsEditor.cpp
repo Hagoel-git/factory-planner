@@ -1,10 +1,10 @@
 #include "SettingsEditor.h"
+#include "services/SettingsManager.h"
 #include "imgui.h"
-#include "SettingsManager.h"
+#include "nfd.h"
+
 #include <cstring>
 #include <iostream>
-
-#include "nfd.h"
 #include <thread>
 
 void SettingsEditor::Draw() {

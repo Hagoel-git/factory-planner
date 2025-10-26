@@ -3,14 +3,13 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
-#include <iostream>
 #include <GL/gl.h>
 
 #include <nlohmann/json.hpp>
 
-#include "SettingsManager.h"
-#include "StringUtils.h"
-#include "TextureUtils.h"
+#include "services/SettingsManager.h"
+#include "common/StringUtils.h"
+#include "common/TextureUtils.h"
 
 using json = nlohmann::json;
 

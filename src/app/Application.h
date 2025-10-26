@@ -4,10 +4,10 @@
 #include <vector>
 #include <memory>
 #include <string>
-#include "CopyBuffer.h"
-#include "GameDataEditor.h"
-#include "GameDataManager.h"
-#include "settings_editor/SettingsEditor.h"
+#include "common/CopyBuffer.h"
+#include "editor/game_data_editor/GameDataEditor.h"
+#include "core/data/GameDataManager.h"
+#include "editor/settings_editor/SettingsEditor.h"
 
 class FactoryNodeEditor;
 enum class SaveAsMode;
