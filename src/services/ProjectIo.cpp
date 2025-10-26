@@ -1,6 +1,7 @@
 #include "ProjectIo.h"
 #include <fstream>
 #include <iostream>
+#include <absl/log/log.h>
 
 #include <imgui-node-editor/imgui_node_editor.h>
 
@@ -105,6 +106,7 @@ bool ProjectIO::LoadProject(const std::string &path, FactoryGraph &factoryGraph)
             try {
                 std::string gameDataName = projectData["graph_data"]["game_data_filename"];
                 std::string gameName = projectData["graph_data"]["game_name"];
+                std::transform(gameName.begin(), gameName.end(), gameName.begin(), [](unsigned char c) { return std::tolower(c); });
                 GameDataManager game_data_manager;
                 std::string error;
                 std::vector<GameDataPackage> packages = ScanForGameData(SettingsManager::instance().getSettings().gameDataPath);
