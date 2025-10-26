@@ -23,13 +23,15 @@ bool ProjectIO::SaveProject(const std::string &path, const FactoryGraph &factory
         try {
             projectData["editor_settings"] = json::parse(editorSettings);
         } catch (const json::parse_error& e) {
-            std::cerr << "Failed to parse editor settings: " << e.what() << std::endl;
+            LOG(ERROR) << "Failed to parse editor settings: " << e.what();
             // Continue without editor settings rather than failing completely
             projectData["editor_settings"] = json::object();
         }
+        DLOG(INFO) << "Editor settings serialized.";
 
         // Serialize graph data
         projectData["graph_data"] = factoryGraph.serialize();
+        DLOG(INFO) << "Graph data serialized.";
 
         // Add metadata
         projectData["timestamp"] = std::chrono::duration_cast<std::chrono::seconds>(
@@ -40,7 +42,7 @@ bool ProjectIO::SaveProject(const std::string &path, const FactoryGraph &factory
         {
             std::ofstream ofs(tmp, std::ios::binary);
             if (!ofs) {
-                std::cerr << "Failed to create temporary file: " << tmp << std::endl;
+                LOG(ERROR) << "Failed to create temporary file: " << tmp;
                 return false;
             }
 
@@ -48,18 +50,21 @@ bool ProjectIO::SaveProject(const std::string &path, const FactoryGraph &factory
             ofs << jsonStr;
 
             if (!ofs.good()) {
-                std::cerr << "Failed to write data to temporary file" << std::endl;
+                LOG(ERROR) << "Failed to write data to temporary file: " << tmp;
                 ofs.close();
                 std::filesystem::remove(tmp); // Clean up temp file
                 return false;
             }
         }
 
+        DLOG(INFO) << "Project data written to temporary file.";
+
         // Atomic rename
         std::error_code ec;
         std::filesystem::rename(tmp, path, ec);
+        DLOG(INFO) << "Temporary file renamed to final path.";
         if (ec) {
-            std::cerr << "Failed to rename temp file to final path: " << ec.message() << std::endl;
+            LOG(ERROR) << "Failed to rename temp file to final path: " << ec.message();
             std::filesystem::remove(tmp); // Clean up temp file
             return false;
         }
@@ -67,7 +72,7 @@ bool ProjectIO::SaveProject(const std::string &path, const FactoryGraph &factory
         return true;
 
     } catch (const std::exception& e) {
-        std::cerr << "Exception during save: " << e.what() << std::endl;
+        LOG(ERROR) << "Exception during save: " << e.what();
         ed::SetCurrentEditor(nullptr);
         return false;
     }
@@ -77,13 +82,13 @@ bool ProjectIO::LoadProject(const std::string &path, FactoryGraph &factoryGraph)
     try {
         // Check if file exists
         if (!std::filesystem::exists(path)) {
-            std::cerr << "Project file does not exist: " << path << std::endl;
+            LOG(ERROR) << "Project file does not exist: " << path;
             return false;
         }
 
         std::ifstream ifs(path);
         if (!ifs) {
-            std::cerr << "Failed to open project file: " << path << std::endl;
+            LOG(ERROR) << "Failed to open project file: " << path;
             return false;
         }
 
@@ -91,12 +96,14 @@ bool ProjectIO::LoadProject(const std::string &path, FactoryGraph &factoryGraph)
         try {
             ifs >> projectData;
         } catch (const json::parse_error& e) {
-            std::cerr << "Failed to parse project file: " << e.what() << std::endl;
+            LOG(ERROR) << "Failed to parse project file: " << e.what();
             return false;
         }
 
+        DLOG(INFO) << "Project file parsed successfully.";
+
         if (!projectData.is_object()) {
-            std::cerr << "Invalid project file format" << std::endl;
+            LOG(ERROR) << "Invalid project file format: root is not an object.";
             return false;
         }
 
@@ -119,20 +126,21 @@ bool ProjectIO::LoadProject(const std::string &path, FactoryGraph &factoryGraph)
                     }
                 }
                 if (gameDataPath.empty()) {
-                    std::cerr << "Game data file not found for project: " << gameDataName << " (" << gameName << ")" << std::endl;
+                    LOG(ERROR) << "Game data file not found for project: " << gameDataName << " (" << gameName << ")";
                     return false;
                 }
                 if (!game_data_manager.loadFromFile(gameDataPath, error)) {
-                    std::cerr << "Failed to load game data from file: " << error << std::endl;
+                    LOG(ERROR) << "Failed to load game data from file: " << error;
                     return false;
                 }
 
                 factoryGraph.deserialize(projectData["graph_data"], game_data_manager.current());
             } catch (const std::exception& e) {
-                std::cerr << "Failed to deserialize graph data: " << e.what() << std::endl;
+                LOG(ERROR) << "Failed to deserialize graph data: " << e.what();
                 return false;
             }
         }
+        DLOG(INFO) << "Graph data deserialized successfully.";
 
         // Load editor settings
         if (projectData.contains("editor_settings")) {
@@ -161,6 +169,7 @@ bool ProjectIO::LoadProject(const std::string &path, FactoryGraph &factoryGraph)
 
                             // Check for parsing errors
                             if (errno != 0 || *endPtr != '\0' || rawId == 0) {
+                                LOG(WARNING) << "Invalid node ID in editor settings: " << key;
                                 continue; // Skip invalid node ID
                             }
 
@@ -170,6 +179,7 @@ bool ProjectIO::LoadProject(const std::string &path, FactoryGraph &factoryGraph)
 
                             // Verify this node actually exists in our graph
                             if (!factoryGraph.getNode(engineNodeId)) {
+                                LOG(WARNING) << "Node ID " << engineNodeId << " from editor settings does not exist in the graph.";
                                 continue; // Skip nodes that don't exist in the graph
                             }
 
@@ -189,21 +199,21 @@ bool ProjectIO::LoadProject(const std::string &path, FactoryGraph &factoryGraph)
                             }
                         } catch (const std::exception& e) {
                             // Continue processing other nodes even if one fails
-                            std::cerr << "Error processing node position: " << e.what() << std::endl;
+                            LOG(WARNING) << "Error processing node position: " << e.what();
                             continue;
                         }
                     }
                 }
             } catch (const std::exception& e) {
-                std::cerr << "Failed to apply editor settings: " << e.what() << std::endl;
+                LOG(ERROR) << "Failed to apply editor settings: " << e.what();
                 // Don't fail the entire load just because editor settings failed
             }
         }
-
+        DLOG(INFO) << "Editor settings applied successfully.";
         return true;
 
     } catch (const std::exception& e) {
-        std::cerr << "Exception during load: " << e.what() << std::endl;
+        LOG(ERROR) << "Exception during load: " << e.what();
         return false;
     }
 }
