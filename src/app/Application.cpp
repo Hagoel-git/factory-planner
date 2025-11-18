@@ -17,18 +17,15 @@
 #include "services/SessionManager.h"
 
 Application::Application() : gameDataEditor(gameDataManager) {
-    LOG(INFO) << "Application starting up.";
+    VLOG(2) << "Application starting up.";
     SettingsManager::instance().load();
-    LOG(INFO) << "Settings loaded.";
     RecentFiles::instance().load();
-    LOG(INFO) << "Recent files loaded.";
 
     if (SettingsManager::instance().getSettings().restorePreviousSession) {
         RestoreSession();
-        LOG(INFO) << "Session restored.";
     }
 
-    DLOG(INFO) << "Loading fonts.";
+    VLOG(2) << "Loading fonts.";
     auto io = ImGui::GetIO();
     std::filesystem::path folderPath = SettingsManager::instance().getSettings().executablePath / "assets" / "fonts";
     std::vector<std::string> fontFiles;
@@ -41,7 +38,7 @@ Application::Application() : gameDataEditor(gameDataManager) {
                 fontFiles.push_back(entry.path().string());
             }
         }
-        DLOG(INFO) << "Found " << fontFiles.size() << " font files.";
+        VLOG(2) << "Found " << fontFiles.size() << " font files.";
     } catch (const std::exception &e) {
         LOG(ERROR) << "Error scanning fonts folder: " << e.what();
         return;
@@ -60,7 +57,7 @@ Application::Application() : gameDataEditor(gameDataManager) {
         if (!font) {
             LOG(ERROR) << "Failed to load font: " << fp;
         } else {
-            DLOG(INFO) << "Loaded font: " << fp << " as " << font->GetDebugName();
+            VLOG(2) << "Loaded font: " << fp << " as " << font->GetDebugName();
         }
     }
 
@@ -76,7 +73,7 @@ Application::Application() : gameDataEditor(gameDataManager) {
     }
     if (font) {
         ImGui::GetIO().FontDefault = font;
-        DLOG(INFO) << "Set default font to " << targetFontName;
+        VLOG(2) << "Set default font to " << targetFontName;
     } else {
         LOG(WARNING) << "Could not find font '" << targetFontName
                      << "' from settings. Using ImGui default font.";
@@ -84,27 +81,23 @@ Application::Application() : gameDataEditor(gameDataManager) {
 
     auto im_gui_style = &ImGui::GetStyle();
     im_gui_style->_NextFrameFontSizeBase = SettingsManager::instance().getSettings().fontSize;
-    DLOG(INFO) << "Set default font size to " << SettingsManager::instance().getSettings().fontSize;
+    VLOG(2) << "Set default font size to " << SettingsManager::instance().getSettings().fontSize;
 }
 
 Application::~Application() {
-    LOG(INFO) << "Application shutting down.";
     SettingsManager::instance().save();
-    LOG(INFO) << "Settings saved.";
     RecentFiles::instance().save();
-    LOG(INFO) << "Recent files saved.";
     SaveSession();
-    LOG(INFO) << "Session saved.";
     editors.clear();
 }
 
 void Application::Draw() {
     if (SettingsManager::instance().getSettings().themeName != currentTheme || SettingsManager::instance().getSettings().showGrid != currentShowGrid) {
-        DLOG(INFO) << "Theme or grid setting changed, updating editors.";
+        VLOG(1) << "Theme or grid setting changed, updating editors.";
         currentTheme = SettingsManager::instance().getSettings().themeName;
         currentShowGrid = SettingsManager::instance().getSettings().showGrid;
         ApplyThemeToAllEditors();
-        DLOG(INFO) << "Applied theme: " << currentTheme;
+        VLOG(1) << "Applied theme: " << currentTheme;
     }
 
     HandleShortcuts();
@@ -288,11 +281,11 @@ void Application::DrawMenuBar() {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("New", "Ctrl+N")) {
-                DLOG(INFO) << "Menu: New Project selected.";
+                VLOG(1) << "Menu: New Project selected.";
                 showNewProjectDialog = true; // Show dialog to create new project
             }
             if (ImGui::MenuItem("Open", "Ctrl+O")) {
-                DLOG(INFO) << "Menu: Open Project selected.";
+                VLOG(1) << "Menu: Open Project selected.";
                 showOpenProjectDialog = true; // Show dialog to open existing project
             }
             if (ImGui::BeginMenu("Open Recent")) {
@@ -302,7 +295,7 @@ void Application::DrawMenuBar() {
                 } else {
                     for (const auto &file : recentFiles) {
                         if (ImGui::MenuItem(file.stem().string().c_str())) {
-                            DLOG(INFO) << "Menu: Open Recent selected for file: " << file.string();
+                            VLOG(1)<< "Menu: Open Recent selected for file: " << file.string();
                             CreateNewEditor("", file, file.stem().string());
                         }
                     }
@@ -311,45 +304,45 @@ void Application::DrawMenuBar() {
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Save", "Ctrl+S")) {
-                DLOG(INFO) << "Menu: Save selected.";
+                VLOG(1) << "Menu: Save selected.";
                 SaveActiveEditor();
             }
             if (ImGui::MenuItem("Save As...", "Ctrl+Shift+S")) {
-                DLOG(INFO) << "Menu: Save As selected.";
+                VLOG(1) << "Menu: Save As selected.";
                 showSaveDialog = true;
             }
             if (ImGui::MenuItem("Save a Copy")) {
-                DLOG(INFO) << "Menu: Save a Copy selected.";
+                VLOG(1) << "Menu: Save a Copy selected.";
                 isSaveAsCopy = true;
                 showSaveDialog = true;
             }
             if (ImGui::MenuItem("Save All")) {
-                DLOG(INFO) << "Menu: Save All selected.";
+                VLOG(1) << "Menu: Save All selected.";
                 SaveAll();
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Close Active", "Ctrl+W") && !editors.empty()) {
-                DLOG(INFO) << "Menu: Close Active Editor selected.";
+                VLOG(1) << "Menu: Close Active Editor selected.";
                 CloseActiveEditor();
             }
             if (ImGui::MenuItem("Close All")) {
-                DLOG(INFO) << "Menu: Close All Selected.";
+                VLOG(1) << "Menu: Close All Selected.";
                 editors.clear();
                 activeEditor = -1; // Reset active editor
                 SaveSession();
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Game Data Manager")) {
-                DLOG(INFO) << "Menu: Open Game Data Manager selected.";
+                VLOG(1) << "Menu: Open Game Data Manager selected.";
                 gameDataEditor.SetOpen(true);
             }
             if (ImGui::MenuItem("Settings")) {
-                DLOG(INFO) << "Menu: Settings selected.";
+                VLOG(1) << "Menu: Settings selected.";
                 settingsEditor.SetOpen(true);
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Quit", "Ctrl+Q")) {
-                DLOG(INFO) << "Menu: Quit selected.";
+                VLOG(1) << "Menu: Quit selected.";
                 quitRequested = true;
             }
 
@@ -357,33 +350,33 @@ void Application::DrawMenuBar() {
         }
         if (ImGui::BeginMenu("Edit")) {
             if (ImGui::MenuItem("Undo", "Ctrl+Z")) {
-                DLOG(INFO) << "Menu: Undo selected.";
+                VLOG(1) << "Menu: Undo selected.";
                 UndoActiveEditor();
             }
             if (ImGui::MenuItem("Redo", "Ctrl+Y")) {
-                DLOG(INFO) << "Menu: Redo selected.";
+                VLOG(1) << "Menu: Redo selected.";
                 RedoActiveEditor();
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Cut", "Ctrl+X")) {
-                DLOG(INFO) << "Menu: Cut selected.";
+                VLOG(1) << "Menu: Cut selected.";
                 CutActiveEditor();
             }
             if (ImGui::MenuItem("Copy", "Ctrl+C")) {
-                DLOG(INFO) << "Menu: Copy selected.";
+                VLOG(1) << "Menu: Copy selected.";
                 CopyActiveEditor();
             }
             if (ImGui::MenuItem("Paste", "Ctrl+V")) {
-                DLOG(INFO) << "Menu: Paste selected.";
+                VLOG(1) << "Menu: Paste selected.";
                 PasteActiveEditor(false);
             }
             if (ImGui::MenuItem("Paste Special", "Ctrl+Shift+V")) {
-                DLOG(INFO) << "Menu: Paste Special selected.";
+                VLOG(1) << "Menu: Paste Special selected.";
                 PasteActiveEditor(true);
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Select All", "Ctrl+A")) {
-                DLOG(INFO) << "Menu: Select All selected.";
+                VLOG(1) << "Menu: Select All selected.";
                 SelectAllActiveEditor();
             }
             ImGui::EndMenu();
@@ -396,66 +389,66 @@ void Application::HandleShortcuts() {
     // Handle keyboard shortcuts
     ImGuiIO &io = ImGui::GetIO();
     if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
-        DLOG(INFO) << "Escape key pressed, closing dialogs.";
+        VLOG(1) << "Escape key pressed, closing dialogs.";
         showNewProjectDialog = false;
     }
     if (ImGui::IsKeyPressed(ImGuiKey_F3)) {
-        DLOG(INFO) << "F3 key pressed, toggling debug window.";
+        VLOG(1) << "F3 key pressed, toggling debug window.";
         showDebugWindow = !showDebugWindow;
     }
     if (io.KeyCtrl) {
         if (ImGui::IsKeyPressed(ImGuiKey_N)) {
-            DLOG(INFO) << "Shortcut: Ctrl+N pressed, opening New Project dialog.";
+            VLOG(1) << "Shortcut: Ctrl+N pressed, opening New Project dialog.";
             showNewProjectDialog = true;
         }
         if (ImGui::IsKeyPressed(ImGuiKey_O)) {
-            DLOG(INFO) << "Shortcut: Ctrl+O pressed, opening Open Project dialog.";
+            VLOG(1) << "Shortcut: Ctrl+O pressed, opening Open Project dialog.";
             showOpenProjectDialog = true;
         }
         if (ImGui::IsKeyPressed(ImGuiKey_W) && !editors.empty()) {
-            DLOG(INFO) << "Shortcut: Ctrl+W pressed, closing active editor.";
+            VLOG(1) << "Shortcut: Ctrl+W pressed, closing active editor.";
             CloseActiveEditor();
         }
         if (ImGui::IsKeyPressed(ImGuiKey_S)) {
             if (io.KeyShift) {
-                DLOG(INFO) << "Shortcut: Ctrl+Shift+S pressed, opening Save As dialog.";
+                VLOG(1) << "Shortcut: Ctrl+Shift+S pressed, opening Save As dialog.";
                 showSaveDialog = true; // Show Save As dialog
             } else {
-                DLOG(INFO) << "Shortcut: Ctrl+S pressed, saving active editor.";
+                VLOG(1) << "Shortcut: Ctrl+S pressed, saving active editor.";
                 SaveActiveEditor(); // Save current editor
             }
         }
         if (ImGui::IsKeyPressed(ImGuiKey_Q)) {
-            DLOG(INFO) << "Shortcut: Ctrl+Q pressed, quitting application.";
+            VLOG(1) << "Shortcut: Ctrl+Q pressed, quitting application.";
             quitRequested = true;
         }
         if (ImGui::IsKeyPressed(ImGuiKey_Y)) {
-            DLOG(INFO) << "Shortcut: Ctrl+Y pressed, redoing in active editor.";
+            VLOG(1) << "Shortcut: Ctrl+Y pressed, redoing in active editor.";
             RedoActiveEditor();
         }
         if (ImGui::IsKeyPressed(ImGuiKey_Z)) {
             if (io.KeyShift) {
-                DLOG(INFO) << "Shortcut: Ctrl+Shift+Z pressed, redoing in active editor.";
+                VLOG(1)<< "Shortcut: Ctrl+Shift+Z pressed, redoing in active editor.";
                 RedoActiveEditor();
             } else {
-                DLOG(INFO) << "Shortcut: Ctrl+Z pressed, undoing in active editor.";
+                VLOG(1) << "Shortcut: Ctrl+Z pressed, undoing in active editor.";
                 UndoActiveEditor();
             }
         }
         if (ImGui::IsKeyPressed(ImGuiKey_X)) {
-            DLOG(INFO) << "Shortcut: Ctrl+X pressed, cutting in active editor.";
+            VLOG(1) << "Shortcut: Ctrl+X pressed, cutting in active editor.";
             CutActiveEditor();
         }
         if (ImGui::IsKeyPressed(ImGuiKey_C)) {
-            DLOG(INFO) << "Shortcut: Ctrl+C pressed, copying in active editor.";
+            VLOG(1) << "Shortcut: Ctrl+C pressed, copying in active editor.";
             CopyActiveEditor();
         }
         if (ImGui::IsKeyPressed(ImGuiKey_V)) {
-            DLOG(INFO) << "Shortcut: Ctrl+V " << (io.KeyShift ? "(Special)" : "") << " pressed, pasting in active editor.";
+            VLOG(1) << "Shortcut: Ctrl+V " << (io.KeyShift ? "(Special)" : "") << " pressed, pasting in active editor.";
             PasteActiveEditor(io.KeyShift); // Shift key to map external connections
         }
         if (ImGui::IsKeyPressed(ImGuiKey_A)) {
-            DLOG(INFO) << "Shortcut: Ctrl+A pressed, selecting all in active editor.";
+            VLOG(1) << "Shortcut: Ctrl+A pressed, selecting all in active editor.";
             SelectAllActiveEditor();
         }
     }
@@ -494,7 +487,7 @@ void Application::DrawNewProjectDialog() {
 
         selectedGameDataFile = game_data_packages.empty() ? -1 : 0;
 
-        DLOG(INFO) << "New Project dialog initialized with default name '"
+        VLOG(2) << "New Project dialog initialized with default name '"
                   << projectNameBuf << "' and location '" << locationBuf << "'.";
     }
 
@@ -540,7 +533,7 @@ void Application::DrawNewProjectDialog() {
     ImGui::PopItemWidth();
     ImGui::SameLine();
     if (ImGui::Button("Browse...", ImVec2(buttonWidth, 0))) {
-        DLOG(INFO) << "New Project: Browse for location button clicked.";
+        VLOG(1) << "New Project: Browse for location button clicked.";
         std::thread([]() {
             nfdu8char_t *outPath;
             nfdpickfolderu8args_t args = {0};
@@ -692,7 +685,7 @@ void Application::DrawNewProjectDialog() {
 
     ImGui::SameLine();
     if (ImGui::Button("Cancel", ImVec2(120, 0))) {
-        DLOG(INFO) << "New Project: Cancelled by user.";
+        VLOG(1) << "New Project: Cancelled by user.";
         showNewProjectDialog = false;
     }
     ImGui::EndGroup();
@@ -727,7 +720,7 @@ void Application::DrawOpenProjectDialog() {
     if (!showOpenProjectDialog) return;
 
     if (!fileDialogRunning && fileDialogResult.empty() && !fileDialogCancelled) {
-        DLOG(INFO) << "Opening native file dialog for project selection.";
+        VLOG(2) << "Opening native file dialog for project selection.";
         fileDialogRunning = true;
         fileDialogCancelled = false;
 
@@ -743,9 +736,9 @@ void Application::DrawOpenProjectDialog() {
             if (result == NFD_OKAY) {
                 fileDialogResult = outPath;
                 NFD_FreePathU8(outPath);
-                DLOG(INFO) << "Open dialog: Selected project file: " << fileDialogResult;
+                VLOG(1) << "Open dialog: Selected project file: " << fileDialogResult;
             } else if (result == NFD_CANCEL) {
-                DLOG(INFO) << "Open dialog: User cancelled the file selection.";
+                VLOG(1) << "Open dialog: User cancelled the file selection.";
                 fileDialogCancelled = true;
             } else {
                 LOG(ERROR) << "Open dialog: Error occurred while opening file dialog.";
@@ -781,7 +774,7 @@ void Application::DrawSaveAsDialog() {
     }
     // Start native save dialog on background thread if not already running
     if (!fileDialogRunning && fileDialogResult.empty() && !fileDialogCancelled) {
-        DLOG(INFO) << "Opening native file dialog for Save As.";
+        VLOG(2) << "Opening native file dialog for Save As.";
         fileDialogRunning = true;
         fileDialogCancelled = false;
 
@@ -797,9 +790,9 @@ void Application::DrawSaveAsDialog() {
             if (result == NFD_OKAY) {
                 fileDialogResult = outPath ? outPath : "";
                 if (outPath) NFD_FreePathU8(outPath);
-                DLOG(INFO) << "Save As dialog: Selected file path: " << fileDialogResult;
+                VLOG(1) << "Save As dialog: Selected file path: " << fileDialogResult;
             } else if (result == NFD_CANCEL) {
-                DLOG(INFO) << "Save As dialog: User cancelled the save operation.";
+                VLOG(1) << "Save As dialog: User cancelled the save operation.";
                 fileDialogCancelled = true;
             } else {
                 LOG(ERROR) << "Save As dialog: Error occurred while opening save dialog.";
@@ -876,7 +869,7 @@ void Application::CreateNewEditor(const std::string &gameDataFilePath, const std
     if (std::any_of(editors.begin(), editors.end(), [&](const auto &editor) {
         return editor->GetName() == name;
     })) {
-        DLOG(INFO) << "An editor with the name '" << name << "' already exists. Not creating a new one.";
+        VLOG(1) << "An editor with the name '" << name << "' already exists. Not creating a new one.";
         showFileAlreadyOpenPopup = true;
         return; // Do not create a new editor if the name already exists
     }

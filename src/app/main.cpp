@@ -10,7 +10,6 @@
 #include "app/Application.h"
 
 #include "absl/log/log.h"
-#include "absl/log/log_sink.h"
 #include "absl/log/initialize.h"
 #include "absl/flags/flag.h"
 #include "absl/flags/parse.h"
@@ -105,7 +104,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    DLOG(INFO) << "Window created";
+    VLOG(2) << "Window created";
 
     glfwMakeContextCurrent(window);
 #if __linux__

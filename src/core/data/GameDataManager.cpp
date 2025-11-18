@@ -16,7 +16,7 @@ using json = nlohmann::json;
 
 GameDataManager::GameDataManager() {
     // initialize an empty GameData with the "nothing" resource
-    DLOG(INFO) << "Initializing GameDataManager with default data.";
+    VLOG(2) << "Initializing GameDataManager with default data.";
     createNew("New Game", "seconds");
 }
 
@@ -75,7 +75,7 @@ bool GameDataManager::saveToFile(const std::string &path, std::string &outError)
 }
 
 GameData GameDataManager::createNew(const std::string &gameName, const std::string &timeUnit) {
-    DLOG(INFO) << "Creating new GameData: " << gameName << " with time unit: " << timeUnit;
+    VLOG(2) << "Creating new GameData: " << gameName << " with time unit: " << timeUnit;
     GameData gd;
     gd.gameName = gameName;
     gd.gameDataFilePath = "";
@@ -105,7 +105,7 @@ bool GameDataManager::addResource(const Resource &r) {
         return false;
     }// already exists
     _data.resources[key] = r;
-    DLOG(INFO) << "Resource added successfully: " << key;
+    VLOG(2) << "Resource added successfully: " << key;
     return true;
 }
 
@@ -138,7 +138,7 @@ bool GameDataManager::editResource(const std::string& key_name, const Resource &
             if (p.resource_key == key_name) p.resource_key = key;
         }
     }
-    DLOG(INFO) << "Resource edited successfully: " << key;
+    VLOG(2) << "Resource edited successfully: " << key;
     return true;
 }
 
@@ -172,7 +172,7 @@ bool GameDataManager::deleteResource(const std::string& key_name, std::string &o
         }
     }
     _data.resources.erase(key_name);
-    DLOG(INFO) << "Resource deleted successfully: " << key_name;
+    VLOG(2) << "Resource deleted successfully: " << key_name;
     return true;
 }
 
@@ -183,7 +183,7 @@ bool GameDataManager::addMachine(const Machine &m) {
         return false;
     } // already exists
     _data.machines[key] = m;
-    DLOG(INFO) << "Machine added successfully: " << key;
+    VLOG(2) << "Machine added successfully: " << key;
     return true;
 }
 
@@ -208,7 +208,7 @@ bool GameDataManager::editMachine(const std::string& key_name, const Machine &m,
             if (mk == key_name) mk = key;
         }
     }
-    DLOG(INFO) << "Machine edited successfully: " << key;
+    VLOG(2) << "Machine edited successfully: " << key;
     return true;
 }
 
@@ -230,7 +230,7 @@ bool GameDataManager::deleteMachine(const std::string& key_name, std::string &ou
         }
     }
     _data.machines.erase(key_name);
-    DLOG(INFO) << "Machine deleted successfully: " << key_name;
+    VLOG(2) << "Machine deleted successfully: " << key_name;
     return true;
 }
 
@@ -249,7 +249,7 @@ bool GameDataManager::addRecipe(const Recipe &r) {
         rr.output_ports.push_back(RecipePort{0.0, "nothing"});
     }
     _data.recipes[key] = rr;
-    DLOG(INFO) << "Recipe added successfully: " << key;
+    VLOG(2) << "Recipe added successfully: " << key;
     return true;
 }
 
@@ -276,7 +276,7 @@ bool GameDataManager::editRecipe(const std::string& key_name, const Recipe &r, s
     }
     _data.recipes.erase(key_name);
     _data.recipes[key] = rr;
-    DLOG(INFO) << "Recipe edited successfully: " << key;
+    VLOG(2) << "Recipe edited successfully: " << key;
     return true;
 }
 
@@ -287,7 +287,7 @@ bool GameDataManager::deleteRecipe(const std::string& key_name, std::string &out
         return false;
     }
     _data.recipes.erase(key_name);
-    DLOG(INFO) << "Recipe deleted successfully: " << key_name;
+    VLOG(2) << "Recipe deleted successfully: " << key_name;
     return true;
 }
 
@@ -326,12 +326,11 @@ std::vector<std::string> GameDataManager::validate(const GameData &gd) {
             }
         }
     }
-    DLOG(INFO) << "Validation completed with " << messages.size() << " messages.";
     return messages;
 }
 
 GameData GameDataManager::jsonToGameData(const json &j, std::filesystem::path& packageIconRoot, std::string &outError) {
-    DLOG(INFO) << "Converting JSON to GameData.";
+    VLOG(2) << "Converting JSON to GameData.";
     outError.clear();
     std::filesystem::path path = _data.gameDataFilePath;
     GameData gd;
@@ -468,7 +467,7 @@ GameData GameDataManager::jsonToGameData(const json &j, std::filesystem::path& p
             }
         }
 
-        DLOG(INFO) << "JSON parsed successfully into GameData.";
+        VLOG(2) << "JSON parsed successfully into GameData.";
 
         // perform light validation; if critical issues found, add to outError (but do not fail on warnings)
         auto errors = validate(gd);
@@ -483,7 +482,7 @@ GameData GameDataManager::jsonToGameData(const json &j, std::filesystem::path& p
 }
 
 json GameDataManager::gameDataToJson(const GameData &gd) {
-    DLOG(INFO) << "Converting GameData to JSON.";
+    VLOG(2) << "Converting GameData to JSON.";
     json j;
     j["gameName"] = gd.gameName;
     j["time_unit"] = gd.time_unit;
@@ -555,6 +554,6 @@ json GameDataManager::gameDataToJson(const GameData &gd) {
         }
         j["recipes"] = rarr;
     }
-    DLOG(INFO) << "GameData converted successfully to JSON.";
+    VLOG(2) << "GameData converted successfully to JSON.";
     return j;
 }

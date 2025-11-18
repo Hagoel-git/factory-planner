@@ -36,7 +36,7 @@ void SessionManager::setSessionState(const SessionState &state) {
 }
 
 void SessionManager::loadSession() {
-    DLOG(INFO) << "Loading session from file.";
+    VLOG(2) << "Loading session from file.";
     const auto path = get_executable_directory().value() / "session.json";
     if (!std::filesystem::exists(path)) {
         LOG(INFO) << "Session file does not exist, using defaults.";
@@ -66,12 +66,12 @@ void SessionManager::loadSession() {
     } catch (const std::exception &e) {
         LOG(ERROR) << "Failed to parse session file: " << e.what();
     }
-    DLOG(INFO) << "Session loaded: " << m_state.openProjectPaths.size()
+    LOG(INFO) << "Session loaded: " << m_state.openProjectPaths.size()
                << " open projects, active index: " << m_state.activeProjectIndex;
 }
 
 void SessionManager::saveSession() const {
-    DLOG(INFO) << "Saving session to file.";
+    VLOG(2) << "Saving session to file.";
     auto file = get_executable_directory().value() / "session.json";
     try {
         nlohmann::json j;
@@ -89,5 +89,5 @@ void SessionManager::saveSession() const {
     } catch (const std::exception &e) {
         LOG(ERROR) << "Exception while saving session: " << e.what();
     }
-    DLOG(INFO) << "Session saved.";
+    LOG(INFO) << "Session saved.";
 }

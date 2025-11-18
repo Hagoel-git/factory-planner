@@ -19,7 +19,7 @@ FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::strin
     : name(std::move(title)), projectFilePath(projectFilePath), m_contextNodeId(0), m_contextPinId(0),
       m_contextLinkId(0), undoRedoManager(SettingsManager::instance().getSettings().maxUndoHistory) {
     try {
-        DLOG(INFO) << "Initializing FactoryNodeEditor for project: " << projectFilePath;
+        VLOG(1) << "Initializing FactoryNodeEditor for project: " << projectFilePath;
         graph = std::make_unique<FactoryGraph>(game_data);
         solver = std::make_unique<FactorySolver>();
 
@@ -199,7 +199,7 @@ void FactoryNodeEditor::copy(CopyBuffer &copy_buffer) {
             }
         }
     }
-    DLOG(INFO) << "Copied " << copy_buffer.nodes.size() << " nodes to clipboard. At " << name;
+    VLOG(1) << "Copied " << copy_buffer.nodes.size() << " nodes to clipboard. At " << name;
 }
 
 void FactoryNodeEditor::cut(CopyBuffer &copyBuffer) {
@@ -214,12 +214,12 @@ void FactoryNodeEditor::cut(CopyBuffer &copyBuffer) {
         cmd->addCommand(std::make_unique<RemoveNodeCommand>(nodeId));
     }
     executeCommand(std::move(cmd));
-    DLOG(INFO) << "Cut " << copyBuffer.nodes.size() << " nodes to clipboard. At " << name;
+    VLOG(1) << "Cut " << copyBuffer.nodes.size() << " nodes to clipboard. At " << name;
 }
 
 void FactoryNodeEditor::paste(const CopyBuffer &copy_buffer, bool mapExternalConnections) {
     executeCommand(std::make_unique<PasteCommand>(copy_buffer, mapExternalConnections));
-    DLOG(INFO) << "Pasted " << copy_buffer.nodes.size() << " nodes from clipboard. At " << name;
+    VLOG(1) << "Pasted " << copy_buffer.nodes.size() << " nodes from clipboard. At " << name;
 }
 
 void FactoryNodeEditor::selectAll() {
@@ -227,7 +227,7 @@ void FactoryNodeEditor::selectAll() {
     for (const auto &node : graph->getNodes()) {
         ed::SelectNode(IdUtils::ToNodeId(node.id), true); // Select all nodes
     }
-    DLOG(INFO) << "Selected all nodes in the graph. At " << name;
+    VLOG(1) << "Selected all nodes in the graph. At " << name;
 }
 
 void FactoryNodeEditor::UpdateDebugInfo() {

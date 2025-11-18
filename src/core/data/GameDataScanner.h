@@ -32,7 +32,7 @@ static std::vector<GameDataPackage> ScanForGameData(const std::filesystem::path&
             }
         }
     }
-    DLOG(INFO) << "Found " << packages.size() << " game data packages.";
+    VLOG(2) << "Found " << packages.size() << " game data packages.";
     return packages;
 }
 #endif //FACTORY_PLANNER_GAMEDATASCANNER_H
