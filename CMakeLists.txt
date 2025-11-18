@@ -144,6 +144,7 @@ target_link_libraries(factory_planner_lib
         absl::log
         absl::flags
         absl::log_sink
+        absl::failure_signal_handler
         ortools::ortools
 )
 
