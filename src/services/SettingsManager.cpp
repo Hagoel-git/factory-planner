@@ -36,7 +36,7 @@ void SettingsManager::setSettings(const AppSettings &settings) {
 SettingsManager::SettingsManager() = default;
 
 void SettingsManager::loadAppSettings() {
-    DLOG(INFO) << "Loading app settings from file.";
+    VLOG(2) << "Loading app settings from file.";
     const auto path = get_executable_directory().value() / "app_settings.json";
     if (!std::filesystem::exists(path)) {
         LOG(WARNING) << "Settings file does not exist, using defaults.";
@@ -93,11 +93,11 @@ void SettingsManager::loadAppSettings() {
     } catch (const std::exception& e) {
         LOG(ERROR) << "Failed to parse settings file: " << e.what();
     }
-    DLOG(INFO) << "App settings loaded successfully.";
+    LOG(INFO) << "App settings loaded successfully.";
 }
 
 void SettingsManager::saveAppSettings() const {
-    DLOG(INFO) << "Saving app settings to file.";
+    VLOG(2) << "Saving app settings to file.";
     json j;
     j["gameDataPath"] = m_settings.gameDataPath.string();
     j["defaultProjectPath"] = m_settings.defaultProjectPath.string();
@@ -119,5 +119,5 @@ void SettingsManager::saveAppSettings() const {
     }
     o << j.dump(4);
     o.close();
-    DLOG(INFO) << "App settings saved successfully.";
+    LOG(INFO) << "App settings saved successfully.";
 }

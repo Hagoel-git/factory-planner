@@ -27,11 +27,11 @@ bool ProjectIO::SaveProject(const std::string &path, const FactoryGraph &factory
             // Continue without editor settings rather than failing completely
             projectData["editor_settings"] = json::object();
         }
-        DLOG(INFO) << "Editor settings serialized.";
+        VLOG(2) << "Editor settings serialized.";
 
         // Serialize graph data
         projectData["graph_data"] = factoryGraph.serialize();
-        DLOG(INFO) << "Graph data serialized.";
+        VLOG(2) << "Graph data serialized.";
 
         // Add metadata
         projectData["timestamp"] = std::chrono::duration_cast<std::chrono::seconds>(
@@ -57,12 +57,12 @@ bool ProjectIO::SaveProject(const std::string &path, const FactoryGraph &factory
             }
         }
 
-        DLOG(INFO) << "Project data written to temporary file.";
+        VLOG(2) << "Project data written to temporary file.";
 
         // Atomic rename
         std::error_code ec;
         std::filesystem::rename(tmp, path, ec);
-        DLOG(INFO) << "Temporary file renamed to final path.";
+        VLOG(2) << "Temporary file renamed to final path.";
         if (ec) {
             LOG(ERROR) << "Failed to rename temp file to final path: " << ec.message();
             std::filesystem::remove(tmp); // Clean up temp file
@@ -100,7 +100,7 @@ bool ProjectIO::LoadProject(const std::string &path, FactoryGraph &factoryGraph)
             return false;
         }
 
-        DLOG(INFO) << "Project file parsed successfully.";
+        VLOG(2) << "Project file parsed successfully.";
 
         if (!projectData.is_object()) {
             LOG(ERROR) << "Invalid project file format: root is not an object.";
@@ -140,7 +140,7 @@ bool ProjectIO::LoadProject(const std::string &path, FactoryGraph &factoryGraph)
                 return false;
             }
         }
-        DLOG(INFO) << "Graph data deserialized successfully.";
+        VLOG(2) << "Graph data deserialized successfully.";
 
         // Load editor settings
         if (projectData.contains("editor_settings")) {
@@ -209,7 +209,7 @@ bool ProjectIO::LoadProject(const std::string &path, FactoryGraph &factoryGraph)
                 // Don't fail the entire load just because editor settings failed
             }
         }
-        DLOG(INFO) << "Editor settings applied successfully.";
+        VLOG(2) << "Editor settings applied successfully.";
         return true;
 
     } catch (const std::exception& e) {

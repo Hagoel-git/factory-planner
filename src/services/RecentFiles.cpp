@@ -25,7 +25,7 @@ void RecentFiles::save() {
 }
 
 void RecentFiles::addFile(const std::filesystem::path &filePath) {
-    DLOG(INFO) << "Adding recent file: " << filePath;
+    VLOG(2) << "Adding recent file: " << filePath;
     files.erase(std::remove(files.begin(), files.end(), filePath), files.end());
     files.insert(files.begin(), filePath);
     const int maxFiles = SettingsManager::instance().getSettings().maxRecentFiles;
@@ -39,7 +39,7 @@ const std::vector<std::filesystem::path> &RecentFiles::getFiles() const {
 }
 
 void RecentFiles::loadRecentFiles() {
-    DLOG(INFO) << "Loading recent files.";
+    VLOG(2) << "Loading recent files.";
     const auto path = get_executable_directory().value() / "recent.json";
     if (!std::filesystem::exists(path)) {
         LOG(INFO) << "Recent files does not exist: " << path;
@@ -66,11 +66,11 @@ void RecentFiles::loadRecentFiles() {
     } catch (const std::exception &e) {
         LOG(ERROR) << "Error parsing recent files: " << e.what();
     }
-    DLOG(INFO) << "Loaded " << files.size() << " recent files.";
+    LOG(INFO) << "Loaded " << files.size() << " recent files.";
 }
 
 void RecentFiles::saveRecentFiles() const {
-    DLOG(INFO) << "Saving recent files.";
+    VLOG(2) << "Saving recent files.";
     nlohmann::json j;
     j["recentFiles"] = nlohmann::json::array();
     for (const auto &path : files) {
@@ -87,5 +87,5 @@ void RecentFiles::saveRecentFiles() const {
     } catch (const std::exception &e) {
         LOG(ERROR) << "Error saving recent files: " << e.what();
     }
-    DLOG(INFO) << "Recent files saved to: " << file;
+    LOG(INFO) << "Recent files saved to: " << file;
 }

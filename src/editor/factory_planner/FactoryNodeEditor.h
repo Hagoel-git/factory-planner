@@ -84,7 +84,7 @@ public:
         CommandFlags flags = command->GetFlags();
 
         undoRedoManager.undo(*graph);
-        DLOG(INFO) << "Undo command '" << command->getDescription() << "' executed in editor: " << name;
+        VLOG(1) << "Undo command '" << command->getDescription() << "' executed in editor: " << name;
 
         if (flags.needsSolve) {
             FactorySolver::SolverResult result = solver->solve(*graph);
@@ -105,7 +105,7 @@ public:
         CommandFlags flags = command->GetFlags();
 
         undoRedoManager.redo(*graph);
-        DLOG(INFO) << "Redo command '" << command->getDescription() << "' executed in editor: " << name;
+        VLOG(1) << "Redo command '" << command->getDescription() << "' executed in editor: " << name;
 
         if (flags.needsSolve) {
             FactorySolver::SolverResult result = solver->solve(*graph);

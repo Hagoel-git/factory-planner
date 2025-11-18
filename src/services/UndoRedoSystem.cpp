@@ -9,7 +9,7 @@ namespace ed = ax::NodeEditor;
 
 
 void UndoRedoManager::executeCommand(std::unique_ptr<Command> command, FactoryGraph &graph) {
-    DLOG(INFO) << "Executing command: " << command->getDescription();
+    VLOG(2) << "Executing command: " << command->getDescription();
     command->execute(graph);
     undoStack.push_back(std::move(command));
     redoStack.clear(); // Clear redo stack on new command
@@ -21,7 +21,7 @@ void UndoRedoManager::undo(FactoryGraph &graph) {
 
     auto command = std::move(undoStack.back());
     undoStack.pop_back();
-    DLOG(INFO) << "Undoing command: " << command->getDescription();
+    VLOG(2) << "Undoing command: " << command->getDescription();
     command->undo(graph);
 
     redoStack.push_back(std::move(command));
@@ -32,7 +32,7 @@ void UndoRedoManager::redo(FactoryGraph &graph) {
 
     auto command = std::move(redoStack.back());
     redoStack.pop_back();
-    DLOG(INFO) << "Redoing command: " << command->getDescription();
+    VLOG(2) << "Redoing command: " << command->getDescription();
     command->execute(graph);
 
     undoStack.push_back(std::move(command));
