@@ -69,9 +69,10 @@ int main(int argc, char **argv) {
     const std::string prev_log_name = "factory_planner.previous.log";
 
     try {
-        if (std::filesystem::exists(latest_log_name)) {
-            std::filesystem::rename(latest_log_name, prev_log_name);
+        if (std::filesystem::exists(prev_log_name)) {
+            std::filesystem::remove(prev_log_name);
         }
+        std::filesystem::rename(latest_log_name, prev_log_name);
     } catch (const std::filesystem::filesystem_error& e) {
         std::cerr << "Failed to rotate log file: " << e.what() << std::endl;
     }
