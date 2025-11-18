@@ -27,9 +27,9 @@ public:
     bool quitRequested = false;
 private:
     std::vector<std::unique_ptr<FactoryNodeEditor>> editors;
+    GameDataManager gameDataManager;
     GameDataEditor gameDataEditor;
     SettingsEditor settingsEditor;
-    GameDataManager gameDataManager;
     std::string gameDataManagerError;
     std::string currentTheme;
     bool currentShowGrid = false;

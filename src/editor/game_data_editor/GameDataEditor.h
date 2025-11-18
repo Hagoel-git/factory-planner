@@ -6,12 +6,12 @@
 
 class GameDataEditor {
 public:
-    GameDataEditor();
+    explicit GameDataEditor(GameDataManager& manager);
     void Draw();
 
     void SetOpen(bool open) { m_isOpen = open; }
 private:
-    GameDataManager gameDataManager;
+    GameDataManager& gameDataManager;
     std::filesystem::path m_currentlyEditingFile;
 
     std::string m_fileLoadError;

@@ -16,7 +16,7 @@
 #include "services/RecentFiles.h"
 #include "services/SessionManager.h"
 
-Application::Application() {
+Application::Application() : gameDataEditor(gameDataManager) {
     LOG(INFO) << "Application starting up.";
     SettingsManager::instance().load();
     LOG(INFO) << "Settings loaded.";
@@ -274,6 +274,11 @@ void Application::DrawDebugWindow() {
         ImGui::Text("Redo stack size: %zu", debugInfo.redoStackSize);
     } else {
         ImGui::Text("No active editor.");
+    }
+    // In Application.cpp, inside DrawDebugWindow
+    if (ImGui::Button("Simulate Crash")) {
+        volatile int* ptr = nullptr;
+        *ptr = 42; // Triggers SIGSEGV
     }
 
     ImGui::End();
@@ -882,12 +887,13 @@ void Application::CreateNewEditor(const std::string &gameDataFilePath, const std
         editors.push_back(std::move(editor));
     } else {
         LOG(INFO) << "Creating new editor '" << name << "' with game data from file: " << gameDataFilePath;
-        gameDataManager.loadFromFile(gameDataFilePath,gameDataManagerError);
-        if (!gameDataManagerError.empty()) {
+        GameDataManager tempDataManager;
+        std::string tempDataManagerError;
+        tempDataManager.loadFromFile(gameDataFilePath, tempDataManagerError);
+        if (!tempDataManagerError.empty()) {
             LOG(ERROR) << "Failed to load game data from file '" << gameDataFilePath
-                       << "': " << gameDataManagerError;
+                       << "': " << tempDataManagerError;
             // todo: show error to user
-            std::cerr << gameDataManagerError << std::endl;
         }
 
         auto editor = std::make_unique<FactoryNodeEditor>(gameDataManager.current(), location, name);

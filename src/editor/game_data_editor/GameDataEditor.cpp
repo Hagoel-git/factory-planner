@@ -7,7 +7,7 @@
 #include "services/SettingsManager.h"
 #include "common/StringUtils.h"
 
-GameDataEditor::GameDataEditor() {
+GameDataEditor::GameDataEditor(GameDataManager& manager) : gameDataManager(manager) {
     gameDataManager.clear();
 };
 
