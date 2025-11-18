@@ -16,21 +16,10 @@
 #include "absl/flags/parse.h"
 #include "absl/log/globals.h"
 #include "absl/log/log_sink_registry.h"
+#include "absl/debugging/failure_signal_handler.h"
+#include "absl/debugging/symbolize.h"
 #include <fstream>
-
-class FileLogSink : public absl::LogSink {
-public:
-    FileLogSink(const std::string& filename)
-        : file_(filename, std::ofstream::app) {
-    }
-    void Send(const absl::LogEntry& entry) override {
-        // Write the formatted message to our file
-        file_ << entry.text_message_with_prefix_and_newline();
-        file_.flush(); // Ensure it's written immediately
-    }
-private:
-    std::ofstream file_;
-};
+#include <fcntl.h>
 
 // Return true if current session *looks like* Wayland.
 static bool RunningOnWayland()
@@ -48,8 +37,33 @@ static void glfw_error_callback(int error, const char *description) {
     LOG(ERROR) << "GLFW Error " << error << ": " << description;
 }
 
+void RedirectStdErrToLogFile(const std::string& log_path) {
+    // O_WRONLY: Write only
+    // O_CREAT: Create if not exists
+    // O_APPEND: Always write to the end
+    // 0644: Permissions (RW-R--R--)
+    int log_fd = open(log_path.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
+
+    if (log_fd == -1) {
+        std::cerr << "Failed to open log file for stderr redirection: " << log_path << std::endl;
+        return;
+    }
+
+    // Redirect Standard Error (FD 2) to our log file (log_fd)
+    // After this call, anything written to stderr goes to the file.
+    if (dup2(log_fd, STDERR_FILENO) == -1) {
+        std::cerr << "Failed to redirect stderr to log file." << std::endl;
+        close(log_fd);
+        return;
+    }
+
+    close(log_fd);
+}
+
 int main(int argc, char **argv) {
+    absl::InitializeSymbolizer(argv[0]);
     absl::InitializeLog();
+    absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
 
     const std::string latest_log_name = "factory_planner.log";
     const std::string prev_log_name = "factory_planner.previous.log";
@@ -62,8 +76,9 @@ int main(int argc, char **argv) {
         std::cerr << "Failed to rotate log file: " << e.what() << std::endl;
     }
 
-    static FileLogSink file_sink(latest_log_name);
-    absl::AddLogSink(&file_sink);
+    RedirectStdErrToLogFile(latest_log_name);
+    absl::FailureSignalHandlerOptions handler_options;
+    absl::InstallFailureSignalHandler(handler_options);
 
     absl::ParseCommandLine(argc, argv);
     LOG(INFO) << "Starting Factory Planner Application";
