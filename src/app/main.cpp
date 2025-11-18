@@ -156,48 +156,48 @@ int main(int argc, char **argv) {
     ImGui_ImplOpenGL3_Init(glsl_version);
 
     LOG(INFO) << "ImGui backends initialized";
+    {
+        // Create our application
+        Application app;
 
-    // Create our application
-    Application app;
+        // Main loop
+        while (!glfwWindowShouldClose(window) && !app.quitRequested) {
+            glfwPollEvents();
 
-    // Main loop
-    while (!glfwWindowShouldClose(window) && !app.quitRequested) {
-        glfwPollEvents();
+            // Start the Dear ImGui frame
+            ImGui_ImplOpenGL3_NewFrame();
+            ImGui_ImplGlfw_NewFrame();
+            ImGui::NewFrame();
 
-        // Start the Dear ImGui frame
-        ImGui_ImplOpenGL3_NewFrame();
-        ImGui_ImplGlfw_NewFrame();
-        ImGui::NewFrame();
+            // Draw the application
+            app.Draw();
 
-        // Draw the application
-        app.Draw();
-
-        // Rendering
-        ImGui::Render();
-        int display_w, display_h;
-        glfwGetFramebufferSize(window, &display_w, &display_h);
-        glViewport(0, 0, display_w, display_h);
-        glClearColor(0.1569f, 0.1647f, 0.1726f, 1.00f);
-        glClear(GL_COLOR_BUFFER_BIT);
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+            // Rendering
+            ImGui::Render();
+            int display_w, display_h;
+            glfwGetFramebufferSize(window, &display_w, &display_h);
+            glViewport(0, 0, display_w, display_h);
+            glClearColor(0.1569f, 0.1647f, 0.1726f, 1.00f);
+            glClear(GL_COLOR_BUFFER_BIT);
+            ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 #if __linux__
-        // fix for Wayland: Application not responding with vsync enabled, so we use a manual frame rate control
-        if (is_wayland) {
-            nextFrame += std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-                std::chrono::duration<double>(targetTime));
-            std::this_thread::sleep_until(nextFrame);
-        }
+            // fix for Wayland: Application not responding with vsync enabled, so we use a manual frame rate control
+            if (is_wayland) {
+                nextFrame += std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                    std::chrono::duration<double>(targetTime));
+                std::this_thread::sleep_until(nextFrame);
+            }
 #endif
 
-        glfwSwapBuffers(window);
-    }
+            glfwSwapBuffers(window);
+        }
 
-    if (app.quitRequested) {
-        LOG(INFO) << "Shutting down application (quit requested by app)";
-    } else {
-        LOG(INFO) << "Shutting down application (window closed)";
+        if (app.quitRequested) {
+            LOG(INFO) << "Shutting down application (quit requested by app)";
+        } else {
+            LOG(INFO) << "Shutting down application (window closed)";
+        }
     }
-
     // Cleanup
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
