@@ -9,7 +9,13 @@
 
 GameDataEditor::GameDataEditor(GameDataManager& manager) : gameDataManager(manager) {
     gameDataManager.clear();
+    RefreshPackageList();
 };
+
+void GameDataEditor::RefreshPackageList() {
+    const auto &gameDataPath = SettingsManager::instance().getSettings().gameDataPath;
+    m_cachedPackages = ScanForGameData(gameDataPath);
+}
 
 void GameDataEditor::Draw() {
     if (!m_isOpen) return;
@@ -31,16 +37,24 @@ void GameDataEditor::Draw() {
 void GameDataEditor::DrawLeftSide() {
     ImGui::BeginChild("LeftPanel", ImVec2(200, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeX);
 
+    const float refresh_button_width = 60.0f;
+    const float spacing = ImGui::GetStyle().ItemSpacing.x;
+    const float total_avail_width = ImGui::GetContentRegionAvail().x;
+    const float new_file_button_width = total_avail_width - refresh_button_width - spacing;
     // Button to open the "New File" popup
-    if (ImGui::Button("+ New Game Data File", ImVec2(-1, 0))) {
+    if (ImGui::Button("+ New Game Data File", ImVec2(new_file_button_width, 0))) {
         ImGui::OpenPopup("New File");
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Refresh", ImVec2(refresh_button_width, 0))) {
+        RefreshPackageList();
     }
 
     ImGui::Separator();
 
     // List all game data files
     const auto &gameDataPath = SettingsManager::instance().getSettings().gameDataPath;
-    std::vector<GameDataPackage> packages = ScanForGameData(gameDataPath);
+    const std::vector<GameDataPackage>& packages = m_cachedPackages;
 
     // Helper structs for sorting
     struct FoldableGroup {
@@ -199,6 +213,7 @@ void GameDataEditor::DrawNewFileDialog() {
                     m_currentlyEditingFile = newFilePath;
                     gameDataManager.loadFromFile(m_currentlyEditingFile, m_fileLoadError); // Load the new file
                     m_fileLoadError.clear(); // Clear any old loading errors
+                    RefreshPackageList();
                     ImGui::CloseCurrentPopup();
                 } else {
                     errorMessage = "Failed to save file: " + saveError;
@@ -396,6 +411,7 @@ void GameDataEditor::DrawRenameFileDialog() {
                         // Rename the file
                         std::filesystem::rename(m_currentlyEditingFile, newFilePath);
                         m_currentlyEditingFile = newFilePath;
+                        RefreshPackageList();
                         ImGui::CloseCurrentPopup();
                     } catch (const std::filesystem::filesystem_error &e) {
                         renameErrorMessage = "Failed to rename file: " + std::string(e.what());
@@ -439,6 +455,7 @@ void GameDataEditor::DrawDeleteFileDialog() {
                 m_currentlyEditingFile.clear();
                 gameDataManager.clear();
                 m_fileLoadError.clear();
+                RefreshPackageList();
                 ImGui::CloseCurrentPopup();
             } catch (const std::filesystem::filesystem_error &e) {
                 std::cerr << "Failed to delete file: " << e.what() << std::endl;
