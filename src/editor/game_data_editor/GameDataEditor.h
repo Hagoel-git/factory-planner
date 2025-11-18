@@ -4,6 +4,8 @@
 
 #include "core/data/GameDataManager.h"
 
+struct GameDataPackage;
+
 class GameDataEditor {
 public:
     explicit GameDataEditor(GameDataManager& manager);
@@ -12,6 +14,7 @@ public:
     void SetOpen(bool open) { m_isOpen = open; }
 private:
     GameDataManager& gameDataManager;
+    std::vector<GameDataPackage> m_cachedPackages;
     std::filesystem::path m_currentlyEditingFile;
 
     std::string m_fileLoadError;
@@ -59,6 +62,8 @@ private:
 
     bool m_isOpen = false;
     bool m_showNewFilePopup = false;
+
+    void RefreshPackageList();
 
     void DrawLeftSide();
 
