@@ -107,6 +107,12 @@ int main(int argc, char **argv) {
     VLOG(2) << "Window created";
 
     glfwMakeContextCurrent(window);
+
+    LOG(INFO) << "OpenGL Info:";
+    LOG(INFO) << "  Vendor: " << glGetString(GL_VENDOR);
+    LOG(INFO) << "  Renderer: " << glGetString(GL_RENDERER);
+    LOG(INFO) << "  Version: " << glGetString(GL_VERSION);
+
 #if __linux__
     bool is_wayland = RunningOnWayland();
 
