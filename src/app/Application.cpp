@@ -889,7 +889,7 @@ void Application::CreateNewEditor(const std::string &gameDataFilePath, const std
             // todo: show error to user
         }
 
-        auto editor = std::make_unique<FactoryNodeEditor>(gameDataManager.current(), location, name);
+        auto editor = std::make_unique<FactoryNodeEditor>(tempDataManager.current(), location, name);
         editors.push_back(std::move(editor));
         LOG(INFO) << "Game data loaded successfully for editor '" << name << "'.";
         gameDataManager.clear();
