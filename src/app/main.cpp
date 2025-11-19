@@ -66,17 +66,19 @@ int main(int argc, char **argv) {
 
     const std::string latest_log_name = "factory_planner.log";
     const std::string prev_log_name = "factory_planner.previous.log";
+    const std::filesystem::path latest_log_path = get_executable_directory().value_or(std::filesystem::current_path()) / latest_log_name;
+    const std::filesystem::path prev_log_path = get_executable_directory().value_or(std::filesystem::current_path()) / prev_log_name;
 
     try {
-        if (std::filesystem::exists(prev_log_name)) {
-            std::filesystem::remove(prev_log_name);
+        if (std::filesystem::exists(prev_log_path)) {
+            std::filesystem::remove(prev_log_path);
         }
-        std::filesystem::rename(latest_log_name, prev_log_name);
+        std::filesystem::rename(latest_log_path, prev_log_path);
     } catch (const std::filesystem::filesystem_error& e) {
         std::cerr << "Failed to rotate log file: " << e.what() << std::endl;
     }
 
-    RedirectStdErrToLogFile(latest_log_name);
+    RedirectStdErrToLogFile(latest_log_path);
     absl::FailureSignalHandlerOptions handler_options;
     absl::InstallFailureSignalHandler(handler_options);
 
