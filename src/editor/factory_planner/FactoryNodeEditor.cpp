@@ -51,7 +51,9 @@ FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::strin
 
         ed_style.FlowDuration = 6.0f;
 
-        ProjectIO::LoadProject(projectFilePath, *graph);
+        if (std::filesystem::exists(projectFilePath)) {
+            ProjectIO::LoadProject(projectFilePath, *graph);
+        }
 
         // Initialize quadtree with large world bounds to handle extreme zoom levels
         float worldSize = 262144.0f; // 2^18, very large world
