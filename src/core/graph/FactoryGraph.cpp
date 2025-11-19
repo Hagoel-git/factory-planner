@@ -5,6 +5,7 @@
 #include <unordered_set>
 #include <utility>
 #include <cstdint>
+#include <absl/log/log.h>
 
 uint64_t FactoryGraph::addNode(const std::string &name, std::string recipe_key) {
     uint64_t id = next_node_id++;
@@ -12,6 +13,7 @@ uint64_t FactoryGraph::addNode(const std::string &name, std::string recipe_key) 
     nodes.emplace_back(name, id);
     addNodeToIndex(id, index);
     setNodeRecipe(id, std::move(recipe_key));
+    VLOG(3) << "Added node: " << name << " (ID: " << id << ")";
     return id;
 }
 
@@ -23,6 +25,7 @@ void FactoryGraph::restoreNode(const Node &node, const std::vector<Port> &ports)
         this->ports.push_back(port);
         addPortToIndex(port.id, this->ports.size() - 1);
     }
+    VLOG(3) << "Restored node: " << node.name << " (ID: " << node.id << ")";
 }
 
 bool FactoryGraph::removeNode(uint64_t node_id) {
@@ -57,7 +60,7 @@ bool FactoryGraph::removeNode(uint64_t node_id) {
 
     // Pop from vector
     nodes.pop_back();
-
+    VLOG(3) << "Removed node ID: " << node_id;
     return true;
 }
 
@@ -77,6 +80,7 @@ uint64_t FactoryGraph::addPort(const std::string& resource_key, uint64_t node_id
     size_t index = ports.size();
     ports.emplace_back(port_id, node_id, resource_key);
     addPortToIndex(port_id, index);
+    VLOG(3) << "Added port ID: " << port_id << " to node ID: " << node_id << " with resource: " << resource_key;
     return port_id;
 }
 
@@ -135,6 +139,7 @@ bool FactoryGraph::removePort(uint64_t port_id) {
     // Remove from vector
     ports.pop_back();
 
+    VLOG(3) << "Removed port ID: " << port_id;
     return true;
 }
 
@@ -159,6 +164,7 @@ uint64_t FactoryGraph::addConnection(uint64_t from_port, uint64_t to_port) {
     addConnectionToIndex(id, index);
     connectionsByPort.insert({from_port, id});
     connectionsByPort.insert({to_port, id});
+    VLOG(3) << "Added connection ID: " << id << " from port ID: " << from_port << " to port ID: " << to_port;
     return id;
 }
 
@@ -168,6 +174,7 @@ void FactoryGraph::restoreConnection(const Connection &connection) {
     addConnectionToIndex(connection.id, index);
     connectionsByPort.insert({connection.from_port, connection.id});
     connectionsByPort.insert({connection.to_port, connection.id});
+    VLOG(3) << "Restored connection ID: " << connection.id << " from port ID: " << connection.from_port << " to port ID: " << connection.to_port;
 }
 
 bool FactoryGraph::removeConnection(uint64_t from_port, uint64_t to_port) {
@@ -208,10 +215,11 @@ bool FactoryGraph::removeConnection(uint64_t from_port, uint64_t to_port) {
 
             // Actually remove the element
             connections.pop_back();
-
+            VLOG(3) << "Removed connection ID: " << connection_id << " from port ID: " << from_port << " to port ID: " << to_port;
             return true;
             }
     }
+    VLOG(3) << "No connection found from port ID: " << from_port << " to port ID: " << to_port << " to remove.";
     return false;
 }
 
@@ -259,6 +267,7 @@ void FactoryGraph::clear() {
     next_port_id = 0;
     next_node_id = 0;
     next_connection_id = 0;
+    VLOG(3) << "Cleared FactoryGraph.";
 }
 
 
@@ -308,6 +317,7 @@ nlohmann::json FactoryGraph::serialize() const {
     j["game_data_filename"] = game_data.gameDataFilePath.stem().string();
     j["game_name"] = game_data.gameName;
 
+    VLOG(3) << "Serialized FactoryGraph.";
     return j;
 }
 
@@ -335,13 +345,13 @@ void FactoryGraph::deserialize(const nlohmann::json& j, const GameData &game_dat
             std::string recipeKey = node_json.value("selected_recipe_key", "");
 
             if (nodeId == -1 || recipeKey.empty()) {
-                std::cerr << "Invalid node id" << std::endl;
+                LOG(ERROR) << "Invalid node data in saved graph.";
                 continue;
             }
 
             auto recipeIt = game_data.recipes.find(recipeKey);
             if (recipeIt == game_data.recipes.end()) {
-                std::cerr << "Invalid recipe key" << std::endl;
+                LOG(ERROR) << "Recipe key '" << recipeKey << "' not found in game data.";
                 continue;
             }
 
@@ -355,7 +365,7 @@ void FactoryGraph::deserialize(const nlohmann::json& j, const GameData &game_dat
             if (!recipe.produced_in_machines_keys.empty()) {
                 node.machine_key = recipe.produced_in_machines_keys[0]; // todo: make proper machine save/load
             } else {
-                std::cerr << "Warning: Recipe '" << recipeKey << "' has no associated machines." << std::endl;
+                LOG(WARNING) << "Recipe '" << recipeKey << "' has no associated machines.";
             }
 
             const auto& portConstraints = node_json.value("port_constraints", nlohmann::json::object());
@@ -414,7 +424,7 @@ void FactoryGraph::deserialize(const nlohmann::json& j, const GameData &game_dat
             uint64_t oldToPort = conn_json.value("to_port", -1);
 
             if (oldFromPort == -1 || oldToPort == -1) {
-                std::cerr << "Invalid connection loaded" << std::endl;
+                LOG(ERROR) << "Invalid connection data in saved graph.";
                 continue;
             }
 
@@ -425,7 +435,7 @@ void FactoryGraph::deserialize(const nlohmann::json& j, const GameData &game_dat
                 Connection conn;
                 conn.id = conn_json.value("id", -1);
                 if (conn.id == -1) {
-                    std::cerr << "Invalid connection id" << std::endl;
+                    LOG(ERROR) << "Invalid connection id in saved graph.";
                     continue;
                 }
                 conn.from_port = newFromPort;
@@ -437,6 +447,7 @@ void FactoryGraph::deserialize(const nlohmann::json& j, const GameData &game_dat
             }
         }
     }
+    VLOG(3) << "Deserialized FactoryGraph.";
 }
 
 bool FactoryGraph::setNodeRecipe(uint64_t node_id, const std::string& recipe_key) {
@@ -460,6 +471,8 @@ bool FactoryGraph::setNodeRecipe(uint64_t node_id, const std::string& recipe_key
         uint64_t port_id = addPort(recipe.output_ports.at(i).resource_key, node_id);
         node->output_ports[i] = port_id;
     }
+
+    VLOG(3) << "Set recipe '" << recipe_key << "' for node ID: " << node_id;
 
     // if (recipe.input_ports.size() == 1 && recipe.input_ports.at(0).resource_key == "nothing") {
     //     //node->type = NodeType::PRODUCER;

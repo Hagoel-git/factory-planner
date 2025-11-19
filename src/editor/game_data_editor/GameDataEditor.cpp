@@ -458,7 +458,7 @@ void GameDataEditor::DrawDeleteFileDialog() {
                 RefreshPackageList();
                 ImGui::CloseCurrentPopup();
             } catch (const std::filesystem::filesystem_error &e) {
-                std::cerr << "Failed to delete file: " << e.what() << std::endl;
+                LOG(ERROR) << "Failed to delete file: " << e.what();
                 ImGui::CloseCurrentPopup();
             }
         }
@@ -530,7 +530,7 @@ void GameDataEditor::DrawResourcesTab(const GameData &gd) {
             r.name = std::string(resNameBuf);
             std::string err;
             if (!gameDataManager.editResource(selResourceKey, r, err)) {
-                std::cerr << "Error saving resource: " << err << std::endl;
+                LOG(WARNING) << "Error saving resource: " << err;
             }
             selResourceKey = slugify(r.name); // update selected key in case name changed
         }
@@ -599,7 +599,7 @@ void GameDataEditor::DrawMachinesTab(const GameData &gd) {
             m.base_crafting_speed = machBaseSpeed;
             std::string err;
             if (!gameDataManager.editMachine(selMachineKey, m, err)) {
-                std::cerr << "Error saving machine: " << err << std::endl;
+                LOG(WARNING) << "Error saving machine: " << err;
             }
             selMachineKey = slugify(m.name); // update selected key in case name changed
         }
