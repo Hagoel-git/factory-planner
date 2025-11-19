@@ -140,7 +140,7 @@ public:
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
     CommandFlags GetFlags() const override { return CommandFlags{true, true}; }
-    std::string getDescription() const override { return "Pasted " + std::to_string(pastedNodes.size()) + " nodes";}
+    std::string getDescription() const override { return "Pasted " + std::to_string(copy_buffer.nodes.size()) + " nodes";}
 };
 
 class SetPortConstraintCommand : public Command {
