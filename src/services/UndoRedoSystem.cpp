@@ -98,7 +98,6 @@ void AddNodeCommand::execute(FactoryGraph &graph) {
 
 void AddNodeCommand::undo(FactoryGraph &graph) {
     graph.removeNode(nodeData.id);
-    graph.removeConnection(connectionData.from_port, connectionData.to_port);
 }
 
 void RemoveNodeCommand::execute(FactoryGraph &graph) {
