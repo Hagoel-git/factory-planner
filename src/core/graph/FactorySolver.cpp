@@ -1,6 +1,7 @@
 #include "FactorySolver.h"
 #include "FactoryGraph.h"
 #include <queue>
+#include <absl/log/globals.h>
 
 FactorySolver::FactorySolver(const std::string &solver_name) {
     operations_research::MPSolver::OptimizationProblemType problem_type;
@@ -28,10 +29,11 @@ FactorySolver::SolverResult FactorySolver::solve(FactoryGraph &factory_graph) {
         createAllVariables(factory_graph);
         addObjectiveFunction(factory_graph);
         addAllConstraints(factory_graph);
+        absl::SetStderrThreshold(absl::LogSeverityAtLeast::kWarning); // Suppress solver output
         t_end_setup = absl::Now();
-
         const auto result_status = solver_->Solve();
         t_end_solve = absl::Now();
+        absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
 
         const SolverResultStatus result = convertSolverStatus(result_status);
 
@@ -46,9 +48,15 @@ FactorySolver::SolverResult FactorySolver::solve(FactoryGraph &factory_graph) {
             for (const auto &conn: connections) {
                 factory_graph.getConnection(conn.id)->rate = 0; // Update the connection rate in the factory graph
             }
-            std::cerr << "Solver failed with status: " << last_solver_status << std::endl;
+            LOG(ERROR) << "Solver failed with status: " << last_solver_status;
         }
         t_end_update = absl::Now();
+
+        if (result == SolverResultStatus::SUCCESS) {
+            VLOG(1) << "Solver finished in " << absl::ToDoubleMilliseconds(t_end_update - t_start) << "ms";
+        } else {
+            LOG(WARNING) << "Solver failed to find optimal solution. Status: " << toString(result);
+        }
 
         return {
             result,
@@ -58,7 +66,7 @@ FactorySolver::SolverResult FactorySolver::solve(FactoryGraph &factory_graph) {
             absl::ToDoubleMilliseconds(t_end_update - t_end_solve)
         };
     } catch (const std::exception &e) {
-        std::cerr << e.what() << std::endl;
+        LOG(ERROR) << "Exception during solving: " << e.what();
         return {
             SolverResultStatus::ERROR,
             absl::ToDoubleMilliseconds(t_end_update - t_start),
