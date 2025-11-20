@@ -79,6 +79,10 @@ private:
 
     void SelectAllActiveEditor();
 
+    void ShowFlowActiveEditor();
+
+    void FitViewActiveEditor();
+
     void CloseActiveEditor();
 
     void CloseEditor(int index);
