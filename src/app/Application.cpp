@@ -381,6 +381,17 @@ void Application::DrawMenuBar() {
             }
             ImGui::EndMenu();
         }
+        if (ImGui::BeginMenu("View")) {
+            if (ImGui::MenuItem("Show Flow", "Z")) {
+                VLOG(1) << "Menu: Show Flow selected.";
+                ShowFlowActiveEditor();
+            }
+            if (ImGui::MenuItem("Fit View", "F")) {
+                VLOG(1) << "Menu: Fit View selected.";
+                FitViewActiveEditor();
+            }
+            ImGui::EndMenu();
+        }
         ImGui::EndMainMenuBar();
     }
 }
@@ -450,6 +461,15 @@ void Application::HandleShortcuts() {
         if (ImGui::IsKeyPressed(ImGuiKey_A)) {
             VLOG(1) << "Shortcut: Ctrl+A pressed, selecting all in active editor.";
             SelectAllActiveEditor();
+        }
+    } else {
+        if (ImGui::IsKeyPressed(ImGuiKey_F)) {
+            VLOG(1) << "F Key pressed, fitting view in active editor.";
+            FitViewActiveEditor();
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Z)) {
+            VLOG(1) << "Z Key pressed. Showing flow in active editor.";
+            ShowFlowActiveEditor();
         }
     }
 }
@@ -1012,6 +1032,31 @@ void Application::SelectAllActiveEditor() {
         ed::SetCurrentEditor(nullptr);
     }
 }
+
+void Application::ShowFlowActiveEditor() {
+    if (activeEditor < 0 || static_cast<size_t>(activeEditor) >= editors.size()) {
+        return; // No active editor to show flow
+    }
+    auto &editor = editors[activeEditor];
+    if (editor) {
+        ed::SetCurrentEditor(editor->GetContext());
+        editor->showFlow();
+        ed::SetCurrentEditor(nullptr);
+    }
+}
+
+void Application::FitViewActiveEditor() {
+    if (activeEditor < 0 || static_cast<size_t>(activeEditor) >= editors.size()) {
+        return;
+    }
+    auto &editor = editors[activeEditor];
+    if (editor) {
+        ed::SetCurrentEditor(editor->GetContext());
+        editor->FitView();
+        ed::SetCurrentEditor(nullptr);
+    }
+}
+
 
 void Application::CloseEditor(int index) {
     // index is signed; compare safely with size()

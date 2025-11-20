@@ -75,6 +75,10 @@ public:
 
     void selectAll();
 
+    void showFlow();
+
+    void FitView();
+
     void undo() {
         if (!undoRedoManager.canUndo()) return;
 

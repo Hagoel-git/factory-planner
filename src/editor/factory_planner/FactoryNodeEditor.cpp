@@ -27,6 +27,7 @@ FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::strin
                            std::chrono::minutes(SettingsManager::instance().getSettings().autoSaveIntervalMinutes);
 
         ed::Config cfg = ed::Config();
+        cfg.DisableInternalFitView = true;
         cfg.AutoSaveEnabled = false;
         cfg.SettingsFile = nullptr;
         cfg.SaveSettings = nullptr;
@@ -115,7 +116,6 @@ void FactoryNodeEditor::Draw() {
     ed::SetCurrentEditor(context);
 
     UpdateDebugInfo();
-    DrawToolbar();
 
     // Begin the node editor canvas
     windowPos = ImGui::GetWindowPos();
@@ -232,6 +232,53 @@ void FactoryNodeEditor::selectAll() {
     VLOG(1) << "Selected all nodes in the graph. At " << name;
 }
 
+void FactoryNodeEditor::showFlow() {
+    for (const auto& connection : graph->getConnections()) {
+        ed::Flow(IdUtils::ToLinkId(connection.id)); // Show flow for all connections
+    }
+}
+
+void FactoryNodeEditor::FitView() {
+    const auto& allNodes = graph->getNodes();
+    // todo: add confirmation if more than 1000 nodes
+    if (!allNodes.empty()) {
+        ImRect contentBounds;
+        bool isFirstNode = true;
+
+        for (const auto& node : allNodes) {
+            ed::NodeId nodeId = IdUtils::ToNodeId(node.id);
+            ImVec2 nodePos = ed::GetNodePosition(nodeId);
+            ImVec2 nodeSize = ed::GetNodeSize(nodeId);
+
+            // A node that has never been drawn will have a size of (0,0).
+            // We'll use a default fallback size to ensure it's included in the bounds.
+            if (nodeSize.x <= 0.0f || nodeSize.y <= 0.0f) {
+                nodeSize = ImVec2(300.0f, 100.0f); // A reasonable default estimate.
+            }
+
+            ImRect nodeBounds(nodePos, nodePos + nodeSize);
+
+            if (isFirstNode) {
+                contentBounds = nodeBounds;
+                isFirstNode = false;
+            } else {
+                contentBounds.Add(nodeBounds);
+            }
+        }
+
+        // Add some padding so nodes aren't right at the edge of the view
+        const float padding = 100.0f;
+        contentBounds.Min.x -= padding;
+        contentBounds.Min.y -= padding;
+        contentBounds.Max.x += padding;
+        contentBounds.Max.y += padding;
+
+        ed::NavigateTo(contentBounds);
+    } else {
+        ed::NavigateToContent();
+    }
+}
+
 void FactoryNodeEditor::UpdateDebugInfo() {
     debugInfo.filePath = projectFilePath;
     debugInfo.gameDataPath = graph->getGameData().gameDataFilePath;
@@ -257,54 +304,6 @@ void FactoryNodeEditor::UpdateDebugInfo() {
 
     debugInfo.undoStackSize = undoRedoManager.getUndoStackSize();
     debugInfo.redoStackSize = undoRedoManager.getRedoStackSize();
-}
-
-void FactoryNodeEditor::DrawToolbar() {
-    if (ImGui::Button("Show Flow")) {
-        for (const auto& connection : graph->getConnections()) {
-            ed::Flow(IdUtils::ToLinkId(connection.id)); // Show flow for all connections
-        }
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Fit View")) {
-        const auto& allNodes = graph->getNodes();
-        if (!allNodes.empty()) {
-            ImRect contentBounds;
-            bool isFirstNode = true;
-
-            for (const auto& node : allNodes) {
-                ed::NodeId nodeId = IdUtils::ToNodeId(node.id);
-                ImVec2 nodePos = ed::GetNodePosition(nodeId);
-                ImVec2 nodeSize = ed::GetNodeSize(nodeId);
-
-                // A node that has never been drawn will have a size of (0,0).
-                // We'll use a default fallback size to ensure it's included in the bounds.
-                if (nodeSize.x <= 0.0f || nodeSize.y <= 0.0f) {
-                    nodeSize = ImVec2(300.0f, 100.0f); // A reasonable default estimate.
-                }
-
-                ImRect nodeBounds(nodePos, nodePos + nodeSize);
-
-                if (isFirstNode) {
-                    contentBounds = nodeBounds;
-                    isFirstNode = false;
-                } else {
-                    contentBounds.Add(nodeBounds);
-                }
-            }
-
-            // Add some padding so nodes aren't right at the edge of the view
-            const float padding = 100.0f;
-            contentBounds.Min.x -= padding;
-            contentBounds.Min.y -= padding;
-            contentBounds.Max.x += padding;
-            contentBounds.Max.y += padding;
-
-            ed::NavigateTo(contentBounds);
-        } else {
-            ed::NavigateToContent();
-        }
-    }
 }
 
 void FactoryNodeEditor::RebuildQuadtree() {
