@@ -3377,7 +3377,7 @@ ed::EditorAction::AcceptResult ed::NavigateAction::Accept(const Control& control
 
     auto& io = ImGui::GetIO();
 
-    if (Editor->CanAcceptUserInput() && ImGui::IsKeyPressed(GetKeyIndexForF()) && Editor->AreShortcutsEnabled())
+    if (!Editor->GetConfig().DisableInternalFitView && Editor->CanAcceptUserInput() && ImGui::IsKeyPressed(GetKeyIndexForF()) && Editor->AreShortcutsEnabled())
     {
         const auto zoomMode = io.KeyShift ? NavigateAction::ZoomMode::WithMargin : NavigateAction::ZoomMode::None;
 
