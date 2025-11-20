@@ -111,6 +111,7 @@ struct Config
     bool                    EnableSmoothZoom;
     float                   SmoothZoomPower;
     bool                    AutoSaveEnabled; // Automatically save editor state on each action (navigation, position, size, selection, add/remove node)
+    bool                    DisableInternalFitView;
     Config()
         : SettingsFile("NodeEditor.json")
         , BeginSaveSession(nullptr)
@@ -128,6 +129,7 @@ struct Config
         , ContextMenuButtonIndex(1)
         , EnableSmoothZoom(false)
         , AutoSaveEnabled(true)
+        , DisableInternalFitView(false)
     # ifdef __APPLE__
         , SmoothZoomPower(1.1f)
     # else
