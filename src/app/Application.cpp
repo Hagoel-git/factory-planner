@@ -465,6 +465,7 @@ void Application::HandleShortcuts() {
             SelectAllActiveEditor();
         }
     } else {
+        if (io.WantTextInput) return;
         if (ImGui::IsKeyPressed(ImGuiKey_F)) {
             VLOG(1) << "F Key pressed, fitting view in active editor.";
             FitViewActiveEditor();
