@@ -15,6 +15,7 @@
 #include "services/SettingsManager.h"
 #include "services/RecentFiles.h"
 #include "services/SessionManager.h"
+#include "services/TextureManager.h"
 
 Application::Application() : gameDataEditor(gameDataManager) {
     VLOG(2) << "Application starting up.";
@@ -89,6 +90,7 @@ Application::~Application() {
     RecentFiles::instance().save();
     SaveSession();
     editors.clear();
+    TextureManager::instance().cleanup();
 }
 
 void Application::Draw() {
