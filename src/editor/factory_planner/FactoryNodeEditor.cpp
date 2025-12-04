@@ -824,28 +824,153 @@ void FactoryNodeEditor::HandlePopups() {
     }
 
     if (ImGui::BeginPopup("Create new node")) {
-        if (selected_port_id != -1) {
-            std::string resourceFilter = graph->getGameData().resources.find(graph->getPort(selected_port_id)->resource_key)->first;
-            bool fromInput = graph->isInputPort(selected_port_id);
-            for (const auto& recipe : graph->getGameData().recipes) {
-                const auto& ports = fromInput ? recipe.second.output_ports : recipe.second.input_ports;
-                for (const auto& port : ports) {
-                    if (port.resource_key == resourceFilter) {
-                        if (ImGui::Selectable(recipe.second.name.c_str())) {
-                            executeCommand(std::make_unique<AddNodeCommand>(recipe.second.name, recipe.first, selected_port_id, ed::ScreenToCanvas(m_storedPopupPosition)));
-                            ImGui::CloseCurrentPopup();
+        if (ImGui::IsWindowAppearing()) {
+            ImGui::SetKeyboardFocusHere();
+            m_recipeSearchBuffer[0] = '\0';
+        }
+        ImGui::SetNextItemWidth(-1);
+        ImGui::InputTextWithHint("##search", "Search Recipe...", m_recipeSearchBuffer, sizeof(m_recipeSearchBuffer));
+
+        ImGui::Checkbox("Generate", &m_useGenerate);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Toggle to use generate functionality");
+
+        ImGui::Separator();
+
+        const float iconSize = 24.0f;
+        const float sideColWidth = 158.0f;
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(0.0f, 0.0f));
+        if (ImGui::BeginTable("RecipeList", 3, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg, ImVec2(640, 480))) {
+            ImGui::TableSetupColumn("Inputs", ImGuiTableColumnFlags_WidthFixed, sideColWidth);
+            ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("Outputs", ImGuiTableColumnFlags_WidthFixed, sideColWidth);
+
+            std::string filter = m_recipeSearchBuffer;
+            std::transform(filter.begin(), filter.end(), filter.begin(), ::tolower);
+
+            std::string portResourceKey;
+            bool portIsInput = false;
+            bool hasContext = (selected_port_id != -1);
+            if (hasContext) {
+                auto p = graph->getPort(selected_port_id);
+                if (p) {
+                    portResourceKey = p->resource_key;
+                    portIsInput = graph->isInputPort(selected_port_id);
+                } else {
+                    hasContext = false;
+                }
+            }
+
+            const auto& resources = graph->getGameData().resources;
+
+            for (const auto& recipePair : graph->getGameData().recipes) {
+                const auto& recipe = recipePair.second;
+
+                if (hasContext) {
+                    bool compatible = false;
+                    const auto& targetPorts = portIsInput ? recipe.output_ports : recipe.input_ports;
+                    for (const auto& p : targetPorts) {
+                        if (p.resource_key == portResourceKey) {
+                            compatible = true;
+                            break;
+                        }
+                    }
+                    if (!compatible) continue;
+                }
+
+                bool match = false;
+                if (filter.empty()) {
+                    match = true;
+                } else {
+                    std::string nameLower = recipe.name;
+                    std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
+                    if (nameLower.find(filter) != std::string::npos) match = true;
+
+                    if (!match) {
+                        for (const auto& p : recipe.input_ports) {
+                            if (resources.count(p.resource_key)) {
+                                std::string resName = resources.at(p.resource_key).name;
+                                std::transform(resName.begin(), resName.end(), resName.begin(), ::tolower);
+                                if (resName.find(filter) != std::string::npos) {
+                                    match = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    if (!match) {
+                        for (const auto& p : recipe.output_ports) {
+                            if (resources.count(p.resource_key)) {
+                                std::string resName = resources.at(p.resource_key).name;
+                                std::transform(resName.begin(), resName.end(), resName.begin(), ::tolower);
+                                if (resName.find(filter) != std::string::npos) {
+                                    match = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (!match) continue;
+
+                ImGui::TableNextRow();
+
+                ImGui::TableNextColumn();
+                for (const auto& p : recipe.input_ports) {
+                    if (p.resource_key == "nothing") continue;
+                    auto it = resources.find(p.resource_key);
+                    if (it != resources.end()) {
+                        ImGui::Image(it->second.texture, ImVec2(iconSize, iconSize));
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", it->second.name.c_str());
+                        ImGui::SameLine();
+                    }
+                }
+
+                ImGui::TableNextColumn();
+                ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.5f, 0.5f));
+                if (ImGui::Selectable(recipe.name.c_str(), false, ImGuiSelectableFlags_SpanAllColumns)) {
+                    uint64_t fromPort = hasContext ? selected_port_id : -1;
+                    ImVec2 nodePos = hasContext ? ed::ScreenToCanvas(m_storedPopupPosition) : ed::ScreenToCanvas(ImGui::GetMousePosOnOpeningCurrentPopup());
+
+                    executeCommand(std::make_unique<AddNodeCommand>(recipe.name, recipePair.first, fromPort, nodePos));
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::PopStyleVar();
+
+                ImGui::TableNextColumn();
+                float contentWidth = 0.0f;
+                int count = 0;
+                for (const auto& p : recipe.output_ports) {
+                    if (p.resource_key != "nothing" && resources.count(p.resource_key)) count++;
+                }
+
+                if (count > 0) {
+                    contentWidth = (count * iconSize) + ((count - 1) * ImGui::GetStyle().ItemSpacing.x);
+
+                    float avail = ImGui::GetContentRegionAvail().x;
+                    float off = avail - contentWidth;
+                    if (off > 0.0f) {
+                        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + off);
+                    }
+
+                    bool first = true;
+                    for (auto it = recipe.output_ports.rbegin(); it != recipe.output_ports.rend(); ++it) {
+                        const auto& p = *it;
+                        if (p.resource_key == "nothing") continue;
+                        auto resIt = resources.find(p.resource_key);
+                        if (resIt != resources.end()) {
+                            if (!first) ImGui::SameLine();
+                            ImGui::Image(resIt->second.texture, ImVec2(iconSize, iconSize));
+                            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", resIt->second.name.c_str());
+                            first = false;
                         }
                     }
                 }
             }
-        } else {
-            for (const auto& recipe : graph->getGameData().recipes) {
-                if (ImGui::Selectable(recipe.second.name.c_str())) {
-                    executeCommand(std::make_unique<AddNodeCommand>(recipe.second.name, recipe.first, -1, m_storedPopupPosition));
-                    ImGui::CloseCurrentPopup();
-                }
-            }
+            ImGui::EndTable();
         }
+        ImGui::PopStyleVar();
         ImGui::EndPopup();
     }
     ed::Resume();
