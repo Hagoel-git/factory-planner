@@ -159,6 +159,9 @@ private:
     bool m_contextPinConstraintChanged = false;
     bool m_isContextMenuInitialized = false;
 
+    char m_recipeSearchBuffer[128] = "";
+    bool m_useGenerate = false;
+
     ed::LinkId m_contextLinkId;
 
     ImVec2 m_storedPopupPosition;
