@@ -1,6 +1,7 @@
 #include "GameDataEditor.h"
 #include <imgui.h>
 #include <iostream>
+#include <set>
 
 #include "common/FilesystemUtils.h"
 #include "core/data/GameDataScanner.h"
@@ -173,6 +174,7 @@ void GameDataEditor::DrawNewFileDialog() {
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
     if (ImGui::BeginPopupModal("New File", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        static char gameNameBuffer[128] = "";
         static char fileNameBuffer[128] = "";
         static std::string errorMessage;
 
@@ -180,11 +182,39 @@ void GameDataEditor::DrawNewFileDialog() {
         if (ImGui::IsWindowAppearing()) {
             ImGui::SetKeyboardFocusHere();
             // Clear state from previous openings
+            gameNameBuffer[0] = '\0';
             fileNameBuffer[0] = '\0';
             errorMessage.clear();
         }
 
-        ImGui::Text("Enter new file name:");
+        ImGui::Text("Game Name:");
+        // Collect unique existing game names for the dropdown
+        std::set<std::string> existingGames;
+        for (const auto& pkg : m_cachedPackages) {
+            existingGames.insert(pkg.gameName);
+        }
+
+        ImGui::PushItemWidth(-1);
+        if (ImGui::BeginCombo("##gamename_combo", gameNameBuffer, ImGuiComboFlags_PopupAlignLeft)) {
+            for (const auto& game : existingGames) {
+                bool isSelected = (game == gameNameBuffer);
+                if (ImGui::Selectable(game.c_str(), isSelected)) {
+                    strncpy(gameNameBuffer, game.c_str(), sizeof(gameNameBuffer) - 1);
+                    gameNameBuffer[sizeof(gameNameBuffer) - 1] = '\0';
+                }
+                if (isSelected) {
+                    ImGui::SetItemDefaultFocus();
+                }
+            }
+            ImGui::EndCombo();
+        }
+
+        ImGui::InputTextWithHint("##gamename_input", "Enter new or select existing...", gameNameBuffer, sizeof(gameNameBuffer));
+        ImGui::PopItemWidth();
+
+        ImGui::Spacing();
+
+        ImGui::Text("File name:");
         ImGui::PushItemWidth(-1);
 
         // Request file creation on pressing Enter or clicking the "Create" button
@@ -199,24 +229,42 @@ void GameDataEditor::DrawNewFileDialog() {
         }
 
         if (createRequested) {
+            std::string gameNameStr(gameNameBuffer);
             std::string filenameStr(fileNameBuffer);
-            if (filenameStr.empty()) {
+            if (gameNameStr.empty()) {
+                errorMessage = "Game name cannot be empty.";
+            } else if (filenameStr.empty()) {
                 errorMessage = "File name cannot be empty.";
             } else {
-                std::filesystem::path newFilePath =
-                        SettingsManager::instance().getSettings().gameDataPath / filenameStr;
-                newFilePath.replace_extension(".json");
+                const auto &gameDataPath = SettingsManager::instance().getSettings().gameDataPath;
+                std::filesystem::path gameDir = gameDataPath / gameNameStr;
+                std::filesystem::path dataDir = gameDir / "game_datas";
 
-                std::string saveError;
-                gameDataManager.createNew("New Game", "seconds");
-                if (gameDataManager.saveToFile(newFilePath, saveError)) {
-                    m_currentlyEditingFile = newFilePath;
-                    gameDataManager.loadFromFile(m_currentlyEditingFile, m_fileLoadError); // Load the new file
-                    m_fileLoadError.clear(); // Clear any old loading errors
-                    RefreshPackageList();
-                    ImGui::CloseCurrentPopup();
+                std::error_code ec;
+                std::filesystem::create_directories(dataDir, ec);
+
+                if (ec) {
+                    errorMessage = "Failed to create directories: " + ec.message();
                 } else {
-                    errorMessage = "Failed to save file: " + saveError;
+                    std::filesystem::path newFilePath = dataDir / filenameStr;
+                    newFilePath.replace_extension(".gd");
+
+                    if (std::filesystem::exists(newFilePath)) {
+                        errorMessage = "File already exists.";
+                    } else {
+                        std::string saveError;
+                        gameDataManager.createNew(gameNameStr, "seconds");
+
+                        if (gameDataManager.saveToFile(newFilePath.string(), saveError)) {
+                            m_currentlyEditingFile = newFilePath;
+                            gameDataManager.loadFromFile(m_currentlyEditingFile.string(), m_fileLoadError);
+                            m_fileLoadError.clear();
+                            RefreshPackageList();
+                            ImGui::CloseCurrentPopup();
+                        } else {
+                            errorMessage = "Failed to save file: " + saveError;
+                        }
+                    }
                 }
             }
         }
@@ -227,8 +275,8 @@ void GameDataEditor::DrawNewFileDialog() {
             ImGui::CloseCurrentPopup();
         }
 
-        // Display error message if something went wrong during creation
         if (!errorMessage.empty()) {
+            ImGui::Spacing();
             ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "%s", errorMessage.c_str());
         }
 
