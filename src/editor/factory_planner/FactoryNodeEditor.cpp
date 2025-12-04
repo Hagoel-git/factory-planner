@@ -933,6 +933,68 @@ void FactoryNodeEditor::HandlePopups() {
                     uint64_t fromPort = hasContext ? selected_port_id : -1;
                     ImVec2 nodePos = hasContext ? ed::ScreenToCanvas(m_storedPopupPosition) : ed::ScreenToCanvas(ImGui::GetMousePosOnOpeningCurrentPopup());
 
+                    if (hasContext) {
+                        // 1. Setup Style Constants
+                        auto& style = ImGui::GetStyle();
+                        const float port_h = std::max(24.0f, ImGui::GetFontSize()); // Height of one port row
+                        const float space_y = style.ItemSpacing.y;
+                        const float space_x = style.ItemSpacing.x;
+                        const float pad_y = ed::GetStyle().NodePadding.y;
+                        const float pad_x = ed::GetStyle().NodePadding.x;
+
+                        // 2. Helper Lambda to calculate Column Metrics (Height & Max Width)
+                        // Returns {column_height, max_width, target_index}
+                        auto getColMetrics = [&](const std::vector<RecipePort>& ports, const std::string& targetKey) {
+                            float max_w = 0.0f;
+                            int count = 0;
+                            int target_idx = -1;
+
+                            for (const auto& p : ports) {
+                                if (p.resource_key == "nothing") continue;
+
+                                // Track target index
+                                if (p.resource_key == targetKey) target_idx = count;
+
+                                // Calculate width (Icon + Spacing + Rate + Spacing + Optional Text)
+                                float w = 24.0f + 30.0f + space_x;
+                                if (SettingsManager::instance().getSettings().showResourceNames && resources.count(p.resource_key)) {
+                                    w += space_x + ImGui::CalcTextSize(resources.at(p.resource_key).name.c_str()).x;
+                                }
+                                max_w = std::max(max_w, w);
+                                count++;
+                            }
+
+                            float h = (count > 0) ? (count * port_h + (count - 1) * space_y) : 0.0f;
+                            return std::make_tuple(h, max_w, target_idx);
+                        };
+
+                        // 3. Calculate Metrics
+                        // If dragging FROM Input, we connect TO Output (target is output), and vice versa
+                        bool is_target_input = !portIsInput;
+
+                        auto [in_h, in_w, in_idx]    = getColMetrics(recipe.input_ports,  is_target_input ? portResourceKey : "");
+                        auto [out_h, out_w, out_idx] = getColMetrics(recipe.output_ports, !is_target_input ? portResourceKey : "");
+
+                        // 4. Apply Offsets
+                        int target_idx = is_target_input ? in_idx : out_idx;
+
+                        if (target_idx != -1) {
+                            float node_h = std::max(48.0f, std::max(in_h, out_h)); // 48.0f is machine_h
+                            float col_h  = is_target_input ? in_h : out_h;
+
+                            // Vertical: Center of node -> Center of column -> Center of specific port
+                            float col_offset_y = (node_h - col_h) * 0.5f;
+                            float port_y_rel = pad_y + col_offset_y + target_idx * (port_h + space_y) + (port_h * 0.5f);
+
+                            nodePos.y -= port_y_rel;
+
+                            // Horizontal: If target is Output (Right side), shift node left by full width
+                            if (!is_target_input) {
+                                float node_w = pad_x + in_w + space_x + 48.0f + space_x + out_w + pad_x;
+                                nodePos.x -= node_w;
+                            }
+                        }
+                    }
                     executeCommand(std::make_unique<AddNodeCommand>(recipe.name, recipePair.first, fromPort, nodePos));
                     ImGui::CloseCurrentPopup();
                 }
