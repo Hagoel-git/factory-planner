@@ -399,7 +399,8 @@ void FactoryGraph::deserialize(const nlohmann::json& j, const GameData &game_dat
                 p.resource_key = recipePort.resource_key;
                 p.node_id = nodeId;
 
-                if (savedOutputPorts.is_array() && i < savedOutputPorts.size() && savedOutputPorts[i].is_number()) {                    uint64_t oldPortId = savedOutputPorts[i].get<uint64_t>();
+                if (savedOutputPorts.is_array() && i < savedOutputPorts.size() && savedOutputPorts[i].is_number()) {
+                    uint64_t oldPortId = savedOutputPorts[i].get<uint64_t>();
                     oldToNewPortIdMap[oldPortId] = p.id;
 
                     if (portConstraints.contains(std::to_string(oldPortId))) {
