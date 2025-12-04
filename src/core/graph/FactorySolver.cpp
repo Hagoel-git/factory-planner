@@ -140,7 +140,7 @@ std::unordered_set<int> FactorySolver::findReachablePorts(const FactoryGraph &fa
     std::unordered_set<int> reachable;
     std::queue<int> to_visit;
 
-    // Start from all constrained ports
+    // 1. Start from constrained ports
     const auto &ports = factory_graph.getPorts();
     for (const auto &port: ports) {
         if (port.user_constraint >= 0) {
@@ -149,21 +149,28 @@ std::unordered_set<int> FactorySolver::findReachablePorts(const FactoryGraph &fa
         }
     }
 
-    // Build adjacency maps
-    std::unordered_map<int, std::vector<int> > forward_connections; // from_port -> [to_ports]
-    std::unordered_map<int, std::vector<int> > backward_connections; // to_port -> [from_ports]
-
+    // 2. Build Wire Connections
+    std::unordered_map<int, std::vector<int>> forward_connections;
     for (const auto &conn: factory_graph.getConnections()) {
         forward_connections[conn.from_port].push_back(conn.to_port);
-        backward_connections[conn.to_port].push_back(conn.from_port);
     }
 
-    // BFS to find all reachable ports (both forward and backward)
+    std::unordered_map<int, std::vector<int>> internal_connections;
+    for (const auto &node : factory_graph.getNodes()) {
+        // Link all inputs to all outputs for reachability
+        for (uint64_t input_id : node.input_ports) {
+            for (uint64_t output_id : node.output_ports) {
+                internal_connections[input_id].push_back(output_id);
+            }
+        }
+    }
+
+    // 4. BFS
     while (!to_visit.empty()) {
         int current_port = to_visit.front();
         to_visit.pop();
 
-        // Check forward connections
+        // Traverse Wires
         if (forward_connections.count(current_port)) {
             for (int next_port: forward_connections[current_port]) {
                 if (!reachable.count(next_port)) {
@@ -173,12 +180,12 @@ std::unordered_set<int> FactorySolver::findReachablePorts(const FactoryGraph &fa
             }
         }
 
-        // Check backward connections
-        if (backward_connections.count(current_port)) {
-            for (int prev_port: backward_connections[current_port]) {
-                if (!reachable.count(prev_port)) {
-                    reachable.insert(prev_port);
-                    to_visit.push(prev_port);
+        // Traverse Nodes
+        if (internal_connections.count(current_port)) {
+            for (int next_port : internal_connections[current_port]) {
+                if (!reachable.count(next_port)) {
+                    reachable.insert(next_port);
+                    to_visit.push(next_port);
                 }
             }
         }
