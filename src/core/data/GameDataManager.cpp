@@ -11,6 +11,7 @@
 #include "services/SettingsManager.h"
 #include "common/StringUtils.h"
 #include "common/TextureUtils.h"
+#include "services/TextureManager.h"
 
 using json = nlohmann::json;
 
@@ -335,17 +336,15 @@ GameData GameDataManager::jsonToGameData(const json &j, std::filesystem::path& p
     std::filesystem::path path = _data.gameDataFilePath;
     GameData gd;
 
-    GLuint unknownTexture;
-    std::filesystem::path path_unknown = SettingsManager::instance().getSettings().executablePath / "assets" / "icons" / "unknown.png";
-    TextureUtils::LoadTextureFromFile(path_unknown.c_str(), &unknownTexture, nullptr, nullptr);
-    ImTextureID unknownTextureID = (ImTextureID)(intptr_t)unknownTexture;
     try {
         gd.gameName = j.value("gameName", std::string("unknown"));
         gd.time_unit = j.value("time_unit", std::string("seconds"));
         gd.gameDataFilePath = path;
+
         // Ensure nothing resource exists
         Resource nothing{ "Nothing"};
         gd.resources["nothing"] = nothing;
+
         // Items (resources). Accepts arrays named "items", "resources", and "fluids" (fluids appended)
         auto handleResourceArray = [&](const json &arr) {
             if (!arr.is_array()) return;
@@ -362,14 +361,9 @@ GameData GameDataManager::jsonToGameData(const json &j, std::filesystem::path& p
                 Resource res;
                 res.name = name.empty() ? key : name;
                 std::filesystem::path texturePath = packageIconRoot / "resources" / (key + ".png");
-                if (std::filesystem::exists(texturePath)) {
-                    // load texture (defer actual loading to caller)
-                    GLuint texture;
-                    TextureUtils::LoadTextureFromFile(texturePath.string().c_str(), &texture, nullptr, nullptr);
-                    res.texture = (ImTextureID)(intptr_t)texture;
-                } else {
-                    res.texture = unknownTextureID;
-                }
+
+                res.texture = TextureManager::instance().loadTexture(texturePath);
+
                 gd.resources[key] = res;
             }
         };
@@ -387,14 +381,7 @@ GameData GameDataManager::jsonToGameData(const json &j, std::filesystem::path& p
                 mm.name = name.empty() ? key : name;
                 mm.base_crafting_speed = eff <= 0.0 ? 1.0 : eff;
                 std::filesystem::path texturePath = packageIconRoot / "machines" / (key + ".png");
-                if (std::filesystem::exists(texturePath)) {
-                    // load texture (defer actual loading to caller)
-                    GLuint texture;
-                    TextureUtils::LoadTextureFromFile(texturePath.string().c_str(), &texture, nullptr, nullptr);
-                    mm.texture = (ImTextureID)(intptr_t)texture;
-                } else {
-                    mm.texture = unknownTextureID;
-                }
+                mm.texture = TextureManager::instance().loadTexture(texturePath);
                 gd.machines[key] = mm;
             }
         }

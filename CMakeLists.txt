@@ -106,6 +106,8 @@ set(FACTORY_PLANNER_LIB_SRC
         src/common/TextureUtils.h
         src/common/TextureUtils.cpp
         src/core/data/GameDataScanner.h
+        src/services/TextureManager.h
+        src/services/TextureManager.cpp
 )
 
 add_library(factory_planner_lib STATIC ${FACTORY_PLANNER_LIB_SRC})
