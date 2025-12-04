@@ -459,8 +459,9 @@ GameData GameDataManager::jsonToGameData(const json &j, std::filesystem::path& p
         // perform light validation; if critical issues found, add to outError (but do not fail on warnings)
         auto errors = validate(gd);
         if (!errors.empty()) {
-            LOG(WARNING) << "Validation issues found in GameData: " << outError;
-        }
+            std::string msg;
+            for(const auto& e : errors) msg += e + "; ";
+            LOG(WARNING) << "Validation issues found in GameData: " << msg;        }
         return gd;
     } catch (const std::exception &ex) {
         LOG(ERROR) << "Exception while parsing JSON into GameData: " << ex.what();
