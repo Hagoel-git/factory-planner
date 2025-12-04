@@ -337,7 +337,9 @@ GameData GameDataManager::jsonToGameData(const json &j, std::filesystem::path& p
     GameData gd;
 
     try {
-        gd.gameName = j.value("gameName", std::string("unknown"));
+        if (!path.empty() && path.has_parent_path() && path.parent_path().filename() == "game_datas") {
+            gd.gameName = path.parent_path().parent_path().filename().string();
+        }
         gd.time_unit = j.value("time_unit", std::string("seconds"));
         gd.gameDataFilePath = path;
 
@@ -472,7 +474,6 @@ GameData GameDataManager::jsonToGameData(const json &j, std::filesystem::path& p
 json GameDataManager::gameDataToJson(const GameData &gd) {
     VLOG(2) << "Converting GameData to JSON.";
     json j;
-    j["gameName"] = gd.gameName;
     j["time_unit"] = gd.time_unit;
     // resources: write all except the reserved "nothing" with id 0
     json resources = json::array();
