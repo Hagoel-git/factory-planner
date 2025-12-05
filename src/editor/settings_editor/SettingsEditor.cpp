@@ -223,8 +223,8 @@ void SettingsEditor::DrawRightPanel() {
         ImGui::SameLine();
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Select the application font.");
         ImGui::Spacing();
-        if (ImGui::DragFloat("FontSizeBase", &m_editSettings.fontSize, 0.20f, 5.0f, 100.0f, "%.0f")) {
-            m_editSettings.fontSize = std::max(5.0f, std::min(100.0f, m_editSettings.fontSize));
+        if (ImGui::SliderFloat("FontSizeBase", &m_editSettings.fontSize,  8.0f, 32.0f, "%.0f")) {
+            m_editSettings.fontSize = std::max(8.0f, std::min(32.0f, m_editSettings.fontSize));
             m_isDirty = true;
         }
         ImGui::SameLine();
