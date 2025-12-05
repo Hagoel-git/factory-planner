@@ -747,17 +747,16 @@ void FactoryNodeEditor::HandlePopups() {
 
                         ImGui::PushID(mKey.c_str());
 
-                        int fontSize = static_cast<int>(ImGui::GetFontSize());
+                        auto fontSize = ImGui::GetFontSize();
 
                         ImGui::Image(machine.texture, ImVec2(fontSize, fontSize));
                         ImGui::SameLine();
 
                         if (ImGui::Selectable(machine.name.c_str(), isSelected)) {
                             if (node->machine_key != mKey) {
-                                // Use the Command we defined earlier
-                                // executeCommand(std::make_unique<ChangeMachineCommand>(
-                                //     node->id, mKey, node->machine_key
-                                // ));
+                                executeCommand(std::make_unique<ChangeMachineCommand>(
+                                    node->id, node->machine_key, mKey
+                                ));
                             }
                         }
 

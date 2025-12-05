@@ -177,6 +177,24 @@ public:
     }
 };
 
+class ChangeMachineCommand : public Command {
+private:
+    uint64_t nodeId;
+    std::string oldMachine;
+    std::string newMachine;
+public:
+    ChangeMachineCommand(uint64_t nodeId, std::string oldMachine, std::string newMachine)
+        : nodeId(nodeId), oldMachine(std::move(oldMachine)), newMachine(std::move(newMachine)) {
+    }
+
+    void execute(FactoryGraph& graph) override;
+    void undo(FactoryGraph& graph) override;
+    CommandFlags GetFlags() const override { return CommandFlags{true, false}; }
+    std::string getDescription() const override {
+        return "Change Machine: Node ID " + std::to_string(nodeId) + " from " + oldMachine + " to " + newMachine;
+    }
+};
+
 class UndoRedoManager {
 private:
     std::vector<std::unique_ptr<Command>> undoStack;
