@@ -77,6 +77,9 @@ void SettingsManager::loadAppSettings() {
         if (j.contains("showResourceNames") && j["showResourceNames"].is_boolean()) {
             m_settings.showResourceNames = j["showResourceNames"].get<bool>();
         }
+        if (j.contains("showDebug") && j["showDebug"].is_boolean()) {
+            m_settings.showDebugInfo = j["showDebug"].get<bool>();
+        }
         if (j.contains("autoSaveEnabled") && j["autoSaveEnabled"].is_boolean()) {
             m_settings.autoSaveEnabled = j["autoSaveEnabled"].get<bool>();
         }
@@ -107,6 +110,7 @@ void SettingsManager::saveAppSettings() const {
     j["fontSize"] = m_settings.fontSize;
     j["showGrid"] = m_settings.showGrid;
     j["showResourceNames"] = m_settings.showResourceNames;
+    j["showDebug"] = m_settings.showDebugInfo;
     j["autoSaveEnabled"] = m_settings.autoSaveEnabled;
     j["autoSaveIntervalMinutes"] = m_settings.autoSaveIntervalMinutes;
     j["maxUndoHistory"] = m_settings.maxUndoHistory;

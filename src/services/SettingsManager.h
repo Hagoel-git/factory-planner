@@ -14,6 +14,7 @@ struct AppSettings {
     float fontSize = 18;
     bool showGrid = false;
     bool showResourceNames = false;
+    bool showDebugInfo = false;
     bool autoSaveEnabled = true;
     int autoSaveIntervalMinutes = 5;
     int maxUndoHistory = 100;
