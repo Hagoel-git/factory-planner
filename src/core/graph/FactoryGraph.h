@@ -16,6 +16,7 @@ public:
     void restoreNode(const Node& node, const std::vector<Port>& ports);
     bool removeNode(uint64_t node_id);
     bool setNodeRecipe(uint64_t node_id, const std::string& recipe_key);
+    bool changeMachine(uint64_t node_id, const std::string& machine_key);
     Node* getNode(uint64_t id);
 
     const Node *getNode(uint64_t id) const;

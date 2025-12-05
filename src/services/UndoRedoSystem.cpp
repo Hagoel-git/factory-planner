@@ -302,3 +302,11 @@ void PasteCommand::undo(FactoryGraph &graph) {
         graph.removeNode(node.id);
     }
 }
+
+void ChangeMachineCommand::execute(FactoryGraph &graph) {
+    graph.changeMachine(nodeId, newMachine);
+}
+
+void ChangeMachineCommand::undo(FactoryGraph &graph) {
+    graph.changeMachine(nodeId, oldMachine);
+}

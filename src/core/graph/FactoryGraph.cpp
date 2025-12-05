@@ -485,6 +485,23 @@ bool FactoryGraph::setNodeRecipe(uint64_t node_id, const std::string& recipe_key
     return true;
 }
 
+bool FactoryGraph::changeMachine(uint64_t node_id, const std::string &machine_key) {
+    Node *node = getNode(node_id);
+    if (!node) {
+        return false;
+    }
+
+    Recipe recipe = game_data.recipes.at(node->selected_recipe_key);
+    auto it = std::find(recipe.produced_in_machines_keys.begin(), recipe.produced_in_machines_keys.end(), machine_key);
+    if (it == recipe.produced_in_machines_keys.end()) {
+        return false;
+    }
+
+    node->machine_key = machine_key;
+    VLOG(3) << "Changed machine to '" << machine_key << "' for node ID: " << node_id;
+    return true;
+}
+
 const std::vector<Node> &FactoryGraph::getNodes() const {
     return nodes;
 }
