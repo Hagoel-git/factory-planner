@@ -706,101 +706,159 @@ void FactoryNodeEditor::HandleContextMenus() {
 
 void FactoryNodeEditor::HandlePopups() {
     ed::Suspend();
+    const bool showDebug = SettingsManager::instance().getSettings().showDebugInfo;
+    const auto& gameData = graph->getGameData();
     if (ImGui::BeginPopup("Node Context Menu")) {
         auto node = graph->getNode(IdUtils::FromNodeId(m_contextNodeId));
         if (node) {
-            ImGui::Text("Node ID: %d", node->id);
-            ImGui::Text("Name: %s", node->name.c_str());
-            ImGui::Text("Machine: %s", node->machine_key.c_str());
-            ImGui::Text("Selected Recipe: %s", node->selected_recipe_key.c_str());
-            ImGui::Text("Machine count: %.2f", node->machine_count);
-            // Display input ports
-            ImGui::Text("Input Ports:");
-            for (uint64_t portId : node->input_ports) {
-                auto port = graph->getPort(portId);
-                if (port) {
-                    ImGui::BulletText("Port ID: %d, Resource ID: %s, Rate: %.2f", port->id, port->resource_key.c_str(), port->rate);
-                }
+            if (gameData.machines.count(node->machine_key)) {
+                ImTextureID icon = gameData.machines.at(node->machine_key).texture;
+                ImGui::Image(icon, ImVec2(24, 24));
+                ImGui::SameLine();
             }
-            // Display output ports
-            ImGui::Text("Output Ports:");
-            for (uint64_t portId : node->output_ports) {
-                auto port = graph->getPort(portId);
-                if (port) {
-                    ImGui::BulletText("Port ID: %d, Resource ID: %s, Rate: %.2f", port->id, port->resource_key.c_str(), port->rate);
-                }
-            }
+            ImGui::Text("%s", node->name.c_str());
+
             ImGui::Separator();
+
+            std::vector<std::string> allowedMachines;
+            if (gameData.recipes.count(node->selected_recipe_key)) {
+                allowedMachines = gameData.recipes.at(node->selected_recipe_key).produced_in_machines_keys;
+            }
+
+            bool isCurrentMachineValid = std::find(allowedMachines.begin(), allowedMachines.end(), node->machine_key) != allowedMachines.end();
+
+            if (allowedMachines.size() > 1 || (!allowedMachines.empty() && !isCurrentMachineValid)) {
+                ImGui::TextDisabled("Change Machine:");
+
+                std::string currentMachineName = node->machine_key;
+                if (gameData.machines.count(node->machine_key)) {
+                    currentMachineName = gameData.machines.at(node->machine_key).name;
+                } else if (node->machine_key.empty()) {
+                    currentMachineName = "None";
+                }
+
+                ImGui::SetNextItemWidth(-1);
+                if (ImGui::BeginCombo("##machine_selector", currentMachineName.c_str())) {
+                    for (const auto& mKey : allowedMachines) {
+                        if (gameData.machines.find(mKey) == gameData.machines.end()) continue;
+
+                        const auto& machine = gameData.machines.at(mKey);
+                        bool isSelected = (node->machine_key == mKey);
+
+                        ImGui::PushID(mKey.c_str());
+
+                        int fontSize = static_cast<int>(ImGui::GetFontSize());
+
+                        ImGui::Image(machine.texture, ImVec2(fontSize, fontSize));
+                        ImGui::SameLine();
+
+                        if (ImGui::Selectable(machine.name.c_str(), isSelected)) {
+                            if (node->machine_key != mKey) {
+                                // Use the Command we defined earlier
+                                // executeCommand(std::make_unique<ChangeMachineCommand>(
+                                //     node->id, mKey, node->machine_key
+                                // ));
+                            }
+                        }
+
+                        if (ImGui::IsItemHovered()) {
+                            ImGui::SetTooltip("Speed: %.2fx", machine.base_crafting_speed);
+                        }
+
+                        if (isSelected) ImGui::SetItemDefaultFocus();
+                        ImGui::PopID();
+                    }
+                    ImGui::EndCombo();
+                }
+            } else {
+                ImGui::TextDisabled("Machine:");
+                ImGui::SameLine();
+                ImGui::Text("%s", gameData.machines.count(node->machine_key) ? gameData.machines.at(node->machine_key).name.c_str() : node->machine_key.c_str());
+            }
+
+            ImGui::Separator();
+
             if (ImGui::MenuItem("Delete Node")) {
                 executeCommand(std::make_unique<RemoveNodeCommand>(node->id));
             }
-        } else {
-            ImGui::Text("Unknown node");
+
+            if (showDebug) {
+                ImGui::Separator();
+                ImGui::TextDisabled("Debug Info");
+                ImGui::Text("Node ID: %lu", node->id);
+                ImGui::Text("Recipe Key: %s", node->selected_recipe_key.c_str());
+                ImGui::Text("Machine Key: %s", node->machine_key.c_str());
+                ImGui::Text("Machine Count: %.4f", node->machine_count);
+            }
         }
         ImGui::EndPopup();
     }
-
     if (ImGui::BeginPopup("Pin Context Menu")) {
         auto port = graph->getPort(IdUtils::FromPinId(m_contextPinId));
         if (port) {
-            // --- Initialization on first frame ---
+            bool shouldFocusRate = false;
+
             if (!m_isContextMenuInitialized) {
                 m_contextPinOriginalConstraint = port->user_constraint;
                 m_contextPinCurrentConstraint = port->user_constraint;
+                if (port->user_constraint < 0.0) m_contextPinConstraintBuf[0] = '\0';
+                else snprintf(m_contextPinConstraintBuf, sizeof(m_contextPinConstraintBuf), "%.15g", port->user_constraint);
 
-                if (port->user_constraint < 0.0) {
-                    m_contextPinConstraintBuf[0] = '\0';
-                } else {
-                    snprintf(m_contextPinConstraintBuf, sizeof(m_contextPinConstraintBuf), "%.15g", port->user_constraint);
-                }
-                m_isContextMenuInitialized = true; // Mark as initialized
-                ImGui::SetKeyboardFocusHere();
+                m_isContextMenuInitialized = true;
+                shouldFocusRate = true; // Signal to focus the input later
             }
 
-            // --- Display Port Info ---
-            ImGui::Text("Port ID: %d", port->id);
-            ImGui::Text("Resource Key: %s", port->resource_key.c_str());
-            ImGui::Text("Is Input: %s", graph->isInputPort(port->id) ? "Yes" : "No");
-            ImGui::Text("Current rate: %.2f", port->rate);
-            ImGui::Text("Limit: %.2f", port->user_constraint);
+            if (gameData.resources.count(port->resource_key)) {
+                ImGui::Image(gameData.resources.at(port->resource_key).texture, ImVec2(24, 24));
+                ImGui::SameLine();
+                ImGui::Text("%s", gameData.resources.at(port->resource_key).name.c_str());
+            } else {
+                ImGui::Text("%s", port->resource_key.c_str());
+            }
+
+            ImGui::SameLine();
+            ImGui::TextDisabled(graph->isInputPort(port->id) ? "(Input)" : "(Output)");
+
             ImGui::Separator();
-            ImGui::PushItemWidth(150);
 
-            // --- User Input Handling ---
-            if (ImGui::InputText("Rate", m_contextPinConstraintBuf, sizeof(m_contextPinConstraintBuf), ImGuiInputTextFlags_AutoSelectAll)) {
-                // Value was edited, so we update the solver in real-time
+            ImGui::Text("Flow Rate Limit:");
+            ImGui::PushItemWidth(-1);
+
+            bool hugeGraph = graph->getNodes().size() >= 1000;
+
+            if (shouldFocusRate) ImGui::SetKeyboardFocusHere();
+            if (ImGui::InputText("##rate", m_contextPinConstraintBuf, sizeof(m_contextPinConstraintBuf), ImGuiInputTextFlags_AutoSelectAll)) {
                 double v = strtod(m_contextPinConstraintBuf, nullptr);
-                // Check for empty string or parse failure (strtod returns 0.0)
-                if (m_contextPinConstraintBuf[0] == '\0') {
-                    m_contextPinCurrentConstraint = -1.0;
-                } else {
-                    // Ensure constraint is not negative
-                    m_contextPinCurrentConstraint = (v < 0.0) ? 0.0 : v;
+                if (m_contextPinConstraintBuf[0] == '\0') m_contextPinCurrentConstraint = -1.0;
+                else m_contextPinCurrentConstraint = (v < 0.0) ? 0.0 : v;
+
+                // Only solve LIVE if graph is small
+                if (!hugeGraph) {
+                    graph->setPortConstraint(port->id, m_contextPinCurrentConstraint);
+                    solver->solve(*graph);
                 }
-
-                graph->setPortConstraint(port->id, m_contextPinCurrentConstraint);
-                FactorySolver::SolverResult result = solver->solve(*graph);
-                debugInfo.lastTotalSolveDurationMs = result.total_solve_time_ms;
-                debugInfo.lastSetupSolveDurationMs = result.setup_time_ms;
-                debugInfo.lastSolverDurationMs = result.solve_time_ms;
-                debugInfo.lastUpdateFactoryDurationMs = result.update_factory_time_ms;
-                debugInfo.lastSolverResult = result.status;
             }
+            ImGui::PopItemWidth();
 
-            // --- Deactivation Logic (Enter pressed or focus lost) ---
-            if (ImGui::IsItemDeactivatedAfterEdit() || ImGui::IsItemFocused() && ImGui::IsKeyPressed(ImGuiKey_Enter)) {
+            ImGui::TextDisabled("Current Actual Flow: %.2f", port->rate);
+
+            if (ImGui::IsItemDeactivatedAfterEdit() || (ImGui::IsItemFocused() && ImGui::IsKeyPressed(ImGuiKey_Enter))) {
                 if (m_contextPinCurrentConstraint != m_contextPinOriginalConstraint) {
-                    // Create a single undo command for the entire change
                     executeCommand(std::make_unique<SetPortConstraintCommand>(
                         port->id, m_contextPinOriginalConstraint, m_contextPinCurrentConstraint
                     ));
                 }
-
                 ImGui::CloseCurrentPopup();
                 m_isContextMenuInitialized = false;
             }
-        } else {
-            ImGui::Text("Unknown port");
+
+            if (showDebug) {
+                ImGui::Separator();
+                ImGui::TextDisabled("Debug Info");
+                ImGui::Text("Port ID: %lu", port->id);
+                ImGui::Text("Node ID: %lu", port->node_id);
+                ImGui::Text("Constraint Val: %f", port->user_constraint);
+            }
         }
         ImGui::EndPopup();
     }
@@ -808,17 +866,35 @@ void FactoryNodeEditor::HandlePopups() {
     if (ImGui::BeginPopup("Link Context Menu")) {
         auto connection = graph->getConnection(IdUtils::FromLinkId(m_contextLinkId));
         if (connection) {
-            ImGui::Text("Connection ID: %d", connection->id);
-            ImGui::Text("From Port: %d", connection->from_port);
-            ImGui::Text("To Port: %d", connection->to_port);
-            ImGui::Text("Resource Key: %s", connection->resource_key.c_str());
-            ImGui::Text("Current rate: %.2f", connection->rate);
+            if (gameData.resources.count(connection->resource_key)) {
+                ImGui::Image(gameData.resources.at(connection->resource_key).texture, ImVec2(24, 24));
+                ImGui::SameLine();
+                ImGui::Text("%s Flow", gameData.resources.at(connection->resource_key).name.c_str());
+            } else {
+                ImGui::Text("%s Flow", connection->resource_key.c_str());
+            }
             ImGui::Separator();
+
+            std::string timeUnit = gameData.time_unit;
+            if (timeUnit == "seconds") timeUnit = "sec";
+            else if (timeUnit == "minutes") timeUnit = "min";
+            else if (timeUnit == "hours") timeUnit = "hour";
+
+            ImGui::Text("Current Rate: %.2f / %s", connection->rate, timeUnit.c_str());
+
+            ImGui::Separator();
+
             if (ImGui::MenuItem("Delete Link")) {
                 executeCommand(std::make_unique<RemoveConnectionCommand>(connection->from_port, connection->to_port));
             }
-        } else {
-            ImGui::Text("Unknown link");
+
+            if (showDebug) {
+                ImGui::Separator();
+                ImGui::TextDisabled("Debug Info");
+                ImGui::Text("Link ID: %lu", connection->id);
+                ImGui::Text("From Port: %lu", connection->from_port);
+                ImGui::Text("To Port: %lu", connection->to_port);
+            }
         }
         ImGui::EndPopup();
     }

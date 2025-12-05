@@ -164,6 +164,14 @@ void SettingsEditor::DrawRightPanel() {
         ImGui::SameLine();
         ImGui::TextDisabled("(1 - 10000)");
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Number of undo steps stored in memory.");
+
+        ImGui::Spacing();
+
+        if (ImGui::Checkbox("Show Debug Info", &m_editSettings.showDebugInfo)) {
+            m_isDirty = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Toggle display of debug information in the node editor.");
     }
     else if (m_selCategory == "Appearance") {
         ImGui::TextWrapped("Theme / appearance settings.");
