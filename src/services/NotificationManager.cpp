@@ -116,7 +116,7 @@ void NotificationManager::Draw() {
             ImGui::PopStyleColor(4);
             ImGui::PopStyleVar();
 
-            ImGui::Separator();
+            ImGui::Spacing();
 
             ImGui::PushTextWrapPos(ImGui::GetWindowContentRegionMax().x);
             ImGui::TextUnformatted(n.message.c_str());
