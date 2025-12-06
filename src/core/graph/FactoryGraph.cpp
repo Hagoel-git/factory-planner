@@ -282,6 +282,7 @@ nlohmann::json FactoryGraph::serialize() const {
         node_json["selected_recipe_key"] = node.selected_recipe_key;
         node_json["input_ports"] = node.input_ports;
         node_json["output_ports"] = node.output_ports;
+        node_json["machine"] = node.machine_key;
 
         // Save constraints in a simple map of { "port_id": constraint_value }
         nlohmann::json port_constraints = nlohmann::json::object();
@@ -311,6 +312,8 @@ nlohmann::json FactoryGraph::serialize() const {
         j["connections"].push_back(conn_json);
     }
 
+    j["preferred_machines"] = preferred_machines;
+
     // Serialize ID counters
     j["next_node_id"] = next_node_id;
     j["next_connection_id"] = next_connection_id;
@@ -332,6 +335,9 @@ void FactoryGraph::deserialize(const nlohmann::json& j, const GameData &game_dat
     }
     if (j.contains("next_connection_id") && j["next_connection_id"].is_number()) {
         next_connection_id = j.value("next_connection_id", 0);
+    }
+    if (j.contains("preferred_machines") && j["preferred_machines"].is_array()) {
+        preferred_machines = j["preferred_machines"].get<std::vector<std::string>>();
     }
 
     next_port_id = 0;
@@ -363,7 +369,7 @@ void FactoryGraph::deserialize(const nlohmann::json& j, const GameData &game_dat
             node.name = recipe.name;
 
             if (!recipe.produced_in_machines_keys.empty()) {
-                node.machine_key = recipe.produced_in_machines_keys[0]; // todo: make proper machine save/load
+                node.machine_key = node_json.value("machine", resolvePreferredMachine(recipe.produced_in_machines_keys));
             } else {
                 LOG(WARNING) << "Recipe '" << recipeKey << "' has no associated machines.";
             }
@@ -461,7 +467,13 @@ bool FactoryGraph::setNodeRecipe(uint64_t node_id, const std::string& recipe_key
     }
     const Recipe &recipe = game_data.recipes.at(recipe_key);
     node->selected_recipe_key = recipe_key;
-    node->machine_key = recipe.produced_in_machines_keys.empty() ? "" : recipe.produced_in_machines_keys[0]; // todo: allow selection of machine
+
+    if (!recipe.produced_in_machines_keys.empty()) {
+        node->machine_key = resolvePreferredMachine(recipe.produced_in_machines_keys);
+    } else {
+        node->machine_key = "";
+    }
+
     node->output_ports.resize(recipe.output_ports.size());
     node->input_ports.resize(recipe.input_ports.size());
     for (int i = 0; i < recipe.input_ports.size(); ++i) {
@@ -555,4 +567,32 @@ bool FactoryGraph::isInputPort(uint64_t port_id) const {
     const Port *port = getPort(port_id);
     const Node *node = port ? getNode(port->node_id) : nullptr;
     return port && node && std::find(node->input_ports.begin(), node->input_ports.end(), port_id) != node->input_ports.end();
+}
+
+void FactoryGraph::setMachinePreferred(const std::string &machineKey, bool preferred) {
+    auto it = std::remove(preferred_machines.begin(), preferred_machines.end(), machineKey);
+    preferred_machines.erase(it, preferred_machines.end());
+
+    if (preferred) {
+        preferred_machines.insert(preferred_machines.begin(), machineKey);
+        VLOG(3) << "Machine set as preferred (High Priority): " << machineKey;
+    }
+}
+
+bool FactoryGraph::isMachinePreferred(const std::string &machineKey) const {
+    return std::find(preferred_machines.begin(), preferred_machines.end(), machineKey) != preferred_machines.end();
+}
+
+std::string FactoryGraph::resolvePreferredMachine(const std::vector<std::string> &allowedMachines) const {
+    if (allowedMachines.empty()) return "";
+
+    for (const auto& prefKey : preferred_machines) {
+        for (const auto& allowed : allowedMachines) {
+            if (prefKey == allowed) {
+                return prefKey;
+            }
+        }
+    }
+
+    return allowedMachines[0];
 }
