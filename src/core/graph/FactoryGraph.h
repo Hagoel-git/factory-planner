@@ -42,6 +42,10 @@ public:
     bool setPortConstraint(uint64_t port_id, double demand);
     bool isInputPort(uint64_t port_id) const;
 
+    void setMachinePreferred(const std::string& machineKey, bool preferred);
+    bool isMachinePreferred(const std::string& machineKey) const;
+    std::string resolvePreferredMachine(const std::vector<std::string>& allowedMachines) const;
+
     void clear();
 
     nlohmann::json serialize() const;
@@ -72,6 +76,7 @@ private:
     std::unordered_map<uint64_t, size_t> connection_id_to_index_;
 
     std::unordered_multimap<uint64_t, uint64_t> connectionsByPort; // Maps port_id to connection_id for quick access
+    std::vector<std::string> preferred_machines; // Ordered list of preferred machine keys
 
     uint64_t next_node_id = 0;
     uint64_t next_port_id = 0;

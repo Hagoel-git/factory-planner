@@ -737,7 +737,7 @@ void FactoryNodeEditor::HandlePopups() {
                     currentMachineName = "None";
                 }
 
-                ImGui::SetNextItemWidth(-1);
+                ImGui::SetNextItemWidth(200.0f);
                 if (ImGui::BeginCombo("##machine_selector", currentMachineName.c_str())) {
                     for (const auto& mKey : allowedMachines) {
                         if (gameData.machines.find(mKey) == gameData.machines.end()) continue;
@@ -768,6 +768,16 @@ void FactoryNodeEditor::HandlePopups() {
                         ImGui::PopID();
                     }
                     ImGui::EndCombo();
+                }
+                ImGui::SameLine();
+                bool isPref = graph->isMachinePreferred(node->machine_key);
+                if (isPref) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.8f, 0.0f, 1.0f));
+                if (ImGui::Button("P")) {
+                    graph->setMachinePreferred(node->machine_key, !isPref);
+                }
+                if (isPref) ImGui::PopStyleColor();
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip(isPref ? "Unmark as Preferred Default" : "Set as Preferred Default for new nodes");
                 }
             } else {
                 ImGui::TextDisabled("Machine:");
