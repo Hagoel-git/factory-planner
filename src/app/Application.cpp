@@ -12,6 +12,7 @@
 
 #include "editor/factory_planner/FactoryNodeEditor.h"
 #include "core/data/GameDataScanner.h"
+#include "services/NotificationManager.h"
 #include "services/SettingsManager.h"
 #include "services/RecentFiles.h"
 #include "services/SessionManager.h"
@@ -174,7 +175,7 @@ void Application::Draw() {
         }
         focusRequested = -1; // Reset after focusing
     }
-
+    NotificationManager::instance().Draw();
     if (showFileAlreadyOpenPopup) {
         ImGui::OpenPopup("FileAlreadyOpen");
         showFileAlreadyOpenPopup = false; // Reset after drawing
@@ -270,10 +271,44 @@ void Application::DrawDebugWindow() {
     } else {
         ImGui::Text("No active editor.");
     }
-    // In Application.cpp, inside DrawDebugWindow
     if (ImGui::Button("Simulate Crash")) {
         volatile int* ptr = nullptr;
         *ptr = 42; // Triggers SIGSEGV
+    }
+    if (ImGui::TreeNode("Notification Test")) {
+        char title[64] = "System Update";
+        char message[128] = "The operation completed successfully.";
+        float duration = 5.0f;
+
+        ImGui::Separator();
+
+        if (ImGui::Button("Info")) {
+            NotificationManager::instance().addNotification(title, message, NotificationType::Info, duration);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Success")) {
+            NotificationManager::instance().addNotification(title, message, NotificationType::Success, duration);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Warning")) {
+            NotificationManager::instance().addNotification(title, message, NotificationType::Warning, duration);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Error")) {
+            NotificationManager::instance().addNotification(title, message, NotificationType::Error, duration);
+        }
+        ImGui::Separator();
+        if (ImGui::Button("Test Long Text Wrapping")) {
+            NotificationManager::instance().addNotification(
+                "This Is A Very Long Title That Should Wrap Properly Without Hitting The Button",
+                "This is a long paragraph designed to test if notification window height grows automatically. "
+                "Since we fixed the width to 360px, this text should flow downward and push the next notification down.",
+                NotificationType::Info,
+                10.0f
+            );
+        }
+
+        ImGui::TreePop();
     }
 
     ImGui::End();
