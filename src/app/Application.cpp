@@ -801,6 +801,9 @@ void Application::DrawOpenProjectDialog() {
             } else {
                 LOG(ERROR) << "Open dialog: Error occurred while opening file dialog.";
                 // Handle NFD_ERROR case
+                NotificationManager::instance().addNotification("File Dialog Error",
+                    "An error occurred while trying to open the file dialog.",
+                    NotificationType::Error);
                 fileDialogResult.clear();
                 fileDialogCancelled = true;
             }
@@ -855,6 +858,9 @@ void Application::DrawSaveAsDialog() {
             } else {
                 LOG(ERROR) << "Save As dialog: Error occurred while opening save dialog.";
                 // NFD_ERROR
+                NotificationManager::instance().addNotification("File Dialog Error",
+                    "An error occurred while trying to open the save file dialog.",
+                    NotificationType::Error);
                 fileDialogResult.clear();
                 fileDialogCancelled = true;
             }
@@ -944,7 +950,10 @@ void Application::CreateNewEditor(const std::string &gameDataFilePath, const std
         if (!tempDataManagerError.empty()) {
             LOG(ERROR) << "Failed to load game data from file '" << gameDataFilePath
                        << "': " << tempDataManagerError;
-            // todo: show error to user
+            NotificationManager::instance().addNotification("Error Loading Game Data",
+                "Failed to load game data from file: " + tempDataManagerError,
+                NotificationType::Error);
+            return;
         }
 
         auto editor = std::make_unique<FactoryNodeEditor>(tempDataManager.current(), location, name);

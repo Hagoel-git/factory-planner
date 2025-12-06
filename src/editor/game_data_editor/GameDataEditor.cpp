@@ -7,6 +7,7 @@
 #include "core/data/GameDataScanner.h"
 #include "services/SettingsManager.h"
 #include "common/StringUtils.h"
+#include "services/NotificationManager.h"
 
 GameDataEditor::GameDataEditor(GameDataManager& manager) : gameDataManager(manager) {
     gameDataManager.clear();
@@ -261,6 +262,7 @@ void GameDataEditor::DrawNewFileDialog() {
                             m_fileLoadError.clear();
                             RefreshPackageList();
                             ImGui::CloseCurrentPopup();
+                            NotificationManager::instance().addNotification("File Created", "New game data file created successfully.", NotificationType::Success);
                         } else {
                             errorMessage = "Failed to save file: " + saveError;
                         }
@@ -277,7 +279,7 @@ void GameDataEditor::DrawNewFileDialog() {
 
         if (!errorMessage.empty()) {
             ImGui::Spacing();
-            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "%s", errorMessage.c_str());
+            NotificationManager::instance().addNotification("Error", errorMessage, NotificationType::Error);
         }
 
         ImGui::EndPopup();
@@ -320,7 +322,7 @@ void GameDataEditor::DrawRightSide() {
         if (!gameDataManager.saveToFile(m_currentlyEditingFile, err)) {
             ImGui::OpenPopup("SaveError");
         } else {
-            // optional success toast/notification
+            NotificationManager::instance().addNotification("Saved successfully", "Game data file saved", NotificationType::Success);
         }
     }
 
@@ -461,6 +463,7 @@ void GameDataEditor::DrawRenameFileDialog() {
                         m_currentlyEditingFile = newFilePath;
                         RefreshPackageList();
                         ImGui::CloseCurrentPopup();
+                        NotificationManager::instance().addNotification("File Renamed", "File renamed successfully.", NotificationType::Success);
                     } catch (const std::filesystem::filesystem_error &e) {
                         renameErrorMessage = "Failed to rename file: " + std::string(e.what());
                     }
@@ -477,6 +480,7 @@ void GameDataEditor::DrawRenameFileDialog() {
         // Display error message if something went wrong during rename
         if (!renameErrorMessage.empty()) {
             ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "%s", renameErrorMessage.c_str());
+            NotificationManager::instance().addNotification("Error", renameErrorMessage, NotificationType::Error);
         }
 
         ImGui::EndPopup();
@@ -505,8 +509,10 @@ void GameDataEditor::DrawDeleteFileDialog() {
                 m_fileLoadError.clear();
                 RefreshPackageList();
                 ImGui::CloseCurrentPopup();
+                NotificationManager::instance().addNotification("File Deleted", "File deleted successfully.", NotificationType::Success);
             } catch (const std::filesystem::filesystem_error &e) {
                 LOG(ERROR) << "Failed to delete file: " << e.what();
+                NotificationManager::instance().addNotification("Error", "Failed to delete file: " + std::string(e.what()), NotificationType::Error);
                 ImGui::CloseCurrentPopup();
             }
         }

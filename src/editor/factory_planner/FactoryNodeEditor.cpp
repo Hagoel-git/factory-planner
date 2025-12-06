@@ -11,6 +11,7 @@
 
 #include "common/IdUtils.h"
 #include "common/CopyBuffer.h"
+#include "services/NotificationManager.h"
 #include "services/ProjectIo.h"
 #include "services/SettingsManager.h"
 namespace ed = ax::NodeEditor;
@@ -77,6 +78,11 @@ FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::strin
         LOG(INFO) << "FactoryNodeEditor initialized successfully for project: " << projectFilePath;
     } catch (const std::exception &e) {
         LOG(ERROR) << "Exception initializing FactoryNodeEditor: " << e.what();
+        NotificationManager::instance().addNotification(
+            "Error Initializing Editor",
+            "An error occurred while initializing the editor: " + std::string(e.what()),
+            NotificationType::Error
+        );
     }
 }
 
