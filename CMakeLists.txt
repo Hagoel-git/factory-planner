@@ -108,6 +108,8 @@ set(FACTORY_PLANNER_LIB_SRC
         src/core/data/GameDataScanner.h
         src/services/TextureManager.h
         src/services/TextureManager.cpp
+        src/services/NotificationManager.cpp
+        src/services/NotificationManager.h
 )
 
 add_library(factory_planner_lib STATIC ${FACTORY_PLANNER_LIB_SRC})
