@@ -5,6 +5,7 @@
 
 #include <imgui-node-editor/imgui_node_editor.h>
 
+#include "NotificationManager.h"
 #include "common/IdUtils.h"
 #include "core/graph/FactoryGraph.h"
 #include "core/data/GameDataManager.h"
@@ -25,6 +26,10 @@ bool ProjectIO::SaveProject(const std::string &path, const FactoryGraph &factory
         } catch (const json::parse_error& e) {
             LOG(ERROR) << "Failed to parse editor settings: " << e.what();
             // Continue without editor settings rather than failing completely
+            NotificationManager::instance().addNotification(
+                "Warning Saving Project",
+                "Failed to parse editor settings, saving project without them.",
+                NotificationType::Warning);
             projectData["editor_settings"] = json::object();
         }
         VLOG(2) << "Editor settings serialized.";
@@ -43,6 +48,10 @@ bool ProjectIO::SaveProject(const std::string &path, const FactoryGraph &factory
             std::ofstream ofs(tmp, std::ios::binary);
             if (!ofs) {
                 LOG(ERROR) << "Failed to create temporary file: " << tmp;
+                NotificationManager::instance().addNotification(
+                    "Error Saving Project",
+                    "Failed to create temporary file for saving project.",
+                    NotificationType::Error);
                 return false;
             }
 
@@ -51,6 +60,10 @@ bool ProjectIO::SaveProject(const std::string &path, const FactoryGraph &factory
 
             if (!ofs.good()) {
                 LOG(ERROR) << "Failed to write data to temporary file: " << tmp;
+                NotificationManager::instance().addNotification(
+                    "Error Saving Project",
+                    "Failed to write project data to temporary file.",
+                    NotificationType::Error);
                 ofs.close();
                 std::filesystem::remove(tmp); // Clean up temp file
                 return false;
@@ -65,6 +78,10 @@ bool ProjectIO::SaveProject(const std::string &path, const FactoryGraph &factory
         VLOG(2) << "Temporary file renamed to final path.";
         if (ec) {
             LOG(ERROR) << "Failed to rename temp file to final path: " << ec.message();
+            NotificationManager::instance().addNotification(
+                "Error Saving Project",
+                "Failed to finalize project save operation.",
+                NotificationType::Error);
             std::filesystem::remove(tmp); // Clean up temp file
             return false;
         }
@@ -73,6 +90,10 @@ bool ProjectIO::SaveProject(const std::string &path, const FactoryGraph &factory
 
     } catch (const std::exception& e) {
         LOG(ERROR) << "Exception during save: " << e.what();
+        NotificationManager::instance().addNotification(
+            "Error Saving Project",
+            "An error occurred while saving the project: " + std::string(e.what()),
+            NotificationType::Error);
         ed::SetCurrentEditor(nullptr);
         return false;
     }
@@ -83,12 +104,20 @@ bool ProjectIO::LoadProject(const std::string &path, FactoryGraph &factoryGraph)
         // Check if file exists
         if (!std::filesystem::exists(path)) {
             LOG(ERROR) << "Project file does not exist: " << path;
+            NotificationManager::instance().addNotification(
+                "Error Loading Project",
+                "Project file does not exist: " + path,
+                NotificationType::Error);
             return false;
         }
 
         std::ifstream ifs(path);
         if (!ifs) {
             LOG(ERROR) << "Failed to open project file: " << path;
+            NotificationManager::instance().addNotification(
+                "Error Loading Project",
+                "Failed to open project file: " + path,
+                NotificationType::Error);
             return false;
         }
 
@@ -97,6 +126,10 @@ bool ProjectIO::LoadProject(const std::string &path, FactoryGraph &factoryGraph)
             ifs >> projectData;
         } catch (const json::parse_error& e) {
             LOG(ERROR) << "Failed to parse project file: " << e.what();
+            NotificationManager::instance().addNotification(
+                "Error Loading Project",
+                "Failed to parse project file: " + std::string(e.what()),
+                NotificationType::Error);
             return false;
         }
 
@@ -104,6 +137,10 @@ bool ProjectIO::LoadProject(const std::string &path, FactoryGraph &factoryGraph)
 
         if (!projectData.is_object()) {
             LOG(ERROR) << "Invalid project file format: root is not an object.";
+            NotificationManager::instance().addNotification(
+                "Error Loading Project",
+                "Invalid project file format.",
+                NotificationType::Error);
             return false;
         }
 
@@ -127,16 +164,28 @@ bool ProjectIO::LoadProject(const std::string &path, FactoryGraph &factoryGraph)
                 }
                 if (gameDataPath.empty()) {
                     LOG(ERROR) << "Game data file not found for project: " << gameDataName << " (" << gameName << ")";
+                    NotificationManager::instance().addNotification(
+                        "Error Loading Project",
+                        "Game data file not found for project: " + gameDataName + " (" + gameName + ")",
+                        NotificationType::Error);
                     return false;
                 }
                 if (!game_data_manager.loadFromFile(gameDataPath, error)) {
                     LOG(ERROR) << "Failed to load game data from file: " << error;
+                    NotificationManager::instance().addNotification(
+                        "Error Loading Project",
+                        "Failed to load game data from file: " + error,
+                        NotificationType::Error);
                     return false;
                 }
 
                 factoryGraph.deserialize(projectData["graph_data"], game_data_manager.current());
             } catch (const std::exception& e) {
                 LOG(ERROR) << "Failed to deserialize graph data: " << e.what();
+                NotificationManager::instance().addNotification(
+                    "Error Loading Project",
+                    "Failed to deserialize graph data: " + std::string(e.what()),
+                    NotificationType::Error);
                 return false;
             }
         }
@@ -206,6 +255,10 @@ bool ProjectIO::LoadProject(const std::string &path, FactoryGraph &factoryGraph)
                 }
             } catch (const std::exception& e) {
                 LOG(ERROR) << "Failed to apply editor settings: " << e.what();
+                NotificationManager::instance().addNotification(
+                    "Warning Loading Project",
+                    "Failed to apply editor settings, loaded project without them.",
+                    NotificationType::Warning);
                 // Don't fail the entire load just because editor settings failed
             }
         }
@@ -214,6 +267,10 @@ bool ProjectIO::LoadProject(const std::string &path, FactoryGraph &factoryGraph)
 
     } catch (const std::exception& e) {
         LOG(ERROR) << "Exception during load: " << e.what();
+        NotificationManager::instance().addNotification(
+            "Error Loading Project",
+            "An error occurred while loading the project: " + std::string(e.what()),
+            NotificationType::Error);
         return false;
     }
 }

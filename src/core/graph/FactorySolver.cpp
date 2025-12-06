@@ -3,6 +3,8 @@
 #include <queue>
 #include <absl/log/globals.h>
 
+#include "services/NotificationManager.h"
+
 FactorySolver::FactorySolver(const std::string &solver_name) {
     operations_research::MPSolver::OptimizationProblemType problem_type;
     if (!operations_research::MPSolver::ParseSolverType(solver_name, &problem_type)) {
@@ -67,6 +69,11 @@ FactorySolver::SolverResult FactorySolver::solve(FactoryGraph &factory_graph) {
         };
     } catch (const std::exception &e) {
         LOG(ERROR) << "Exception during solving: " << e.what();
+        NotificationManager::instance().addNotification(
+            "Solver Error",
+            "An error occurred during solving: " + std::string(e.what()),
+            NotificationType::Error
+        );
         return {
             SolverResultStatus::ERROR,
             absl::ToDoubleMilliseconds(t_end_update - t_start),

@@ -11,6 +11,7 @@
 #include "services/SettingsManager.h"
 #include "common/StringUtils.h"
 #include "common/TextureUtils.h"
+#include "services/NotificationManager.h"
 #include "services/TextureManager.h"
 
 using json = nlohmann::json;
@@ -52,6 +53,10 @@ bool GameDataManager::loadFromFile(const std::string &path, std::string &outErro
         return true;
     } catch (const std::exception &ex) {
         LOG(ERROR) << "Exception while loading: " << ex.what();
+        NotificationManager::instance().addNotification(
+            "Error Loading Game Data",
+            "An error occurred while loading game data: " + std::string(ex.what()),
+            NotificationType::Error);
         return false;
     }
 }
@@ -71,6 +76,10 @@ bool GameDataManager::saveToFile(const std::string &path, std::string &outError)
     } catch (const std::exception &ex) {
         LOG(ERROR) << "Exception while saving: " << ex.what();
         outError = std::string("Exception while saving: ") + ex.what();
+        NotificationManager::instance().addNotification(
+            "Error Saving Game Data",
+            "An error occurred while saving game data: " + std::string(ex.what()),
+            NotificationType::Error);
         return false;
     }
 }
@@ -467,6 +476,7 @@ GameData GameDataManager::jsonToGameData(const json &j, std::filesystem::path& p
         return gd;
     } catch (const std::exception &ex) {
         LOG(ERROR) << "Exception while parsing JSON into GameData: " << ex.what();
+        NotificationManager::instance().addNotification("Error parsing game data JSON: " + std::string(ex.what()), NotificationType::Error);
         return {};
     }
 }
