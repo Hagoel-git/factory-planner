@@ -77,7 +77,7 @@ public:
 
     void showFlow();
 
-    void FitView();
+    void FitView(bool force = false);
 
     void undo() {
         if (!undoRedoManager.canUndo()) return;
@@ -161,6 +161,8 @@ private:
 
     char m_recipeSearchBuffer[128] = "";
     bool m_useGenerate = false;
+
+    bool m_showFitViewConfirmation = false;
 
     ed::LinkId m_contextLinkId;
 

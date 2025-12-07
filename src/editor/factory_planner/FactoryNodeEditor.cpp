@@ -244,9 +244,14 @@ void FactoryNodeEditor::showFlow() {
     }
 }
 
-void FactoryNodeEditor::FitView() {
+void FactoryNodeEditor::FitView(bool force) {
     const auto& allNodes = graph->getNodes();
-    // todo: add confirmation if more than 1000 nodes
+
+    if (!force && allNodes.size() > 1000) {
+        m_showFitViewConfirmation = true;
+        return;
+    }
+
     if (!allNodes.empty()) {
         ImRect contentBounds;
         bool isFirstNode = true;
@@ -712,6 +717,33 @@ void FactoryNodeEditor::HandleContextMenus() {
 
 void FactoryNodeEditor::HandlePopups() {
     ed::Suspend();
+
+    if (m_showFitViewConfirmation) {
+        ImGui::OpenPopup("Confirm Fit View");
+        m_showFitViewConfirmation = false;
+    }
+
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+    if (ImGui::BeginPopupModal("Confirm Fit View", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("The graph contains %zu nodes.", graph->getNodes().size());
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Drawing this many nodes might cause a freeze, crash, or very low FPS.");
+        ImGui::Text("Do you want to continue?");
+
+        ImGui::Separator();
+
+        if (ImGui::Button("Yes", ImVec2(120, 0))) {
+            FitView(true);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("No", ImVec2(120, 0))) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
     const bool showDebug = SettingsManager::instance().getSettings().showDebugInfo;
     const auto& gameData = graph->getGameData();
     if (ImGui::BeginPopup("Node Context Menu")) {
