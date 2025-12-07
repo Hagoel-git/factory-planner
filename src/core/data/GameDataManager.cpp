@@ -476,7 +476,9 @@ GameData GameDataManager::jsonToGameData(const json &j, std::filesystem::path& p
         return gd;
     } catch (const std::exception &ex) {
         LOG(ERROR) << "Exception while parsing JSON into GameData: " << ex.what();
-        NotificationManager::instance().addNotification("Error parsing game data JSON: " + std::string(ex.what()), NotificationType::Error);
+        NotificationManager::instance().addNotification("Error Loading Game Data",
+            "An error occurred while parsing game data: " + std::string(ex.what()),
+            NotificationType::Error);
         return {};
     }
 }
