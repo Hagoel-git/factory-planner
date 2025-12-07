@@ -41,8 +41,11 @@ struct Recipe {
 struct GameData {
     std::string gameName;
     std::filesystem::path gameDataFilePath;
+    std::string uuid; // unique identifier for this game data set
     std::string time_unit = "seconds"; // original unit from JSON
-    int schema_version = 2;
+    int schema_version = 3;
+
+    std::map<std::string, std::string> id_aliases; // old IDs mapped to new IDs for compatibility
 
     // Using maps for easy lookup by key_name
     std::map<std::string, Resource> resources;

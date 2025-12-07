@@ -342,6 +342,10 @@ void FactoryGraph::deserialize(const nlohmann::json& j, const GameData &game_dat
 
     next_port_id = 0;
 
+    const std::string PREFIX_RES = "res@";
+    const std::string PREFIX_MAC = "mac@";
+    const std::string PREFIX_REC = "rec@";
+
     std::unordered_map<uint64_t, uint64_t> oldToNewPortIdMap;
 
     // Deserialize nodes
@@ -349,6 +353,16 @@ void FactoryGraph::deserialize(const nlohmann::json& j, const GameData &game_dat
         for (const auto& node_json : j["nodes"]) {
             uint64_t nodeId = node_json.value("id", -1);
             std::string recipeKey = node_json.value("selected_recipe_key", "");
+
+            if (game_data.recipes.find(recipeKey) == game_data.recipes.end()) {
+                auto it = game_data.id_aliases.find(PREFIX_REC + recipeKey);
+                if (it != game_data.id_aliases.end()) {
+                    recipeKey = it->second;
+                } else {
+                    LOG(ERROR) << "Unknown recipe key: " << recipeKey;
+                    continue;
+                }
+            }
 
             if (nodeId == -1 || recipeKey.empty()) {
                 LOG(ERROR) << "Invalid node data in saved graph.";
@@ -368,10 +382,24 @@ void FactoryGraph::deserialize(const nlohmann::json& j, const GameData &game_dat
             node.selected_recipe_key = recipeKey;
             node.name = recipe.name;
 
+            std::string machKey = node_json.value("machine", "");
+
+            if (!machKey.empty() && game_data.machines.find(machKey) == game_data.machines.end()) {
+                auto it = game_data.id_aliases.find(PREFIX_MAC + machKey);
+                if (it != game_data.id_aliases.end()) {
+                    machKey = it->second;
+                }
+            }
+
             if (!recipe.produced_in_machines_keys.empty()) {
-                node.machine_key = node_json.value("machine", resolvePreferredMachine(recipe.produced_in_machines_keys));
+                if (machKey.empty()) {
+                    node.machine_key = resolvePreferredMachine(recipe.produced_in_machines_keys);
+                } else {
+                    node.machine_key = machKey;
+                }
             } else {
                 LOG(WARNING) << "Recipe '" << recipeKey << "' has no associated machines.";
+                node.machine_key = "";
             }
 
             const auto& portConstraints = node_json.value("port_constraints", nlohmann::json::object());

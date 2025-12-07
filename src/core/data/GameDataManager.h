@@ -21,29 +21,38 @@ public:
 
     // CRUD operations
     bool addResource(const Resource &r);
-    bool editResource(const std::string& key_name, const Resource &r, std::string &outError);
+    bool editResource(const std::string& current_key, const Resource &r, std::string &outError);
     bool deleteResource(const std::string& key_name, std::string &err);
+    bool setResourceIcon(const std::string& key, const std::filesystem::path& sourcePath, std::string &outError);
 
     bool addMachine(const Machine &m);
-    bool editMachine(const std::string& key_name, const Machine &m, std::string &err);
+    bool editMachine(const std::string& current_key, const Machine &m, std::string &err);
     bool deleteMachine(const std::string& key_name, std::string &err);
+    bool setMachineIcon(const std::string& key, const std::filesystem::path& sourcePath, std::string &outError);
 
     bool addRecipe(const Recipe &r);
-    bool editRecipe(const std::string& key_name, const Recipe &r, std::string &err);
+    bool editRecipe(const std::string& current_key, const Recipe &r, std::string &err);
     bool deleteRecipe(const std::string& key_name, std::string &err);
 
     // Validation - returns vector of human readable errors/warnings
     std::vector<std::string> validate(const GameData &gd);
-
+    bool duplicateDataFile(std::string& outError);
     GameData &current();
 
-    void clear() {
-        _data = {};
-    }
+    void clear();
 private:
+    GameData _data;
+
     GameData jsonToGameData(const json &j, std::filesystem::path& packageIconRoot, std::string &outError);
     json gameDataToJson(const GameData &gd);
-    GameData _data;
+
+    void registerAlias(const std::string& prefix, const std::string& oldId, const std::string& newId);
+    bool performRenameResource(const std::string& oldKey, const std::string& newKey);
+    bool performRenameMachine(const std::string& oldKey, const std::string& newKey);
+    bool performRenameRecipe(const std::string& oldKey, const std::string& newKey);
+
+    bool renameIconFile(const std::string& category, const std::string& oldKey, const std::string& newKey);
+    bool copyIconFile(const std::string& category, const std::string& key, const std::filesystem::path& sourcePath);
 };
 
 
