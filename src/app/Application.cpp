@@ -535,7 +535,7 @@ void Application::DrawNewProjectDialog() {
     // One-time initialization of buffers
     if (!initialized) {
         initialized = true;
-        std::string defaultName = GenerateDefaultEditorName(); // todo: enhance generate name
+        std::string defaultName = GenerateDefaultEditorName();
         std::strncpy(projectNameBuf, defaultName.c_str(), sizeof(projectNameBuf));
         projectNameBuf[sizeof(projectNameBuf) - 1] = '\0';
 
@@ -1146,28 +1146,45 @@ void Application::CloseActiveEditor() {
 
 std::string Application::GenerateDefaultEditorName() {
     std::set<int> usedNumbers;
+    const std::string prefix = "Factory_";
 
-    // Extract all numbers from existing factory names
-    for (const auto &editor: editors) {
-        const std::string &name = editor->GetName();
-
-        // Check if name starts with "Factory "
-        if (name.substr(0, 8) == "Factory ") {
-            std::string numberPart = name.substr(8);
+    auto extractNumber = [&](const std::string& name) {
+        if (name.length() > prefix.length() && name.substr(0, prefix.length()) == prefix) {
+            std::string numberPart = name.substr(prefix.length());
 
             // Check if the rest is a valid number
             if (!numberPart.empty() && std::all_of(numberPart.begin(), numberPart.end(), ::isdigit)) {
-                int number = std::stoi(numberPart);
-                usedNumbers.insert(number);
+                try {
+                    int number = std::stoi(numberPart);
+                    usedNumbers.insert(number);
+                } catch (...) {
+                    // Ignore parsing errors (e.g. out of range)
+                }
             }
         }
+    };
+
+    for (const auto &editor: editors) {
+        extractNumber(editor->GetName());
     }
 
-    // Find the first missing positive number
+    try {
+        const auto& defaultPath = SettingsManager::instance().getSettings().defaultProjectPath;
+        if (std::filesystem::exists(defaultPath) && std::filesystem::is_directory(defaultPath)) {
+            for (const auto& entry : std::filesystem::directory_iterator(defaultPath)) {
+                if (entry.is_regular_file() && entry.path().extension() == ".fpp") {
+                    extractNumber(entry.path().stem().string());
+                }
+            }
+        }
+    } catch (const std::exception& e) {
+        LOG(ERROR) << "Failed to scan default project directory for naming: " << e.what();
+    }
+
     int nextNumber = 1;
     while (usedNumbers.count(nextNumber) > 0) {
         nextNumber++;
     }
 
-    return "Factory_" + std::to_string(nextNumber);
+    return prefix + std::to_string(nextNumber);
 }
