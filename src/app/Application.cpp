@@ -109,7 +109,6 @@ void Application::Draw() {
     DrawNewProjectDialog();
     DrawOpenProjectDialog();
     DrawSaveAsDialog();
-    gameDataEditor.Draw();
     settingsEditor.Draw();
     ImGuiViewport *viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->WorkPos);
@@ -147,6 +146,7 @@ void Application::Draw() {
             ImGui::SetWindowFocus(editors[activeEditor]->GetName().c_str());
         }
     }
+    gameDataEditor.Draw();
     for (int i = 0; i < static_cast<int>(editors.size()); ++i) {
         auto &editor = editors[i];
         if (editor) {

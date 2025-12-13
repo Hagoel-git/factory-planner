@@ -22,7 +22,7 @@ void GameDataEditor::RefreshPackageList() {
 void GameDataEditor::Draw() {
     if (!m_isOpen) return;
 
-    int flags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking;
+    int flags = ImGuiWindowFlags_None;//ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(900, 700));
     ImGui::Begin("Game Data Editor", &m_isOpen, flags);
     ImGui::PopStyleVar();
