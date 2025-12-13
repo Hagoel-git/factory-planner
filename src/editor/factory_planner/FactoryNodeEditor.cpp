@@ -886,9 +886,6 @@ void FactoryNodeEditor::HandlePopups() {
                 }
             }
             ImGui::PopItemWidth();
-
-            ImGui::TextDisabled("Current Actual Flow: %.2f", port->rate);
-
             if (ImGui::IsItemDeactivatedAfterEdit() || (ImGui::IsItemFocused() && ImGui::IsKeyPressed(ImGuiKey_Enter))) {
                 if (m_contextPinCurrentConstraint != m_contextPinOriginalConstraint) {
                     executeCommand(std::make_unique<SetPortConstraintCommand>(
@@ -898,6 +895,9 @@ void FactoryNodeEditor::HandlePopups() {
                 ImGui::CloseCurrentPopup();
                 m_isContextMenuInitialized = false;
             }
+
+            ImGui::TextDisabled("Current Actual Flow: %.2f", port->rate);
+
 
             if (showDebug) {
                 ImGui::Separator();
