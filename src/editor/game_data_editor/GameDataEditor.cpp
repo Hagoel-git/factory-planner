@@ -7,6 +7,8 @@
 #include <map>
 #include <set>
 #include <cstring>
+#include <nfd.h>
+#include <thread>
 
 template<typename T>
 std::vector<std::pair<std::string, T*>> GameDataEditor::FilterMap(std::map<std::string, T>& sourceMap) {
@@ -421,40 +423,95 @@ void GameDataEditor::DrawGeneralTab() {
 }
 
 void GameDataEditor::DrawResourceGrid() {
-    // Get Data (Filtered & Sorted)
+    if (m_iconDialog.isReady) {
+        if (!m_iconDialog.resultPath.empty()) {
+            std::string err;
+            if (!gameDataManager.setResourceIcon(m_iconDialog.targetKey, m_iconDialog.resultPath, err)) {
+                NotificationManager::instance().addNotification("Icon Error", err, NotificationType::Error);
+            }
+        }
+        m_iconDialog.resultPath.clear();
+        m_iconDialog.targetKey.clear();
+        m_iconDialog.isReady = false;
+        m_iconDialog.isRunning = false;
+    }
     auto filteredItems = FilterMap(gameDataManager.current().resources);
 
     int flags = ImGuiTableFlags_ScrollY | ImGuiTableFlags_Borders |
                 ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingFixedFit;
 
     if (ImGui::BeginTable("ResourceGrid", 3, flags)) {
-        ImGui::TableSetupColumn("Icon", ImGuiTableColumnFlags_WidthFixed, 32.0f); // Fixed width for icon
-        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);      // Stretches to fill space
-        ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 150.0f);  // Fixed width for ID
+        ImGui::TableSetupColumn("Icon", ImGuiTableColumnFlags_WidthFixed, 32.0f);
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 150.0f);
         ImGui::TableHeadersRow();
 
-        // Render Rows with Clipper
         ImGuiListClipper clipper;
         clipper.Begin(filteredItems.size());
+
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));
 
         while (clipper.Step()) {
             for (int row_n = clipper.DisplayStart; row_n < clipper.DisplayEnd; row_n++) {
                 auto* item = filteredItems[row_n].second;
                 std::string& key = filteredItems[row_n].first;
 
-                ImGui::PushID(key.c_str()); // Ensure stable ID for UI interactions
+                ImGui::PushID(key.c_str());
                 ImGui::TableNextRow();
-
-                // Column 1: Icon
                 ImGui::TableNextColumn();
-                if (item->texture) {
-                    ImGui::Image((ImTextureID)(uintptr_t)item->texture, ImVec2(24, 24));
+
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1,1,1,0.1f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1,1,1,0.2f));
+
+                if (ImGui::ImageButton("##icon", (ImTextureID)(uintptr_t)item->texture, ImVec2(24, 24))) {
+                    if (!m_iconDialog.isRunning) {
+                        m_iconDialog.targetKey = key;
+                        m_iconDialog.isRunning = true;
+
+                        std::thread([this]() {
+                            nfdu8char_t *outPath = nullptr;
+                            nfdu8filteritem_t filters[1] = { { "Images", "png,jpg,jpeg" } };
+                            nfdopendialogu8args_t args = {0};
+                            args.filterList = filters;
+                            args.filterCount = 1;
+
+                            nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
+
+                            if (result == NFD_OKAY) {
+                                m_iconDialog.resultPath = outPath;
+                                NFD_FreePathU8(outPath);
+                            }
+                            m_iconDialog.isReady = true;
+                        }).detach();
+                    }
                 }
+
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                    ImGui::SetTooltip("Click to change icon");
+                }
+
+                ImGui::PopStyleColor(3);
 
                 // Column 2: Name
                 ImGui::TableNextColumn();
-                ImGui::AlignTextToFramePadding();
-                ImGui::TextUnformatted(item->name.c_str());
+                ImGui::SetNextItemWidth(-FLT_MIN);
+
+                char buf[256];
+                strncpy(buf, item->name.c_str(), sizeof(buf));
+                buf[sizeof(buf) - 1] = '\0';
+
+                if (ImGui::InputText("##name", buf, sizeof(buf))) {
+                    item->name = std::string(buf);
+                }
+
+                if (ImGui::IsItemDeactivatedAfterEdit()) {
+                    std::string err;
+                    Resource temp = *item;
+                    gameDataManager.editResource(key, temp, err);
+                }
 
                 // Column 3: Key (ID)
                 ImGui::TableNextColumn();
@@ -464,25 +521,42 @@ void GameDataEditor::DrawResourceGrid() {
             }
         }
 
+        ImGui::PopStyleColor(2);
+
         ImGui::EndTable();
     }
 }
 
 void GameDataEditor::DrawMachineGrid() {
+    if (m_iconDialog.isReady) {
+        if (!m_iconDialog.resultPath.empty()) {
+            std::string err;
+            if (!gameDataManager.setMachineIcon(m_iconDialog.targetKey, m_iconDialog.resultPath, err)) {
+                NotificationManager::instance().addNotification("Icon Error", err, NotificationType::Error);
+            }
+        }
+        m_iconDialog.resultPath.clear();
+        m_iconDialog.targetKey.clear();
+        m_iconDialog.isReady = false;
+        m_iconDialog.isRunning = false;
+    }
     auto filteredItems = FilterMap(gameDataManager.current().machines);
 
     int flags = ImGuiTableFlags_ScrollY | ImGuiTableFlags_Borders |
                 ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingFixedFit;
 
     if (ImGui::BeginTable("MachineGrid", 4, flags)) {
-        ImGui::TableSetupColumn("Icon", ImGuiTableColumnFlags_WidthFixed, 32.0f); // Fixed width for icon
-        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);      // Stretches to fill space
-        ImGui::TableSetupColumn("Speed", ImGuiTableColumnFlags_WidthFixed, 100.0f); // Fixed width for Speed
-        ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 150.0f);  // Fixed width for ID
+        ImGui::TableSetupColumn("Icon", ImGuiTableColumnFlags_WidthFixed, 32.0f);
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("Speed", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+        ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 150.0f);
         ImGui::TableHeadersRow();
 
         ImGuiListClipper clipper;
         clipper.Begin(filteredItems.size());
+
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));
 
         while (clipper.Step()) {
             for (int row_n = clipper.DisplayStart; row_n < clipper.DisplayEnd; row_n++) {
@@ -491,21 +565,76 @@ void GameDataEditor::DrawMachineGrid() {
 
                 ImGui::PushID(key.c_str());
                 ImGui::TableNextRow();
-
-                // Column 1: Icon
                 ImGui::TableNextColumn();
-                if (item->texture) {
-                    ImGui::Image((ImTextureID)(uintptr_t)item->texture, ImVec2(24, 24));
+
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1,1,1,0.1f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1,1,1,0.2f));
+
+                if (ImGui::ImageButton("##icon", (ImTextureID)(uintptr_t)item->texture, ImVec2(24, 24))) {
+                    if (!m_iconDialog.isRunning) {
+                        m_iconDialog.targetKey = key;
+                        m_iconDialog.isRunning = true;
+
+                        std::thread([this]() {
+                            nfdu8char_t *outPath = nullptr;
+                            nfdu8filteritem_t filters[1] = { { "Images", "png,jpg,jpeg" } };
+                            nfdopendialogu8args_t args = {0};
+                            args.filterList = filters;
+                            args.filterCount = 1;
+
+                            nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
+
+                            if (result == NFD_OKAY) {
+                                m_iconDialog.resultPath = outPath;
+                                NFD_FreePathU8(outPath);
+                            }
+                            m_iconDialog.isReady = true;
+                        }).detach();
+                    }
                 }
+
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                    ImGui::SetTooltip("Click to change icon");
+                }
+
+                ImGui::PopStyleColor(3);
 
                 // Column 2: Name
                 ImGui::TableNextColumn();
-                ImGui::AlignTextToFramePadding();
-                ImGui::TextUnformatted(item->name.c_str());
+                ImGui::SetNextItemWidth(-FLT_MIN);
+
+                char buf[256];
+                strncpy(buf, item->name.c_str(), sizeof(buf));
+                buf[sizeof(buf) - 1] = '\0';
+
+                if (ImGui::InputText("##name", buf, sizeof(buf))) {
+                    item->name = std::string(buf);
+                }
+
+                if (ImGui::IsItemDeactivatedAfterEdit()) {
+                    std::string err;
+                    Machine temp = *item;
+                    gameDataManager.editMachine(key, temp, err);
+                }
 
                 // Column 3: Speed
                 ImGui::TableNextColumn();
-                ImGui::Text("%.2fx", item->base_crafting_speed);
+                ImGui::SetNextItemWidth(-FLT_MIN);
+
+                char speedBuf[64];
+                snprintf(speedBuf, sizeof(speedBuf), "%.2f", item->base_crafting_speed);
+
+                if (ImGui::InputText("##speed", speedBuf, sizeof(speedBuf))) {
+                    item->base_crafting_speed = std::stof(speedBuf);
+                }
+
+                if (ImGui::IsItemDeactivatedAfterEdit()) {
+                    std::string err;
+                    Machine temp = *item;
+                    gameDataManager.editMachine(key, temp, err);
+                }
 
                 // Column 4: Key (ID)
                 ImGui::TableNextColumn();
@@ -514,6 +643,7 @@ void GameDataEditor::DrawMachineGrid() {
                 ImGui::PopID();
             }
         }
+        ImGui::PopStyleColor(2);
         ImGui::EndTable();
     }
 }
@@ -536,6 +666,10 @@ void GameDataEditor::DrawRecipeGrid() {
         ImGuiListClipper clipper;
         clipper.Begin(filteredItems.size());
 
+
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));
+
         while (clipper.Step()) {
             for (int row_n = clipper.DisplayStart; row_n < clipper.DisplayEnd; row_n++) {
                 auto* item = filteredItems[row_n].second;
@@ -546,12 +680,38 @@ void GameDataEditor::DrawRecipeGrid() {
 
                 // Column 1: Name
                 ImGui::TableNextColumn();
-                ImGui::AlignTextToFramePadding();
-                ImGui::TextUnformatted(item->name.c_str());
+                ImGui::SetNextItemWidth(-FLT_MIN);
+
+                char buf[256];
+                strncpy(buf, item->name.c_str(), sizeof(buf));
+                buf[sizeof(buf) - 1] = '\0';
+
+                if (ImGui::InputText("##name", buf, sizeof(buf))) {
+                    item->name = std::string(buf);
+                }
+
+                if (ImGui::IsItemDeactivatedAfterEdit()) {
+                    std::string err;
+                    Recipe temp = *item;
+                    gameDataManager.editRecipe(key, temp, err);
+                }
 
                 // Column 2: Time
                 ImGui::TableNextColumn();
-                ImGui::Text("%.2f", item->time_seconds);
+                ImGui::SetNextItemWidth(-FLT_MIN);
+
+                char timeBuf[64];
+                snprintf(timeBuf, sizeof(timeBuf), "%.2f", item->time_seconds);
+
+                if (ImGui::InputText("##time", timeBuf, sizeof(timeBuf))) {
+                    item->time_seconds = std::stof(timeBuf);
+                }
+
+                if (ImGui::IsItemDeactivatedAfterEdit()) {
+                    std::string err;
+                    Recipe temp = *item;
+                    gameDataManager.editRecipe(key, temp, err);
+                }
 
                 // Column 3: Inputs
                 ImGui::TableNextColumn();
@@ -577,6 +737,7 @@ void GameDataEditor::DrawRecipeGrid() {
                 ImGui::PopID();
             }
         }
+        ImGui::PopStyleColor(2);
         ImGui::EndTable();
     }
 }
