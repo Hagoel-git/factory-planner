@@ -42,7 +42,15 @@ private:
     // Package Browser State
     std::vector<GameDataPackage> m_packages;
     int m_selectedPackageIndex = -1;
-    bool m_requestNewFilePopup = false; // <--- FIX: Added flag for cross-scope popup triggering
+    bool m_requestNewFilePopup = false;
+
+    struct IconDialogState {
+        std::atomic<bool> isRunning = false; // Is the dialog currently open?
+        std::atomic<bool> isReady = false;   // Did the user pick a file?
+        std::string resultPath;              // The path selected
+        std::string targetKey;               // Which resource are we editing?
+    } m_iconDialog;
+
     void RefreshPackageList();
 
     // Internal Draw Helpers

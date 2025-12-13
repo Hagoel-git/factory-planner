@@ -322,9 +322,10 @@ bool GameDataManager::setResourceIcon(const std::string &key, const std::filesys
         std::filesystem::path root = _data.gameDataFilePath.parent_path().parent_path();
         std::filesystem::path texPath = root / "icons" / "resources" / (key + ".png");
         _data.resources[key].texture = TextureManager::instance().loadTexture(texPath);
+        VLOG(2) << "Resource icon set successfully for key: " << key;
         return true;
     }
-    LOG(WARNING) << "Failed to copy resource icon for key: " << key;
+    LOG(ERROR) << "Failed to copy resource icon for key: " << key;
     outError = "Failed to copy resource icon.";
     return false;
 }
