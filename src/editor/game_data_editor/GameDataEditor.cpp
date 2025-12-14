@@ -724,8 +724,10 @@ void GameDataEditor::DrawRecipeGrid() {
 
             // Column 5: Produced in
             ImGui::TableNextColumn();
-            for (const auto& machineKey : item->produced_in_machines_keys) {
-                ImGui::Text("%s", machineKey.c_str());
+            if (DrawMachineList("##mach", item->produced_in_machines_keys)) {
+                std::string err;
+                Recipe temp = *item;
+                gameDataManager.editRecipe(key, temp, err);
             }
 
             // Column 6: Key (ID)
@@ -956,6 +958,7 @@ bool GameDataEditor::DrawTokenList(const char* str_id, std::vector<RecipePort>& 
                 if (ImGui::Selectable(std::string("##" + key).c_str(), is_selected, ImGuiSelectableFlags_None)) {
                     if (m_tokenPopupState.targetVector) {
                         m_tokenPopupState.targetVector->push_back({1.0, key});
+                        m_tokenPopupState.isInput = isInput;
                         changed = true;
                     }
                     ImGui::CloseCurrentPopup();
@@ -968,6 +971,198 @@ bool GameDataEditor::DrawTokenList(const char* str_id, std::vector<RecipePort>& 
                 ImGui::Image(res->texture, ImVec2(fontSize, fontSize));
                 ImGui::SameLine();
                 ImGui::TextUnformatted(res->name.c_str());
+
+                ImGui::Dummy(ImVec2(0.0f, 0.0f));
+            }
+        }
+        ImGui::EndChild();
+        ImGui::EndPopup();
+    }
+
+    ImGui::PopID();
+    return changed;
+}
+
+bool GameDataEditor::DrawMachineList(const char* str_id, std::vector<std::string>& machineKeys) {
+    bool changed = false;
+    ImGui::PushID(str_id);
+
+    ImGuiStyle& style = ImGui::GetStyle();
+    auto* drawList = ImGui::GetWindowDrawList();
+    auto fontSize = ImGui::GetFontSize();
+
+    // Calculate Layout Limits (Screen Space)
+    // We capture the "Right Edge" of the current column/cell.
+    float startScreenX = ImGui::GetCursorScreenPos().x;
+    float availWidth = ImGui::GetContentRegionAvail().x;
+    float limitScreenX = startScreenX + availWidth;
+
+    const float chipRounding = 4.0f;
+    const ImVec2 chipPadding(4.0f, 2.0f);
+    const float iconSize = 16.0f;
+    ImVec4 chipBgColor = ImVec4(0.2f, 0.25f, 0.3f, 1.0f);
+    ImVec4 chipHoverColor = ImVec4(0.3f, 0.35f, 0.45f, 1.0f);
+    if (SettingsManager::instance().getSettings().themeName == "Light") {
+        chipBgColor = ImVec4(0.8f, 0.85f, 0.9f, 1.0f);
+        chipHoverColor = ImVec4(0.7f, 0.75f, 0.85f, 1.0f);
+    }
+
+    for (int i = 0; i < machineKeys.size(); ++i) {
+        ImGui::PushID(i);
+
+        std::string machName = machineKeys[i];
+
+        if (machName == "nothing") {
+            ImGui::PopID();
+            continue;
+        }
+
+        ImTextureID icon = 0;
+        if (gameDataManager.current().machines.count(machName)) {
+            const auto& mach = gameDataManager.current().machines.at(machName);
+            machName = mach.name;
+            icon = (ImTextureID)(uintptr_t)mach.texture;
+        }
+
+        ImVec2 textSize = ImGui::CalcTextSize(machName.c_str());
+        float bodyWidth = chipPadding.x + (icon ? (iconSize + style.ItemInnerSpacing.x) : 0) + textSize.x + chipPadding.x;
+        float xBtnWidth = ImGui::GetFrameHeight();
+        float totalChipWidth = bodyWidth + xBtnWidth;
+
+        if (i > 0) {
+            float lastItemEndScreenX = ImGui::GetItemRectMax().x;
+            float nextItemEndScreenX = lastItemEndScreenX + style.ItemSpacing.x + totalChipWidth;
+            if (nextItemEndScreenX < limitScreenX) {
+                ImGui::SameLine();
+            }
+        }
+
+        ImVec2 cursorPos = ImGui::GetCursorScreenPos();
+        float frameHeight = ImGui::GetFrameHeight();
+
+        ImGui::SetCursorScreenPos(cursorPos);
+        ImGui::Dummy(ImVec2(bodyWidth, frameHeight));
+
+        drawList->AddRectFilled(
+            cursorPos,
+            ImVec2(cursorPos.x + bodyWidth, cursorPos.y + frameHeight),
+            ImGui::GetColorU32(chipBgColor),
+            chipRounding,
+            ImDrawFlags_RoundCornersLeft
+        );
+
+        float contentX = cursorPos.x + chipPadding.x;
+        float contentY = cursorPos.y + (frameHeight - iconSize) * 0.5f;
+
+        if (icon) {
+            drawList->AddImage(icon, ImVec2(contentX, contentY), ImVec2(contentX + iconSize, contentY + iconSize));
+            contentX += iconSize + style.ItemInnerSpacing.x;
+        }
+
+        float textY = cursorPos.y + (frameHeight - textSize.y) * 0.5f;
+        drawList->AddText(ImVec2(contentX, textY), ImGui::GetColorU32(ImGuiCol_Text), machName.c_str());
+
+        ImGui::SameLine(0, 0);
+
+        ImGui::SetCursorScreenPos(ImVec2(cursorPos.x + bodyWidth, cursorPos.y));
+        bool clickedX = ImGui::InvisibleButton("##x_btn", ImVec2(xBtnWidth, frameHeight));
+        bool hoveredX = ImGui::IsItemHovered();
+        bool activeX = ImGui::IsItemActive();
+
+        ImVec4 xColor = ImVec4(chipBgColor.x * 0.8f, chipBgColor.y * 0.8f, chipBgColor.z * 0.8f, 1.0f); // Default Darker
+        if (activeX) {
+            xColor = ImVec4(xColor.x * 0.7f, xColor.y * 0.7f, xColor.z * 0.7f, 1.0f); // Clicked = Darkest
+        } else if (hoveredX) {
+            xColor = ImVec4(xColor.x * 1.3f, xColor.y * 1.3f, xColor.z * 1.3f, 1.0f); // Hovered = Lighter
+        }
+
+        if (SettingsManager::instance().getSettings().themeName == "Light") {
+            xColor = ImVec4(chipBgColor.x * 1.1f, chipBgColor.y * 1.1f, chipBgColor.z * 1.1f, 1.0f); // Default Lighter
+            if (activeX) {
+                xColor = ImVec4(xColor.x * 0.7f, xColor.y * 0.7f, xColor.z * 0.7f, 1.0f); // Clicked = Darkest
+            } else if (hoveredX) {
+                xColor = ImVec4(xColor.x * 0.8f, xColor.y * 0.8f, xColor.z * 0.8f, 1.0f); // Hovered = Darker
+            }
+        }
+
+        drawList->AddRectFilled(
+            ImVec2(cursorPos.x + bodyWidth, cursorPos.y),
+            ImVec2(cursorPos.x + bodyWidth + xBtnWidth, cursorPos.y + frameHeight),
+            ImGui::GetColorU32(xColor),
+            chipRounding,
+            ImDrawFlags_RoundCornersRight
+        );
+
+        ImVec2 xTextSize = ImGui::CalcTextSize("x");
+        float xTextX = cursorPos.x + bodyWidth + (xBtnWidth - xTextSize.x) * 0.5f;
+        float xTextY = cursorPos.y + (frameHeight - xTextSize.y) * 0.5f;
+        drawList->AddText(ImVec2(xTextX, xTextY), ImGui::GetColorU32(ImGuiCol_Text), "x");
+
+        if (clickedX) {
+            machineKeys.erase(machineKeys.begin() + i);
+            changed = true;
+            ImGui::PopID();
+            continue;
+        }
+        ImGui::PopID();
+    }
+
+    float lastItemEndScreenX = ImGui::GetItemRectMax().x;
+    float addBtnWidth = 24.0f;
+    float frameHeight = ImGui::GetFrameHeight();
+
+    if (!machineKeys.empty() && (lastItemEndScreenX + style.ItemSpacing.x + addBtnWidth < limitScreenX)) {
+        ImGui::SameLine();
+    }
+
+    ImGui::PushStyleColor(ImGuiCol_Button, chipBgColor);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, chipHoverColor);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(chipHoverColor.x * 0.9f, chipHoverColor.y * 0.9f, chipHoverColor.z * 0.9f, 1.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 8.0f);
+    if (ImGui::Button("+", ImVec2(addBtnWidth, frameHeight))) {
+        ImGui::OpenPopup("AddMachinePopup");
+    }
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(3);
+
+    if (ImGui::BeginPopup("AddMachinePopup")) {
+        if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+        ImGui::InputTextWithHint("##s", "Search...", m_tokenPopupState.searchBuf, 128);
+        ImGui::Separator();
+
+        if (ImGui::BeginChild("AddL", ImVec2(-1, 200))) {
+            auto machines = FilterMap(gameDataManager.current().machines, m_tokenPopupState.searchBuf);
+
+            for (const auto& pair : machines) {
+                const std::string& key = pair.first;
+                Machine* mach = pair.second;
+
+                bool alreadyHas = false;
+                for (const auto& existing : machineKeys) {
+                    if (existing == key) {
+                        alreadyHas = true;
+                        break;
+                    }
+                }
+                if (alreadyHas) continue;
+
+                bool is_selected = false;
+
+                ImVec2 start_pos = ImGui::GetCursorPos();
+
+                if (ImGui::Selectable(std::string("##" + key).c_str(), is_selected, ImGuiSelectableFlags_None)) {
+                    machineKeys.push_back(key);
+                    changed = true;
+                    ImGui::CloseCurrentPopup();
+                }
+
+                ImGui::SetItemAllowOverlap();
+
+                ImGui::SetCursorPos(start_pos);
+
+                ImGui::Image(mach->texture, ImVec2(fontSize, fontSize));
+                ImGui::SameLine();
+                ImGui::TextUnformatted(mach->name.c_str());
 
                 ImGui::Dummy(ImVec2(0.0f, 0.0f));
             }
