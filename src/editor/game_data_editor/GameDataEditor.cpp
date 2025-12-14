@@ -755,8 +755,12 @@ bool GameDataEditor::DrawTokenList(const char* str_id, std::vector<RecipePort>& 
     const float chipRounding = 4.0f;
     const ImVec2 chipPadding(4.0f, 2.0f);
     const float iconSize = 16.0f;
-    const ImVec4 chipBgColor = ImVec4(0.2f, 0.25f, 0.3f, 1.0f);
-    const ImVec4 chipHoverColor = ImVec4(0.3f, 0.35f, 0.45f, 1.0f);
+    ImVec4 chipBgColor = ImVec4(0.2f, 0.25f, 0.3f, 1.0f);
+    ImVec4 chipHoverColor = ImVec4(0.3f, 0.35f, 0.45f, 1.0f);
+    if (SettingsManager::instance().getSettings().themeName == "Light") {
+        chipBgColor = ImVec4(0.8f, 0.85f, 0.9f, 1.0f);
+        chipHoverColor = ImVec4(0.7f, 0.75f, 0.85f, 1.0f);
+    }
 
     for (int i = 0; i < ports.size(); ++i) {
         ImGui::PushID(i);
@@ -832,6 +836,15 @@ bool GameDataEditor::DrawTokenList(const char* str_id, std::vector<RecipePort>& 
             xColor = ImVec4(xColor.x * 0.7f, xColor.y * 0.7f, xColor.z * 0.7f, 1.0f); // Clicked = Darkest
         } else if (hoveredX) {
             xColor = ImVec4(xColor.x * 1.3f, xColor.y * 1.3f, xColor.z * 1.3f, 1.0f); // Hovered = Lighter
+        }
+
+        if (SettingsManager::instance().getSettings().themeName == "Light") {
+            xColor = ImVec4(chipBgColor.x * 1.1f, chipBgColor.y * 1.1f, chipBgColor.z * 1.1f, 1.0f); // Default Lighter
+            if (activeX) {
+                xColor = ImVec4(xColor.x * 0.7f, xColor.y * 0.7f, xColor.z * 0.7f, 1.0f); // Clicked = Darkest
+            } else if (hoveredX) {
+                xColor = ImVec4(xColor.x * 0.8f, xColor.y * 0.8f, xColor.z * 0.8f, 1.0f); // Hovered = Darker
+            }
         }
 
         drawList->AddRectFilled(
