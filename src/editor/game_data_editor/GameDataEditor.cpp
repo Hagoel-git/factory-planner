@@ -11,11 +11,11 @@
 #include <thread>
 
 template<typename T>
-std::vector<std::pair<std::string, T*>> GameDataEditor::FilterMap(std::map<std::string, T>& sourceMap) {
+std::vector<std::pair<std::string, T*>> GameDataEditor::FilterMap(std::map<std::string, T>& sourceMap, const std::string& filterStr) {
     std::vector<std::pair<std::string, T*>> result;
     result.reserve(sourceMap.size());
 
-    std::string searchLower = m_searchBuffer;
+    std::string searchLower = filterStr;
     std::transform(searchLower.begin(), searchLower.end(), searchLower.begin(), ::tolower);
 
     for (auto& [key, item] : sourceMap) {
@@ -31,7 +31,7 @@ std::vector<std::pair<std::string, T*>> GameDataEditor::FilterMap(std::map<std::
             if (nameLower.find(searchLower) == std::string::npos &&
                 key.find(searchLower) == std::string::npos) {
                 match = false;
-                }
+            }
         }
 
         if (match) {
@@ -46,9 +46,9 @@ std::vector<std::pair<std::string, T*>> GameDataEditor::FilterMap(std::map<std::
     return result;
 }
 
-template std::vector<std::pair<std::string, Resource*>> GameDataEditor::FilterMap(std::map<std::string, Resource>&);
-template std::vector<std::pair<std::string, Machine*>> GameDataEditor::FilterMap(std::map<std::string, Machine>&);
-template std::vector<std::pair<std::string, Recipe*>> GameDataEditor::FilterMap(std::map<std::string, Recipe>&);
+template std::vector<std::pair<std::string, Resource*>> GameDataEditor::FilterMap(std::map<std::string, Resource>&, const std::string&);
+template std::vector<std::pair<std::string, Machine*>> GameDataEditor::FilterMap(std::map<std::string, Machine>&, const std::string&);
+template std::vector<std::pair<std::string, Recipe*>> GameDataEditor::FilterMap(std::map<std::string, Recipe>&, const std::string&);
 
 GameDataEditor::GameDataEditor(GameDataManager& manager) : gameDataManager(manager) {
     RefreshPackageList();
@@ -435,7 +435,7 @@ void GameDataEditor::DrawResourceGrid() {
         m_iconDialog.isReady = false;
         m_iconDialog.isRunning = false;
     }
-    auto filteredItems = FilterMap(gameDataManager.current().resources);
+    auto filteredItems = FilterMap(gameDataManager.current().resources, m_searchBuffer);
 
     int flags = ImGuiTableFlags_ScrollY | ImGuiTableFlags_Borders |
                 ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingFixedFit;
@@ -540,7 +540,7 @@ void GameDataEditor::DrawMachineGrid() {
         m_iconDialog.isReady = false;
         m_iconDialog.isRunning = false;
     }
-    auto filteredItems = FilterMap(gameDataManager.current().machines);
+    auto filteredItems = FilterMap(gameDataManager.current().machines, m_searchBuffer);
 
     int flags = ImGuiTableFlags_ScrollY | ImGuiTableFlags_Borders |
                 ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingFixedFit;
@@ -649,7 +649,7 @@ void GameDataEditor::DrawMachineGrid() {
 }
 
 void GameDataEditor::DrawRecipeGrid() {
-    auto filteredItems = FilterMap(gameDataManager.current().recipes);
+    auto filteredItems = FilterMap(gameDataManager.current().recipes, m_searchBuffer);
 
     int flags = ImGuiTableFlags_ScrollY | ImGuiTableFlags_Borders |
                 ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingStretchProp;
@@ -744,6 +744,7 @@ bool GameDataEditor::DrawTokenList(const char* str_id, std::vector<RecipePort>& 
 
     ImGuiStyle& style = ImGui::GetStyle();
     auto* drawList = ImGui::GetWindowDrawList();
+    auto fontSize = ImGui::GetFontSize();
 
     // Calculate Layout Limits (Screen Space)
     // We capture the "Right Edge" of the current column/cell.
@@ -857,8 +858,11 @@ bool GameDataEditor::DrawTokenList(const char* str_id, std::vector<RecipePort>& 
             ImGui::TextDisabled("Edit Port");
             ImGui::Separator();
 
-            ImGui::SetNextItemWidth(100);
-            if (ImGui::InputDouble("Amount", &ports[i].amount, 1.0, 10.0, "%.2f")) changed = true;
+            ImGui::SetNextItemWidth(120);
+            ImGui::InputDouble("Amount", &ports[i].amount, 1.0, 10.0, "%.2f");
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                changed = true;
+            }
 
             ImGui::Separator();
             ImGui::TextDisabled("Change Resource");
@@ -867,17 +871,31 @@ bool GameDataEditor::DrawTokenList(const char* str_id, std::vector<RecipePort>& 
             if (ImGui::IsWindowAppearing()) { sbuf[0] = 0; ImGui::SetKeyboardFocusHere(); }
             ImGui::InputTextWithHint("##s", "Search...", sbuf, 64);
 
-            if (ImGui::BeginChild("L", ImVec2(200, 150))) {
-                std::string filter = sbuf;
-                for (const auto& [key, res] : gameDataManager.current().resources) {
-                    if (key == "nothing") continue;
-                    if (!filter.empty() && res.name.find(filter) == std::string::npos) continue;
+            if (ImGui::BeginChild("L", ImVec2(-1, 200))) {
+                auto resources = FilterMap(gameDataManager.current().resources, sbuf);
 
-                    if (ImGui::Selectable(res.name.c_str(), ports[i].resource_key == key)) {
+                for (const auto& pair : resources) {
+                    const std::string& key = pair.first;
+                    Resource* res = pair.second;
+                    bool is_selected = (ports[i].resource_key == key);
+
+                    ImVec2 start_pos = ImGui::GetCursorPos();
+
+                    if (ImGui::Selectable(std::string("##" + key).c_str(), is_selected, ImGuiSelectableFlags_None)) {
                         ports[i].resource_key = key;
                         changed = true;
                         ImGui::CloseCurrentPopup();
                     }
+
+                    ImGui::SetItemAllowOverlap();
+
+                    ImGui::SetCursorPos(start_pos);
+
+                    ImGui::Image(res->texture, ImVec2(fontSize, fontSize));
+                    ImGui::SameLine();
+                    ImGui::TextUnformatted(res->name.c_str());
+
+                    ImGui::Dummy(ImVec2(0.0f, 0.0f));
                 }
             }
             ImGui::EndChild();
@@ -898,7 +916,6 @@ bool GameDataEditor::DrawTokenList(const char* str_id, std::vector<RecipePort>& 
     ImGui::PushStyleColor(ImGuiCol_Button, chipBgColor);
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, chipHoverColor);
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(chipHoverColor.x * 0.9f, chipHoverColor.y * 0.9f, chipHoverColor.z * 0.9f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 8.0f);
     if (ImGui::Button("+", ImVec2(addBtnWidth, frameHeight))) {
         m_tokenPopupState.targetVector = &ports;
@@ -906,26 +923,40 @@ bool GameDataEditor::DrawTokenList(const char* str_id, std::vector<RecipePort>& 
         ImGui::OpenPopup("AddTokenPopup");
     }
     ImGui::PopStyleVar();
-    ImGui::PopStyleColor(4);
+    ImGui::PopStyleColor(3);
 
     if (ImGui::BeginPopup("AddTokenPopup")) {
         if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
         ImGui::InputTextWithHint("##s", "Search...", m_tokenPopupState.searchBuf, 128);
         ImGui::Separator();
 
-        if (ImGui::BeginChild("AddL", ImVec2(200, 150))) {
-            std::string filter = m_tokenPopupState.searchBuf;
-            for (const auto& [key, res] : gameDataManager.current().resources) {
-                if (key == "nothing") continue;
-                if (!filter.empty() && res.name.find(filter) == std::string::npos) continue;
+        if (ImGui::BeginChild("AddL", ImVec2(-1, 200))) {
+            auto resources = FilterMap(gameDataManager.current().resources, m_tokenPopupState.searchBuf);
 
-                if (ImGui::Selectable(res.name.c_str())) {
+            for (const auto& pair : resources) {
+                const std::string& key = pair.first;
+                Resource* res = pair.second;
+                bool is_selected = false;
+
+                ImVec2 start_pos = ImGui::GetCursorPos();
+
+                if (ImGui::Selectable(std::string("##" + key).c_str(), is_selected, ImGuiSelectableFlags_None)) {
                     if (m_tokenPopupState.targetVector) {
                         m_tokenPopupState.targetVector->push_back({1.0, key});
                         changed = true;
                     }
                     ImGui::CloseCurrentPopup();
                 }
+
+                ImGui::SetItemAllowOverlap();
+
+                ImGui::SetCursorPos(start_pos);
+
+                ImGui::Image(res->texture, ImVec2(fontSize, fontSize));
+                ImGui::SameLine();
+                ImGui::TextUnformatted(res->name.c_str());
+
+                ImGui::Dummy(ImVec2(0.0f, 0.0f));
             }
         }
         ImGui::EndChild();

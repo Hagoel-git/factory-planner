@@ -77,7 +77,7 @@ private:
     void DrawRecipeGrid();
 
     template<typename T>
-    std::vector<std::pair<std::string, T*>> FilterMap(std::map<std::string, T>& sourceMap);
+    std::vector<std::pair<std::string, T*>> FilterMap(std::map<std::string, T>& sourceMap, const std::string& filterStr);
 };
 
 #endif //GAMEDATAEDITOR_H
