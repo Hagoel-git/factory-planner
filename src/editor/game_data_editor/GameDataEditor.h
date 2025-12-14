@@ -65,6 +65,7 @@ private:
     void DrawPackageBrowser();
     void DrawEditorWorkspace();
     bool DrawTokenList(const char* str_id, std::vector<RecipePort>& ports, bool isInput);
+    bool DrawMachineList(const char* str_id, std::vector<std::string>& machineKeys);
 
     void DrawTopMenuBar();
     void DrawCentralWorkspace();
