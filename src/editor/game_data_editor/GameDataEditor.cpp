@@ -652,94 +652,288 @@ void GameDataEditor::DrawRecipeGrid() {
     auto filteredItems = FilterMap(gameDataManager.current().recipes);
 
     int flags = ImGuiTableFlags_ScrollY | ImGuiTableFlags_Borders |
-                ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingFixedFit;
+                ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingStretchProp;
 
     if (ImGui::BeginTable("RecipeGrid", 6, flags)) {
-        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 250.0f);
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 150.0f);
         ImGui::TableSetupColumn("Time (sec)", ImGuiTableColumnFlags_WidthFixed, 60.0f);
-        ImGui::TableSetupColumn("Inputs", ImGuiTableColumnFlags_WidthStretch, 250.0f);
-        ImGui::TableSetupColumn("Outputs", ImGuiTableColumnFlags_WidthStretch, 250.0f);
+        ImGui::TableSetupColumn("Inputs", ImGuiTableColumnFlags_WidthStretch, 375.0f);
+        ImGui::TableSetupColumn("Outputs", ImGuiTableColumnFlags_WidthStretch, 225.0f);
         ImGui::TableSetupColumn("Produced in", ImGuiTableColumnFlags_WidthStretch, 150.0f);
         ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 150.0f);  // Fixed width for ID
         ImGui::TableHeadersRow();
-
-        ImGuiListClipper clipper;
-        clipper.Begin(filteredItems.size());
 
 
         ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
         ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));
 
-        while (clipper.Step()) {
-            for (int row_n = clipper.DisplayStart; row_n < clipper.DisplayEnd; row_n++) {
-                auto* item = filteredItems[row_n].second;
-                std::string& key = filteredItems[row_n].first;
+        for (int row_n = 0; row_n < filteredItems.size(); row_n++) {
+            auto* item = filteredItems[row_n].second;
+            std::string& key = filteredItems[row_n].first;
 
-                ImGui::PushID(key.c_str());
-                ImGui::TableNextRow();
+            ImGui::PushID(key.c_str());
+            ImGui::TableNextRow();
 
-                // Column 1: Name
-                ImGui::TableNextColumn();
-                ImGui::SetNextItemWidth(-FLT_MIN);
+            // Column 1: Name
+            ImGui::TableNextColumn();
+            ImGui::SetNextItemWidth(-FLT_MIN);
 
-                char buf[256];
-                strncpy(buf, item->name.c_str(), sizeof(buf));
-                buf[sizeof(buf) - 1] = '\0';
+            char buf[256];
+            strncpy(buf, item->name.c_str(), sizeof(buf));
+            buf[sizeof(buf) - 1] = '\0';
 
-                if (ImGui::InputText("##name", buf, sizeof(buf))) {
-                    item->name = std::string(buf);
-                }
+            if (ImGui::InputText("##name", buf, sizeof(buf))) {
+                item->name = std::string(buf);
+            }
 
-                if (ImGui::IsItemDeactivatedAfterEdit()) {
-                    std::string err;
-                    Recipe temp = *item;
-                    gameDataManager.editRecipe(key, temp, err);
-                }
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                std::string err;
+                Recipe temp = *item;
+                gameDataManager.editRecipe(key, temp, err);
+            }
 
-                // Column 2: Time
-                ImGui::TableNextColumn();
-                ImGui::SetNextItemWidth(-FLT_MIN);
+            // Column 2: Time
+            ImGui::TableNextColumn();
+            ImGui::SetNextItemWidth(-FLT_MIN);
 
-                char timeBuf[64];
-                snprintf(timeBuf, sizeof(timeBuf), "%.2f", item->time_seconds);
+            if (ImGui::InputDouble("##time", &item->time_seconds, 0.0f, 0.0f, "%.2f")) {
+                // Value is updated automatically
+            }
 
-                if (ImGui::InputText("##time", timeBuf, sizeof(timeBuf))) {
-                    item->time_seconds = std::stof(timeBuf);
-                }
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                std::string err;
+                Recipe temp = *item;
+                gameDataManager.editRecipe(key, temp, err);
+            }
 
-                if (ImGui::IsItemDeactivatedAfterEdit()) {
-                    std::string err;
-                    Recipe temp = *item;
-                    gameDataManager.editRecipe(key, temp, err);
-                }
+            // Column 3: Inputs
+            ImGui::TableNextColumn();
+            if (DrawTokenList("##in", item->input_ports, true)) {
+                std::string err;
+                Recipe temp = *item;
+                gameDataManager.editRecipe(key, temp, err);
+            }
 
-                // Column 3: Inputs
-                ImGui::TableNextColumn();
-                for (const auto& input : item->input_ports) {
-                    ImGui::Text("%s", input.resource_key.c_str());
-                }
+            // Column 4: Outputs
+            ImGui::TableNextColumn();
+            if (DrawTokenList("##out", item->output_ports, false)) {
+                std::string err;
+                Recipe temp = *item;
+                gameDataManager.editRecipe(key, temp, err);
+            }
 
-                // Column 4: Outputs
-                ImGui::TableNextColumn();
-                for (const auto& output : item->output_ports) {
-                    ImGui::Text("%s", output.resource_key.c_str());
-                }
+            // Column 5: Produced in
+            ImGui::TableNextColumn();
+            for (const auto& machineKey : item->produced_in_machines_keys) {
+                ImGui::Text("%s", machineKey.c_str());
+            }
 
-                // Column 5: Produced in
-                ImGui::TableNextColumn();
-                for (const auto& machineKey : item->produced_in_machines_keys) {
-                    ImGui::Text("%s", machineKey.c_str());
-                }
+            // Column 6: Key (ID)
+            ImGui::TableNextColumn();
+            ImGui::TextDisabled("%s", key.c_str());
+            ImGui::PopID();
+        }
+    }
+    ImGui::PopStyleColor(2);
+    ImGui::EndTable();
+}
 
-                // Column 6: Key (ID)
-                ImGui::TableNextColumn();
-                ImGui::TextDisabled("%s", key.c_str());
-                ImGui::PopID();
+bool GameDataEditor::DrawTokenList(const char* str_id, std::vector<RecipePort>& ports, bool isInput) {
+    bool changed = false;
+    ImGui::PushID(str_id);
+
+    ImGuiStyle& style = ImGui::GetStyle();
+    auto* drawList = ImGui::GetWindowDrawList();
+
+    // Calculate Layout Limits (Screen Space)
+    // We capture the "Right Edge" of the current column/cell.
+    float startScreenX = ImGui::GetCursorScreenPos().x;
+    float availWidth = ImGui::GetContentRegionAvail().x;
+    float limitScreenX = startScreenX + availWidth;
+
+    const float chipRounding = 4.0f;
+    const ImVec2 chipPadding(4.0f, 2.0f);
+    const float iconSize = 16.0f;
+    const ImVec4 chipBgColor = ImVec4(0.2f, 0.25f, 0.3f, 1.0f);
+    const ImVec4 chipHoverColor = ImVec4(0.3f, 0.35f, 0.45f, 1.0f);
+
+    for (int i = 0; i < ports.size(); ++i) {
+        ImGui::PushID(i);
+
+        std::string resName = ports[i].resource_key;
+
+        if (resName == "nothing") {
+            ImGui::PopID();
+            continue;
+        }
+
+        ImTextureID icon = 0;
+        if (gameDataManager.current().resources.count(resName)) {
+            const auto& res = gameDataManager.current().resources.at(resName);
+            resName = res.name;
+            icon = (ImTextureID)(uintptr_t)res.texture;
+        }
+
+        char label[128];
+        snprintf(label, sizeof(label), "%s x%.2f", resName.c_str(), ports[i].amount);
+        ImVec2 textSize = ImGui::CalcTextSize(label);
+
+        float bodyWidth = chipPadding.x + (icon ? (iconSize + style.ItemInnerSpacing.x) : 0) + textSize.x + chipPadding.x;
+        float xBtnWidth = ImGui::GetFrameHeight();
+        float totalChipWidth = bodyWidth + xBtnWidth;
+
+        if (i > 0) {
+            float lastItemEndScreenX = ImGui::GetItemRectMax().x;
+            float nextItemEndScreenX = lastItemEndScreenX + style.ItemSpacing.x + totalChipWidth;
+
+            if (nextItemEndScreenX < limitScreenX) {
+                ImGui::SameLine();
             }
         }
-        ImGui::PopStyleColor(2);
-        ImGui::EndTable();
+
+        ImVec2 cursorPos = ImGui::GetCursorScreenPos();
+        float frameHeight = ImGui::GetFrameHeight();
+
+        ImGui::SetCursorScreenPos(cursorPos);
+        bool clickedBody = ImGui::InvisibleButton("##body", ImVec2(bodyWidth, frameHeight));
+        bool hoveredBody = ImGui::IsItemHovered();
+
+        drawList->AddRectFilled(
+            cursorPos,
+            ImVec2(cursorPos.x + bodyWidth, cursorPos.y + frameHeight),
+            ImGui::GetColorU32(hoveredBody ? chipHoverColor : chipBgColor),
+            chipRounding,
+            ImDrawFlags_RoundCornersLeft
+        );
+
+        float contentX = cursorPos.x + chipPadding.x;
+        float contentY = cursorPos.y + (frameHeight - iconSize) * 0.5f;
+
+        if (icon) {
+            drawList->AddImage(icon, ImVec2(contentX, contentY), ImVec2(contentX + iconSize, contentY + iconSize));
+            contentX += iconSize + style.ItemInnerSpacing.x;
+        }
+
+        float textY = cursorPos.y + (frameHeight - textSize.y) * 0.5f;
+        drawList->AddText(ImVec2(contentX, textY), ImGui::GetColorU32(ImGuiCol_Text), label);
+
+        if (clickedBody) ImGui::OpenPopup("EditTokenPopup");
+
+        ImGui::SameLine(0, 0);
+
+        ImGui::SetCursorScreenPos(ImVec2(cursorPos.x + bodyWidth, cursorPos.y));
+        bool clickedX = ImGui::InvisibleButton("##x_btn", ImVec2(xBtnWidth, frameHeight));
+        bool hoveredX = ImGui::IsItemHovered();
+        bool activeX = ImGui::IsItemActive();
+
+        ImVec4 xColor = ImVec4(chipBgColor.x * 0.8f, chipBgColor.y * 0.8f, chipBgColor.z * 0.8f, 1.0f); // Default Darker
+        if (activeX) {
+            xColor = ImVec4(xColor.x * 0.7f, xColor.y * 0.7f, xColor.z * 0.7f, 1.0f); // Clicked = Darkest
+        } else if (hoveredX) {
+            xColor = ImVec4(xColor.x * 1.3f, xColor.y * 1.3f, xColor.z * 1.3f, 1.0f); // Hovered = Lighter
+        }
+
+        drawList->AddRectFilled(
+            ImVec2(cursorPos.x + bodyWidth, cursorPos.y),
+            ImVec2(cursorPos.x + bodyWidth + xBtnWidth, cursorPos.y + frameHeight),
+            ImGui::GetColorU32(xColor),
+            chipRounding,
+            ImDrawFlags_RoundCornersRight
+        );
+
+        ImVec2 xTextSize = ImGui::CalcTextSize("x");
+        float xTextX = cursorPos.x + bodyWidth + (xBtnWidth - xTextSize.x) * 0.5f;
+        float xTextY = cursorPos.y + (frameHeight - xTextSize.y) * 0.5f;
+        drawList->AddText(ImVec2(xTextX, xTextY), ImGui::GetColorU32(ImGuiCol_Text), "x");
+
+        if (clickedX) {
+            ports.erase(ports.begin() + i);
+            changed = true;
+            ImGui::PopID();
+            continue;
+        }
+
+        if (ImGui::BeginPopup("EditTokenPopup")) {
+            ImGui::TextDisabled("Edit Port");
+            ImGui::Separator();
+
+            ImGui::SetNextItemWidth(100);
+            if (ImGui::InputDouble("Amount", &ports[i].amount, 1.0, 10.0, "%.2f")) changed = true;
+
+            ImGui::Separator();
+            ImGui::TextDisabled("Change Resource");
+
+            static char sbuf[64] = "";
+            if (ImGui::IsWindowAppearing()) { sbuf[0] = 0; ImGui::SetKeyboardFocusHere(); }
+            ImGui::InputTextWithHint("##s", "Search...", sbuf, 64);
+
+            if (ImGui::BeginChild("L", ImVec2(200, 150))) {
+                std::string filter = sbuf;
+                for (const auto& [key, res] : gameDataManager.current().resources) {
+                    if (key == "nothing") continue;
+                    if (!filter.empty() && res.name.find(filter) == std::string::npos) continue;
+
+                    if (ImGui::Selectable(res.name.c_str(), ports[i].resource_key == key)) {
+                        ports[i].resource_key = key;
+                        changed = true;
+                        ImGui::CloseCurrentPopup();
+                    }
+                }
+            }
+            ImGui::EndChild();
+            ImGui::EndPopup();
+        }
+
+        ImGui::PopID();
     }
+
+    float lastItemEndScreenX = ImGui::GetItemRectMax().x;
+    float addBtnWidth = 24.0f;
+    float frameHeight = ImGui::GetFrameHeight();
+
+    if (!ports.empty() && (lastItemEndScreenX + style.ItemSpacing.x + addBtnWidth < limitScreenX)) {
+        ImGui::SameLine();
+    }
+
+    ImGui::PushStyleColor(ImGuiCol_Button, chipBgColor);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, chipHoverColor);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(chipHoverColor.x * 0.9f, chipHoverColor.y * 0.9f, chipHoverColor.z * 0.9f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 8.0f);
+    if (ImGui::Button("+", ImVec2(addBtnWidth, frameHeight))) {
+        m_tokenPopupState.targetVector = &ports;
+        m_tokenPopupState.searchBuf[0] = '\0';
+        ImGui::OpenPopup("AddTokenPopup");
+    }
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(4);
+
+    if (ImGui::BeginPopup("AddTokenPopup")) {
+        if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+        ImGui::InputTextWithHint("##s", "Search...", m_tokenPopupState.searchBuf, 128);
+        ImGui::Separator();
+
+        if (ImGui::BeginChild("AddL", ImVec2(200, 150))) {
+            std::string filter = m_tokenPopupState.searchBuf;
+            for (const auto& [key, res] : gameDataManager.current().resources) {
+                if (key == "nothing") continue;
+                if (!filter.empty() && res.name.find(filter) == std::string::npos) continue;
+
+                if (ImGui::Selectable(res.name.c_str())) {
+                    if (m_tokenPopupState.targetVector) {
+                        m_tokenPopupState.targetVector->push_back({1.0, key});
+                        changed = true;
+                    }
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+        }
+        ImGui::EndChild();
+        ImGui::EndPopup();
+    }
+
+    ImGui::PopID();
+    return changed;
 }
 
 void GameDataEditor::DrawContextPane() {
