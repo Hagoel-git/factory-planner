@@ -51,12 +51,20 @@ private:
         std::string targetKey;               // Which resource are we editing?
     } m_iconDialog;
 
+    struct TokenPopupState {
+        bool isOpen = false;
+        std::vector<RecipePort>* targetVector = nullptr;
+        bool isInput = false;
+        char searchBuf[128] = "";
+    } m_tokenPopupState;
+
     void RefreshPackageList();
 
     // Internal Draw Helpers
     void DrawNewFileDialog();
     void DrawPackageBrowser();
     void DrawEditorWorkspace();
+    bool DrawTokenList(const char* str_id, std::vector<RecipePort>& ports, bool isInput);
 
     void DrawTopMenuBar();
     void DrawCentralWorkspace();
@@ -67,7 +75,6 @@ private:
     void DrawResourceGrid();
     void DrawMachineGrid();
     void DrawRecipeGrid();
-    void DrawGridPlaceholder(const char* label);
 
     template<typename T>
     std::vector<std::pair<std::string, T*>> FilterMap(std::map<std::string, T>& sourceMap);
