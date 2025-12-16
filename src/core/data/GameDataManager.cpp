@@ -293,18 +293,19 @@ bool GameDataManager::deleteResource(const std::string& key_name, std::string &o
         const Recipe &rec = recPair.second;
         for (const auto &p : rec.input_ports) {
             if (p.resource_key == key_name) {
-                LOG(WARNING) << "Resource is used in a recipe input: " << _data.recipes.find(rec.name)->first << "; cannot delete.";
-                outError = "Resource is used in a recipe input (" + _data.recipes.find(rec.name)->first + "); cannot delete.";
-                return false;
+                LOG(WARNING) << "Resource is used in a recipe input: " << recPair.first << "; cannot delete.";
+                outError += "Resource is used in a recipe input (" + recPair.first + "); cannot delete.\n";
             }
         }
         for (const auto &p : rec.output_ports) {
             if (p.resource_key == key_name) {
-                LOG(WARNING) << "Resource is used in a recipe output: " << _data.recipes.find(rec.name)->first << "; cannot delete.";
-                outError = "Resource is used in a recipe output (" + _data.recipes.find(rec.name)->first + "); cannot delete.";
-                return false;
+                LOG(WARNING) << "Resource is used in a recipe output: " << recPair.first << "; cannot delete.";
+                outError += "Resource is used in a recipe output (" + recPair.first + "); cannot delete.\n";
             }
         }
+    }
+    if (!outError.empty()) {
+        return false;
     }
     _data.resources.erase(key_name);
     VLOG(2) << "Resource deleted successfully: " << key_name;
