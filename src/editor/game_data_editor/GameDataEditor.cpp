@@ -440,11 +440,10 @@ void GameDataEditor::DrawResourceGrid() {
     int flags = ImGuiTableFlags_ScrollY | ImGuiTableFlags_Borders |
                 ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingFixedFit;
 
-    if (ImGui::BeginTable("ResourceGrid", 4, flags)) {
+    if (ImGui::BeginTable("ResourceGrid", 3, flags)) {
         ImGui::TableSetupColumn("Icon", ImGuiTableColumnFlags_WidthFixed, 32.0f);
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 150.0f);
-        ImGui::TableSetupColumn("Del", ImGuiTableColumnFlags_WidthFixed, 32.0f);
         ImGui::TableHeadersRow();
 
         ImGuiListClipper clipper;
@@ -517,32 +516,6 @@ void GameDataEditor::DrawResourceGrid() {
                 // Column 3: Key (ID)
                 ImGui::TableNextColumn();
                 ImGui::TextDisabled("%s", key.c_str());
-
-                // Column 4: Delete button
-                ImGui::TableNextColumn();
-                float rowHeight = 24.0f + (ImGui::GetStyle().FramePadding.y * 2.0f);
-                float buttonSize = ImGui::GetFrameHeight();
-
-                float availX = ImGui::GetContentRegionAvail().x;
-                if (availX > buttonSize) {
-                    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availX - buttonSize) * 0.5f);
-                }
-
-                float offsetY = (rowHeight - buttonSize) * 0.5f;
-                if (offsetY > 0.0f) {
-                    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + offsetY);
-                }
-
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.2f, 0.2f, 1.0f));
-                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
-
-                if (ImGui::Button("X", ImVec2(buttonSize, buttonSize))) {
-                    std::string err;
-                    if (!gameDataManager.deleteResource(key, err)) {
-                        NotificationManager::instance().addNotification("Delete Error", err, NotificationType::Error);
-                    }
-                }
-                ImGui::PopStyleColor(2);
 
                 ImGui::PopID();
             }
