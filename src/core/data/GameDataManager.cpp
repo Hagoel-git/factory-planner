@@ -383,10 +383,12 @@ bool GameDataManager::deleteMachine(const std::string& key_name, std::string &ou
         for (const auto &mk : rec.produced_in_machines_keys) {
             if (mk == key_name) {
                 LOG(WARNING) << "Machine is used in a recipe: " << recPair.first << "; cannot delete.";
-                outError = "Machine is used in a recipe (" + recPair.first + "); cannot delete.";
-                return false;
+                outError += "Machine is used in a recipe (" + recPair.first + "); cannot delete.";
             }
         }
+    }
+    if (!outError.empty()) {
+        return false;
     }
     _data.machines.erase(key_name);
     VLOG(2) << "Machine deleted successfully: " << key_name;

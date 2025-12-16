@@ -440,10 +440,13 @@ void GameDataEditor::DrawResourceGrid() {
     int flags = ImGuiTableFlags_ScrollY | ImGuiTableFlags_Borders |
                 ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingFixedFit;
 
-    if (ImGui::BeginTable("ResourceGrid", 3, flags)) {
+    std::string keyToDelete;
+
+    if (ImGui::BeginTable("ResourceGrid", 4, flags)) {
         ImGui::TableSetupColumn("Icon", ImGuiTableColumnFlags_WidthFixed, 32.0f);
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+        ImGui::TableSetupColumn("Del", ImGuiTableColumnFlags_WidthFixed, 32.0f);
         ImGui::TableHeadersRow();
 
         ImGuiListClipper clipper;
@@ -517,6 +520,29 @@ void GameDataEditor::DrawResourceGrid() {
                 ImGui::TableNextColumn();
                 ImGui::TextDisabled("%s", key.c_str());
 
+                // Column 4: Delete button
+                ImGui::TableNextColumn();
+                float rowHeight = 24.0f + (ImGui::GetStyle().FramePadding.y * 2.0f);
+                float buttonSize = ImGui::GetFrameHeight();
+                float availX = ImGui::GetContentRegionAvail().x;
+                if (availX > buttonSize) {
+                    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availX - buttonSize) * 0.5f);
+                }
+
+                float offsetY = (rowHeight - buttonSize) * 0.5f;
+                if (offsetY > 0.0f) {
+                    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + offsetY);
+                }
+
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.2f, 0.2f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
+                if (ImGui::Button("X", ImVec2(buttonSize, buttonSize))) {
+                    std::string err;
+                    keyToDelete = key;
+                }
+                ImGui::PopStyleColor(3);
+
                 ImGui::PopID();
             }
         }
@@ -524,6 +550,12 @@ void GameDataEditor::DrawResourceGrid() {
         ImGui::PopStyleColor(2);
 
         ImGui::EndTable();
+    }
+    if (!keyToDelete.empty()) {
+        std::string err;
+        if (!gameDataManager.deleteResource(keyToDelete, err)) {
+            NotificationManager::instance().addNotification("Delete Error", err, NotificationType::Error);
+        }
     }
 }
 
@@ -545,11 +577,14 @@ void GameDataEditor::DrawMachineGrid() {
     int flags = ImGuiTableFlags_ScrollY | ImGuiTableFlags_Borders |
                 ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingFixedFit;
 
-    if (ImGui::BeginTable("MachineGrid", 4, flags)) {
+    std::string keyToDelete;
+
+    if (ImGui::BeginTable("MachineGrid", 5, flags)) {
         ImGui::TableSetupColumn("Icon", ImGuiTableColumnFlags_WidthFixed, 32.0f);
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("Speed", ImGuiTableColumnFlags_WidthFixed, 100.0f);
         ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+        ImGui::TableSetupColumn("Del", ImGuiTableColumnFlags_WidthFixed, 32.0f);
         ImGui::TableHeadersRow();
 
         ImGuiListClipper clipper;
@@ -640,11 +675,40 @@ void GameDataEditor::DrawMachineGrid() {
                 ImGui::TableNextColumn();
                 ImGui::TextDisabled("%s", key.c_str());
 
+                // Column 5: Delete button
+                ImGui::TableNextColumn();
+                float rowHeight = 24.0f + (ImGui::GetStyle().FramePadding.y * 2.0f);
+                float buttonSize = ImGui::GetFrameHeight();
+                float availX = ImGui::GetContentRegionAvail().x;
+                if (availX > buttonSize) {
+                    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availX - buttonSize) * 0.5f);
+                }
+
+                float offsetY = (rowHeight - buttonSize) * 0.5f;
+                if (offsetY > 0.0f) {
+                    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + offsetY);
+                }
+
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.2f, 0.2f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
+                if (ImGui::Button("X", ImVec2(buttonSize, buttonSize))) {
+                    std::string err;
+                    keyToDelete = key;
+                }
+                ImGui::PopStyleColor(3);
+
                 ImGui::PopID();
             }
         }
         ImGui::PopStyleColor(2);
         ImGui::EndTable();
+    }
+    if (!keyToDelete.empty()) {
+        std::string err;
+        if (!gameDataManager.deleteMachine(keyToDelete, err)) {
+            NotificationManager::instance().addNotification("Delete Error", err, NotificationType::Error);
+        }
     }
 }
 
@@ -654,13 +718,16 @@ void GameDataEditor::DrawRecipeGrid() {
     int flags = ImGuiTableFlags_ScrollY | ImGuiTableFlags_Borders |
                 ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingStretchProp;
 
-    if (ImGui::BeginTable("RecipeGrid", 6, flags)) {
+    std::string keyToDelete;
+
+    if (ImGui::BeginTable("RecipeGrid", 7, flags)) {
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 150.0f);
         ImGui::TableSetupColumn("Time (sec)", ImGuiTableColumnFlags_WidthFixed, 60.0f);
         ImGui::TableSetupColumn("Inputs", ImGuiTableColumnFlags_WidthStretch, 375.0f);
         ImGui::TableSetupColumn("Outputs", ImGuiTableColumnFlags_WidthStretch, 225.0f);
         ImGui::TableSetupColumn("Produced in", ImGuiTableColumnFlags_WidthStretch, 150.0f);
-        ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 150.0f);  // Fixed width for ID
+        ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+        ImGui::TableSetupColumn("Del", ImGuiTableColumnFlags_WidthFixed, 32.0f);
         ImGui::TableHeadersRow();
 
 
@@ -733,11 +800,41 @@ void GameDataEditor::DrawRecipeGrid() {
             // Column 6: Key (ID)
             ImGui::TableNextColumn();
             ImGui::TextDisabled("%s", key.c_str());
+
+            // Column 7: Delete button
+            ImGui::TableNextColumn();
+            float rowHeight = 24.0f + (ImGui::GetStyle().FramePadding.y * 2.0f);
+            float buttonSize = ImGui::GetFrameHeight();
+            float availX = ImGui::GetContentRegionAvail().x;
+            if (availX > buttonSize) {
+                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availX - buttonSize) * 0.5f);
+            }
+
+            float offsetY = (rowHeight - buttonSize) * 0.5f;
+            if (offsetY > 0.0f) {
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + offsetY);
+            }
+
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.2f, 0.2f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
+            if (ImGui::Button("X", ImVec2(buttonSize, buttonSize))) {
+                std::string err;
+                keyToDelete = key;
+            }
+            ImGui::PopStyleColor(3);
             ImGui::PopID();
         }
     }
     ImGui::PopStyleColor(2);
     ImGui::EndTable();
+
+    if (!keyToDelete.empty()) {
+        std::string err;
+        if (!gameDataManager.deleteRecipe(keyToDelete, err)) {
+            NotificationManager::instance().addNotification("Delete Error", err, NotificationType::Error);
+        }
+    }
 }
 
 bool GameDataEditor::DrawTokenList(const char* str_id, std::vector<RecipePort>& ports, bool isInput) {
