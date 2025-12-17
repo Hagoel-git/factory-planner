@@ -322,6 +322,7 @@ bool GameDataManager::setResourceIcon(const std::string &key, const std::filesys
     if (copyIconFile("resources", key, sourcePath)) {
         std::filesystem::path root = _data.gameDataFilePath.parent_path().parent_path();
         std::filesystem::path texPath = root / "icons" / "resources" / (key + ".png");
+        TextureManager::instance().invalidateTexture(texPath);
         _data.resources[key].texture = TextureManager::instance().loadTexture(texPath);
         VLOG(2) << "Resource icon set successfully for key: " << key;
         return true;
@@ -405,6 +406,7 @@ bool GameDataManager::setMachineIcon(const std::string &key, const std::filesyst
     if (copyIconFile("machines", key, sourcePath)) {
         std::filesystem::path root = _data.gameDataFilePath.parent_path().parent_path();
         std::filesystem::path texPath = root / "icons" / "machines" / (key + ".png");
+        TextureManager::instance().invalidateTexture(texPath);
         _data.machines[key].texture = TextureManager::instance().loadTexture(texPath);
         return true;
     }

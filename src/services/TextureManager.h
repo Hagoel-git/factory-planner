@@ -12,6 +12,8 @@ public:
 
     ImTextureID loadTexture(const std::filesystem::path &filePath);
 
+    void invalidateTexture(const std::filesystem::path &filePath);
+
     void cleanup();
 
 private:

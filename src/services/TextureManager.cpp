@@ -72,3 +72,16 @@ ImTextureID TextureManager::loadTexture(const std::filesystem::path& path) {
     LOG(WARNING) << "Texture not found: " << key;
     return (ImTextureID)(intptr_t)getMissingTexture();
 }
+
+void TextureManager::invalidateTexture(const std::filesystem::path& path) {
+    std::error_code ec;
+    std::filesystem::path absPath = std::filesystem::absolute(path, ec);
+    if (ec) return;
+
+    std::string key = absPath.string();
+    auto it = m_textures.find(key);
+    if (it != m_textures.end()) {
+        glDeleteTextures(1, &it->second);
+        m_textures.erase(it);
+    }
+}
