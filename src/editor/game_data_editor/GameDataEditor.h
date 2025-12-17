@@ -58,6 +58,25 @@ private:
         char searchBuf[128] = "";
     } m_tokenPopupState;
 
+    struct DraftResource {
+        char nameBuf[256] = "";
+        std::string iconPath;
+    } m_draftResource;
+
+    struct DraftMachine {
+        char nameBuf[256] = "";
+        char speedBuf[64] = "1.0";
+        std::string iconPath;
+    } m_draftMachine;
+
+    struct DraftRecipe {
+        char nameBuf[256] = "";
+        double time = 1.0;
+        std::vector<RecipePort> inputs;
+        std::vector<RecipePort> outputs;
+        std::vector<std::string> producedIn;
+    } m_draftRecipe;
+
     void RefreshPackageList();
 
     // Internal Draw Helpers
@@ -72,6 +91,9 @@ private:
     void DrawContextPane();
 
     // Tab Contents
+    void DrawResourceCreator();
+    void DrawMachineCreator();
+    void DrawRecipeCreator();
     void DrawGeneralTab();
     void DrawResourceGrid();
     void DrawMachineGrid();

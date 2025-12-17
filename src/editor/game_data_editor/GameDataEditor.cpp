@@ -10,6 +10,9 @@
 #include <nfd.h>
 #include <thread>
 
+#include "common/StringUtils.h"
+#include "services/TextureManager.h"
+
 template<typename T>
 std::vector<std::pair<std::string, T*>> GameDataEditor::FilterMap(std::map<std::string, T>& sourceMap, const std::string& filterStr) {
     std::vector<std::pair<std::string, T*>> result;
@@ -345,12 +348,18 @@ void GameDataEditor::DrawCentralWorkspace() {
             DrawGeneralTab();
             break;
         case GameDataTab::Resources:
+            DrawResourceCreator();
+            ImGui::Separator();
             DrawResourceGrid();
             break;
         case GameDataTab::Machines:
+            DrawMachineCreator();
+            ImGui::Separator();
             DrawMachineGrid();
             break;
         case GameDataTab::Recipes:
+            // DrawRecipeCreator();
+            ImGui::Separator();
             DrawRecipeGrid();
             break;
     }
@@ -420,6 +429,92 @@ void GameDataEditor::DrawGeneralTab() {
     }
 
     ImGui::PopStyleVar();
+}
+
+void GameDataEditor::DrawResourceCreator() {
+    ImTextureID icon = TextureManager::instance().loadTexture(m_draftResource.iconPath);
+
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1,1,1,0.1f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1,1,1,0.2f));
+
+    if (ImGui::ImageButton("##icon", icon, ImVec2(24, 24))) {
+        if (!m_iconDialog.isRunning) {
+            m_iconDialog.targetKey = "DRAFT_RESOURCE";
+            m_iconDialog.isRunning = true;
+
+            std::thread([this]() {
+                nfdu8char_t *outPath = nullptr;
+                nfdu8filteritem_t filters[1] = { { "Images", "png,jpg,jpeg" } };
+                nfdopendialogu8args_t args = {0};
+                args.filterList = filters;
+                args.filterCount = 1;
+
+                nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
+
+                if (result == NFD_OKAY) {
+                    m_iconDialog.resultPath = outPath;
+                    NFD_FreePathU8(outPath);
+                }
+                m_iconDialog.isReady = true;
+            }).detach();
+        }
+    }
+
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+        ImGui::SetTooltip("Click to set icon");
+    }
+
+    if (m_iconDialog.isReady && m_iconDialog.targetKey == "DRAFT_RESOURCE") {
+        m_draftResource.iconPath = m_iconDialog.resultPath;
+        m_iconDialog.isReady = false;
+        m_iconDialog.isRunning = false;
+    }
+    ImGui::PopStyleColor(3);
+
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(280);
+    bool enterPressed = ImGui::InputTextWithHint("##new_res_name", "New Resource Name...",
+                                                 m_draftResource.nameBuf,
+                                                 sizeof(m_draftResource.nameBuf),
+                                                 ImGuiInputTextFlags_EnterReturnsTrue);
+
+    ImGui::SameLine();
+
+    if (ImGui::Button("Add") || enterPressed) {
+        std::string nameStr(m_draftResource.nameBuf);
+        if (!nameStr.empty()) {
+            Resource newRes;
+            newRes.name = nameStr;
+            std::string key = slugify(newRes.name);
+
+            if (!m_draftResource.iconPath.empty()) {
+                std::string err;
+                newRes.texture = TextureManager::instance().loadTexture(m_draftResource.iconPath);
+            } else {
+                std::filesystem::path gdPath = gameDataManager.current().gameDataFilePath;
+
+                if (!gdPath.empty()) {
+                    std::filesystem::path sharedIconPath = gdPath.parent_path().parent_path()
+                                                         / "icons" / "resources" / (key + ".png");
+
+                    newRes.texture = TextureManager::instance().loadTexture(sharedIconPath);
+                } else {
+                    newRes.texture = TextureManager::instance().loadTexture("");
+                }
+            }
+
+            if (gameDataManager.addResource(newRes)) {
+                if (!m_draftResource.iconPath.empty()) {
+                    std::string err;
+                    gameDataManager.setResourceIcon(key, m_draftResource.iconPath, err);
+                }
+                m_draftResource.nameBuf[0] = '\0';
+                m_draftResource.iconPath.clear();
+            }
+        }
+    }
 }
 
 void GameDataEditor::DrawResourceGrid() {
@@ -555,6 +650,107 @@ void GameDataEditor::DrawResourceGrid() {
         std::string err;
         if (!gameDataManager.deleteResource(keyToDelete, err)) {
             NotificationManager::instance().addNotification("Delete Error", err, NotificationType::Error);
+        }
+    }
+}
+
+void GameDataEditor::DrawMachineCreator() {
+    ImTextureID icon = TextureManager::instance().loadTexture(m_draftMachine.iconPath);
+
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1,1,1,0.1f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1,1,1,0.2f));
+
+    if (ImGui::ImageButton("##icon", icon, ImVec2(24, 24))) {
+        if (!m_iconDialog.isRunning) {
+            m_iconDialog.targetKey = "DRAFT_MACHINE";
+            m_iconDialog.isRunning = true;
+
+            std::thread([this]() {
+                nfdu8char_t *outPath = nullptr;
+                nfdu8filteritem_t filters[1] = { { "Images", "png,jpg,jpeg" } };
+                nfdopendialogu8args_t args = {0};
+                args.filterList = filters;
+                args.filterCount = 1;
+
+                nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
+
+                if (result == NFD_OKAY) {
+                    m_iconDialog.resultPath = outPath;
+                    NFD_FreePathU8(outPath);
+                }
+                m_iconDialog.isReady = true;
+            }).detach();
+        }
+    }
+
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+        ImGui::SetTooltip("Click to set icon");
+    }
+
+    if (m_iconDialog.isReady && m_iconDialog.targetKey == "DRAFT_MACHINE") {
+        m_draftMachine.iconPath = m_iconDialog.resultPath;
+        m_iconDialog.isReady = false;
+        m_iconDialog.isRunning = false;
+    }
+    ImGui::PopStyleColor(3);
+
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(200);
+    bool nameEnter = ImGui::InputTextWithHint("##new_mach_name", "New Machine Name...",
+                                                 m_draftMachine.nameBuf,
+                                                 sizeof(m_draftMachine.nameBuf),
+                                                 ImGuiInputTextFlags_EnterReturnsTrue);
+
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(80);
+    bool speedEnter = ImGui::InputText("##new_mach_speed",
+                                       m_draftMachine.speedBuf,
+                                       sizeof(m_draftMachine.speedBuf),
+                                       ImGuiInputTextFlags_CharsDecimal | ImGuiInputTextFlags_EnterReturnsTrue);
+
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Crafting Speed Multiplier (Press Enter to Add)");
+
+    ImGui::SameLine();
+
+    if (ImGui::Button("Add") || nameEnter || speedEnter) {
+        std::string nameStr(m_draftMachine.nameBuf);
+        double speed = 1.0;
+        if (m_draftMachine.speedBuf[0] != '\0') {
+            speed = std::atof(m_draftMachine.speedBuf);
+        }
+        if (!nameStr.empty()) {
+            Machine newMach;
+            newMach.name = nameStr;
+            newMach.base_crafting_speed = speed;
+            std::string key = slugify(newMach.name);
+
+            if (!m_draftMachine.iconPath.empty()) {
+                std::string err;
+                newMach.texture = TextureManager::instance().loadTexture(m_draftMachine.iconPath);
+            } else {
+                std::filesystem::path gdPath = gameDataManager.current().gameDataFilePath;
+
+                if (!gdPath.empty()) {
+                    std::filesystem::path sharedIconPath = gdPath.parent_path().parent_path()
+                                                         / "icons" / "machines" / (key + ".png");
+
+                    newMach.texture = TextureManager::instance().loadTexture(sharedIconPath);
+                } else {
+                    newMach.texture = TextureManager::instance().loadTexture("");
+                }
+            }
+
+            if (gameDataManager.addMachine(newMach)) {
+                if (!m_draftMachine.iconPath.empty()) {
+                    std::string err;
+                    gameDataManager.setResourceIcon(key, m_draftMachine.iconPath, err);
+                }
+                m_draftMachine.nameBuf[0] = '\0';
+                strncpy(m_draftMachine.speedBuf, "1.0", sizeof(m_draftMachine.speedBuf));
+                m_draftMachine.iconPath.clear();
+            }
         }
     }
 }
