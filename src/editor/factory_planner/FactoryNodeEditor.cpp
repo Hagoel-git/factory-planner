@@ -418,6 +418,8 @@ void FactoryNodeEditor::DrawNodes() {
     }
 
     debugInfo.visibleNodes = static_cast<int>(nodesToRegister.size());
+
+    std::string deferredTooltip;
     // Draw only visible nodes
     for (const auto& nodeData : nodesToRegister) {
         auto node = graph->getNode(nodeData);
@@ -472,7 +474,20 @@ void FactoryNodeEditor::DrawNodes() {
 
                 Resource res = graph->getGameData().resources.at(p->resource_key);
                 ed::BeginPin(IdUtils::ToPinId(p->id), ed::PinKind::Input);
+                if (graph->getConnectionsForPort(p->id).empty()) {
+                    ImVec2 pos = ImGui::GetCursorScreenPos();
+                    ImVec2 size(24, 24);
+
+                    bool isDark = SettingsManager::instance().getSettings().themeName == "Dark";
+                    ImU32 bgColor = isDark ? IM_COL32(190, 70, 70, 200)
+                                           : IM_COL32(255, 200, 200, 255);
+
+                    ImGui::GetWindowDrawList()->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), bgColor, 0.0f);
+                }
                 ImGui::Image(res.texture, ImVec2(24,24)); ImGui::SameLine();
+                if (ImGui::IsItemHovered()) {
+                    deferredTooltip = res.name;
+                }
                 ImGui::Text("%.2f", p->rate);
                 if (SettingsManager::instance().getSettings().showResourceNames) {
                     ImGui::Text("%s", res.name.c_str());
@@ -492,7 +507,6 @@ void FactoryNodeEditor::DrawNodes() {
         if (graph->getGameData().machines.find(node->machine_key) != graph->getGameData().machines.end()) {
             ImGui::Image(graph->getGameData().machines.at(node->machine_key).texture, ImVec2(48,48));
         } else {
-            // reserve the same space if machine missing
             ImGui::Dummy(ImVec2(48, machine_h));
         }
         const char* countText = ImGui::GetCurrentContext() ? "%.2f" : "%.2f";
@@ -519,13 +533,24 @@ void FactoryNodeEditor::DrawNodes() {
 
                 Resource res = graph->getGameData().resources.at(p->resource_key);
                 ed::BeginPin(IdUtils::ToPinId(p->id), ed::PinKind::Output);
-                // text first then image on the right (keeps pin pivot consistent)
                 ImGui::Text("%.2f", p->rate); ImGui::SameLine();
+                if (graph->getConnectionsForPort(p->id).empty()) {
+                    ImVec2 pos = ImGui::GetCursorScreenPos();
+                    ImVec2 size(24, 24);
+
+                    bool isDark = SettingsManager::instance().getSettings().themeName == "Dark";
+                    ImU32 bgColor = isDark ? IM_COL32(70, 190, 70, 200)
+                                           : IM_COL32(200, 255, 200, 255);
+
+                    ImGui::GetWindowDrawList()->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), bgColor, 0.0f);
+                }
                 ImGui::Image(res.texture, ImVec2(24,24));
+                if (ImGui::IsItemHovered()) {
+                    deferredTooltip = res.name;
+                }
                 if (SettingsManager::instance().getSettings().showResourceNames) {
                     ImGui::Text("%s", res.name.c_str());
                 }
-                // depending on your desired layout you can switch order above
                 ed::PinPivotAlignment(ImVec2{1.0f, 0.5f});
                 ed::EndPin();
             }
@@ -535,6 +560,23 @@ void FactoryNodeEditor::DrawNodes() {
 
         ImGui::PopStyleVar(2);
         ed::EndNode();
+    }
+
+    if (!deferredTooltip.empty()) {
+        ed::Suspend();
+
+        ImGui::SetNextWindowPos(ImGui::GetMousePos() + ImVec2(15, 15));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 4.0f);
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.1f, 0.1f, 0.1f, 0.95f));
+
+        ImGui::BeginTooltip();
+        ImGui::Text("%s", deferredTooltip.c_str());
+        ImGui::EndTooltip();
+
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar();
+
+        ed::Resume();
     }
 }
 
