@@ -358,7 +358,7 @@ void GameDataEditor::DrawCentralWorkspace() {
             DrawMachineGrid();
             break;
         case GameDataTab::Recipes:
-            // DrawRecipeCreator();
+            DrawRecipeCreator();
             ImGui::Separator();
             DrawRecipeGrid();
             break;
@@ -719,6 +719,8 @@ void GameDataEditor::DrawMachineCreator() {
         double speed = 1.0;
         if (m_draftMachine.speedBuf[0] != '\0') {
             speed = std::atof(m_draftMachine.speedBuf);
+        } else {
+            speed = 1.0;
         }
         if (!nameStr.empty()) {
             Machine newMach;
@@ -906,6 +908,74 @@ void GameDataEditor::DrawMachineGrid() {
             NotificationManager::instance().addNotification("Delete Error", err, NotificationType::Error);
         }
     }
+}
+
+void GameDataEditor::DrawRecipeCreator() {
+    ImGui::SetNextItemWidth(200);
+    ImGui::InputTextWithHint("##new_rec_name", "New Recipe Name...",
+                                                 m_draftRecipe.nameBuf,
+                                                 sizeof(m_draftRecipe.nameBuf));
+
+    ImGui::SameLine();
+
+    ImGui::SetNextItemWidth(80);
+    ImGui::InputText("##new_rec_time",
+                                       m_draftRecipe.timeBuf,
+                                       sizeof(m_draftRecipe.timeBuf),
+                                       ImGuiInputTextFlags_CharsDecimal);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Production time in seconds");
+
+    ImGui::SameLine();
+
+    if (ImGui::Button("Add")) {
+        std::string nameStr(m_draftRecipe.nameBuf);
+        double timeSec = 1.0;
+        if (m_draftRecipe.timeBuf[0] != '\0') {
+            timeSec = std::atof(m_draftRecipe.timeBuf);
+        } else {
+            timeSec = 1.0;
+        }
+        if (!nameStr.empty()) {
+            Recipe newRec;
+            newRec.name = nameStr;
+            newRec.time_seconds = timeSec;
+            newRec.input_ports = m_draftRecipe.inputs;
+            newRec.output_ports = m_draftRecipe.outputs;
+            newRec.produced_in_machines_keys = m_draftRecipe.producedIn;
+
+            if (gameDataManager.addRecipe(newRec)) {
+                m_draftRecipe.nameBuf[0] = '\0';
+                strncpy(m_draftRecipe.timeBuf, "1.0", sizeof(m_draftRecipe.timeBuf));
+                m_draftRecipe.inputs.clear();
+                m_draftRecipe.outputs.clear();
+                m_draftRecipe.producedIn.clear();
+            }
+        }
+    }
+
+    ImGui::Spacing();
+
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextDisabled("Inputs:   ");
+    ImGui::SameLine();
+
+    DrawTokenList("##draft_inputs", m_draftRecipe.inputs, true);
+
+    ImGui::Spacing();
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextDisabled("Outputs:  ");
+    ImGui::SameLine();
+
+    DrawTokenList("##draft_outputs", m_draftRecipe.outputs, true);
+
+    ImGui::Spacing();
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextDisabled("Machines: ");
+    ImGui::SameLine();
+
+    DrawMachineList("##draft_machines", m_draftRecipe.producedIn);
+
+    ImGui::Spacing();
 }
 
 void GameDataEditor::DrawRecipeGrid() {
