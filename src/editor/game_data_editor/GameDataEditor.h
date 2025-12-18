@@ -71,7 +71,7 @@ private:
 
     struct DraftRecipe {
         char nameBuf[256] = "";
-        double time = 1.0;
+        char timeBuf[64] = "1.0";
         std::vector<RecipePort> inputs;
         std::vector<RecipePort> outputs;
         std::vector<std::string> producedIn;
