@@ -750,17 +750,26 @@ GameData GameDataManager::jsonToGameData(const json &j, std::filesystem::path& p
                 }
                 // products
                 if (rj.contains("products") && rj["products"].is_array()) {
-                    for (const auto &pair : rj["products"]) {
-                        if (!pair.is_array() || pair.size() < 2) continue;
-                        std::string kkey = pair[0].get<std::string>();
-                        double amount = pair[1].get<double>();
-                        if (!gd.resources.count(kkey)) {
-                            Resource res;
-                            res.name = kkey;
-                            gd.resources[kkey] = res;
+                    const auto &prod = rj["products"];
+                    if (prod.empty()) {
+                        // inject nothing
+                        r.output_ports.push_back(RecipePort{0.0, "nothing"});
+                    } else {
+                        for (const auto &pair : rj["products"]) {
+                            if (!pair.is_array() || pair.size() < 2) continue;
+                            std::string kkey = pair[0].get<std::string>();
+                            double amount = pair[1].get<double>();
+                            if (!gd.resources.count(kkey)) {
+                                Resource res;
+                                res.name = kkey;
+                                gd.resources[kkey] = res;
+                            }
+                            r.output_ports.push_back(RecipePort{amount, kkey});
                         }
-                        r.output_ports.push_back(RecipePort{amount, kkey});
                     }
+                } else {
+                    // treat missing field as nothing
+                    r.output_ports.push_back(RecipePort{0.0, "nothing"});
                 }
                 // produced_in
                 if (rj.contains("produced_in") && rj["produced_in"].is_array()) {
