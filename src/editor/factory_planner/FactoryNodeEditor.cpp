@@ -480,7 +480,7 @@ void FactoryNodeEditor::DrawNodes() {
 
                     bool isDark = SettingsManager::instance().getSettings().themeName == "Dark";
                     ImU32 bgColor = isDark ? IM_COL32(190, 70, 70, 200)
-                                           : IM_COL32(255, 200, 200, 255);
+                                           : IM_COL32(235, 180, 180, 255);
 
                     ImGui::GetWindowDrawList()->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), bgColor, 0.0f);
                 }
@@ -540,7 +540,7 @@ void FactoryNodeEditor::DrawNodes() {
 
                     bool isDark = SettingsManager::instance().getSettings().themeName == "Dark";
                     ImU32 bgColor = isDark ? IM_COL32(70, 190, 70, 200)
-                                           : IM_COL32(200, 255, 200, 255);
+                                           : IM_COL32(180, 235, 180, 255);
 
                     ImGui::GetWindowDrawList()->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), bgColor, 0.0f);
                 }

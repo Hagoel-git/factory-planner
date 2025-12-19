@@ -263,6 +263,10 @@ void GameDataEditor::DrawPackageBrowser() {
 }
 
 void GameDataEditor::DrawEditorWorkspace() {
+    if (gameDataManager.current().gameDataFilePath.empty()) {
+        ImGui::TextWrapped("No game data file loaded. Please select a package from the left or create a new file.");
+        return;
+    }
     DrawTopMenuBar();
     float availHeight = ImGui::GetContentRegionAvail().y;
 
