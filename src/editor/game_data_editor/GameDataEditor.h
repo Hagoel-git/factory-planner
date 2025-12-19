@@ -41,7 +41,7 @@ private:
 
     // Package Browser State
     std::vector<GameDataPackage> m_packages;
-    int m_selectedPackageIndex = -1;
+    std::filesystem::path m_selectedFilePath;
     bool m_requestNewFilePopup = false;
 
     struct IconDialogState {

@@ -532,6 +532,79 @@ bool GameDataManager::duplicateDataFile(std::string &outError) {
     }
 }
 
+bool GameDataManager::renameDataFile(const std::string &newName, std::string &outError) {
+    if (_data.gameDataFilePath.empty()) {
+        outError = "Cannot rename: Current file is not saved to disk.";
+        return false;
+    }
+
+    std::filesystem::path sourcePath = _data.gameDataFilePath;
+    std::string sanitazedName = slugify(newName);
+    if (sanitazedName.empty()) {
+        outError = "Invalid file name.";
+        return false;
+    }
+
+    std::filesystem::path destPath = _data.gameDataFilePath.parent_path() / (sanitazedName + ".gd");
+
+    if (std::filesystem::exists(destPath)) {
+        outError = "A file with that name already exists.";
+        return false;
+    }
+
+    try {
+        std::filesystem::rename(sourcePath, destPath);
+        _data.gameDataFilePath = destPath;
+        LOG(INFO) << "Renamed game data file: " << sourcePath << " -> " << destPath;
+        return true;
+    } catch (const std::exception& e) {
+        outError = std::string("Failed to rename file: ") + e.what();
+        LOG(ERROR) << outError;
+        return false;
+    }
+}
+
+bool GameDataManager::moveDataFile(const std::string &targetGameName, std::string &outError) {
+    if (_data.gameDataFilePath.empty()) {
+        outError = "Cannot move: Current file is not saved to disk.";
+        return false;
+    }
+
+    std::filesystem::path sourcePath = _data.gameDataFilePath;
+
+    std::filesystem::path rootDataDir = sourcePath.parent_path().parent_path().parent_path();
+    std::filesystem::path targetDir = rootDataDir / targetGameName / "game_datas";
+
+    if (!std::filesystem::exists(targetDir)) {
+        try {
+            std::filesystem::create_directories(targetDir);
+        } catch (const std::exception& e) {
+            outError = std::string("Failed to create target directory: ") + e.what();
+            LOG(ERROR) << outError;
+            return false;
+        }
+    }
+
+    std::filesystem::path destPath = targetDir / sourcePath.filename();
+
+    if (std::filesystem::exists(destPath)) {
+        outError = "A file with that name already exists in the target location.";
+        return false;
+    }
+
+    try {
+        std::filesystem::rename(sourcePath, destPath);
+        _data.gameDataFilePath = destPath;
+        _data.gameName = targetGameName;
+        LOG(INFO) << "Moved game data file: " << sourcePath << " -> " << destPath;
+        return true;
+    } catch (const std::exception& e) {
+        outError = std::string("Failed to move file: ") + e.what();
+        LOG(ERROR) << outError;
+        return false;
+    }
+}
+
 std::vector<std::string> GameDataManager::validate(const GameData &gd) {
     std::vector<std::string> messages;
     // check nothing resource exists
