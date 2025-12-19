@@ -111,6 +111,7 @@ FactoryNodeEditor::~FactoryNodeEditor() {
 
 void FactoryNodeEditor::Draw() {
     if (!context) return;
+    m_isFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 
     if (std::chrono::steady_clock::now() > nextAutosaveTime && SettingsManager::instance().getSettings().autoSaveEnabled) {
         LOG(INFO) << "Auto-saved project: " << projectFilePath;
@@ -136,8 +137,10 @@ void FactoryNodeEditor::Draw() {
 
     DrawNodes();
     DrawConnections();
-    HandleUserInteractions();
-    HandleContextMenus();
+    if (m_isFocused) {
+        HandleUserInteractions();
+        HandleContextMenus();
+    }
     HandlePopups();
 
     ed::End(); // End node editor
