@@ -248,6 +248,7 @@ void Application::DrawDebugWindow() {
     ImGui::SeparatorText("Editor Specific");
     if (activeEditor != -1 && activeEditor < static_cast<int>(editors.size())) {
         const DebugInfo &debugInfo = editors[activeEditor]->GetDebugInfo();
+        ImGui::Text(editors[activeEditor]->isFocused() ? "Focused" : "Not Focused");
         ImGui::TextWrapped("File path: %s", debugInfo.filePath.c_str());
         ImGui::TextWrapped("Game data path: %s", debugInfo.gameDataPath.c_str());
         ImGui::Text("Total nodes: %d", debugInfo.totalNodes);
@@ -453,61 +454,63 @@ void Application::HandleShortcuts() {
             VLOG(1) << "Shortcut: Ctrl+O pressed, opening Open Project dialog.";
             showOpenProjectDialog = true;
         }
-        if (ImGui::IsKeyPressed(ImGuiKey_W) && !editors.empty()) {
-            VLOG(1) << "Shortcut: Ctrl+W pressed, closing active editor.";
-            CloseActiveEditor();
-        }
-        if (ImGui::IsKeyPressed(ImGuiKey_S)) {
-            if (io.KeyShift) {
-                VLOG(1) << "Shortcut: Ctrl+Shift+S pressed, opening Save As dialog.";
-                showSaveDialog = true; // Show Save As dialog
-            } else {
-                VLOG(1) << "Shortcut: Ctrl+S pressed, saving active editor.";
-                SaveActiveEditor(); // Save current editor
-            }
-        }
         if (ImGui::IsKeyPressed(ImGuiKey_Q)) {
             VLOG(1) << "Shortcut: Ctrl+Q pressed, quitting application.";
             quitRequested = true;
         }
-        if (ImGui::IsKeyPressed(ImGuiKey_Y)) {
-            VLOG(1) << "Shortcut: Ctrl+Y pressed, redoing in active editor.";
-            RedoActiveEditor();
-        }
-        if (ImGui::IsKeyPressed(ImGuiKey_Z)) {
-            if (io.KeyShift) {
-                VLOG(1)<< "Shortcut: Ctrl+Shift+Z pressed, redoing in active editor.";
-                RedoActiveEditor();
-            } else {
-                VLOG(1) << "Shortcut: Ctrl+Z pressed, undoing in active editor.";
-                UndoActiveEditor();
+        if (!editors.empty() && !editors[activeEditor]->isFocused()) {
+            if (ImGui::IsKeyPressed(ImGuiKey_W)) {
+                VLOG(1) << "Shortcut: Ctrl+W pressed, closing active editor.";
+                CloseActiveEditor();
             }
-        }
-        if (ImGui::IsKeyPressed(ImGuiKey_X)) {
-            VLOG(1) << "Shortcut: Ctrl+X pressed, cutting in active editor.";
-            CutActiveEditor();
-        }
-        if (ImGui::IsKeyPressed(ImGuiKey_C)) {
-            VLOG(1) << "Shortcut: Ctrl+C pressed, copying in active editor.";
-            CopyActiveEditor();
-        }
-        if (ImGui::IsKeyPressed(ImGuiKey_V)) {
-            VLOG(1) << "Shortcut: Ctrl+V " << (io.KeyShift ? "(Special)" : "") << " pressed, pasting in active editor.";
-            PasteActiveEditor(io.KeyShift); // Shift key to map external connections
-        }
-        if (ImGui::IsKeyPressed(ImGuiKey_A)) {
-            VLOG(1) << "Shortcut: Ctrl+A pressed, selecting all in active editor.";
-            SelectAllActiveEditor();
-        }
-    } else {
-        if (io.WantTextInput) return;
-        if (ImGui::IsKeyPressed(ImGuiKey_F)) {
-            VLOG(1) << "F Key pressed, fitting view in active editor.";
-            FitViewActiveEditor();
-        }
-        if (ImGui::IsKeyPressed(ImGuiKey_Z)) {
-            VLOG(1) << "Z Key pressed. Showing flow in active editor.";
-            ShowFlowActiveEditor();
+            if (ImGui::IsKeyPressed(ImGuiKey_S)) {
+                if (io.KeyShift) {
+                    VLOG(1) << "Shortcut: Ctrl+Shift+S pressed, opening Save As dialog.";
+                    showSaveDialog = true; // Show Save As dialog
+                } else {
+                    VLOG(1) << "Shortcut: Ctrl+S pressed, saving active editor.";
+                    SaveActiveEditor(); // Save current editor
+                }
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_Y)) {
+                VLOG(1) << "Shortcut: Ctrl+Y pressed, redoing in active editor.";
+                RedoActiveEditor();
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_Z)) {
+                if (io.KeyShift) {
+                    VLOG(1)<< "Shortcut: Ctrl+Shift+Z pressed, redoing in active editor.";
+                    RedoActiveEditor();
+                } else {
+                    VLOG(1) << "Shortcut: Ctrl+Z pressed, undoing in active editor.";
+                    UndoActiveEditor();
+                }
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_X)) {
+                VLOG(1) << "Shortcut: Ctrl+X pressed, cutting in active editor.";
+                CutActiveEditor();
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_C)) {
+                VLOG(1) << "Shortcut: Ctrl+C pressed, copying in active editor.";
+                CopyActiveEditor();
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_V)) {
+                VLOG(1) << "Shortcut: Ctrl+V " << (io.KeyShift ? "(Special)" : "") << " pressed, pasting in active editor.";
+                PasteActiveEditor(io.KeyShift); // Shift key to map external connections
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_A)) {
+                VLOG(1) << "Shortcut: Ctrl+A pressed, selecting all in active editor.";
+                SelectAllActiveEditor();
+            }
+        } else {
+            if (io.WantTextInput) return;
+            if (ImGui::IsKeyPressed(ImGuiKey_F)) {
+                VLOG(1) << "F Key pressed, fitting view in active editor.";
+                FitViewActiveEditor();
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_Z)) {
+                VLOG(1) << "Z Key pressed. Showing flow in active editor.";
+                ShowFlowActiveEditor();
+            }
         }
     }
 }

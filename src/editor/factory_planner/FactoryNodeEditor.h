@@ -79,6 +79,8 @@ public:
 
     void FitView(bool force = false);
 
+    bool isFocused() const {return m_isFocused;}
+
     void undo() {
         if (!undoRedoManager.canUndo()) return;
 
@@ -142,6 +144,7 @@ private:
 
     ImTextureID textureID;
 
+    bool m_isFocused = false;
     bool wasDragging = false;
     bool draggingNodes = false;
     ed::NodeId draggedNodeId;
