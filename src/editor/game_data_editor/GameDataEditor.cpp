@@ -160,6 +160,8 @@ void GameDataEditor::DrawNewFileDialog() {
         if (createRequested) {
             std::string gameNameStr(gameNameBuffer);
             std::string filenameStr(fileNameBuffer);
+            gameNameStr = slugify(gameNameStr);
+            filenameStr = slugify(filenameStr);
             if (gameNameStr.empty()) {
                 errorMessage = "Game name cannot be empty.";
             } else if (filenameStr.empty()) {
@@ -188,6 +190,7 @@ void GameDataEditor::DrawNewFileDialog() {
                         if (gameDataManager.saveToFile(newFilePath.string(), saveError)) {
                             std::string loadError;
                             if (gameDataManager.loadFromFile(newFilePath.string(), loadError)) {
+                                m_selectedFilePath = newFilePath;
                                 RefreshPackageList();
                                 ImGui::CloseCurrentPopup();
                                 NotificationManager::instance().addNotification("File Created", "New game data file created successfully", NotificationType::Success);
@@ -247,10 +250,10 @@ void GameDataEditor::DrawPackageBrowser() {
         if (nodeOpen) {
             for (int idx : pair.second) {
                 const auto& pkg = m_packages[idx];
-                bool isSelected = (m_selectedPackageIndex == idx);
+                bool isSelected = (m_selectedFilePath == pkg.dataFilePath);
 
                 if (ImGui::Selectable(pkg.dataName.c_str(), isSelected)) {
-                    m_selectedPackageIndex = idx;
+                    m_selectedFilePath = pkg.dataFilePath;
                     std::string error;
                     if (!gameDataManager.loadFromFile(pkg.dataFilePath.string(), error)) {
                         NotificationManager::instance().addNotification("Error", error, NotificationType::Error);
@@ -392,17 +395,82 @@ void GameDataEditor::DrawGeneralTab() {
 
     ImGui::Text("Game Settings");
 
-    static char gameNameBuf[128];
-    if (ImGui::IsWindowAppearing()) {
-        strncpy(gameNameBuf, data.gameName.c_str(), sizeof(gameNameBuf));
-    }
+    static char fileNameBuf[256] = "";
+    static char smartNameBuf[128] = "";
+    static std::string lastContextUUID;
 
+    if (ImGui::IsWindowAppearing() || data.uuid != lastContextUUID) {
+        std::string stem = data.gameDataFilePath.stem().string();
+        strncpy(fileNameBuf, stem.c_str(), sizeof(fileNameBuf));
+        strncpy(smartNameBuf, data.gameName.c_str(), sizeof(smartNameBuf));
+        lastContextUUID = data.uuid;
+    }
     ImGui::AlignTextToFramePadding();
-    ImGui::Text("Game Name:");
+    ImGui::Text("File Name:");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(300);
-    if (ImGui::InputText("##gamename", gameNameBuf, sizeof(gameNameBuf))) {
-        data.gameName = gameNameBuf;
+
+    bool renameRequested = ImGui::InputText("##filename_edit", fileNameBuf, sizeof(fileNameBuf), ImGuiInputTextFlags_EnterReturnsTrue);
+
+    if (ImGui::IsItemDeactivatedAfterEdit() || renameRequested) {
+        std::string newName = std::string(fileNameBuf);
+        std::string oldName = data.gameDataFilePath.stem().string();
+
+        if (newName != oldName && !newName.empty()) {
+            std::string err;
+            if (gameDataManager.renameDataFile(newName, err)) {
+                NotificationManager::instance().addNotification("Success", "File renamed successfully.", NotificationType::Success);
+                strncpy(fileNameBuf, data.gameDataFilePath.stem().c_str(), sizeof(fileNameBuf));
+                m_selectedFilePath = data.gameDataFilePath;
+                RefreshPackageList();
+            } else {
+                NotificationManager::instance().addNotification("Rename Failed", err, NotificationType::Error);
+                strncpy(fileNameBuf, oldName.c_str(), sizeof(fileNameBuf));
+            }
+        }
+    }
+
+    ImGui::Spacing();
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("Game Location:");
+    ImGui::SameLine();
+
+    std::set<std::string> existingGames;
+    for (const auto& pkg : m_packages) {
+        existingGames.insert(pkg.gameName);
+    }
+
+    ImGui::SetNextItemWidth(270);
+    bool enter = ImGui::InputText("##smart_location", smartNameBuf, sizeof(smartNameBuf), ImGuiInputTextFlags_EnterReturnsTrue);
+
+    ImGui::SameLine(0, 0);
+    if (ImGui::ArrowButton("##smart_arrow", ImGuiDir_Down)) {
+        ImGui::OpenPopup("LocationPopup");
+    }
+
+    if (ImGui::BeginPopup("LocationPopup")) {
+        for (const auto& gameFolder : existingGames) {
+            if (ImGui::Selectable(gameFolder.c_str())) {
+                strncpy(smartNameBuf, gameFolder.c_str(), sizeof(smartNameBuf));
+                enter = true;
+            }
+        }
+        ImGui::EndPopup();
+    }
+
+    if (enter) {
+        std::string targetName(smartNameBuf);
+        if (targetName != data.gameName && !targetName.empty()) {
+            std::string err;
+            if (gameDataManager.moveDataFile(targetName, err)) {
+                NotificationManager::instance().addNotification("Moved", "File moved to " + targetName, NotificationType::Success);
+                m_selectedFilePath = gameDataManager.current().gameDataFilePath;
+                RefreshPackageList();
+            } else {
+                NotificationManager::instance().addNotification("Error", err, NotificationType::Error);
+                strncpy(smartNameBuf, data.gameName.c_str(), sizeof(smartNameBuf));
+            }
+        }
     }
 
     ImGui::Spacing();
@@ -995,7 +1063,7 @@ void GameDataEditor::DrawRecipeGrid() {
         ImGui::TableSetupColumn("Time (sec)", ImGuiTableColumnFlags_WidthFixed, 60.0f);
         ImGui::TableSetupColumn("Inputs", ImGuiTableColumnFlags_WidthStretch, 375.0f);
         ImGui::TableSetupColumn("Outputs", ImGuiTableColumnFlags_WidthStretch, 225.0f);
-        ImGui::TableSetupColumn("Produced in", ImGuiTableColumnFlags_WidthStretch, 150.0f);
+        ImGui::TableSetupColumn("Produced in", ImGuiTableColumnFlags_WidthStretch, 200.0f);
         ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthFixed, 150.0f);
         ImGui::TableSetupColumn("Del", ImGuiTableColumnFlags_WidthFixed, 32.0f);
         ImGui::TableHeadersRow();
