@@ -88,7 +88,6 @@ private:
 
     void DrawTopMenuBar();
     void DrawCentralWorkspace();
-    void DrawContextPane();
 
     // Tab Contents
     void DrawResourceCreator();
