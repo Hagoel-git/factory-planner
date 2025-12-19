@@ -502,9 +502,9 @@ void GameDataEditor::DrawGeneralTab() {
         ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Validation successful");
     } else {
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Validation Errors (%zu):", errors.size());
-        for(size_t i = 0; i < errors.size(); i++) {
-            ImGui::Indent(10.0f);
-            ImGui::TextUnformatted(errors[i].c_str());
+        ImGui::Indent(10.0f);
+        for (const auto & error : errors) {
+            ImGui::TextUnformatted(error.c_str());
         }
     }
 
@@ -1641,9 +1641,4 @@ bool GameDataEditor::DrawMachineList(const char* str_id, std::vector<std::string
 
     ImGui::PopID();
     return changed;
-}
-
-void GameDataEditor::DrawContextPane() {
-    ImGui::TextDisabled("Context Pane");
-    ImGui::Separator();
 }
