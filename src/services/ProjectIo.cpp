@@ -85,7 +85,11 @@ bool ProjectIO::SaveProject(const std::string &path, const FactoryGraph &factory
             std::filesystem::remove(tmp); // Clean up temp file
             return false;
         }
-
+        NotificationManager::instance().addNotification(
+            "Project Saved",
+            "Project saved successfully",
+            NotificationType::Info,
+            3.0f);
         return true;
 
     } catch (const std::exception& e) {
@@ -148,25 +152,23 @@ bool ProjectIO::LoadProject(const std::string &path, FactoryGraph &factoryGraph)
         // Load graph data first
         if (projectData.contains("graph_data")) {
             try {
-                std::string gameDataName = projectData["graph_data"]["game_data_filename"];
-                std::string gameName = projectData["graph_data"]["game_name"];
-                std::transform(gameName.begin(), gameName.end(), gameName.begin(), [](unsigned char c) { return std::tolower(c); });
+                std::string targetUUID = projectData["graph_data"].value("game_data_uuid", "");
                 GameDataManager game_data_manager;
                 std::string error;
                 std::vector<GameDataPackage> packages = ScanForGameData(SettingsManager::instance().getSettings().gameDataPath);
                 // search for path from name in packages
                 std::filesystem::path gameDataPath;
                 for (const auto& pkg : packages) {
-                    if (pkg.dataName == gameDataName && pkg.gameName == gameName) {
+                    if (!targetUUID.empty() && pkg.uuid == targetUUID) {
                         gameDataPath = SettingsManager::instance().getSettings().gameDataPath / pkg.dataFilePath;
                         break;
                     }
                 }
                 if (gameDataPath.empty()) {
-                    LOG(ERROR) << "Game data file not found for project: " << gameDataName << " (" << gameName << ")";
+                    LOG(ERROR) << "Game data file not found for project: " << path << " (UUID: " << targetUUID << ")";
                     NotificationManager::instance().addNotification(
                         "Error Loading Project",
-                        "Game data file not found for project: " + gameDataName + " (" + gameName + ")",
+                        "Game data file not found for project: " + path + " (UUID: " + targetUUID + ")",
                         NotificationType::Error);
                     return false;
                 }

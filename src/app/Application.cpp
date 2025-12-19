@@ -937,6 +937,13 @@ void Application::CreateNewEditor(const std::string &gameDataFilePath, const std
         showFileAlreadyOpenPopup = true;
         return; // Do not create a new editor if the name already exists
     }
+    if (location.empty() || !std::filesystem::exists(location)) {
+        LOG(ERROR) << "Invalid location for new editor: " << location;
+        NotificationManager::instance().addNotification("Invalid Project Location",
+            "The specified project location is invalid or does not exist.",
+            NotificationType::Error);
+        return;
+    }
     // Create new editor with its own graph and solver
     if (gameDataFilePath.empty()) {
         LOG(INFO) << "Creating new editor '" << name << "' with empty game data.";

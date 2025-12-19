@@ -34,7 +34,7 @@ private:
 
     // Layout State
     GameDataTab m_activeTab = GameDataTab::General;
-    bool m_showContextPane = false;
+    bool m_isDirty = false;
 
     // Search & Filter State
     char m_searchBuffer[256] = "";

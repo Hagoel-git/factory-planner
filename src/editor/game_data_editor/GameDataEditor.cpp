@@ -190,6 +190,7 @@ void GameDataEditor::DrawNewFileDialog() {
                         if (gameDataManager.saveToFile(newFilePath.string(), saveError)) {
                             std::string loadError;
                             if (gameDataManager.loadFromFile(newFilePath.string(), loadError)) {
+                                m_isDirty = false;
                                 m_selectedFilePath = newFilePath;
                                 RefreshPackageList();
                                 ImGui::CloseCurrentPopup();
@@ -254,6 +255,7 @@ void GameDataEditor::DrawPackageBrowser() {
 
                 if (ImGui::Selectable(pkg.dataName.c_str(), isSelected)) {
                     m_selectedFilePath = pkg.dataFilePath;
+                    m_isDirty = false;
                     std::string error;
                     if (!gameDataManager.loadFromFile(pkg.dataFilePath.string(), error)) {
                         NotificationManager::instance().addNotification("Error", error, NotificationType::Error);
@@ -273,25 +275,9 @@ void GameDataEditor::DrawEditorWorkspace() {
     DrawTopMenuBar();
     float availHeight = ImGui::GetContentRegionAvail().y;
 
-    if (m_showContextPane) {
-        float availWidth = ImGui::GetContentRegionAvail().x;
-        float contextWidth = 300.0f;
-        float gridWidth = availWidth - contextWidth - ImGui::GetStyle().ItemSpacing.x;
-
-        ImGui::BeginChild("CentralArea", ImVec2(gridWidth, availHeight), false);
-        DrawCentralWorkspace();
-        ImGui::EndChild();
-
-        ImGui::SameLine();
-
-        ImGui::BeginChild("ContextPane", ImVec2(contextWidth, availHeight), true);
-        DrawContextPane();
-        ImGui::EndChild();
-    } else {
-        ImGui::BeginChild("CentralArea", ImVec2(0, availHeight), false);
-        DrawCentralWorkspace();
-        ImGui::EndChild();
-    }
+    ImGui::BeginChild("CentralArea", ImVec2(0, availHeight), false);
+    DrawCentralWorkspace();
+    ImGui::EndChild();
 }
 
 void GameDataEditor::Save() {
@@ -307,6 +293,7 @@ void GameDataEditor::Save() {
         NotificationManager::instance().addNotification("Save Failed", err, NotificationType::Error);
     } else {
         NotificationManager::instance().addNotification("Saved", "Game Data saved successfully", NotificationType::Success);
+        m_isDirty = false;
     }
 }
 
@@ -341,9 +328,21 @@ void GameDataEditor::DrawTopMenuBar() {
 
     ImGui::SameLine();
 
-    if (ImGui::Button(m_showContextPane ? "Hide Context >>" : "Show Context <<")) {
-        m_showContextPane = !m_showContextPane;
+    ImGui::BeginDisabled(!m_isDirty);
+
+    if (ImGui::Button("Save")) {
+        Save();
     }
+
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        if (!m_isDirty) {
+            ImGui::SetTooltip("No changes to save");
+        } else {
+            ImGui::SetTooltip("Save changes to disk (Ctrl+S)");
+        }
+    }
+
+    ImGui::EndDisabled();
 
     ImGui::PopStyleVar();
     ImGui::Separator();
@@ -480,9 +479,18 @@ void GameDataEditor::DrawGeneralTab() {
     ImGui::SameLine();
     ImGui::SetNextItemWidth(150);
     if (ImGui::BeginCombo("##timeunit", data.time_unit.c_str())) {
-        if (ImGui::Selectable("seconds", data.time_unit == "seconds")) data.time_unit = "seconds";
-        if (ImGui::Selectable("minutes", data.time_unit == "minutes")) data.time_unit = "minutes";
-        if (ImGui::Selectable("hours", data.time_unit == "hours")) data.time_unit = "hours";
+        if (ImGui::Selectable("seconds", data.time_unit == "seconds")) {
+            data.time_unit = "seconds";
+            m_isDirty = true;
+        }
+        if (ImGui::Selectable("minutes", data.time_unit == "minutes")) {
+            data.time_unit = "minutes";
+            m_isDirty = true;
+        }
+        if (ImGui::Selectable("hours", data.time_unit == "hours")) {
+            data.time_unit = "hours";
+            m_isDirty = true;
+        }
         ImGui::EndCombo();
     }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Base unit for recipe times (visual only)");
@@ -578,6 +586,7 @@ void GameDataEditor::DrawResourceCreator() {
             }
 
             if (gameDataManager.addResource(newRes)) {
+                m_isDirty = true;
                 if (!m_draftResource.iconPath.empty()) {
                     std::string err;
                     gameDataManager.setResourceIcon(key, m_draftResource.iconPath, err);
@@ -680,7 +689,9 @@ void GameDataEditor::DrawResourceGrid() {
                 if (ImGui::IsItemDeactivatedAfterEdit()) {
                     std::string err;
                     Resource temp = *item;
-                    gameDataManager.editResource(key, temp, err);
+                    if (gameDataManager.editResource(key, temp, err)) {
+                        m_isDirty = true;
+                    }
                 }
 
                 // Column 3: Key (ID)
@@ -722,6 +733,8 @@ void GameDataEditor::DrawResourceGrid() {
         std::string err;
         if (!gameDataManager.deleteResource(keyToDelete, err)) {
             NotificationManager::instance().addNotification("Delete Error", err, NotificationType::Error);
+        } else {
+            m_isDirty = true;
         }
     }
 }
@@ -817,6 +830,7 @@ void GameDataEditor::DrawMachineCreator() {
             }
 
             if (gameDataManager.addMachine(newMach)) {
+                m_isDirty = true;
                 if (!m_draftMachine.iconPath.empty()) {
                     std::string err;
                     gameDataManager.setResourceIcon(key, m_draftMachine.iconPath, err);
@@ -921,7 +935,9 @@ void GameDataEditor::DrawMachineGrid() {
                 if (ImGui::IsItemDeactivatedAfterEdit()) {
                     std::string err;
                     Machine temp = *item;
-                    gameDataManager.editMachine(key, temp, err);
+                    if (gameDataManager.editMachine(key, temp, err)) {
+                        m_isDirty = true;
+                    }
                 }
 
                 // Column 3: Speed
@@ -938,7 +954,9 @@ void GameDataEditor::DrawMachineGrid() {
                 if (ImGui::IsItemDeactivatedAfterEdit()) {
                     std::string err;
                     Machine temp = *item;
-                    gameDataManager.editMachine(key, temp, err);
+                    if (gameDataManager.editMachine(key, temp, err)) {
+                        m_isDirty = true;
+                    }
                 }
 
                 // Column 4: Key (ID)
@@ -978,6 +996,8 @@ void GameDataEditor::DrawMachineGrid() {
         std::string err;
         if (!gameDataManager.deleteMachine(keyToDelete, err)) {
             NotificationManager::instance().addNotification("Delete Error", err, NotificationType::Error);
+        } else {
+            m_isDirty = true;
         }
     }
 }
@@ -1016,6 +1036,7 @@ void GameDataEditor::DrawRecipeCreator() {
             newRec.produced_in_machines_keys = m_draftRecipe.producedIn;
 
             if (gameDataManager.addRecipe(newRec)) {
+                m_isDirty = true;
                 m_draftRecipe.nameBuf[0] = '\0';
                 strncpy(m_draftRecipe.timeBuf, "1.0", sizeof(m_draftRecipe.timeBuf));
                 m_draftRecipe.inputs.clear();
@@ -1094,7 +1115,9 @@ void GameDataEditor::DrawRecipeGrid() {
             if (ImGui::IsItemDeactivatedAfterEdit()) {
                 std::string err;
                 Recipe temp = *item;
-                gameDataManager.editRecipe(key, temp, err);
+                if (gameDataManager.editRecipe(key, temp, err)) {
+                    m_isDirty = true;
+                }
             }
 
             // Column 2: Time
@@ -1108,7 +1131,9 @@ void GameDataEditor::DrawRecipeGrid() {
             if (ImGui::IsItemDeactivatedAfterEdit()) {
                 std::string err;
                 Recipe temp = *item;
-                gameDataManager.editRecipe(key, temp, err);
+                if (gameDataManager.editRecipe(key, temp, err)) {
+                    m_isDirty = true;
+                }
             }
 
             // Column 3: Inputs
@@ -1116,7 +1141,9 @@ void GameDataEditor::DrawRecipeGrid() {
             if (DrawTokenList("##in", item->input_ports, true)) {
                 std::string err;
                 Recipe temp = *item;
-                gameDataManager.editRecipe(key, temp, err);
+                if (gameDataManager.editRecipe(key, temp, err)) {
+                    m_isDirty = true;
+                }
             }
 
             // Column 4: Outputs
@@ -1124,7 +1151,9 @@ void GameDataEditor::DrawRecipeGrid() {
             if (DrawTokenList("##out", item->output_ports, false)) {
                 std::string err;
                 Recipe temp = *item;
-                gameDataManager.editRecipe(key, temp, err);
+                if (gameDataManager.editRecipe(key, temp, err)) {
+                    m_isDirty = true;
+                }
             }
 
             // Column 5: Produced in
@@ -1132,7 +1161,9 @@ void GameDataEditor::DrawRecipeGrid() {
             if (DrawMachineList("##mach", item->produced_in_machines_keys)) {
                 std::string err;
                 Recipe temp = *item;
-                gameDataManager.editRecipe(key, temp, err);
+                if (gameDataManager.editRecipe(key, temp, err)) {
+                    m_isDirty = true;
+                }
             }
 
             // Column 6: Key (ID)
@@ -1171,6 +1202,8 @@ void GameDataEditor::DrawRecipeGrid() {
         std::string err;
         if (!gameDataManager.deleteRecipe(keyToDelete, err)) {
             NotificationManager::instance().addNotification("Delete Error", err, NotificationType::Error);
+        } else {
+            m_isDirty = true;
         }
     }
 }
