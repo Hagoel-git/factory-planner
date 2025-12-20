@@ -338,6 +338,10 @@ bool GameDataManager::addMachine(const Machine &m) {
         LOG(WARNING) << "Machine with key '" << key << "' already exists.";
         return false;
     }
+    if (key == "nothing") {
+        LOG(WARNING) << "Cannot add reserved machine 'nothing'.";
+        return false;
+    }
     _data.machines[key] = m;
     VLOG(2) << "Machine added successfully: " << key;
     return true;
@@ -350,6 +354,11 @@ bool GameDataManager::editMachine(const std::string& current_key, const Machine 
         return false;
     }
     std::string new_key = slugify(m.name);
+    if (new_key == "nothing") {
+        LOG(WARNING) << "Cannot rename machine to reserved name 'nothing'.";
+        outError = "Cannot rename machine to reserved name 'nothing'.";
+        return false;
+    }
     if (new_key != current_key) {
         if (_data.id_aliases.count(PREFIX_MAC + new_key)) {
             if (_data.id_aliases.at(PREFIX_RES + new_key) != current_key) {
@@ -421,6 +430,10 @@ bool GameDataManager::addRecipe(const Recipe &r) {
         LOG(WARNING) << "Recipe with key '" << key << "' already exists.";
         return false;
     }
+    if (key == "nothing") {
+        LOG(WARNING) << "Cannot add reserved recipe 'nothing'.";
+        return false;
+    }
     Recipe rr = r;
     // if no input or output ports, add a "nothing" port to avoid issues
     if (rr.input_ports.empty()) {
@@ -441,6 +454,11 @@ bool GameDataManager::editRecipe(const std::string& current_key, const Recipe &r
         return false;
     }
     std::string new_key = slugify(r.name);
+    if (new_key == "nothing") {
+        LOG(WARNING) << "Cannot rename recipe to reserved name 'nothing'.";
+        outError = "Cannot rename recipe to reserved name 'nothing'.";
+        return false;
+    }
 
     // update
     Recipe rr = r;
