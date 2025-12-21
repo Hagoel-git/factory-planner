@@ -94,6 +94,11 @@ void GameDataEditor::Draw() {
             m_requestNewFilePopup = false;
         }
         DrawNewFileDialog();
+        if (m_requestDeletePopup) {
+            ImGui::OpenPopup("Delete Confirmation");
+            m_requestDeletePopup = false;
+        }
+        DrawDeleteFileConfirmation();
     }
     ImGui::End();
 }
@@ -221,6 +226,42 @@ void GameDataEditor::DrawNewFileDialog() {
     }
 }
 
+void GameDataEditor::DrawDeleteFileConfirmation() {
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+    if (ImGui::BeginPopupModal("Delete Confirmation", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Are you sure you want to delete this file?");
+        ImGui::TextDisabled("%s", m_fileToDelete.filename().string().c_str());
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        if (ImGui::Button("Yes, Delete", ImVec2(120, 0))) {
+            std::string err;
+            if (gameDataManager.deleteDataFile(m_fileToDelete, err)) {
+                if (m_selectedFilePath == m_fileToDelete) {
+                    m_selectedFilePath.clear();
+                }
+
+                RefreshPackageList();
+                NotificationManager::instance().addNotification("Success", "File deleted successfully", NotificationType::Success);
+            } else {
+                NotificationManager::instance().addNotification("Error", err, NotificationType::Error);
+            }
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::SameLine();
+
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+}
+
 void GameDataEditor::DrawPackageBrowser() {
     ImGui::TextDisabled("Available Packages");
     ImGui::Separator();
@@ -260,6 +301,25 @@ void GameDataEditor::DrawPackageBrowser() {
                     if (!gameDataManager.loadFromFile(pkg.dataFilePath.string(), error)) {
                         NotificationManager::instance().addNotification("Error", error, NotificationType::Error);
                     }
+                }
+                if (ImGui::BeginPopupContextItem()) {
+                    if (ImGui::MenuItem("Duplicate File")) {
+                        std::string err;
+
+                        if (gameDataManager.duplicateDataFile(pkg.dataFilePath, err)) {
+                            RefreshPackageList();
+                            NotificationManager::instance().addNotification("Success", "File duplicated successfully", NotificationType::Success);
+                        } else {
+                            NotificationManager::instance().addNotification("Error", err, NotificationType::Error);
+                        }
+                    }
+
+                    if (ImGui::MenuItem("Delete")) {
+                        m_fileToDelete = pkg.dataFilePath;
+                        m_requestDeletePopup = true;
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::EndPopup();
                 }
             }
             ImGui::TreePop();

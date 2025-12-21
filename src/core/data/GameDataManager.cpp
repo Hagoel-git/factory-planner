@@ -501,13 +501,12 @@ bool GameDataManager::deleteRecipe(const std::string& key_name, std::string &out
     return true;
 }
 
-bool GameDataManager::duplicateDataFile(std::string &outError) {
-    if (_data.gameDataFilePath.empty()) {
-        outError = "Current file is not saved to disk.";
+bool GameDataManager::duplicateDataFile(const std::filesystem::path& sourcePath, std::string &outError) {
+    if (sourcePath.empty() || !std::filesystem::exists(sourcePath)) {
+        outError = "Source file does not exist.";
         return false;
     }
 
-    std::filesystem::path sourcePath = _data.gameDataFilePath;
     std::filesystem::path parentDir = sourcePath.parent_path();
     std::string stem = sourcePath.stem().string();
     std::string ext = sourcePath.extension().string();
@@ -545,6 +544,24 @@ bool GameDataManager::duplicateDataFile(std::string &outError) {
         return true;
     } catch (const std::exception& e) {
         outError = std::string("Failed to duplicate file: ") + e.what();
+        LOG(ERROR) << outError;
+        return false;
+    }
+}
+
+bool GameDataManager::deleteDataFile(const std::filesystem::path &path, std::string &outError) {
+    if (path.empty() || !std::filesystem::exists(path)) {
+        outError = "File does not exist on disk.";
+        return false;
+    }
+
+    try {
+        std::filesystem::remove(path);
+
+        LOG(INFO) << "Deleted game data file: " << path;
+        return true;
+    } catch (const std::exception& e) {
+        outError = std::string("Failed to delete file: ") + e.what();
         LOG(ERROR) << outError;
         return false;
     }
