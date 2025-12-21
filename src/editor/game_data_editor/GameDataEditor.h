@@ -42,7 +42,9 @@ private:
     // Package Browser State
     std::vector<GameDataPackage> m_packages;
     std::filesystem::path m_selectedFilePath;
+    std::filesystem::path m_fileToDelete;
     bool m_requestNewFilePopup = false;
+    bool m_requestDeletePopup = false;
 
     struct IconDialogState {
         std::atomic<bool> isRunning = false; // Is the dialog currently open?
@@ -81,6 +83,7 @@ private:
 
     // Internal Draw Helpers
     void DrawNewFileDialog();
+    void DrawDeleteFileConfirmation();
     void DrawPackageBrowser();
     void DrawEditorWorkspace();
     bool DrawTokenList(const char* str_id, std::vector<RecipePort>& ports, bool isInput);

@@ -37,9 +37,10 @@ public:
     // Validation - returns vector of human readable errors/warnings
     std::vector<std::string> validate(const GameData &gd);
 
-    bool duplicateDataFile(std::string& outError);
+    bool duplicateDataFile(const std::filesystem::path& sourcePath, std::string& outError);
     bool renameDataFile(const std::string& newName, std::string& outError);
     bool moveDataFile(const std::string& targetGameName, std::string& outError);
+    bool deleteDataFile(const std::filesystem::path& path, std::string& outError);
 
     GameData &current();
 
