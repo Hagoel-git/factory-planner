@@ -249,10 +249,15 @@ void GameDataEditor::DrawDeleteFileConfirmation() {
             if (gameDataManager.deleteDataFile(m_fileToDelete, err)) {
                 if (m_selectedFilePath == m_fileToDelete) {
                     m_selectedFilePath.clear();
+                    m_isDirty = true;
+                    NotificationManager::instance().addNotification("File Deleted",
+                        "File deleted from disk. It remains open in the editor and can be saved to restore it.",
+                        NotificationType::Success);
+                } else {
+                    NotificationManager::instance().addNotification("Success", "File deleted successfully", NotificationType::Success);
                 }
 
                 RefreshPackageList();
-                NotificationManager::instance().addNotification("Success", "File deleted successfully", NotificationType::Success);
             } else {
                 NotificationManager::instance().addNotification("Error", err, NotificationType::Error);
             }
