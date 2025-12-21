@@ -67,6 +67,13 @@ void GameDataEditor::SetOpen(bool open) {
 void GameDataEditor::RefreshPackageList() {
     std::filesystem::path path = SettingsManager::instance().getSettings().gameDataPath;
     m_packages = ScanForGameData(path);
+
+    std::sort(m_packages.begin(), m_packages.end(), [](const GameDataPackage& a, const GameDataPackage& b) {
+        if (a.gameName != b.gameName) {
+            return a.gameName < b.gameName;
+        }
+        return a.dataName < b.dataName;
+    });
 }
 
 void GameDataEditor::Draw() {
