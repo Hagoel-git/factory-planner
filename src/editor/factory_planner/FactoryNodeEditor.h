@@ -132,7 +132,6 @@ public:
 
     const std::string& GetName() const { return name; }
     const std::filesystem::path& GetProjectFilePath() const { return projectFilePath; }
-    const std::filesystem::path& GetGameDataFilePath() const { return graph->getGameData().gameDataFilePath; }
     void SetName(const std::string& newName) { name = newName; }
 private:
     std::unique_ptr<FactoryGraph> graph;
