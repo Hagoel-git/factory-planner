@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <memory>
+#include <mutex>
 #include <string>
 #include "common/CopyBuffer.h"
 #include "editor/game_data_editor/GameDataEditor.h"
@@ -11,6 +12,16 @@
 
 class FactoryNodeEditor;
 enum class SaveAsMode;
+
+
+struct DialogState {
+    std::mutex mutex; // Protects the result string
+    std::string resultPath;
+    std::string errorMessage;
+    bool hasError = false;
+    bool isRunning = false;
+    bool isCancelled = false;
+};
 
 class Application {
 public:
@@ -38,6 +49,7 @@ private:
     int activeEditor = -1; // No active editor initially
     int focusRequested = -1; // No focus request initially
 
+    std::vector<GameDataPackage> cachedGameDataPackages;
     CopyBuffer copyBuffer;
 
     bool showDebugWindow = false;
@@ -62,7 +74,7 @@ private:
 
     void SaveSession();
 
-    void CreateNewEditor(const std::string &gameDataFilePath, const std::string &location, const std::string &name);
+    void CreateNewEditor(const std::filesystem::path &gameDataFilePath, const std::filesystem::path &location, const std::string &name);
 
     bool SaveActiveEditor();
     bool SaveActiveEditorAs(const std::string &newFilePath, SaveAsMode mode);

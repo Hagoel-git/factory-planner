@@ -458,7 +458,7 @@ void Application::HandleShortcuts() {
             VLOG(1) << "Shortcut: Ctrl+Q pressed, quitting application.";
             quitRequested = true;
         }
-        if (!editors.empty() && !editors[activeEditor]->isFocused()) {
+        if (!editors.empty() && editors[activeEditor]->isFocused()) {
             if (ImGui::IsKeyPressed(ImGuiKey_W)) {
                 VLOG(1) << "Shortcut: Ctrl+W pressed, closing active editor.";
                 CloseActiveEditor();
@@ -515,13 +515,14 @@ void Application::HandleShortcuts() {
     }
 }
 
+DialogState dirDialogState;
+
 void Application::DrawNewProjectDialog() {
     if (!showNewProjectDialog) return;
 
     constexpr const char* kProjectExtension = ".fpp";
     static char projectNameBuf[128] = "";
     static char locationBuf[512] = "";
-    static bool initialized = false;
     static int selectedGameDataFile = -1;
 
     ImGui::SetNextWindowSize(ImVec2(800, 650), ImGuiCond_FirstUseEver);
@@ -531,13 +532,12 @@ void Application::DrawNewProjectDialog() {
         return;
     }
 
-    // Gather game data files (fresh each frame in case files change)
-    std::filesystem::path gameDataPath = SettingsManager::instance().getSettings().gameDataPath;
-    std::vector<GameDataPackage> game_data_packages = ScanForGameData(gameDataPath);
+    if (ImGui::IsWindowAppearing()) {
+        std::filesystem::path gameDataPath = SettingsManager::instance().getSettings().gameDataPath;
+        cachedGameDataPackages = ScanForGameData(gameDataPath);
 
-    // One-time initialization of buffers
-    if (!initialized) {
-        initialized = true;
+        selectedGameDataFile = cachedGameDataPackages.empty() ? -1 : 0;
+
         std::string defaultName = GenerateDefaultEditorName();
         std::strncpy(projectNameBuf, defaultName.c_str(), sizeof(projectNameBuf));
         projectNameBuf[sizeof(projectNameBuf) - 1] = '\0';
@@ -546,10 +546,43 @@ void Application::DrawNewProjectDialog() {
         std::strncpy(locationBuf, defaultLocation.string().c_str(), sizeof(locationBuf));
         locationBuf[sizeof(locationBuf) - 1] = '\0';
 
-        selectedGameDataFile = game_data_packages.empty() ? -1 : 0;
+        std::lock_guard<std::mutex> lock(dirDialogState.mutex);
+        dirDialogState.resultPath.clear();
+        dirDialogState.errorMessage.clear();
+        dirDialogState.hasError = false;
+        dirDialogState.isCancelled = false;
 
-        VLOG(2) << "New Project dialog initialized with default name '"
-                  << projectNameBuf << "' and location '" << locationBuf << "'.";
+        VLOG(2) << "New Project dialog initialized.";
+    }
+
+    {
+        std::unique_lock<std::mutex> lock(dirDialogState.mutex);
+
+        if (!dirDialogState.isRunning) {
+            // 1. Handle Path Result
+            if (!dirDialogState.resultPath.empty()) {
+                std::strncpy(locationBuf, dirDialogState.resultPath.c_str(), sizeof(locationBuf) - 1);
+                locationBuf[sizeof(locationBuf) - 1] = '\0';
+                dirDialogState.resultPath.clear();
+                LOG(INFO) << "New Project: Selected location: " << locationBuf;
+            }
+
+            // 2. Handle Error
+            if (dirDialogState.hasError) {
+                std::string msg = dirDialogState.errorMessage;
+                dirDialogState.hasError = false;
+                dirDialogState.errorMessage.clear();
+
+                lock.unlock();
+
+                NotificationManager::instance().addNotification("Error", msg, NotificationType::Error, 5.0f);
+            }
+
+            // 3. Handle Cancellation (reset flag)
+            if (dirDialogState.isCancelled) {
+                dirDialogState.isCancelled = false;
+            }
+        }
     }
 
     // --- Header ---
@@ -562,17 +595,13 @@ void Application::DrawNewProjectDialog() {
     ImGui::PushItemWidth(-1); // full width inputs
     ImGui::Text("Project name (filename without extension):");
     if (ImGui::InputText("##projname", projectNameBuf, sizeof(projectNameBuf))) {
-        // sanitize: strip any path separators and extension if user pasted it
         std::string s(projectNameBuf);
-        // Remove any directory components
         size_t pos = s.find_last_of("/\\");
         if (pos != std::string::npos) s = s.substr(pos + 1);
-        // Remove extension if user included it
         if (s.size() > std::strlen(kProjectExtension) &&
             s.compare(s.size() - std::strlen(kProjectExtension), std::strlen(kProjectExtension), kProjectExtension) == 0) {
             s.resize(s.size() - std::strlen(kProjectExtension));
-            }
-        // Remove any remaining slashes
+        }
         s.erase(std::remove_if(s.begin(), s.end(), [](char c){ return c == '/' || c == '\\' || c == ':'; }), s.end());
         std::strncpy(projectNameBuf, s.c_str(), sizeof(projectNameBuf));
         projectNameBuf[sizeof(projectNameBuf) - 1] = '\0';
@@ -594,31 +623,42 @@ void Application::DrawNewProjectDialog() {
     ImGui::PopItemWidth();
     ImGui::SameLine();
     if (ImGui::Button("Browse...", ImVec2(buttonWidth, 0))) {
-        VLOG(1) << "New Project: Browse for location button clicked.";
-        std::thread([]() {
-            nfdu8char_t *outPath;
-            nfdpickfolderu8args_t args = {0};
-            args.defaultPath = locationBuf;
-            nfdresult_t result = NFD_PickFolderU8_With(&outPath, &args);
+        std::lock_guard<std::mutex> lock(dirDialogState.mutex);
+        if (!dirDialogState.isRunning) {
+            VLOG(1) << "New Project: Browse for location button clicked.";
+            dirDialogState.isRunning = true;
+            dirDialogState.isCancelled = false;
+            dirDialogState.hasError = false;
 
-            if (result == NFD_OKAY) {
-                std::strncpy(locationBuf, outPath, sizeof(locationBuf) - 1);
-                locationBuf[sizeof(locationBuf) - 1] = '\0';
-                NFD_FreePathU8(outPath);
-                LOG(INFO) << "New Project: Selected location: " << locationBuf;
-            }
-        }).detach();
+            std::thread([]() {
+                nfdu8char_t *outPath = nullptr;
+                nfdpickfolderu8args_t args = {0};
+                nfdresult_t result = NFD_PickFolderU8_With(&outPath, &args);
+
+                std::lock_guard<std::mutex> threadLock(dirDialogState.mutex);
+                if (result == NFD_OKAY && outPath) {
+                    dirDialogState.resultPath = outPath;
+                    NFD_FreePathU8(outPath);
+                } else if (result == NFD_CANCEL) {
+                    dirDialogState.isCancelled = true;
+                } else {
+                    dirDialogState.hasError = true;
+                    dirDialogState.errorMessage = "An error occurred while opening the directory selection dialog.";
+                    LOG(ERROR) << "New Project: File dialog error.";
+                }
+                dirDialogState.isRunning = false;
+            }).detach();
+        }
     }
     ImGui::EndGroup();
 
-    // Compute full path shown to the user (location / (projectName + ext))
     std::filesystem::path locationPath = std::filesystem::path(std::string(locationBuf));
     std::string projectNameStr = projectNameBuf;
     std::filesystem::path fullPath;
     if (!projectNameStr.empty()) {
         fullPath = locationPath / (projectNameStr + kProjectExtension);
     } else {
-        fullPath = locationPath; // fallback if name empty
+        fullPath = locationPath;
     }
 
     ImGui::Spacing();
@@ -634,8 +674,8 @@ void Application::DrawNewProjectDialog() {
     ImGui::Text("Select Game Configuration:");
     ImGui::BeginChild("GameSelection", ImVec2(0, 180), true);
 
-    if (game_data_packages.empty()) {
-        ImGui::TextDisabled("No game configuration files found in %s", gameDataPath.string().c_str());
+    if (cachedGameDataPackages.empty()) {
+        ImGui::TextDisabled("No game configuration files found.");
         selectedGameDataFile = -1;
     } else {
         // Helper structs for sorting
@@ -650,59 +690,44 @@ void Application::DrawNewProjectDialog() {
             int originalIndex;
         };
 
-        // Temporary map to group packages by gameName
+        // Group packages
         std::map<std::string, std::vector<std::pair<std::string, int>>> groupedMap;
-        for (int i = 0; i < static_cast<int>(game_data_packages.size()); ++i) {
-            const auto& pkg = game_data_packages[i];
+        for (int i = 0; i < static_cast<int>(cachedGameDataPackages.size()); ++i) {
+            const auto& pkg = cachedGameDataPackages[i];
             groupedMap[pkg.gameName].push_back({pkg.dataName, i});
         }
 
-        // Two lists to store the two types of UI elements
         std::vector<FoldableGroup> foldableGroups;
         std::vector<SelectableItem> selectableItems;
 
-        // Sort the map into the two lists
         for (const auto& pair : groupedMap) {
-            const std::string& gameName = pair.first;
-            const auto& items = pair.second;
-
-            if (items.size() == 1) {
-                // Rule A: Only one item, add to selectableItems
-                const auto& item = items[0];
-                selectableItems.push_back({gameName, item.first, item.second});
+            if (pair.second.size() == 1) {
+                selectableItems.push_back({pair.first, pair.second[0].first, pair.second[0].second});
             } else {
-                // Rule B: More than one item, add to foldableGroups
-                foldableGroups.push_back({gameName, items});
+                foldableGroups.push_back({pair.first, pair.second});
             }
         }
 
-        // Render Foldable Groups first
+        // Render Groups
         for (const auto& group : foldableGroups) {
             if (ImGui::TreeNode(group.gameName.c_str())) {
                 for (const auto& item : group.items) {
-                    // item.first is dataName, item.second is originalIndex
                     bool isSelected = (selectedGameDataFile == item.second);
                     if (ImGui::Selectable(item.first.c_str(), isSelected)) {
                         selectedGameDataFile = item.second;
                     }
-                    if (isSelected) {
-                        ImGui::SetItemDefaultFocus();
-                    }
+                    if (isSelected) ImGui::SetItemDefaultFocus();
                 }
                 ImGui::TreePop();
             }
         }
 
-        if (!foldableGroups.empty() && !selectableItems.empty()) {
-            ImGui::Separator();
-        }
+        if (!foldableGroups.empty() && !selectableItems.empty()) ImGui::Separator();
 
-        // Render Single Selectable Items last
+        // Render Items
         for (const auto& item : selectableItems) {
-            // Display as "GameName - DataName" for context
             std::string displayName = item.gameName + " - " + item.dataName;
             bool isSelected = (selectedGameDataFile == item.originalIndex);
-
             if (ImGui::Selectable(displayName.c_str(), isSelected)) {
                 selectedGameDataFile = item.originalIndex;
             }
@@ -715,7 +740,7 @@ void Application::DrawNewProjectDialog() {
 
     ImGui::Spacing();
 
-    // Validation checks
+    // Validation
     bool nameEmpty = projectNameStr.empty();
     bool nameExists = std::any_of(editors.begin(), editors.end(), [&](const auto &editor) {
         return editor->GetName() == projectNameStr;
@@ -723,21 +748,22 @@ void Application::DrawNewProjectDialog() {
 
     bool projectExists = false;
     if (!fullPath.empty()) {
-        projectExists = std::filesystem::exists(fullPath);
+        try { projectExists = std::filesystem::exists(fullPath); } catch (...) {}
     }
 
     // Buttons
     ImGui::BeginGroup();
-    // Create button disabled if invalid
     ImGui::BeginDisabled(nameEmpty || nameExists || projectExists || selectedGameDataFile == -1);
     if (ImGui::Button("Create", ImVec2(120, 0))) {
         LOG(INFO) << "New Project: Creating new project: " << fullPath.string();
         // Ensure project directory exists
         std::error_code ec;
         std::filesystem::create_directories(locationPath, ec);
-        // Create the editor/project (call existing function)
-        if (selectedGameDataFile >= 0 && selectedGameDataFile < static_cast<int>(game_data_packages.size())) {
-            std::filesystem::path selectedGameData = gameDataPath / game_data_packages.at(selectedGameDataFile).dataFilePath;
+
+        if (selectedGameDataFile >= 0 && selectedGameDataFile < static_cast<int>(cachedGameDataPackages.size())) {
+            std::filesystem::path gameDataPath = SettingsManager::instance().getSettings().gameDataPath;
+            std::filesystem::path selectedGameData = gameDataPath / cachedGameDataPackages.at(selectedGameDataFile).dataFilePath;
+
             CreateNewEditor(selectedGameData, fullPath, projectNameStr);
         }
         showNewProjectDialog = false;
@@ -751,7 +777,7 @@ void Application::DrawNewProjectDialog() {
     }
     ImGui::EndGroup();
 
-    // --- Inline validation messages ---
+    // Error Messages
     if (nameEmpty) {
         ImGui::Spacing();
         ImGui::TextColored(ImVec4(1, 0.4f, 0.4f, 1), "Project name cannot be empty.");
@@ -759,12 +785,10 @@ void Application::DrawNewProjectDialog() {
         ImGui::Spacing();
         ImGui::TextColored(ImVec4(1, 0.2f, 0.2f, 1), "An editor with this name already exists.");
     }
-
     if (projectExists) {
         ImGui::Spacing();
-        ImGui::TextColored(ImVec4(1, 0.2f, 0.2f, 1), "A project with this name already exists at the specified location.");
+        ImGui::TextColored(ImVec4(1, 0.2f, 0.2f, 1), "A project file already exists at this location.");
     }
-
     if (selectedGameDataFile == -1) {
         ImGui::Spacing();
         ImGui::TextColored(ImVec4(1, 0.2f, 0.2f, 1), "Please select a game configuration file.");
@@ -773,17 +797,63 @@ void Application::DrawNewProjectDialog() {
     ImGui::End();
 }
 
-static std::atomic<bool> fileDialogRunning = false;
-static std::string fileDialogResult;
-static std::atomic<bool> fileDialogCancelled = false;
+static DialogState openDialogState;
 
 void Application::DrawOpenProjectDialog() {
     if (!showOpenProjectDialog) return;
 
-    if (!fileDialogRunning && fileDialogResult.empty() && !fileDialogCancelled) {
+    {
+        std::unique_lock<std::mutex> lock(openDialogState.mutex);
+
+        if (!openDialogState.isRunning) {
+            // 1. Handle Success
+            if (!openDialogState.resultPath.empty()) {
+                std::string path = openDialogState.resultPath;
+                openDialogState.resultPath.clear();
+
+                lock.unlock();
+
+                std::string projectName = std::filesystem::path(path).stem().string();
+                CreateNewEditor(std::filesystem::path(), path, projectName);
+                showOpenProjectDialog = false;
+                return;
+            }
+
+            // 2. Handle Error
+            if (openDialogState.hasError) {
+                std::string msg = openDialogState.errorMessage;
+                openDialogState.hasError = false;
+                openDialogState.errorMessage.clear();
+
+                lock.unlock();
+                NotificationManager::instance().addNotification("Error", msg, NotificationType::Error);
+            }
+
+            // 3. Handle Cancel
+            if (openDialogState.isCancelled) {
+                showOpenProjectDialog = false;
+                openDialogState.isCancelled = false;
+            }
+        }
+    }
+
+    bool shouldStart = false;
+    {
+        std::lock_guard<std::mutex> lock(openDialogState.mutex);
+        if (!openDialogState.isRunning && openDialogState.resultPath.empty() && !openDialogState.isCancelled && !openDialogState.hasError) {
+            shouldStart = true;
+        }
+    }
+
+    if (shouldStart) {
         VLOG(2) << "Opening native file dialog for project selection.";
-        fileDialogRunning = true;
-        fileDialogCancelled = false;
+
+        {
+            std::lock_guard<std::mutex> lock(openDialogState.mutex);
+            openDialogState.isRunning = true;
+            openDialogState.isCancelled = false;
+            openDialogState.hasError = false;
+        }
 
         std::thread([]() {
             nfdu8char_t *outPath;
@@ -794,41 +864,24 @@ void Application::DrawOpenProjectDialog() {
 
             nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
 
-            if (result == NFD_OKAY) {
-                fileDialogResult = outPath;
+            std::lock_guard<std::mutex> lock(openDialogState.mutex);
+            if (result == NFD_OKAY && outPath) {
+                openDialogState.resultPath = outPath;
                 NFD_FreePathU8(outPath);
-                VLOG(1) << "Open dialog: Selected project file: " << fileDialogResult;
             } else if (result == NFD_CANCEL) {
-                VLOG(1) << "Open dialog: User cancelled the file selection.";
-                fileDialogCancelled = true;
+                openDialogState.isCancelled = true;
             } else {
-                LOG(ERROR) << "Open dialog: Error occurred while opening file dialog.";
-                // Handle NFD_ERROR case
-                NotificationManager::instance().addNotification("File Dialog Error",
-                    "An error occurred while trying to open the file dialog.",
-                    NotificationType::Error);
-                fileDialogResult.clear();
-                fileDialogCancelled = true;
+                openDialogState.hasError = true;
+                openDialogState.errorMessage = "An error occurred while trying to open the file dialog.";
+                LOG(ERROR) << "Open dialog error.";
             }
 
-            fileDialogRunning = false;
+            openDialogState.isRunning = false;
         }).detach();
     }
-
-    // Handle successful file selection
-    if (!fileDialogResult.empty()) {
-        std::string projectName = std::filesystem::path(fileDialogResult).stem().string();
-        CreateNewEditor("", fileDialogResult, projectName);
-        showOpenProjectDialog = false;
-        fileDialogResult.clear();
-    }
-
-    // Handle cancellation
-    if (fileDialogCancelled) {
-        showOpenProjectDialog = false;
-        fileDialogCancelled = false;
-    }
 }
+
+static DialogState saveDialogState;
 
 void Application::DrawSaveAsDialog() {
     if (!showSaveDialog) return;
@@ -836,11 +889,73 @@ void Application::DrawSaveAsDialog() {
         showSaveDialog = false; // No editors to save
         return;
     }
-    // Start native save dialog on background thread if not already running
-    if (!fileDialogRunning && fileDialogResult.empty() && !fileDialogCancelled) {
+    {
+        std::unique_lock<std::mutex> lock(saveDialogState.mutex);
+
+        if (!saveDialogState.isRunning) {
+            // 1. Handle Success
+            if (!saveDialogState.resultPath.empty()) {
+                std::string path = saveDialogState.resultPath;
+                saveDialogState.resultPath.clear();
+
+                lock.unlock();
+
+                if (isSaveAsCopy) {
+                    SaveActiveEditorAs(path, SaveAsMode::KeepCurrentFile);
+                    isSaveAsCopy = false;
+                } else {
+                    std::string newFileName = std::filesystem::path(path).stem().string();
+
+                    // Check for duplicate names
+                    bool nameExists = std::any_of(editors.begin(), editors.end(), [&](const auto &editor) {
+                        return editor->GetName() == newFileName;
+                    });
+
+                    if (nameExists) {
+                        CloseEditorByName(newFileName);
+                    }
+                    SaveActiveEditorAs(path, SaveAsMode::SwitchToNewFile);
+                }
+                showSaveDialog = false;
+                return;
+            }
+
+            // 2. Handle Error
+            if (saveDialogState.hasError) {
+                std::string msg = saveDialogState.errorMessage;
+                saveDialogState.hasError = false;
+                saveDialogState.errorMessage.clear();
+
+                lock.unlock();
+                NotificationManager::instance().addNotification("Error", msg, NotificationType::Error);
+
+                showSaveDialog = false;
+            }
+
+            // 3. Handle Cancel
+            if (saveDialogState.isCancelled) {
+                showSaveDialog = false;
+                saveDialogState.isCancelled = false;
+            }
+        }
+    }
+
+    bool shouldStart = false;
+    {
+        std::lock_guard<std::mutex> lock(saveDialogState.mutex);
+        if (!saveDialogState.isRunning && saveDialogState.resultPath.empty() && !saveDialogState.isCancelled && !saveDialogState.hasError) {
+            shouldStart = true;
+        }
+    }
+
+    if (shouldStart) {
         VLOG(2) << "Opening native file dialog for Save As.";
-        fileDialogRunning = true;
-        fileDialogCancelled = false;
+        {
+            std::lock_guard<std::mutex> lock(saveDialogState.mutex);
+            saveDialogState.isRunning = true;
+            saveDialogState.isCancelled = false;
+            saveDialogState.hasError = false;
+        }
 
         std::thread([]() {
             nfdu8char_t *outPath = nullptr;
@@ -851,51 +966,20 @@ void Application::DrawSaveAsDialog() {
 
             nfdresult_t result = NFD_SaveDialogU8_With(&outPath, &args);
 
-            if (result == NFD_OKAY) {
-                fileDialogResult = outPath ? outPath : "";
-                if (outPath) NFD_FreePathU8(outPath);
-                VLOG(1) << "Save As dialog: Selected file path: " << fileDialogResult;
+            std::lock_guard<std::mutex> lock(saveDialogState.mutex);
+            if (result == NFD_OKAY && outPath) {
+                saveDialogState.resultPath = outPath;
+                NFD_FreePathU8(outPath);
             } else if (result == NFD_CANCEL) {
-                VLOG(1) << "Save As dialog: User cancelled the save operation.";
-                fileDialogCancelled = true;
+                saveDialogState.isCancelled = true;
             } else {
-                LOG(ERROR) << "Save As dialog: Error occurred while opening save dialog.";
-                // NFD_ERROR
-                NotificationManager::instance().addNotification("File Dialog Error",
-                    "An error occurred while trying to open the save file dialog.",
-                    NotificationType::Error);
-                fileDialogResult.clear();
-                fileDialogCancelled = true;
+                saveDialogState.hasError = true;
+                saveDialogState.errorMessage = "An error occurred while opening the save dialog.";
+                LOG(ERROR) << "Save dialog error.";
             }
 
-            fileDialogRunning = false;
+            saveDialogState.isRunning = false;
         }).detach();
-    }
-
-    // If a path was picked, perform SaveAs and switch to the new file
-    if (!fileDialogResult.empty()) {
-        if (isSaveAsCopy) {
-            SaveActiveEditorAs(fileDialogResult, SaveAsMode::KeepCurrentFile);
-            isSaveAsCopy = false;
-        } else {
-            // check if the file is already open
-            std::string newFileName = std::filesystem::path(fileDialogResult).stem().string();
-            if (std::any_of(editors.begin(), editors.end(), [&](const auto &editor) {
-                return editor->GetName() == newFileName;
-            })) {
-                // If an editor with the same name is already open, close it
-                CloseEditorByName(newFileName);
-            }
-            SaveActiveEditorAs(fileDialogResult, SaveAsMode::SwitchToNewFile);
-        }
-        showSaveDialog = false;
-        fileDialogResult.clear();
-    }
-
-    // Handle cancellation
-    if (fileDialogCancelled) {
-        showSaveDialog = false;
-        fileDialogCancelled = false;
     }
 }
 
@@ -930,7 +1014,7 @@ void Application::SaveSession() {
     SessionManager::instance().save();
 }
 
-void Application::CreateNewEditor(const std::string &gameDataFilePath, const std::string &location,
+void Application::CreateNewEditor(const std::filesystem::path &gameDataFilePath, const std::filesystem::path &location,
                                   const std::string &name) {
     // Check if an editor with the same name already exists
     if (std::any_of(editors.begin(), editors.end(), [&](const auto &editor) {
@@ -940,7 +1024,7 @@ void Application::CreateNewEditor(const std::string &gameDataFilePath, const std
         showFileAlreadyOpenPopup = true;
         return; // Do not create a new editor if the name already exists
     }
-    if (location.empty() || !std::filesystem::exists(location)) {
+    if (location.empty() || !std::filesystem::exists(std::filesystem::path(location).parent_path())) {
         LOG(ERROR) << "Invalid location for new editor: " << location;
         NotificationManager::instance().addNotification("Invalid Project Location",
             "The specified project location is invalid or does not exist.",
@@ -1045,9 +1129,6 @@ void Application::PasteActiveEditor(bool mapExternalConnections) {
     }
     auto &editor = editors[activeEditor];
     if (editor) {
-        if (editor.get()->GetGameDataFilePath() != copyBuffer.gameDataFilePath) {
-            return;
-        }
         ed::SetCurrentEditor(editor->GetContext());
         editor->paste(copyBuffer, mapExternalConnections);
         ed::SetCurrentEditor(nullptr);
