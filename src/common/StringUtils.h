@@ -58,4 +58,52 @@ inline std::string slugify(std::string text) {
     return text;
 }
 
+/**
+ * @brief Compares two strings using natural sort order (e.g., "file2" < "file10").
+ * Handles numeric segments by value and other characters case-insensitively.
+ */
+inline bool naturalLess(const std::string& a, const std::string& b) {
+    size_t i = 0, j = 0;
+    while (i < a.length() && j < b.length()) {
+        // Check if both characters are digits
+        if (std::isdigit(a[i]) && std::isdigit(b[j])) {
+            // Scan full numeric chunk in a
+            size_t startI = i;
+            while (i < a.length() && std::isdigit(a[i])) i++;
+
+            // Scan full numeric chunk in b
+            size_t startJ = j;
+            while (j < b.length() && std::isdigit(b[j])) j++;
+
+            // Compare numeric chunks
+            size_t lenA = i - startI;
+            size_t lenB = j - startJ;
+
+            // 1. Compare by length (shorter number is smaller, assuming no leading zeros like 01 vs 1)
+            if (lenA != lenB) {
+                return lenA < lenB;
+            }
+
+            // 2. If lengths are equal, compare lexicographically (effectively by value)
+            int cmp = a.compare(startI, lenA, b, startJ, lenB);
+            if (cmp != 0) {
+                return cmp < 0;
+            }
+            // If numbers are identical, continue to next characters
+        } else {
+            // Case-insensitive character comparison
+            char cA = static_cast<char> (std::tolower(a[i]));
+            char cB = static_cast<char> (std::tolower(b[j]));
+
+            if (cA != cB) {
+                return cA < cB;
+            }
+            i++;
+            j++;
+        }
+    }
+    // If one string is a prefix of the other, the shorter one comes first
+    return a.length() < b.length();
+}
+
 #endif //STRINGUTILS_H
