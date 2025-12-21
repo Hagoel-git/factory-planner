@@ -559,6 +559,33 @@ void GameDataEditor::DrawGeneralTab() {
 
     ImGui::Separator();
 
+    ImGui::Text("Actions");
+
+    if (ImGui::Button("Duplicate")) {
+        std::string err;
+        if (gameDataManager.duplicateDataFile(data.gameDataFilePath, err)) {
+            RefreshPackageList();
+            NotificationManager::instance().addNotification("Success", "File duplicated successfully", NotificationType::Success);
+        } else {
+            NotificationManager::instance().addNotification("Error", err, NotificationType::Error);
+        }
+    }
+
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Create a copy of the current game data file");
+
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.2f, 0.2f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.9f, 0.3f, 0.3f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1.0f, 0.1f, 0.1f, 1.0f));
+    if (ImGui::Button("Delete")) {
+        m_fileToDelete = data.gameDataFilePath;
+        m_requestDeletePopup = true;
+    }
+    ImGui::PopStyleColor(3);
+
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delete the current game data file");
+
+    ImGui::Separator();
+
     auto errors = gameDataManager.validate(gameDataManager.current());
     if (errors.empty()) {
         ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Validation successful");
