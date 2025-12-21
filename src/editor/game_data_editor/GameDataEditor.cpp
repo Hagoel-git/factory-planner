@@ -330,7 +330,9 @@ void GameDataEditor::DrawTopMenuBar() {
 
     ImGui::BeginDisabled(!m_isDirty);
 
-    if (ImGui::Button("Save")) {
+    bool shortcut = ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S);
+
+    if (ImGui::Button("Save") || (shortcut && m_isFocused)) {
         Save();
     }
 
