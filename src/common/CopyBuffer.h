@@ -10,6 +10,7 @@
 #include "core/graph/Connection.h"
 
 struct ImVec2;
+class FactoryNodeEditor;
 
 struct CopyBuffer {
     std::unordered_map<uint64_t, Node> nodes;    // id->Node; copies of Node (value-copied)
@@ -17,7 +18,8 @@ struct CopyBuffer {
     std::unordered_set<Connection> connections;    // copies of Connection that touch selected nodes
     std::unordered_map<uint64_t, ImVec2> nodePositions; // nodeId -> canvas position (ed::GetNodePosition)
 
-    std::filesystem::path gameDataFilePath; // Path to the game data file used for this copy buffer
+    std::string gameName;
+    const FactoryNodeEditor* sourceEditor = nullptr;
 
     bool isEmpty() const {
         return nodes.empty();
@@ -28,7 +30,8 @@ struct CopyBuffer {
         ports.clear();
         connections.clear();
         nodePositions.clear();
-        gameDataFilePath.clear();
+        gameName.clear();
+        sourceEditor = nullptr;
     }
 
 };

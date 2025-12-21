@@ -179,7 +179,8 @@ void FactoryNodeEditor::copy(CopyBuffer &copy_buffer) {
 
     copy_buffer.clear();
 
-    copy_buffer.gameDataFilePath = GetGameDataFilePath(); // Store game data file path
+    copy_buffer.gameName = graph->getGameData().gameName;
+    copy_buffer.sourceEditor = this;
 
     for (const auto &nodeId : selectedNodes) {
         uint64_t nodeIdInt = IdUtils::FromNodeId(nodeId);
@@ -229,8 +230,88 @@ void FactoryNodeEditor::cut(CopyBuffer &copyBuffer) {
 }
 
 void FactoryNodeEditor::paste(const CopyBuffer &copy_buffer, bool mapExternalConnections) {
-    executeCommand(std::make_unique<PasteCommand>(copy_buffer, mapExternalConnections));
-    VLOG(1) << "Pasted " << copy_buffer.nodes.size() << " nodes from clipboard. At " << name;
+    if (copy_buffer.isEmpty()) return;
+
+    if (copy_buffer.gameName != graph->getGameData().gameName) {
+        NotificationManager::instance().addNotification(
+            "Paste Failed",
+            "Cannot paste: Game mismatch ('" + copy_buffer.gameName + "' vs '" + graph->getGameData().gameName + "')",
+            NotificationType::Warning
+        );
+        return;
+    }
+
+    if (copy_buffer.sourceEditor != this) {
+        mapExternalConnections = false;
+    }
+
+    CopyBuffer filteredBuffer;
+    filteredBuffer.gameName = copy_buffer.gameName;
+    filteredBuffer.sourceEditor = copy_buffer.sourceEditor;
+
+    const auto& gameData = graph->getGameData();
+    std::unordered_set<uint64_t> validNodeIds;
+    int skippedNodes = 0;
+
+    for (const auto& [id, node] : copy_buffer.nodes) {
+        bool machineValid = gameData.machines.count(node.machine_key);
+        bool recipeValid = gameData.recipes.count(node.selected_recipe_key);
+
+        if (recipeValid) {
+            filteredBuffer.nodes[id] = node;
+            if (!machineValid) {
+                const Recipe& recipe = gameData.recipes.at(node.selected_recipe_key);
+                if (!recipe.produced_in_machines_keys.empty()) {
+                    filteredBuffer.nodes[id].machine_key = graph->resolvePreferredMachine(recipe.produced_in_machines_keys);
+                } else {
+                    filteredBuffer.nodes[id].machine_key = "";
+                }
+            }
+            filteredBuffer.nodePositions[id] = copy_buffer.nodePositions.at(id);
+            validNodeIds.insert(id);
+
+            for (const auto& [pid, port] : copy_buffer.ports) {
+                if (port.node_id == id) {
+                    filteredBuffer.ports[pid] = port;
+                }
+            }
+        } else {
+            skippedNodes++;
+            VLOG(2) << "Skipping paste of node " << node.name << " (ID: " << id << ") due to missing recipe/machine.";
+        }
+    }
+    if (filteredBuffer.nodes.empty()) {
+        if (skippedNodes > 0) {
+            NotificationManager::instance().addNotification("Paste Failed", "All" + std::to_string(skippedNodes) + " copied nodes contained invalid recipes/machines for this game version.", NotificationType::Warning);
+        }
+        return;
+    }
+
+    for (const auto& conn : copy_buffer.connections) {
+        // Check if the ports exist in the source buffer at all
+        bool fromInSource = copy_buffer.ports.count(conn.from_port);
+        bool toInSource = copy_buffer.ports.count(conn.to_port);
+
+        // Check if they are valid (i.e., belong to a node we are actually pasting)
+        bool fromValid = fromInSource && validNodeIds.count(copy_buffer.ports.at(conn.from_port).node_id);
+        bool toValid = toInSource && validNodeIds.count(copy_buffer.ports.at(conn.to_port).node_id);
+
+        // A port is skipped if it WAS in the buffer but is NOT valid
+        bool fromSkipped = fromInSource && !fromValid;
+        bool toSkipped = toInSource && !toValid;
+
+        // Only keep connections where neither side refers to a skipped/invalid node
+        if (!fromSkipped && !toSkipped) {
+            filteredBuffer.connections.insert(conn);
+        }
+    }
+
+    if (skippedNodes > 0) {
+        NotificationManager::instance().addNotification("Partial Paste", std::to_string(skippedNodes) + " node(s) were skipped because their recipes or machines don't exist in this game data.", NotificationType::Warning);
+    }
+
+    executeCommand(std::make_unique<PasteCommand>(filteredBuffer, mapExternalConnections));
+    VLOG(1) << "Pasted " << filteredBuffer.nodes.size() << " nodes from clipboard. At " << name;
 }
 
 void FactoryNodeEditor::selectAll() {
