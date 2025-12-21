@@ -72,7 +72,7 @@ void GameDataEditor::RefreshPackageList() {
         if (a.gameName != b.gameName) {
             return a.gameName < b.gameName;
         }
-        return a.dataName < b.dataName;
+        return naturalLess(a.dataName, b.dataName);
     });
 }
 
