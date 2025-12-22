@@ -1045,11 +1045,8 @@ void GameDataEditor::DrawMachineGrid() {
                 ImGui::TableNextColumn();
                 ImGui::SetNextItemWidth(-FLT_MIN);
 
-                char speedBuf[64];
-                snprintf(speedBuf, sizeof(speedBuf), "%.2f", item->base_crafting_speed);
-
-                if (ImGui::InputText("##speed", speedBuf, sizeof(speedBuf))) {
-                    item->base_crafting_speed = std::stof(speedBuf);
+                if (ImGui::InputDouble("##speed", &item->base_crafting_speed, 0.0f, 0.0f, "%.2f")) {
+                    // Value is updated automatically
                 }
 
                 if (ImGui::IsItemDeactivatedAfterEdit()) {
