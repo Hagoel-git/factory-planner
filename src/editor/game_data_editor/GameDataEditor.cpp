@@ -1686,6 +1686,8 @@ bool GameDataEditor::DrawMachineList(const char* str_id, std::vector<std::string
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(chipHoverColor.x * 0.9f, chipHoverColor.y * 0.9f, chipHoverColor.z * 0.9f, 1.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 8.0f);
     if (ImGui::Button("+", ImVec2(addBtnWidth, frameHeight))) {
+        m_tokenPopupState.targetVector = nullptr;
+        m_tokenPopupState.searchBuf[0] = '\0';
         ImGui::OpenPopup("AddMachinePopup");
     }
     ImGui::PopStyleVar();
