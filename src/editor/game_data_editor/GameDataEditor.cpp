@@ -1368,16 +1368,29 @@ bool GameDataEditor::DrawTokenList(const char* str_id, std::vector<RecipePort>& 
         float frameHeight = ImGui::GetFrameHeight();
 
         ImGui::SetCursorScreenPos(cursorPos);
-        bool clickedBody = ImGui::InvisibleButton("##body", ImVec2(bodyWidth, frameHeight));
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0, 0, 0, 0));
+        bool clickedBody = ImGui::Button("##body", ImVec2(bodyWidth, frameHeight));
+        ImGui::PopStyleColor(3);
         bool hoveredBody = ImGui::IsItemHovered();
+        bool focusedBody = ImGui::IsItemFocused();
 
         drawList->AddRectFilled(
             cursorPos,
             ImVec2(cursorPos.x + bodyWidth, cursorPos.y + frameHeight),
-            ImGui::GetColorU32(hoveredBody ? chipHoverColor : chipBgColor),
+            ImGui::GetColorU32((hoveredBody || focusedBody) ? chipHoverColor : chipBgColor),
             chipRounding,
             ImDrawFlags_RoundCornersLeft
         );
+
+        if (focusedBody) {
+            ImGui::RenderNavHighlight(
+                ImRect(cursorPos, ImVec2(cursorPos.x + bodyWidth, cursorPos.y + frameHeight)),
+                ImGui::GetID("##body"),
+                ImGuiNavHighlightFlags_Compact
+            );
+        }
 
         float contentX = cursorPos.x + chipPadding.x;
         float contentY = cursorPos.y + (frameHeight - iconSize) * 0.5f;
@@ -1395,14 +1408,19 @@ bool GameDataEditor::DrawTokenList(const char* str_id, std::vector<RecipePort>& 
         ImGui::SameLine(0, 0);
 
         ImGui::SetCursorScreenPos(ImVec2(cursorPos.x + bodyWidth, cursorPos.y));
-        bool clickedX = ImGui::InvisibleButton("##x_btn", ImVec2(xBtnWidth, frameHeight));
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0, 0, 0, 0));
+        bool clickedX = ImGui::Button("##x_btn", ImVec2(xBtnWidth, frameHeight));
+        ImGui::PopStyleColor(3);
         bool hoveredX = ImGui::IsItemHovered();
         bool activeX = ImGui::IsItemActive();
+        bool focusedX = ImGui::IsItemFocused();
 
         ImVec4 xColor = ImVec4(chipBgColor.x * 0.8f, chipBgColor.y * 0.8f, chipBgColor.z * 0.8f, 1.0f); // Default Darker
         if (activeX) {
             xColor = ImVec4(xColor.x * 0.7f, xColor.y * 0.7f, xColor.z * 0.7f, 1.0f); // Clicked = Darkest
-        } else if (hoveredX) {
+        } else if (hoveredX || focusedX) {
             xColor = ImVec4(xColor.x * 1.3f, xColor.y * 1.3f, xColor.z * 1.3f, 1.0f); // Hovered = Lighter
         }
 
@@ -1423,6 +1441,15 @@ bool GameDataEditor::DrawTokenList(const char* str_id, std::vector<RecipePort>& 
             ImDrawFlags_RoundCornersRight
         );
 
+        if (focusedX) {
+            ImGui::RenderNavHighlight(
+                ImRect(ImVec2(cursorPos.x + bodyWidth, cursorPos.y),
+                       ImVec2(cursorPos.x + bodyWidth + xBtnWidth, cursorPos.y + frameHeight)),
+                ImGui::GetID("##x_btn"),
+                ImGuiNavHighlightFlags_Compact
+            );
+        }
+
         ImVec2 xTextSize = ImGui::CalcTextSize("x");
         float xTextX = cursorPos.x + bodyWidth + (xBtnWidth - xTextSize.x) * 0.5f;
         float xTextY = cursorPos.y + (frameHeight - xTextSize.y) * 0.5f;
@@ -1439,17 +1466,21 @@ bool GameDataEditor::DrawTokenList(const char* str_id, std::vector<RecipePort>& 
             ImGui::TextDisabled("Edit Port");
             ImGui::Separator();
 
+            if (ImGui::IsWindowAppearing()) { ImGui::SetKeyboardFocusHere(); }
             ImGui::SetNextItemWidth(120);
             ImGui::InputDouble("Amount", &ports[i].amount, 1.0, 10.0, "%.2f");
+            bool isEnterPressed = ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter);
             if (ImGui::IsItemDeactivatedAfterEdit()) {
                 changed = true;
+            }
+            if (changed && isEnterPressed) {
+                ImGui::CloseCurrentPopup();
             }
 
             ImGui::Separator();
             ImGui::TextDisabled("Change Resource");
 
             static char sbuf[64] = "";
-            if (ImGui::IsWindowAppearing()) { sbuf[0] = 0; ImGui::SetKeyboardFocusHere(); }
             ImGui::InputTextWithHint("##s", "Search...", sbuf, 64);
 
             if (ImGui::BeginChild("L", ImVec2(-1, 200))) {
@@ -1508,11 +1539,22 @@ bool GameDataEditor::DrawTokenList(const char* str_id, std::vector<RecipePort>& 
 
     if (ImGui::BeginPopup("AddTokenPopup")) {
         if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
-        ImGui::InputTextWithHint("##s", "Search...", m_tokenPopupState.searchBuf, 128);
+        bool enterPressed = ImGui::InputTextWithHint("##s", "Search...", m_tokenPopupState.searchBuf, 128, ImGuiInputTextFlags_EnterReturnsTrue);
         ImGui::Separator();
 
         if (ImGui::BeginChild("AddL", ImVec2(-1, 200))) {
             auto resources = FilterMap(gameDataManager.current().resources, m_tokenPopupState.searchBuf);
+
+            if (enterPressed && !resources.empty()) {
+                const auto& firstPair = *resources.begin();
+                const std::string& key = firstPair.first;
+                if (m_tokenPopupState.targetVector) {
+                    m_tokenPopupState.targetVector->push_back({1.0, key});
+                    m_tokenPopupState.isInput = isInput;
+                    changed = true;
+                }
+                ImGui::CloseCurrentPopup();
+            }
 
             for (const auto& pair : resources) {
                 const std::string& key = pair.first;
@@ -1631,14 +1673,19 @@ bool GameDataEditor::DrawMachineList(const char* str_id, std::vector<std::string
         ImGui::SameLine(0, 0);
 
         ImGui::SetCursorScreenPos(ImVec2(cursorPos.x + bodyWidth, cursorPos.y));
-        bool clickedX = ImGui::InvisibleButton("##x_btn", ImVec2(xBtnWidth, frameHeight));
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0, 0, 0, 0));
+        bool clickedX = ImGui::Button("##x_btn", ImVec2(xBtnWidth, frameHeight));
+        ImGui::PopStyleColor(3);
         bool hoveredX = ImGui::IsItemHovered();
         bool activeX = ImGui::IsItemActive();
+        bool focusedX = ImGui::IsItemFocused();
 
         ImVec4 xColor = ImVec4(chipBgColor.x * 0.8f, chipBgColor.y * 0.8f, chipBgColor.z * 0.8f, 1.0f); // Default Darker
         if (activeX) {
             xColor = ImVec4(xColor.x * 0.7f, xColor.y * 0.7f, xColor.z * 0.7f, 1.0f); // Clicked = Darkest
-        } else if (hoveredX) {
+        } else if (hoveredX || focusedX) {
             xColor = ImVec4(xColor.x * 1.3f, xColor.y * 1.3f, xColor.z * 1.3f, 1.0f); // Hovered = Lighter
         }
 
@@ -1658,6 +1705,15 @@ bool GameDataEditor::DrawMachineList(const char* str_id, std::vector<std::string
             chipRounding,
             ImDrawFlags_RoundCornersRight
         );
+
+        if (focusedX) {
+            ImGui::RenderNavHighlight(
+                ImRect(ImVec2(cursorPos.x + bodyWidth, cursorPos.y),
+                       ImVec2(cursorPos.x + bodyWidth + xBtnWidth, cursorPos.y + frameHeight)),
+                ImGui::GetID("##x_btn"),
+                ImGuiNavHighlightFlags_Compact
+            );
+        }
 
         ImVec2 xTextSize = ImGui::CalcTextSize("x");
         float xTextX = cursorPos.x + bodyWidth + (xBtnWidth - xTextSize.x) * 0.5f;
@@ -1695,11 +1751,32 @@ bool GameDataEditor::DrawMachineList(const char* str_id, std::vector<std::string
 
     if (ImGui::BeginPopup("AddMachinePopup")) {
         if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
-        ImGui::InputTextWithHint("##s", "Search...", m_tokenPopupState.searchBuf, 128);
+        bool enterPressed = ImGui::InputTextWithHint("##s", "Search...", m_tokenPopupState.searchBuf, 128, ImGuiInputTextFlags_EnterReturnsTrue);
         ImGui::Separator();
 
         if (ImGui::BeginChild("AddL", ImVec2(-1, 200))) {
             auto machines = FilterMap(gameDataManager.current().machines, m_tokenPopupState.searchBuf);
+
+            if (enterPressed && !machines.empty()) {
+                for (const auto& pair : machines) {
+                    const std::string& key = pair.first;
+
+                    bool alreadyHas = false;
+                    for (const auto& existing : machineKeys) {
+                        if (existing == key) {
+                            alreadyHas = true;
+                            break;
+                        }
+                    }
+
+                    if (!alreadyHas) {
+                        machineKeys.push_back(key);
+                        changed = true;
+                        ImGui::CloseCurrentPopup();
+                        break;
+                    }
+                }
+            }
 
             for (const auto& pair : machines) {
                 const std::string& key = pair.first;
