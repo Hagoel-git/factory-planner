@@ -304,10 +304,17 @@ void FactorySolver::updateFactoryGraph(FactoryGraph &factory_graph) const {
         const Recipe &recipe = factory_graph.getGameData().recipes.find(node.selected_recipe_key)->second;
         const Machine &machine = factory_graph.getGameData().machines.find(node.machine_key)->second;
         double machine_count;
+
+        double base_speed = machine.base_crafting_speed;
+        double clock_speed_multiplier = node.clock_speed / 100.0;
+        double production_multiplier = node.production_multiplier / 100.0;
+
         if (recipe.input_ports.size() == 1 && recipe.input_ports.at(0).resource_key == "nothing") {
-            machine_count = factory_graph.getPort(node.output_ports.at(0))->rate / (recipe.output_ports.at(0).amount / recipe.time_seconds * machine.base_crafting_speed * time_unit * (node.clock_speed / 100.0));
+            double output_per_machine = (recipe.output_ports.at(0).amount * production_multiplier) / recipe.time_seconds * base_speed * time_unit * clock_speed_multiplier;
+            machine_count = factory_graph.getPort(node.output_ports.at(0))->rate / output_per_machine;
         } else {
-            machine_count = factory_graph.getPort(node.input_ports.at(0))->rate / (recipe.input_ports.at(0).amount / recipe.time_seconds * machine.base_crafting_speed * time_unit * (node.clock_speed / 100.0));
+            double input_per_machine = recipe.input_ports.at(0).amount / recipe.time_seconds * base_speed * time_unit * clock_speed_multiplier;
+            machine_count = factory_graph.getPort(node.input_ports.at(0))->rate / input_per_machine;
         }
         node.machine_count = machine_count;
     }
