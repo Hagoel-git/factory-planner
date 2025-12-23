@@ -13,7 +13,7 @@ RecentFiles &RecentFiles::instance() {
 
 void RecentFiles::load() {
     std::error_code ec;
-    std::filesystem::create_directories(get_executable_directory().value(), ec);
+    std::filesystem::create_directories(getExecutableDirectory().value(), ec);
     if (ec) {
         LOG(ERROR) << "Failed to create settings directory: " << ec.message();
     }
@@ -26,21 +26,21 @@ void RecentFiles::save() {
 
 void RecentFiles::addFile(std::filesystem::path filePath) {
     VLOG(2) << "Adding recent file: " << filePath;
-    files.erase(std::remove(files.begin(), files.end(), filePath), files.end());
-    files.insert(files.begin(), std::move(filePath));
+    m_files.erase(std::remove(m_files.begin(), m_files.end(), filePath), m_files.end());
+    m_files.insert(m_files.begin(), std::move(filePath));
     const int maxFiles = SettingsManager::instance().getSettings().maxRecentFiles;
-    if (static_cast<int>(files.size()) > maxFiles) {
-        files.resize(maxFiles);
+    if (static_cast<int>(m_files.size()) > maxFiles) {
+        m_files.resize(maxFiles);
     }
 }
 
 const std::vector<std::filesystem::path> &RecentFiles::getFiles() const {
-    return files;
+    return m_files;
 }
 
 void RecentFiles::loadRecentFiles() {
     VLOG(2) << "Loading recent files.";
-    const auto path = get_executable_directory().value() / "recent.json";
+    const auto path = getExecutableDirectory().value() / "recent.json";
     if (!std::filesystem::exists(path)) {
         LOG(INFO) << "Recent files does not exist: " << path;
         return;
@@ -56,12 +56,12 @@ void RecentFiles::loadRecentFiles() {
         f >> j;
 
         if (j.contains("recentFiles") && j["recentFiles"].is_array()) {
-            files.clear();
+            m_files.clear();
             for (const auto &item : j["recentFiles"]) {
                 if (item.is_string()) {
-                    bool alreadyExists = files.end() != std::find(files.begin(), files.end(), item.get<std::string>());
+                    bool alreadyExists = m_files.end() != std::find(m_files.begin(), m_files.end(), item.get<std::string>());
                     if (!alreadyExists) {
-                        files.push_back(item.get<std::string>());
+                        m_files.push_back(item.get<std::string>());
                     }
                 }
             }
@@ -69,17 +69,17 @@ void RecentFiles::loadRecentFiles() {
     } catch (const std::exception &e) {
         LOG(ERROR) << "Error parsing recent files: " << e.what();
     }
-    LOG(INFO) << "Loaded " << files.size() << " recent files.";
+    LOG(INFO) << "Loaded " << m_files.size() << " recent files.";
 }
 
 void RecentFiles::saveRecentFiles() const {
     VLOG(2) << "Saving recent files.";
     nlohmann::json j;
     j["recentFiles"] = nlohmann::json::array();
-    for (const auto &path : files) {
+    for (const auto &path : m_files) {
         j["recentFiles"].push_back(path);
     }
-    auto file = get_executable_directory().value() / "recent.json";
+    auto file = getExecutableDirectory().value() / "recent.json";
     try {
         std::ofstream ofs(file);
         if (!ofs) {

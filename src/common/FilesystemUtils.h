@@ -14,7 +14,7 @@
   #include <mach-o/dyld.h>
 #endif
 
-inline std::optional<std::filesystem::path> get_executable_directory() {
+inline std::optional<std::filesystem::path> getExecutableDirectory() {
     std::filesystem::path exe_path;
 
 #ifdef _WIN32

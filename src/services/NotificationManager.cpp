@@ -37,7 +37,7 @@ static ImVec4 GetNotificationColor(NotificationType type, bool isDarkTheme) {
     }
 }
 
-void NotificationManager::Draw() {
+void NotificationManager::draw() {
     if (m_notifications.empty()) return;
 
     const float PADDING = 16.0f;

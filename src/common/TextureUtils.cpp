@@ -7,7 +7,7 @@
 
 
 // Simple helper function to load an image into a OpenGL texture with common settings
-bool TextureUtils::LoadTextureFromMemory(const void* data, size_t data_size, GLuint* out_texture, int* out_width, int* out_height)
+bool TextureUtils::loadTextureFromMemory(const void* data, size_t data_size, GLuint* out_texture, int* out_width, int* out_height)
 {
     // Load from file
     int image_width = 0;
@@ -41,7 +41,7 @@ bool TextureUtils::LoadTextureFromMemory(const void* data, size_t data_size, GLu
 }
 
 // Open and read a file, then forward to LoadTextureFromMemory()
-bool TextureUtils::LoadTextureFromFile(const char* file_name, GLuint* out_texture, int* out_width, int* out_height)
+bool TextureUtils::loadTextureFromFile(const char* file_name, GLuint* out_texture, int* out_width, int* out_height)
 {
     FILE* f = fopen(file_name, "rb");
     if (f == NULL)
@@ -54,7 +54,7 @@ bool TextureUtils::LoadTextureFromFile(const char* file_name, GLuint* out_textur
     void* file_data = IM_ALLOC(file_size);
     fread(file_data, 1, file_size, f);
     fclose(f);
-    bool ret = LoadTextureFromMemory(file_data, file_size, out_texture, out_width, out_height);
+    bool ret = loadTextureFromMemory(file_data, file_size, out_texture, out_width, out_height);
     IM_FREE(file_data);
     return ret;
 }

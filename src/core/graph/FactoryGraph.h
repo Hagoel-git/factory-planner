@@ -55,42 +55,42 @@ public:
     void deserialize(const nlohmann::json &j, const GameData &game_data);
 
     const GameData& getGameData() const {
-        return game_data;
+        return m_gameData;
     }
 
 
     explicit FactoryGraph(GameData game_data) {
-        this->game_data = std::move(game_data);
+        this->m_gameData = std::move(game_data);
     }
 
     ~FactoryGraph() = default;
 
 private:
-    GameData game_data;
+    GameData m_gameData;
 
-    std::vector<Node> nodes;
-    std::vector<Port> ports;
-    std::vector<Connection> connections;
+    std::vector<Node> m_nodes;
+    std::vector<Port> m_ports;
+    std::vector<Connection> m_connections;
 
     // Hash maps for O(1) lookups
-    std::unordered_map<uint64_t, size_t> node_id_to_index_;
-    std::unordered_map<uint64_t, size_t> port_id_to_index_;
-    std::unordered_map<uint64_t, size_t> connection_id_to_index_;
+    std::unordered_map<uint64_t, size_t> m_nodeIdToIndex;
+    std::unordered_map<uint64_t, size_t> m_portIdToIndex;
+    std::unordered_map<uint64_t, size_t> m_connectionIdToIndex;
 
-    std::unordered_multimap<uint64_t, uint64_t> connectionsByPort; // Maps port_id to connection_id for quick access
-    std::vector<std::string> preferred_machines; // Ordered list of preferred machine keys
+    std::unordered_multimap<uint64_t, uint64_t> m_connectionsByPort; // Maps port_id to connection_id for quick access
+    std::vector<std::string> m_preferredMachines; // Ordered list of preferred machine keys
 
-    uint64_t next_node_id = 0;
-    uint64_t next_port_id = 0;
-    uint64_t next_connection_id = 0;
+    uint64_t m_nextNodeId = 0;
+    uint64_t m_nextPortId = 0;
+    uint64_t m_nextConnectionId = 0;
 
     // Helper methods to maintain hash maps
-    void addNodeToIndex(uint64_t id, size_t index) { node_id_to_index_[id] = index; }
-    void addPortToIndex(uint64_t id, size_t index) { port_id_to_index_[id] = index; }
-    void addConnectionToIndex(uint64_t id, size_t index) { connection_id_to_index_[id] = index; }
-    void removeNodeFromIndex(uint64_t id) { node_id_to_index_.erase(id); }
-    void removePortFromIndex(uint64_t id) { port_id_to_index_.erase(id); }
-    void removeConnectionFromIndex(uint64_t id) { connection_id_to_index_.erase(id); }
+    void addNodeToIndex(uint64_t id, size_t index) { m_nodeIdToIndex[id] = index; }
+    void addPortToIndex(uint64_t id, size_t index) { m_portIdToIndex[id] = index; }
+    void addConnectionToIndex(uint64_t id, size_t index) { m_connectionIdToIndex[id] = index; }
+    void removeNodeFromIndex(uint64_t id) { m_nodeIdToIndex.erase(id); }
+    void removePortFromIndex(uint64_t id) { m_portIdToIndex.erase(id); }
+    void removeConnectionFromIndex(uint64_t id) { m_connectionIdToIndex.erase(id); }
 };
 
 #endif //FACTORYGRAPH_H

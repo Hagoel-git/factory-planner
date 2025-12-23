@@ -45,18 +45,17 @@ public:
 
     [[nodiscard]] SolverResult solve(FactoryGraph &factory_graph);
 
-    double getLastSolveTime() const { return last_solve_time; }
-    std::string getLastSolverStatus() const { return last_solver_status; }
+    double getLastSolveTime() const { return m_lastSolveTime; }
+    std::string getLastSolverStatus() const { return m_lastSolverStatus; }
 private:
-    std::unique_ptr<operations_research::MPSolver> solver_;
-    const double infinity = operations_research::MPSolver::infinity();
+    std::unique_ptr<operations_research::MPSolver> m_solver;
 
-    double last_solve_time = 0.0;
-    std::string last_solver_status = "NOT_SOLVED";
+    double m_lastSolveTime = 0.0;
+    std::string m_lastSolverStatus = "NOT_SOLVED";
 
-    std::unordered_map<uint64_t, operations_research::MPVariable *> port_variables;
-    std::unordered_map<uint64_t, operations_research::MPVariable *> connection_variables;
-    std::vector<operations_research::MPConstraint *> constraints; // position = constraint id
+    std::unordered_map<uint64_t, operations_research::MPVariable *> m_portVariables;
+    std::unordered_map<uint64_t, operations_research::MPVariable *> m_connectionVariables;
+    std::vector<operations_research::MPConstraint *> m_constraints; // position = constraint id
 
     void createAllVariables(const FactoryGraph &factory_graph);
 

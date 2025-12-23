@@ -15,7 +15,7 @@ public:
     virtual ~Command() = default;
     virtual void execute(FactoryGraph& graph) = 0;
     virtual void undo(FactoryGraph& graph) = 0;
-    virtual CommandFlags GetFlags() const { return CommandFlags{false, false}; }
+    virtual CommandFlags getFlags() const { return CommandFlags{false, false}; }
     virtual std::string getDescription() const = 0;
 };
 
@@ -39,7 +39,7 @@ public:
             (*it)->undo(graph);
         }
     }
-    CommandFlags GetFlags() const override { return flags; }
+    CommandFlags getFlags() const override { return flags; }
     std::string getDescription() const override {
         return description;
     }
@@ -65,7 +65,7 @@ public:
     }
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
-    CommandFlags GetFlags() const override { return CommandFlags{true, true}; }
+    CommandFlags getFlags() const override { return CommandFlags{true, true}; }
     std::string getDescription() const override { return "Add Node: " + nodeName; }
 };
 
@@ -83,7 +83,7 @@ public:
     }
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
-    CommandFlags GetFlags() const override { return CommandFlags{true, true}; }
+    CommandFlags getFlags() const override { return CommandFlags{true, true}; }
     std::string getDescription() const override { return "Remove Node: " + nodeData.name; }
 
 };
@@ -101,7 +101,7 @@ public:
     }
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
-    CommandFlags GetFlags() const override { return CommandFlags{true, false}; }
+    CommandFlags getFlags() const override { return CommandFlags{true, false}; }
     std::string getDescription() const override { return "Add Connection: " + std::to_string(fromPort) + " -> " + std::to_string(toPort); }
 };
 
@@ -117,7 +117,7 @@ private:
     }
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
-    CommandFlags GetFlags() const override { return CommandFlags{true, false}; }
+    CommandFlags getFlags() const override { return CommandFlags{true, false}; }
     std::string getDescription() const override { return "Remove Connection: " + std::to_string(fromPort) + " -> " + std::to_string(toPort); }
 };
 
@@ -139,7 +139,7 @@ public:
 
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
-    CommandFlags GetFlags() const override { return CommandFlags{true, true}; }
+    CommandFlags getFlags() const override { return CommandFlags{true, true}; }
     std::string getDescription() const override { return "Pasted " + std::to_string(copy_buffer.nodes.size()) + " nodes";}
 };
 
@@ -155,7 +155,7 @@ public:
 
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
-    CommandFlags GetFlags() const override { return CommandFlags{true, false}; }
+    CommandFlags getFlags() const override { return CommandFlags{true, false}; }
     std::string getDescription() const override {
         return "Change Clock Speed: Node ID " + std::to_string(nodeId) + " from " + std::to_string(oldSpeed) + " to " + std::to_string(newSpeed);
     }
@@ -172,7 +172,7 @@ public:
     }
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
-    CommandFlags GetFlags() const override { return CommandFlags{true, false}; }
+    CommandFlags getFlags() const override { return CommandFlags{true, false}; }
     std::string getDescription() const override {
         return "Change Production Multiplier: Node ID " + std::to_string(nodeId) + " from " + std::to_string(oldMultiplier) + " to " + std::to_string(newMultiplier);
     }
@@ -189,7 +189,7 @@ public:
     }
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
-    CommandFlags GetFlags() const override { return CommandFlags{true, false}; }
+    CommandFlags getFlags() const override { return CommandFlags{true, false}; }
     std::string getDescription() const override {
         return "Set Port Constraint: Port ID " + std::to_string(portId) + " from " + std::to_string(oldConstraint) + " to " + std::to_string(newConstraint);
     }
@@ -206,7 +206,7 @@ public:
     }
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
-    CommandFlags GetFlags() const override { return CommandFlags{false, true}; }
+    CommandFlags getFlags() const override { return CommandFlags{false, true}; }
     std::string getDescription() const override {
         return "Change Node Position: Node ID " + std::to_string(nodeId) + " from (" + std::to_string(oldPosition.x) + ", " + std::to_string(oldPosition.y) + ") to (" + std::to_string(newPosition.x) + ", " + std::to_string(newPosition.y) + ")";
     }
@@ -224,7 +224,7 @@ public:
 
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
-    CommandFlags GetFlags() const override { return CommandFlags{true, false}; }
+    CommandFlags getFlags() const override { return CommandFlags{true, false}; }
     std::string getDescription() const override {
         return "Change Machine: Node ID " + std::to_string(nodeId) + " from " + oldMachine + " to " + newMachine;
     }

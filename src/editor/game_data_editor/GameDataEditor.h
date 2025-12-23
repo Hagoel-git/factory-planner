@@ -18,17 +18,16 @@ public:
     explicit GameDataEditor(GameDataManager& manager);
 
     // Main Draw Entry Point
-    void Draw();
+    void draw();
 
-    void SetOpen(bool open);
-    bool IsOpen() const { return m_isOpen; }
+    void setOpen(bool open);
+    bool isOpen() const { return m_isOpen; }
 
-    // Focus & Input Routing
-    bool IsFocused() const { return m_isFocused; }
-    void Save();
+    bool isFocused() const { return m_isFocused; }
+    void save();
 
 private:
-    GameDataManager& gameDataManager;
+    GameDataManager& m_gameDataManager;
     bool m_isOpen = false;
     bool m_isFocused = false;
 
@@ -79,30 +78,30 @@ private:
         std::vector<std::string> producedIn;
     } m_draftRecipe;
 
-    void RefreshPackageList();
+    void refreshPackageList();
 
     // Internal Draw Helpers
-    void DrawNewFileDialog();
-    void DrawDeleteFileConfirmation();
-    void DrawPackageBrowser();
-    void DrawEditorWorkspace();
-    bool DrawTokenList(const char* str_id, std::vector<RecipePort>& ports, bool isInput);
-    bool DrawMachineList(const char* str_id, std::vector<std::string>& machineKeys);
+    void drawNewFileDialog();
+    void drawDeleteFileConfirmation();
+    void drawPackageBrowser();
+    void drawEditorWorkspace();
+    bool drawTokenList(const char* str_id, std::vector<RecipePort>& ports, bool isInput);
+    bool drawMachineList(const char* str_id, std::vector<std::string>& machineKeys);
 
-    void DrawTopMenuBar();
-    void DrawCentralWorkspace();
+    void drawTopMenuBar();
+    void drawCentralWorkspace();
 
     // Tab Contents
-    void DrawResourceCreator();
-    void DrawMachineCreator();
-    void DrawRecipeCreator();
-    void DrawGeneralTab();
-    void DrawResourceGrid();
-    void DrawMachineGrid();
-    void DrawRecipeGrid();
+    void drawResourceCreator();
+    void drawMachineCreator();
+    void drawRecipeCreator();
+    void drawGeneralTab();
+    void drawResourceGrid();
+    void drawMachineGrid();
+    void drawRecipeGrid();
 
     template<typename T>
-    std::vector<std::pair<std::string, T*>> FilterMap(std::map<std::string, T>& sourceMap, const std::string& filterStr);
+    std::vector<std::pair<std::string, T*>> filterMap(std::map<std::string, T>& sourceMap, const std::string& filterStr);
 };
 
 #endif //GAMEDATAEDITOR_H

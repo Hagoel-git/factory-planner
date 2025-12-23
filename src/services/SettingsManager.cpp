@@ -14,7 +14,7 @@ SettingsManager& SettingsManager::instance() {
 
 void SettingsManager::load() {
     std::error_code ec;
-    std::filesystem::create_directories(get_executable_directory().value(), ec);
+    std::filesystem::create_directories(getExecutableDirectory().value(), ec);
     if (ec) {
         LOG(ERROR) << "Failed to create settings directory: " << ec.message();
     }
@@ -37,7 +37,7 @@ SettingsManager::SettingsManager() = default;
 
 void SettingsManager::loadAppSettings() {
     VLOG(2) << "Loading app settings from file.";
-    const auto path = get_executable_directory().value() / "app_settings.json";
+    const auto path = getExecutableDirectory().value() / "app_settings.json";
     if (!std::filesystem::exists(path)) {
         LOG(WARNING) << "Settings file does not exist, using defaults.";
         return;
@@ -48,7 +48,7 @@ void SettingsManager::loadAppSettings() {
         LOG(ERROR) << "Failed to open settings file: " << path;
         return;
     }
-    std::filesystem::path executablePath = get_executable_directory().value_or(std::filesystem::current_path());
+    std::filesystem::path executablePath = getExecutableDirectory().value_or(std::filesystem::current_path());
     try {
         json j;
         f >> j;
@@ -115,7 +115,7 @@ void SettingsManager::saveAppSettings() const {
     j["autoSaveIntervalMinutes"] = m_settings.autoSaveIntervalMinutes;
     j["maxUndoHistory"] = m_settings.maxUndoHistory;
     j["maxRecentFiles"] = m_settings.maxRecentFiles;
-    const auto path = get_executable_directory().value() / "app_settings.json";
+    const auto path = getExecutableDirectory().value() / "app_settings.json";
     std::ofstream o(path);
     if (!o.is_open()) {
         LOG(ERROR) << "Failed to open settings file for writing: " << path;

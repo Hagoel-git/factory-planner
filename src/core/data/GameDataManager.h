@@ -46,7 +46,7 @@ public:
 
     void clear();
 private:
-    GameData _data;
+    GameData m_data;
 
     GameData jsonToGameData(const json &j, std::filesystem::path& packageIconRoot, std::string &outError);
     json gameDataToJson(const GameData &gd);

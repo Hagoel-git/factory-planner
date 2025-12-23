@@ -12,7 +12,7 @@
 #include "core/data/GameDataScanner.h"
 #include "services/SettingsManager.h"
 
-bool ProjectIO::SaveProject(const std::string &path, const FactoryGraph &factoryGraph, ed::EditorContext *context) {
+bool ProjectIO::saveProject(const std::string &path, const FactoryGraph &factoryGraph, ed::EditorContext *context) {
     try {
         // Serialize editor settings
         ed::SetCurrentEditor(context);
@@ -103,7 +103,7 @@ bool ProjectIO::SaveProject(const std::string &path, const FactoryGraph &factory
     }
 }
 
-bool ProjectIO::LoadProject(const std::string &path, FactoryGraph &factoryGraph) {
+bool ProjectIO::loadProject(const std::string &path, FactoryGraph &factoryGraph) {
     try {
         // Check if file exists
         if (!std::filesystem::exists(path)) {
@@ -155,7 +155,7 @@ bool ProjectIO::LoadProject(const std::string &path, FactoryGraph &factoryGraph)
                 std::string targetUUID = projectData["graph_data"].value("game_data_uuid", "");
                 GameDataManager game_data_manager;
                 std::string error;
-                std::vector<GameDataPackage> packages = ScanForGameData(SettingsManager::instance().getSettings().gameDataPath);
+                std::vector<GameDataPackage> packages = scanForGameData(SettingsManager::instance().getSettings().gameDataPath);
                 // search for path from name in packages
                 std::filesystem::path gameDataPath;
                 for (const auto& pkg : packages) {
@@ -226,7 +226,7 @@ bool ProjectIO::LoadProject(const std::string &path, FactoryGraph &factoryGraph)
 
                             // Convert saved id -> engine id
                             ed::NodeId savedEdNodeId(rawId);
-                            int engineNodeId = IdUtils::FromNodeId(savedEdNodeId);
+                            int engineNodeId = IdUtils::fromNodeId(savedEdNodeId);
 
                             // Verify this node actually exists in our graph
                             if (!factoryGraph.getNode(engineNodeId)) {
@@ -244,7 +244,7 @@ bool ProjectIO::LoadProject(const std::string &path, FactoryGraph &factoryGraph)
                                     auto x = location.value("x", 0.0f);
                                     auto y = location.value("y", 0.0f);
 
-                                    ed::NodeId editorNodeId = IdUtils::ToNodeId(engineNodeId);
+                                    ed::NodeId editorNodeId = IdUtils::toNodeId(engineNodeId);
                                     ed::SetNodePosition(editorNodeId, ImVec2(x, y));
                                 }
                             }

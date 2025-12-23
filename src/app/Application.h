@@ -13,7 +13,6 @@
 class FactoryNodeEditor;
 enum class SaveAsMode;
 
-
 struct DialogState {
     std::mutex mutex; // Protects the result string
     std::string resultPath;
@@ -29,82 +28,77 @@ public:
     ~Application();
 
 
-    void Draw();
+    void draw();
 
-    void ApplyThemeToAllEditors();
+    void applyThemeToAllEditors();
 
-    void DrawDebugWindow();
+    void drawDebugWindow();
 
     bool quitRequested = false;
 private:
-    std::vector<std::unique_ptr<FactoryNodeEditor>> editors;
-    std::vector<std::filesystem::path> closedEditorHistory;
-    GameDataManager gameDataManager;
-    GameDataEditor gameDataEditor;
-    SettingsEditor settingsEditor;
-    std::string gameDataManagerError;
-    std::string currentTheme;
-    bool currentShowGrid = false;
+    std::vector<std::unique_ptr<FactoryNodeEditor>> m_editors;
+    std::vector<std::filesystem::path> m_closedEditorHistory;
+    GameDataManager m_gameDataManager;
+    GameDataEditor m_gameDataEditor;
+    SettingsEditor m_settingsEditor;
+    std::string m_gameDataManagerError;
+    std::string m_currentTheme;
+    bool m_currentShowGrid = false;
 
-    bool dockInitialized = false;
-    int activeEditor = -1; // No active editor initially
-    int focusRequested = -1; // No focus request initially
+    bool m_dockInitialized = false;
+    int m_activeEditor = -1; // No active editor initially
+    int m_focusRequested = -1; // No focus request initially
 
-    std::vector<GameDataPackage> cachedGameDataPackages;
-    CopyBuffer copyBuffer;
+    std::vector<GameDataPackage> m_cachedGameDataPackages;
+    CopyBuffer m_copyBuffer;
 
-    bool showDebugWindow = false;
-    bool showNewProjectDialog = false;
-    bool showOpenProjectDialog = false;
-    bool showFileAlreadyOpenPopup = false;
-    bool showSaveDialog = false;
-    bool isSaveAsCopy = false;
+    bool m_showDebugWindow = false;
+    bool m_showNewProjectDialog = false;
+    bool m_showOpenProjectDialog = false;
+    bool m_showFileAlreadyOpenPopup = false;
+    bool m_showSaveDialog = false;
+    bool m_isSaveAsCopy = false;
 
-    bool restoringSession = false;
+    bool m_restoringSession = false;
 
-    void DrawMenuBar();
+    void drawMenuBar();
 
-    void HandleShortcuts();
+    void handleShortcuts();
 
-    void DrawNewProjectDialog();
-    void DrawOpenProjectDialog();
+    void drawNewProjectDialog();
+    void drawOpenProjectDialog();
+    void drawSaveAsDialog();
 
-    void DrawSaveAsDialog();
+    void restoreSession();
+    void saveSession();
+    void reopenLastClosedEditor();
 
-    void RestoreSession();
+    void createNewEditor(const std::filesystem::path &gameDataFilePath, const std::filesystem::path &location, const std::string &name, bool addToRecent = true);
 
-    void ReopenLastClosedEditor();
+    bool saveActiveEditor();
+    bool saveActiveEditorAs(const std::string &newFilePath, SaveAsMode mode);
+    void saveAll();
 
-    void SaveSession();
+    void copyActiveEditor();
+    void cutActiveEditor();
+    void pasteActiveEditor(bool mapExternalConnections);
 
-    void CreateNewEditor(const std::filesystem::path &gameDataFilePath, const std::filesystem::path &location, const std::string &name, bool addToRecent = true);
+    void undoActiveEditor();
+    void redoActiveEditor();
 
-    bool SaveActiveEditor();
-    bool SaveActiveEditorAs(const std::string &newFilePath, SaveAsMode mode);
-    void SaveAll();
+    void selectAllActiveEditor();
 
-    void CopyActiveEditor();
+    void showFlowActiveEditor();
 
-    void CutActiveEditor();
+    void fitViewActiveEditor();
 
-    void PasteActiveEditor(bool mapExternalConnections);
+    void closeActiveEditor();
 
-    void UndoActiveEditor();
-    void RedoActiveEditor();
+    void closeEditor(int index);
 
-    void SelectAllActiveEditor();
-
-    void ShowFlowActiveEditor();
-
-    void FitViewActiveEditor();
-
-    void CloseActiveEditor();
-
-    void CloseEditor(int index);
-
-    void CloseEditorByName(const std::string &name);
+    void closeEditorByName(const std::string &name);
 
     // Utility
-    std::string GenerateDefaultEditorName();
+    std::string generateDefaultEditorName();
 };
 #endif
