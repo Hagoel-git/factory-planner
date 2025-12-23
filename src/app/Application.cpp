@@ -333,6 +333,14 @@ void Application::DrawMenuBar() {
                 } else {
                     for (const auto &file : recentFiles) {
                         if (ImGui::MenuItem(file.stem().string().c_str())) {
+                            if (!std::filesystem::exists(file)) {
+                                LOG(WARNING) << "Recent file does not exist: " << file;
+                                NotificationManager::instance().addNotification(
+                                    "Error Opening Recent File",
+                                    "The file does not exist: " + file.string(),
+                                    NotificationType::Error);
+                                continue;
+                            }
                             VLOG(1)<< "Menu: Open Recent selected for file: " << file.string();
                             CreateNewEditor("", file, file.stem().string());
                         }

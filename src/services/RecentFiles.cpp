@@ -24,10 +24,10 @@ void RecentFiles::save() {
     saveRecentFiles();
 }
 
-void RecentFiles::addFile(const std::filesystem::path &filePath) {
+void RecentFiles::addFile(std::filesystem::path filePath) {
     VLOG(2) << "Adding recent file: " << filePath;
     files.erase(std::remove(files.begin(), files.end(), filePath), files.end());
-    files.insert(files.begin(), filePath);
+    files.insert(files.begin(), std::move(filePath));
     const int maxFiles = SettingsManager::instance().getSettings().maxRecentFiles;
     if (static_cast<int>(files.size()) > maxFiles) {
         files.resize(maxFiles);
