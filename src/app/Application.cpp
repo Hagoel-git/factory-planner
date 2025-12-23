@@ -348,6 +348,10 @@ void Application::DrawMenuBar() {
                 }
                 ImGui::EndMenu();
             }
+            if (ImGui::MenuItem("Reopen Last Closed Editor", "Ctrl+Shift+T")) {
+                VLOG(1) << "Menu: Reopen Last Closed Editor selected.";
+                ReopenLastClosedEditor();
+            }
             ImGui::Separator();
             if (ImGui::MenuItem("Save", "Ctrl+S")) {
                 VLOG(1) << "Menu: Save selected.";
@@ -466,6 +470,12 @@ void Application::HandleShortcuts() {
         if (ImGui::IsKeyPressed(ImGuiKey_Q)) {
             VLOG(1) << "Shortcut: Ctrl+Q pressed, quitting application.";
             quitRequested = true;
+        }
+        if (io.KeyShift) {
+            if (ImGui::IsKeyPressed(ImGuiKey_T)) {
+                VLOG(1) << "Shortcut: Ctrl+Shift+T pressed, reopening last closed editor.";
+                ReopenLastClosedEditor();
+            }
         }
         if (editorFocused) {
             if (ImGui::IsKeyPressed(ImGuiKey_W)) {
@@ -1011,6 +1021,24 @@ void Application::RestoreSession() {
     restoringSession = false;
 }
 
+void Application::ReopenLastClosedEditor() {
+    if (closedEditorHistory.empty()) return;
+
+    std::filesystem::path lastClosedPath = closedEditorHistory.back();
+    closedEditorHistory.pop_back();
+
+    if (std::filesystem::exists(lastClosedPath)) {
+        std::string projectName = lastClosedPath.stem().string();
+        CreateNewEditor("", lastClosedPath, projectName);
+        VLOG(1) << "Reopened last closed editor: " << lastClosedPath;
+    } else {
+        LOG(WARNING) << "Cannot reopen last closed editor, file does not exist: " << lastClosedPath;
+        NotificationManager::instance().addNotification("Reopen Failed",
+            "The last closed project file does not exist: " + lastClosedPath.string(),
+            NotificationType::Warning);
+    }
+}
+
 void Application::SaveSession() {
     if (restoringSession) return; // Don't save while restoring
 
@@ -1214,6 +1242,14 @@ void Application::CloseEditor(int index) {
     if (index < 0) return;
     if (static_cast<size_t>(index) >= editors.size()) return;
 
+    auto &editor = editors[index];
+    if (editor) {
+        std::filesystem::path projectPath = editor->GetProjectFilePath();
+        if (!projectPath.empty() && std::filesystem::exists(projectPath)) {
+            closedEditorHistory.push_back(projectPath);
+        }
+    }
+
     editors.erase(editors.begin() + index);
 
     // Adjust activeEditor:
@@ -1225,6 +1261,8 @@ void Application::CloseEditor(int index) {
 
     SaveSession();
 }
+
+
 
 void Application::CloseEditorByName(const std::string& name) {
     auto it = std::find_if(editors.begin(), editors.end(), [&](const auto& editor) {
