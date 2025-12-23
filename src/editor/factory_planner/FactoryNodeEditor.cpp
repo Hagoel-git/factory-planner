@@ -17,14 +17,14 @@
 namespace ed = ax::NodeEditor;
 
 FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::string &projectFilePath, std::string title)
-    : name(std::move(title)), projectFilePath(projectFilePath), m_contextNodeId(0), m_contextPinId(0),
-      m_contextLinkId(0), undoRedoManager(SettingsManager::instance().getSettings().maxUndoHistory) {
+    : m_editorName(std::move(title)), m_projectFilePath(projectFilePath), m_contextNodeId(0), m_contextPinId(0),
+      m_contextLinkId(0), m_undoRedoManager(SettingsManager::instance().getSettings().maxUndoHistory) {
     try {
         VLOG(1) << "Initializing FactoryNodeEditor for project: " << projectFilePath;
-        graph = std::make_unique<FactoryGraph>(game_data);
-        solver = std::make_unique<FactorySolver>();
+        m_graph = std::make_unique<FactoryGraph>(game_data);
+        m_solver = std::make_unique<FactorySolver>();
 
-        nextAutosaveTime = std::chrono::steady_clock::now() +
+        m_nextAutosaveTime = std::chrono::steady_clock::now() +
                            std::chrono::minutes(SettingsManager::instance().getSettings().autoSaveIntervalMinutes);
 
         ed::Config cfg = ed::Config();
@@ -36,8 +36,8 @@ FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::strin
         cfg.SaveNodeSettings = nullptr;
         cfg.LoadNodeSettings = nullptr;
         cfg.UserPointer = nullptr;
-        context = ed::CreateEditor(&cfg);
-        ed::SetCurrentEditor(context);
+        m_context = ed::CreateEditor(&cfg);
+        ed::SetCurrentEditor(m_context);
 
         auto& ed_style = ed::GetStyle();
         ed_style.NodePadding = ImVec4(2,6,2,6);
@@ -54,7 +54,7 @@ FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::strin
         ed_style.FlowDuration = 6.0f;
 
         if (std::filesystem::exists(projectFilePath)) {
-            ProjectIO::LoadProject(projectFilePath, *graph);
+            ProjectIO::loadProject(projectFilePath, *m_graph);
         }
 
         // Initialize quadtree with large world bounds to handle extreme zoom levels
@@ -65,16 +65,16 @@ FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::strin
             quadtree::Vector2<float>(-halfWorldSize, -halfWorldSize),
             quadtree::Vector2<float>(worldSize, worldSize)
         );
-        nodeQuadtree = std::make_unique<quadtree::Quadtree<NodeQuadtreeData, GetNodeBox> >(worldBounds);
+        m_nodeQuadtree = std::make_unique<quadtree::Quadtree<NodeQuadtreeData, GetNodeBox> >(worldBounds);
 
-        FactorySolver::SolverResult result = solver->solve(*graph);
-        debugInfo.lastTotalSolveDurationMs = result.total_solve_time_ms;
-        debugInfo.lastSetupSolveDurationMs = result.setup_time_ms;
-        debugInfo.lastSolverDurationMs = result.solve_time_ms;
-        debugInfo.lastUpdateFactoryDurationMs = result.update_factory_time_ms;
-        debugInfo.lastSolverResult = result.status;
+        FactorySolver::SolverResult result = m_solver->solve(*m_graph);
+        m_debugInfo.lastTotalSolveDurationMs = result.total_solve_time_ms;
+        m_debugInfo.lastSetupSolveDurationMs = result.setup_time_ms;
+        m_debugInfo.lastSolverDurationMs = result.solve_time_ms;
+        m_debugInfo.lastUpdateFactoryDurationMs = result.update_factory_time_ms;
+        m_debugInfo.lastSolverResult = result.status;
 
-        quadtreeNeedsRebuild = true;
+        m_quadtreeNeedsRebuild = true;
         LOG(INFO) << "FactoryNodeEditor initialized successfully for project: " << projectFilePath;
     } catch (const std::exception &e) {
         LOG(ERROR) << "Exception initializing FactoryNodeEditor: " << e.what();
@@ -88,78 +88,78 @@ FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::strin
 
 FactoryNodeEditor::~FactoryNodeEditor() {
     // Clear graph and solver
-    if (graph) graph->clear();
-    solver = nullptr;
+    if (m_graph) m_graph->clear();
+    m_solver = nullptr;
 
     // Destroy node editor context
-    if (context) {
-        ed::SetCurrentEditor(context);
-        ed::DestroyEditor(context);
-        context = nullptr;
+    if (m_context) {
+        ed::SetCurrentEditor(m_context);
+        ed::DestroyEditor(m_context);
+        m_context = nullptr;
         ed::SetCurrentEditor(nullptr);
     }
 
     // Reset other state
-    nodeQuadtree = nullptr;
-    selected_port_id = -1;
+    m_nodeQuadtree = nullptr;
+    m_selectedPortId = -1;
     m_contextNodeId = 0;
     m_contextPinId = 0;
     m_contextLinkId = 0;
-    quadtreeNeedsRebuild = false;
-    LOG(INFO) << "FactoryNodeEditor destroyed for project: " << projectFilePath;
+    m_quadtreeNeedsRebuild = false;
+    LOG(INFO) << "FactoryNodeEditor destroyed for project: " << m_projectFilePath;
 }
 
-void FactoryNodeEditor::Draw() {
-    if (!context) return;
+void FactoryNodeEditor::draw() {
+    if (!m_context) return;
     m_isFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 
-    if (std::chrono::steady_clock::now() > nextAutosaveTime && SettingsManager::instance().getSettings().autoSaveEnabled) {
-        LOG(INFO) << "Auto-saved project: " << projectFilePath;
-        Save();
-        nextAutosaveTime = std::chrono::steady_clock::now() +
+    if (std::chrono::steady_clock::now() > m_nextAutosaveTime && SettingsManager::instance().getSettings().autoSaveEnabled) {
+        LOG(INFO) << "Auto-saved project: " << m_projectFilePath;
+        save();
+        m_nextAutosaveTime = std::chrono::steady_clock::now() +
                            std::chrono::minutes(SettingsManager::instance().getSettings().autoSaveIntervalMinutes);
     }
 
-    ed::SetCurrentEditor(context);
+    ed::SetCurrentEditor(m_context);
 
-    UpdateDebugInfo();
+    updateDebugInfo();
 
     // Begin the node editor canvas
-    windowPos = ImGui::GetWindowPos();
-    windowSize = ImGui::GetWindowSize();
-    ed::Begin(name.c_str());
+    m_windowPos = ImGui::GetWindowPos();
+    m_windowSize = ImGui::GetWindowSize();
+    ed::Begin(m_editorName.c_str());
 
     // Rebuild quadtree if needed
-    if (quadtreeNeedsRebuild) {
-        RebuildQuadtree();
-        quadtreeNeedsRebuild = false;
+    if (m_quadtreeNeedsRebuild) {
+        rebuildQuadtree();
+        m_quadtreeNeedsRebuild = false;
     }
 
-    DrawNodes();
-    DrawConnections();
+    drawNodes();
+    drawConnections();
     if (m_isFocused) {
-        HandleUserInteractions();
-        HandleContextMenus();
+        handleUserInteractions();
+        handleContextMenus();
     }
-    HandlePopups();
+    handlePopups();
 
     ed::End(); // End node editor
 
     ed::SetCurrentEditor(nullptr);
 }
 
-bool FactoryNodeEditor::Save() {
-    if (ProjectIO::SaveProject(projectFilePath, *graph, this->context)) {
+bool FactoryNodeEditor::save() {
+    if (ProjectIO::saveProject(m_projectFilePath, *m_graph, this->m_context)) {
         return true;
     }
     return false;
 }
 
-bool FactoryNodeEditor::SaveAs(const std::string &newFilePath, SaveAsMode mode) {
-    if (ProjectIO::SaveProject(newFilePath, *graph, this->context)) {
+bool FactoryNodeEditor::saveAs(const std::string &newFilePath, SaveAsMode mode) {
+    if (ProjectIO::saveProject(newFilePath, *m_graph, this->m_context)) {
         if (mode == SaveAsMode::SwitchToNewFile) {
-            projectFilePath = newFilePath;
-            name = std::filesystem::path(newFilePath).stem().string();
+            m_projectFilePath = newFilePath;
+            m_editorName = std::filesystem::path(newFilePath).stem().string();
         }
         LOG(INFO) << "Project saved as: " << newFilePath;
         return true;
@@ -179,39 +179,39 @@ void FactoryNodeEditor::copy(CopyBuffer &copy_buffer) {
 
     copy_buffer.clear();
 
-    copy_buffer.gameName = graph->getGameData().gameName;
+    copy_buffer.gameName = m_graph->getGameData().gameName;
     copy_buffer.sourceEditor = this;
 
     for (const auto &nodeId : selectedNodes) {
-        uint64_t nodeIdInt = IdUtils::FromNodeId(nodeId);
-        auto node = graph->getNode(nodeIdInt);
+        uint64_t nodeIdInt = IdUtils::fromNodeId(nodeId);
+        auto node = m_graph->getNode(nodeIdInt);
         if (!node) continue; // Skip invalid nodes
 
         copy_buffer.nodes[nodeIdInt] = *node; // Copy node
         copy_buffer.nodePositions[nodeIdInt] = ed::GetNodePosition(nodeId); // Store position
 
         for (const auto &portId : node->input_ports) {
-            auto port = graph->getPort(portId);
+            auto port = m_graph->getPort(portId);
             if (port) {
                 copy_buffer.ports[portId] = *port; // Copy input port
-                for (const auto &conn : graph->getConnectionsForPort(portId)) {
+                for (const auto &conn : m_graph->getConnectionsForPort(portId)) {
                         copy_buffer.connections.insert(*conn); // Copy incoming connection
 
                 }
             }
         }
         for (const auto &portId : node->output_ports) {
-            auto port = graph->getPort(portId);
+            auto port = m_graph->getPort(portId);
             if (port) {
                 copy_buffer.ports[portId] = *port; // Copy output port
-                for (const auto &conn : graph->getConnectionsForPort(portId)) {
+                for (const auto &conn : m_graph->getConnectionsForPort(portId)) {
                         copy_buffer.connections.insert(*conn); // Copy incoming connection
 
                 }
             }
         }
     }
-    VLOG(1) << "Copied " << copy_buffer.nodes.size() << " nodes to clipboard. At " << name;
+    VLOG(1) << "Copied " << copy_buffer.nodes.size() << " nodes to clipboard. At " << m_editorName;
 }
 
 void FactoryNodeEditor::cut(CopyBuffer &copyBuffer) {
@@ -226,16 +226,16 @@ void FactoryNodeEditor::cut(CopyBuffer &copyBuffer) {
         cmd->addCommand(std::make_unique<RemoveNodeCommand>(nodeId));
     }
     executeCommand(std::move(cmd));
-    VLOG(1) << "Cut " << copyBuffer.nodes.size() << " nodes to clipboard. At " << name;
+    VLOG(1) << "Cut " << copyBuffer.nodes.size() << " nodes to clipboard. At " << m_editorName;
 }
 
 void FactoryNodeEditor::paste(const CopyBuffer &copy_buffer, bool mapExternalConnections) {
     if (copy_buffer.isEmpty()) return;
 
-    if (copy_buffer.gameName != graph->getGameData().gameName) {
+    if (copy_buffer.gameName != m_graph->getGameData().gameName) {
         NotificationManager::instance().addNotification(
             "Paste Failed",
-            "Cannot paste: Game mismatch ('" + copy_buffer.gameName + "' vs '" + graph->getGameData().gameName + "')",
+            "Cannot paste: Game mismatch ('" + copy_buffer.gameName + "' vs '" + m_graph->getGameData().gameName + "')",
             NotificationType::Warning
         );
         return;
@@ -249,7 +249,7 @@ void FactoryNodeEditor::paste(const CopyBuffer &copy_buffer, bool mapExternalCon
     filteredBuffer.gameName = copy_buffer.gameName;
     filteredBuffer.sourceEditor = copy_buffer.sourceEditor;
 
-    const auto& gameData = graph->getGameData();
+    const auto& gameData = m_graph->getGameData();
     std::unordered_set<uint64_t> validNodeIds;
     int skippedNodes = 0;
 
@@ -262,7 +262,7 @@ void FactoryNodeEditor::paste(const CopyBuffer &copy_buffer, bool mapExternalCon
             if (!machineValid) {
                 const Recipe& recipe = gameData.recipes.at(node.selected_recipe_key);
                 if (!recipe.produced_in_machines_keys.empty()) {
-                    filteredBuffer.nodes[id].machine_key = graph->resolvePreferredMachine(recipe.produced_in_machines_keys);
+                    filteredBuffer.nodes[id].machine_key = m_graph->resolvePreferredMachine(recipe.produced_in_machines_keys);
                 } else {
                     filteredBuffer.nodes[id].machine_key = "";
                 }
@@ -311,25 +311,25 @@ void FactoryNodeEditor::paste(const CopyBuffer &copy_buffer, bool mapExternalCon
     }
 
     executeCommand(std::make_unique<PasteCommand>(filteredBuffer, mapExternalConnections));
-    VLOG(1) << "Pasted " << filteredBuffer.nodes.size() << " nodes from clipboard. At " << name;
+    VLOG(1) << "Pasted " << filteredBuffer.nodes.size() << " nodes from clipboard. At " << m_editorName;
 }
 
 void FactoryNodeEditor::selectAll() {
     ed::ClearSelection();
-    for (const auto &node : graph->getNodes()) {
-        ed::SelectNode(IdUtils::ToNodeId(node.id), true); // Select all nodes
+    for (const auto &node : m_graph->getNodes()) {
+        ed::SelectNode(IdUtils::toNodeId(node.id), true); // Select all nodes
     }
-    VLOG(1) << "Selected all nodes in the graph. At " << name;
+    VLOG(1) << "Selected all nodes in the graph. At " << m_editorName;
 }
 
 void FactoryNodeEditor::showFlow() {
-    for (const auto& connection : graph->getConnections()) {
-        ed::Flow(IdUtils::ToLinkId(connection.id)); // Show flow for all connections
+    for (const auto& connection : m_graph->getConnections()) {
+        ed::Flow(IdUtils::toLinkId(connection.id)); // Show flow for all connections
     }
 }
 
-void FactoryNodeEditor::FitView(bool force) {
-    const auto& allNodes = graph->getNodes();
+void FactoryNodeEditor::fitView(bool force) {
+    const auto& allNodes = m_graph->getNodes();
 
     if (!force && allNodes.size() > 1000) {
         m_showFitViewConfirmation = true;
@@ -341,7 +341,7 @@ void FactoryNodeEditor::FitView(bool force) {
         bool isFirstNode = true;
 
         for (const auto& node : allNodes) {
-            ed::NodeId nodeId = IdUtils::ToNodeId(node.id);
+            ed::NodeId nodeId = IdUtils::toNodeId(node.id);
             ImVec2 nodePos = ed::GetNodePosition(nodeId);
             ImVec2 nodeSize = ed::GetNodeSize(nodeId);
 
@@ -374,34 +374,100 @@ void FactoryNodeEditor::FitView(bool force) {
     }
 }
 
-void FactoryNodeEditor::UpdateDebugInfo() {
-    debugInfo.filePath = projectFilePath;
-    debugInfo.gameDataPath = graph->getGameData().gameDataFilePath;
-    debugInfo.totalNodes = static_cast<int>(graph->getNodes().size());
-    debugInfo.totalConnections = static_cast<int>(graph->getConnections().size());
-    debugInfo.totalPorts = static_cast<int>(graph->getPorts().size());
-    debugInfo.selectionSize = ed::GetSelectedObjectCount();
-    if (nodeQuadtree) {
-        auto bounds = nodeQuadtree->getBox();
-        debugInfo.quadtreeBoundsMin[0] = bounds.getTopLeft().x;
-        debugInfo.quadtreeBoundsMin[1] = bounds.getTopLeft().y;
-        debugInfo.quadtreeBoundsMax[0] = bounds.getTopLeft().x + bounds.getSize().x;
-        debugInfo.quadtreeBoundsMax[1] = bounds.getTopLeft().y + bounds.getSize().y;
+void FactoryNodeEditor::undo() {
+    if (!m_undoRedoManager.canUndo()) return;
 
-        ImVec2 canvasMin = ed::ScreenToCanvas(windowPos);
-        ImVec2 canvasMax = ed::ScreenToCanvas(windowPos + windowSize);
+    const Command *command = m_undoRedoManager.getCommandToUndo();
+    if (!command) return;
 
-        debugInfo.viewBoundsMin[0] = canvasMin.x;
-        debugInfo.viewBoundsMin[1] = canvasMin.y;
-        debugInfo.viewBoundsMax[0] = canvasMax.x;
-        debugInfo.viewBoundsMax[1] = canvasMax.y;
+    CommandFlags flags = command->getFlags();
+
+    m_undoRedoManager.undo(*m_graph);
+    VLOG(1) << "Undo command '" << command->getDescription() << "' executed in editor: " << m_editorName;
+
+    if (flags.needsSolve) {
+        FactorySolver::SolverResult result = m_solver->solve(*m_graph);
+        m_debugInfo.lastTotalSolveDurationMs = result.total_solve_time_ms;
+        m_debugInfo.lastSetupSolveDurationMs = result.setup_time_ms;
+        m_debugInfo.lastSolverDurationMs = result.solve_time_ms;
+        m_debugInfo.lastUpdateFactoryDurationMs = result.update_factory_time_ms;
+        m_debugInfo.lastSolverResult = result.status;
     }
-
-    debugInfo.undoStackSize = undoRedoManager.getUndoStackSize();
-    debugInfo.redoStackSize = undoRedoManager.getRedoStackSize();
+    m_quadtreeNeedsRebuild = flags.needsRebuild;
 }
 
-void FactoryNodeEditor::RebuildQuadtree() {
+void FactoryNodeEditor::redo() {
+    if (!m_undoRedoManager.canRedo()) return;
+
+    const Command *command = m_undoRedoManager.getCommandToRedo();
+    if (!command) return;
+
+    CommandFlags flags = command->getFlags();
+
+    m_undoRedoManager.redo(*m_graph);
+    VLOG(1) << "Redo command '" << command->getDescription() << "' executed in editor: " << m_editorName;
+
+    if (flags.needsSolve) {
+        FactorySolver::SolverResult result = m_solver->solve(*m_graph);
+        m_debugInfo.lastTotalSolveDurationMs = result.total_solve_time_ms;
+        m_debugInfo.lastSetupSolveDurationMs = result.setup_time_ms;
+        m_debugInfo.lastSolverDurationMs = result.solve_time_ms;
+        m_debugInfo.lastUpdateFactoryDurationMs = result.update_factory_time_ms;
+        m_debugInfo.lastSolverResult = result.status;
+    }
+    m_quadtreeNeedsRebuild = flags.needsRebuild;
+}
+
+
+void FactoryNodeEditor::executeCommand(std::unique_ptr<Command> command) {
+    if (!command) return;
+    // check if it is a composite command and if it has no sub-commands, then ignore it
+    if (auto compositeCommand = dynamic_cast<CompositeCommand*>(command.get())) {
+        if (compositeCommand->isEmpty()) {
+            return;
+        }
+    }
+    CommandFlags flags = command->getFlags();
+    m_undoRedoManager.executeCommand(std::move(command), *m_graph);
+    if (flags.needsSolve) {
+        FactorySolver::SolverResult result = m_solver->solve(*m_graph);
+        m_debugInfo.lastTotalSolveDurationMs = result.total_solve_time_ms;
+        m_debugInfo.lastSetupSolveDurationMs = result.setup_time_ms;
+        m_debugInfo.lastSolverDurationMs = result.solve_time_ms;
+        m_debugInfo.lastUpdateFactoryDurationMs = result.update_factory_time_ms;
+        m_debugInfo.lastSolverResult = result.status;
+    }
+    m_quadtreeNeedsRebuild = flags.needsRebuild;
+}
+
+void FactoryNodeEditor::updateDebugInfo() {
+    m_debugInfo.filePath = m_projectFilePath;
+    m_debugInfo.gameDataPath = m_graph->getGameData().gameDataFilePath;
+    m_debugInfo.totalNodes = static_cast<int>(m_graph->getNodes().size());
+    m_debugInfo.totalConnections = static_cast<int>(m_graph->getConnections().size());
+    m_debugInfo.totalPorts = static_cast<int>(m_graph->getPorts().size());
+    m_debugInfo.selectionSize = ed::GetSelectedObjectCount();
+    if (m_nodeQuadtree) {
+        auto bounds = m_nodeQuadtree->getBox();
+        m_debugInfo.quadtreeBoundsMin[0] = bounds.getTopLeft().x;
+        m_debugInfo.quadtreeBoundsMin[1] = bounds.getTopLeft().y;
+        m_debugInfo.quadtreeBoundsMax[0] = bounds.getTopLeft().x + bounds.getSize().x;
+        m_debugInfo.quadtreeBoundsMax[1] = bounds.getTopLeft().y + bounds.getSize().y;
+
+        ImVec2 canvasMin = ed::ScreenToCanvas(m_windowPos);
+        ImVec2 canvasMax = ed::ScreenToCanvas(m_windowPos + m_windowSize);
+
+        m_debugInfo.viewBoundsMin[0] = canvasMin.x;
+        m_debugInfo.viewBoundsMin[1] = canvasMin.y;
+        m_debugInfo.viewBoundsMax[0] = canvasMax.x;
+        m_debugInfo.viewBoundsMax[1] = canvasMax.y;
+    }
+
+    m_debugInfo.undoStackSize = m_undoRedoManager.getUndoStackSize();
+    m_debugInfo.redoStackSize = m_undoRedoManager.getRedoStackSize();
+}
+
+void FactoryNodeEditor::rebuildQuadtree() {
     // Use very large world bounds to handle any zoom level
     // This ensures the quadtree can handle extreme zoom levels
     float worldSize = 262144.0f; // 2^18, very large world
@@ -411,22 +477,22 @@ void FactoryNodeEditor::RebuildQuadtree() {
         quadtree::Vector2<float>(-halfWorldSize, -halfWorldSize),
         quadtree::Vector2<float>(worldSize, worldSize)
     );
-    nodeQuadtree = std::make_unique<quadtree::Quadtree<NodeQuadtreeData, GetNodeBox>>(worldBounds);
+    m_nodeQuadtree = std::make_unique<quadtree::Quadtree<NodeQuadtreeData, GetNodeBox>>(worldBounds);
 
     // Add all nodes to quadtree
-    for (const auto &node : graph->getNodes()) {
-        ed::NodeId nodeId = IdUtils::ToNodeId(node.id);
+    for (const auto &node : m_graph->getNodes()) {
+        ed::NodeId nodeId = IdUtils::toNodeId(node.id);
         ImVec2 nodePos = ed::GetNodePosition(nodeId);
         ImVec2 nodeSize = ed::GetNodeSize(nodeId);
         if (nodeSize.x <= 0 || nodeSize.y <= 0) {
             nodeSize = ImVec2(300.0f, 100.0f); // Default size if not provided
         }
-        nodeQuadtree->add(NodeQuadtreeData(node.id, nodePos, nodeSize));
+        m_nodeQuadtree->add(NodeQuadtreeData(node.id, nodePos, nodeSize));
     }
 }
 
-std::vector<NodeQuadtreeData> FactoryNodeEditor::GetVisibleNodes(const ImVec2& viewMin, const ImVec2& viewMax) {
-    if (!nodeQuadtree) {
+std::vector<NodeQuadtreeData> FactoryNodeEditor::getVisibleNodes(const ImVec2& viewMin, const ImVec2& viewMax) {
+    if (!m_nodeQuadtree) {
         return {};
     }
 
@@ -439,24 +505,24 @@ std::vector<NodeQuadtreeData> FactoryNodeEditor::GetVisibleNodes(const ImVec2& v
     );
 
     // Check if view box intersects with quadtree bounds before querying
-    auto quadtreeBounds = nodeQuadtree->getBox();
+    auto quadtreeBounds = m_nodeQuadtree->getBox();
     if (!viewBox.intersects(quadtreeBounds)) {
         return {}; // No intersection, return empty result
     }
 
-    return nodeQuadtree->query(viewBox);
+    return m_nodeQuadtree->query(viewBox);
 }
 
-void FactoryNodeEditor::DrawNodes() {
+void FactoryNodeEditor::drawNodes() {
     // Get the visible screen area and convert it to canvas coordinates
 
-    ImVec2 viewMin = windowPos;
-    ImVec2 viewMax = viewMin + windowSize;
+    ImVec2 viewMin = m_windowPos;
+    ImVec2 viewMax = viewMin + m_windowSize;
     ImVec2 canvasMin = ed::ScreenToCanvas(viewMin);
     ImVec2 canvasMax = ed::ScreenToCanvas(viewMax);
 
     // Get visible nodes from quadtree
-    auto visibleNodes = GetVisibleNodes(canvasMin, canvasMax);
+    auto visibleNodes = getVisibleNodes(canvasMin, canvasMax);
 
     // Build set of visible node ids
     std::unordered_set<uint64_t> visibleNodeIds;
@@ -467,15 +533,15 @@ void FactoryNodeEditor::DrawNodes() {
 
     // Iterate only through the visible nodes
     for (uint64_t nodeId : visibleNodeIds) {
-        auto node = graph->getNode(nodeId);
+        auto node = m_graph->getNode(nodeId);
         if (!node) continue;
 
         // Check input ports
         for (uint64_t portId : node->input_ports) {
-            for (const auto& conn : graph->getConnectionsForPort(portId)) {
+            for (const auto& conn : m_graph->getConnectionsForPort(portId)) {
                 // Check if the connection is incoming or outgoing to determine the remote node
                 if (conn->to_port == portId) {
-                    auto fromPort = graph->getPort(conn->from_port);
+                    auto fromPort = m_graph->getPort(conn->from_port);
                     if (fromPort) {
                         nodesToRegister.insert(fromPort->node_id);
                     } else {
@@ -487,10 +553,10 @@ void FactoryNodeEditor::DrawNodes() {
 
         // Check output ports
         for (uint64_t portId : node->output_ports) {
-            for (const auto& conn : graph->getConnectionsForPort(portId)) {
+            for (const auto& conn : m_graph->getConnectionsForPort(portId)) {
                 // Check if the connection is incoming or outgoing to determine the remote node
                 if (conn->from_port == portId) {
-                    auto toPort = graph->getPort(conn->to_port);
+                    auto toPort = m_graph->getPort(conn->to_port);
                     if (toPort) {
                         nodesToRegister.insert(toPort->node_id);
                     } else {
@@ -501,15 +567,15 @@ void FactoryNodeEditor::DrawNodes() {
         }
     }
 
-    debugInfo.visibleNodes = static_cast<int>(nodesToRegister.size());
+    m_debugInfo.visibleNodes = static_cast<int>(nodesToRegister.size());
 
     std::string deferredTooltip;
     // Draw only visible nodes
     for (const auto& nodeData : nodesToRegister) {
-        auto node = graph->getNode(nodeData);
+        auto node = m_graph->getNode(nodeData);
         if (!node) continue;
 
-        ed::NodeId nodeId = IdUtils::ToNodeId(node->id);
+        ed::NodeId nodeId = IdUtils::toNodeId(node->id);
         ed::BeginNode(nodeId);
 
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0,0));
@@ -525,11 +591,11 @@ void FactoryNodeEditor::DrawNodes() {
         // Count only visible ports (skip resource_key == "nothing")
         int visible_inputs = 0, visible_outputs = 0;
         for (uint64_t portId : node->input_ports) {
-            Port *p = graph->getPort(portId);
+            Port *p = m_graph->getPort(portId);
             if (p && p->resource_key != "nothing") ++visible_inputs;
         }
         for (uint64_t portId : node->output_ports) {
-            Port *p = graph->getPort(portId);
+            Port *p = m_graph->getPort(portId);
             if (p && p->resource_key != "nothing") ++visible_outputs;
         }
 
@@ -553,12 +619,12 @@ void FactoryNodeEditor::DrawNodes() {
         if (visible_inputs > 0) {
             ImGui::BeginGroup();
             for (uint64_t port : node->input_ports) {
-                Port *p = graph->getPort(port);
+                Port *p = m_graph->getPort(port);
                 if (!p || p->resource_key == "nothing") continue;
 
-                Resource res = graph->getGameData().resources.at(p->resource_key);
-                ed::BeginPin(IdUtils::ToPinId(p->id), ed::PinKind::Input);
-                if (graph->getConnectionsForPort(p->id).empty()) {
+                Resource res = m_graph->getGameData().resources.at(p->resource_key);
+                ed::BeginPin(IdUtils::toPinId(p->id), ed::PinKind::Input);
+                if (m_graph->getConnectionsForPort(p->id).empty()) {
                     ImVec2 pos = ImGui::GetCursorScreenPos();
                     ImVec2 size(port_img_h, port_img_h);
 
@@ -588,8 +654,8 @@ void FactoryNodeEditor::DrawNodes() {
         // --- MIDDLE (machine) ---
         ImGui::BeginGroup();
         if (machine_offset > 0.0f) ImGui::Dummy(ImVec2(0, machine_offset));
-        if (graph->getGameData().machines.find(node->machine_key) != graph->getGameData().machines.end()) {
-            ImGui::Image(graph->getGameData().machines.at(node->machine_key).texture, ImVec2(machine_h,machine_h));
+        if (m_graph->getGameData().machines.find(node->machine_key) != m_graph->getGameData().machines.end()) {
+            ImGui::Image(m_graph->getGameData().machines.at(node->machine_key).texture, ImVec2(machine_h,machine_h));
         } else {
             ImGui::Dummy(ImVec2(48, machine_h));
         }
@@ -612,13 +678,13 @@ void FactoryNodeEditor::DrawNodes() {
         if (visible_outputs > 0) {
             ImGui::BeginGroup();
             for (uint64_t port : node->output_ports) {
-                Port *p = graph->getPort(port);
+                Port *p = m_graph->getPort(port);
                 if (!p || p->resource_key == "nothing") continue;
 
-                Resource res = graph->getGameData().resources.at(p->resource_key);
-                ed::BeginPin(IdUtils::ToPinId(p->id), ed::PinKind::Output);
+                Resource res = m_graph->getGameData().resources.at(p->resource_key);
+                ed::BeginPin(IdUtils::toPinId(p->id), ed::PinKind::Output);
                 ImGui::Text("%.2f", p->rate); ImGui::SameLine();
-                if (graph->getConnectionsForPort(p->id).empty()) {
+                if (m_graph->getConnectionsForPort(p->id).empty()) {
                     ImVec2 pos = ImGui::GetCursorScreenPos();
                     ImVec2 size(port_img_h, port_img_h);
 
@@ -664,14 +730,14 @@ void FactoryNodeEditor::DrawNodes() {
     }
 }
 
-void FactoryNodeEditor::DrawConnections() {
-    for (const auto &c: graph->getConnections()) {
+void FactoryNodeEditor::drawConnections() {
+    for (const auto &c: m_graph->getConnections()) {
         ImVec4 color = SettingsManager::instance().getSettings().themeName == "Dark" ? ImVec4(1.0f, 1.0f, 1.0f, 1.0f) : ImVec4(0.0f, 0.0f, 0.0f,  1.0f);
-        ed::Link(IdUtils::ToLinkId(c.id), IdUtils::ToPinId(c.from_port), IdUtils::ToPinId(c.to_port), color, 1.5f);
+        ed::Link(IdUtils::toLinkId(c.id), IdUtils::toPinId(c.from_port), IdUtils::toPinId(c.to_port), color, 1.5f);
     }
 }
 
-void FactoryNodeEditor::HandleUserInteractions() {
+void FactoryNodeEditor::handleUserInteractions() {
     auto showLabel = [](const char* label, ImColor color)
     {
         ImGui::SetCursorPosY(ImGui::GetCursorPosY() - ImGui::GetTextLineHeight());
@@ -693,20 +759,20 @@ void FactoryNodeEditor::HandleUserInteractions() {
     if (ed::BeginCreate()) {
         ed::PinId start, end;
         if (ed::QueryNewLink(&start, &end)) {
-            uint64_t startId = IdUtils::FromPinId(start);
-            uint64_t endId = IdUtils::FromPinId(end);
+            uint64_t startId = IdUtils::fromPinId(start);
+            uint64_t endId = IdUtils::fromPinId(end);
 
-            selected_port_id = startId;
+            m_selectedPortId = startId;
 
-            if (graph->isInputPort(startId)) {
+            if (m_graph->isInputPort(startId)) {
                 std::swap(startId, endId); // Ensure start is always output
             }
 
             // ask the graph if the connection is valid (it knows which is input/output)
-            if (!graph->isValidConnection(startId, endId)) {
+            if (!m_graph->isValidConnection(startId, endId)) {
                 ed::RejectNewItem(ImColor(255, 128, 128), 1.0f); // Reject with red color
             } else {
-                const bool connectionExists = graph->connectionExists(startId, endId);
+                const bool connectionExists = m_graph->connectionExists(startId, endId);
                 const ImColor color = connectionExists ? ImColor(255,128,128) : ImColor(128,255,128);
 
                 if (ed::AcceptNewItem(color, 1.0f)) {
@@ -725,7 +791,7 @@ void FactoryNodeEditor::HandleUserInteractions() {
             }
         }
         if (ed::QueryNewNode(&start)) {
-            selected_port_id = IdUtils::FromPinId(start);
+            m_selectedPortId = IdUtils::fromPinId(start);
             showLabel("Create Node", ImColor(32, 45, 32, 180)); // Show label for creating node
             if (ed::AcceptNewItem(ImColor(255, 255, 255), 0.7f)) {
                 ed::Suspend();
@@ -746,20 +812,20 @@ void FactoryNodeEditor::HandleUserInteractions() {
         ed::NodeId nodeId = 0;
         while (ed::QueryDeletedNode(&nodeId)) {
             if (ed::AcceptDeletedItem()) {
-                nodesToDelete.push_back(IdUtils::FromNodeId(nodeId));
+                nodesToDelete.push_back(IdUtils::fromNodeId(nodeId));
             }
         }
 
         ed::LinkId linkId = 0;
         while (ed::QueryDeletedLink(&linkId)) {
             if (ed::AcceptDeletedItem()) {
-                linksToDelete.push_back(IdUtils::FromLinkId(linkId));
+                linksToDelete.push_back(IdUtils::fromLinkId(linkId));
             }
         }
 
         auto cmd = std::make_unique<CompositeCommand>("Delete operation");
         for (uint64_t id : linksToDelete) {
-            auto connection = graph->getConnection(id);
+            auto connection = m_graph->getConnection(id);
             if (connection != nullptr) {
                 cmd->addCommand(std::make_unique<RemoveConnectionCommand>(connection->from_port, connection->to_port));
             }
@@ -775,31 +841,31 @@ void FactoryNodeEditor::HandleUserInteractions() {
     ed::EndDelete();
 
     bool isDragging = ImGui::IsMouseDragging(ImGuiMouseButton_Left, 1);
-    if (isDragging && !wasDragging) {
+    if (isDragging && !m_wasDragging) {
         // Drag just started - check if we're over a node BUT NOT over a pin
         if (ed::GetHoveredNode() && !ed::GetHoveredPin()) {
-            draggedNodeId = ed::GetHoveredNode();
-            draggedNodeOriginalPos = ed::GetNodePosition(draggedNodeId);
-            draggingNodes = true;
+            m_draggedNodeId = ed::GetHoveredNode();
+            m_draggedNodeOriginalPos = ed::GetNodePosition(m_draggedNodeId);
+            m_draggingNodes = true;
         }
-    } else if (!isDragging && wasDragging) {
+    } else if (!isDragging && m_wasDragging) {
         // Drag just ended
-        if (draggingNodes) {
+        if (m_draggingNodes) {
             std::vector<ed::NodeId> selectedNodes;
             selectedNodes.resize(ed::GetSelectedObjectCount());
             int nodeCount = ed::GetSelectedNodes(selectedNodes.data(), static_cast<int>(selectedNodes.size()));
             selectedNodes.resize(nodeCount);
 
-            draggedNodeNewPos = ed::GetNodePosition(draggedNodeId);
+            m_draggedNodeNewPos = ed::GetNodePosition(m_draggedNodeId);
 
             // check if dragged node is in the selection
-            if (std::find(selectedNodes.begin(), selectedNodes.end(), draggedNodeId) != selectedNodes.end()) {
+            if (std::find(selectedNodes.begin(), selectedNodes.end(), m_draggedNodeId) != selectedNodes.end()) {
                 auto cmd = std::make_unique<CompositeCommand>("Move Nodes Command", CommandFlags{false, true});
                 for (const auto &nodeId : selectedNodes) {
-                    ImVec2 originalPosition = ed::GetNodePosition(nodeId) - (draggedNodeNewPos - draggedNodeOriginalPos);
+                    ImVec2 originalPosition = ed::GetNodePosition(nodeId) - (m_draggedNodeNewPos - m_draggedNodeOriginalPos);
                     ImVec2 newPos = ed::GetNodePosition(nodeId);;
-                    if (draggedNodeOriginalPos != draggedNodeNewPos) {
-                        auto node = graph->getNode(IdUtils::FromNodeId(nodeId));
+                    if (m_draggedNodeOriginalPos != m_draggedNodeNewPos) {
+                        auto node = m_graph->getNode(IdUtils::fromNodeId(nodeId));
                         if (node) {
                             cmd->addCommand(std::make_unique<MoveNodeCommand>(node->id, originalPosition, newPos));
                         }
@@ -808,18 +874,18 @@ void FactoryNodeEditor::HandleUserInteractions() {
                 executeCommand(std::move(cmd));
             } else {
                 // If the dragged node is not in the selection, just move it
-                auto node = graph->getNode(IdUtils::FromNodeId(draggedNodeId));
+                auto node = m_graph->getNode(IdUtils::fromNodeId(m_draggedNodeId));
                 if (node) {
-                    executeCommand(std::make_unique<MoveNodeCommand>(node->id, draggedNodeOriginalPos, draggedNodeNewPos));
+                    executeCommand(std::make_unique<MoveNodeCommand>(node->id, m_draggedNodeOriginalPos, m_draggedNodeNewPos));
                 }
             }
-            draggingNodes = false;
+            m_draggingNodes = false;
         }
     }
-    wasDragging = isDragging;
+    m_wasDragging = isDragging;
 }
 
-void FactoryNodeEditor::HandleContextMenus() {
+void FactoryNodeEditor::handleContextMenus() {
     ed::Suspend();
     if (ed::ShowNodeContextMenu(&m_contextNodeId)) {
         ImGui::OpenPopup("Node Context Menu");
@@ -835,13 +901,13 @@ void FactoryNodeEditor::HandleContextMenus() {
     if (ed::ShowBackgroundContextMenu()) {
         ed::Suspend();
         ImGui::OpenPopup("Create new node");
-        selected_port_id = -1;
+        m_selectedPortId = -1;
         ed::Resume();
         m_storedPopupPosition = ImGui::GetMousePosOnOpeningCurrentPopup();
     }
 }
 
-void FactoryNodeEditor::HandlePopups() {
+void FactoryNodeEditor::handlePopups() {
     ed::Suspend();
 
     if (m_showFitViewConfirmation) {
@@ -853,14 +919,14 @@ void FactoryNodeEditor::HandlePopups() {
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
     if (ImGui::BeginPopupModal("Confirm Fit View", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::Text("The graph contains %zu nodes.", graph->getNodes().size());
+        ImGui::Text("The graph contains %zu nodes.", m_graph->getNodes().size());
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Drawing this many nodes might cause a freeze, crash, or very low FPS.");
         ImGui::Text("Do you want to continue?");
 
         ImGui::Separator();
 
         if (ImGui::Button("Yes", ImVec2(120, 0))) {
-            FitView(true);
+            fitView(true);
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
@@ -871,10 +937,10 @@ void FactoryNodeEditor::HandlePopups() {
     }
 
     const bool showDebug = SettingsManager::instance().getSettings().showDebugInfo;
-    const auto& gameData = graph->getGameData();
+    const auto& gameData = m_graph->getGameData();
     auto fontSize = ImGui::GetFontSize();
     if (ImGui::BeginPopup("Node Context Menu")) {
-        auto node = graph->getNode(IdUtils::FromNodeId(m_contextNodeId));
+        auto node = m_graph->getNode(IdUtils::fromNodeId(m_contextNodeId));
         if (node) {
             if (gameData.machines.count(node->machine_key)) {
                 ImTextureID icon = gameData.machines.at(node->machine_key).texture;
@@ -934,10 +1000,10 @@ void FactoryNodeEditor::HandlePopups() {
                     ImGui::EndCombo();
                 }
                 ImGui::SameLine();
-                bool isPref = graph->isMachinePreferred(node->machine_key);
+                bool isPref = m_graph->isMachinePreferred(node->machine_key);
                 if (isPref) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.8f, 0.0f, 1.0f));
                 if (ImGui::Button("P")) {
-                    graph->setMachinePreferred(node->machine_key, !isPref);
+                    m_graph->setMachinePreferred(node->machine_key, !isPref);
                 }
                 if (isPref) ImGui::PopStyleColor();
                 if (ImGui::IsItemHovered()) {
@@ -1006,7 +1072,7 @@ void FactoryNodeEditor::HandlePopups() {
         ImGui::EndPopup();
     }
     if (ImGui::BeginPopup("Pin Context Menu")) {
-        auto port = graph->getPort(IdUtils::FromPinId(m_contextPinId));
+        auto port = m_graph->getPort(IdUtils::fromPinId(m_contextPinId));
         if (port) {
             bool shouldFocusRate = false;
 
@@ -1030,14 +1096,14 @@ void FactoryNodeEditor::HandlePopups() {
             }
 
             ImGui::SameLine();
-            ImGui::TextDisabled(graph->isInputPort(port->id) ? "(Input)" : "(Output)");
+            ImGui::TextDisabled(m_graph->isInputPort(port->id) ? "(Input)" : "(Output)");
 
             ImGui::Separator();
 
             ImGui::Text("Flow Rate Limit:");
             ImGui::PushItemWidth(-1);
 
-            bool hugeGraph = graph->getNodes().size() >= 1000;
+            bool hugeGraph = m_graph->getNodes().size() >= 1000;
 
             if (shouldFocusRate) ImGui::SetKeyboardFocusHere();
             if (ImGui::InputText("##rate", m_contextPinConstraintBuf, sizeof(m_contextPinConstraintBuf), ImGuiInputTextFlags_AutoSelectAll)) {
@@ -1047,8 +1113,8 @@ void FactoryNodeEditor::HandlePopups() {
 
                 // Only solve LIVE if graph is small
                 if (!hugeGraph) {
-                    graph->setPortConstraint(port->id, m_contextPinCurrentConstraint);
-                    solver->solve(*graph);
+                    m_graph->setPortConstraint(port->id, m_contextPinCurrentConstraint);
+                    m_solver->solve(*m_graph);
                 }
             }
             ImGui::PopItemWidth();
@@ -1077,7 +1143,7 @@ void FactoryNodeEditor::HandlePopups() {
     }
 
     if (ImGui::BeginPopup("Link Context Menu")) {
-        auto connection = graph->getConnection(IdUtils::FromLinkId(m_contextLinkId));
+        auto connection = m_graph->getConnection(IdUtils::fromLinkId(m_contextLinkId));
         if (connection) {
             if (gameData.resources.count(connection->resource_key)) {
                 ImGui::Image(gameData.resources.at(connection->resource_key).texture, ImVec2(24, 24));
@@ -1138,20 +1204,20 @@ void FactoryNodeEditor::HandlePopups() {
 
             std::string portResourceKey;
             bool portIsInput = false;
-            bool hasContext = (selected_port_id != -1);
+            bool hasContext = (m_selectedPortId != -1);
             if (hasContext) {
-                auto p = graph->getPort(selected_port_id);
+                auto p = m_graph->getPort(m_selectedPortId);
                 if (p) {
                     portResourceKey = p->resource_key;
-                    portIsInput = graph->isInputPort(selected_port_id);
+                    portIsInput = m_graph->isInputPort(m_selectedPortId);
                 } else {
                     hasContext = false;
                 }
             }
 
-            const auto& resources = graph->getGameData().resources;
+            const auto& resources = m_graph->getGameData().resources;
 
-            for (const auto& recipePair : graph->getGameData().recipes) {
+            for (const auto& recipePair : m_graph->getGameData().recipes) {
                 const auto& recipe = recipePair.second;
 
                 if (hasContext) {
@@ -1219,7 +1285,7 @@ void FactoryNodeEditor::HandlePopups() {
                 ImGui::TableNextColumn();
                 ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.5f, 0.5f));
                 if (ImGui::Selectable(recipe.name.c_str(), false, ImGuiSelectableFlags_SpanAllColumns)) {
-                    uint64_t fromPort = hasContext ? selected_port_id : -1;
+                    uint64_t fromPort = hasContext ? m_selectedPortId : -1;
                     ImVec2 nodePos = hasContext ? ed::ScreenToCanvas(m_storedPopupPosition) : ed::ScreenToCanvas(ImGui::GetMousePosOnOpeningCurrentPopup());
 
                     if (hasContext) {

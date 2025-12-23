@@ -47,7 +47,7 @@ void UndoRedoManager::trimUndoStack() {
 void AddNodeCommand::execute(FactoryGraph &graph) {
     if (!executed) {
         uint64_t newNodeId = graph.addNode(nodeName, recipeKey);
-        ed::SetNodePosition(IdUtils::ToNodeId(newNodeId), position);
+        ed::SetNodePosition(IdUtils::toNodeId(newNodeId), position);
 
         if (fromPort != -1) {
             bool fromInput = graph.isInputPort(graph.getPort(fromPort)->id);
@@ -88,7 +88,7 @@ void AddNodeCommand::execute(FactoryGraph &graph) {
         executed = true;
     } else {
         graph.restoreNode(nodeData, ports_data);
-        ed::SetNodePosition(IdUtils::ToNodeId(nodeData.id), position);
+        ed::SetNodePosition(IdUtils::toNodeId(nodeData.id), position);
         // Reconnect ports if necessary
         if (connectionData.from_port != -1 && connectionData.to_port != -1) {
             graph.restoreConnection(connectionData);
@@ -104,7 +104,7 @@ void RemoveNodeCommand::execute(FactoryGraph &graph) {
     Node *node = graph.getNode(id);
     if (!node) return;
     nodeData = *node; // Store the node data for undo
-    position = ed::GetNodePosition(IdUtils::ToNodeId(id));
+    position = ed::GetNodePosition(IdUtils::toNodeId(id));
     // Store all ports and connections for undo
     for (uint64_t port_id: nodeData.input_ports) {
         auto port = graph.getPort(port_id);
@@ -130,7 +130,7 @@ void RemoveNodeCommand::execute(FactoryGraph &graph) {
 
 void RemoveNodeCommand::undo(FactoryGraph &graph) {
     graph.restoreNode(nodeData, ports_data);
-    ed::SetNodePosition(IdUtils::ToNodeId(nodeData.id), position);
+    ed::SetNodePosition(IdUtils::toNodeId(nodeData.id), position);
 
     // Restore all connections
     for (const auto &conn: connections_data) {
@@ -192,11 +192,11 @@ void SetPortConstraintCommand::undo(FactoryGraph &graph) {
 }
 
 void MoveNodeCommand::execute(FactoryGraph &graph) {
-    ed::SetNodePosition(IdUtils::ToNodeId(nodeId), newPosition);
+    ed::SetNodePosition(IdUtils::toNodeId(nodeId), newPosition);
 }
 
 void MoveNodeCommand::undo(FactoryGraph &graph) {
-    ed::SetNodePosition(IdUtils::ToNodeId(nodeId), oldPosition);
+    ed::SetNodePosition(IdUtils::toNodeId(nodeId), oldPosition);
 }
 
 void PasteCommand::execute(FactoryGraph &graph) {
@@ -229,8 +229,8 @@ void PasteCommand::execute(FactoryGraph &graph) {
             pastedNodes.push_back(*graph.getNode(newId));
             pastedNodePositions[newId] = newPos;
 
-            ed::SetNodePosition(IdUtils::ToNodeId(newId), newPos);
-            ed::SelectNode(IdUtils::ToNodeId(newId), true);
+            ed::SetNodePosition(IdUtils::toNodeId(newId), newPos);
+            ed::SelectNode(IdUtils::toNodeId(newId), true);
             nodeIdMap[oldId] = newId; // Map old node ID to new node
         }
         std::unordered_map<uint64_t, uint64_t> oldToNewPortMap;

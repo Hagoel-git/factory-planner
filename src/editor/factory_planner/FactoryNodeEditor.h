@@ -63,13 +63,12 @@ public:
 
     ~FactoryNodeEditor();
 
-    void Draw();
+    void draw();
 
-    bool Save();
-    bool SaveAs(const std::string& newFilePath, SaveAsMode mode = SaveAsMode::KeepCurrentFile);
+    bool save();
+    bool saveAs(const std::string& newFilePath, SaveAsMode mode = SaveAsMode::KeepCurrentFile);
 
     void cut(CopyBuffer &copyBuffer);
-
     void copy(CopyBuffer &copy_buffer);
     void paste(const CopyBuffer &copy_buffer, bool mapExternalConnections = false);
 
@@ -77,80 +76,38 @@ public:
 
     void showFlow();
 
-    void FitView(bool force = false);
+    void fitView(bool force = false);
 
-    bool isFocused() const {return m_isFocused;}
+    bool isFocused() const { return m_isFocused; }
 
-    void undo() {
-        if (!undoRedoManager.canUndo()) return;
+    void undo();
+    void redo();
+    bool canUndo() const { return m_undoRedoManager.canUndo(); }
+    bool canRedo() const { return m_undoRedoManager.canRedo(); }
 
-        const Command *command = undoRedoManager.getCommandToUndo();
-        if (!command) return;
+    ed::EditorContext* getContext() { return m_context; }
 
-        CommandFlags flags = command->GetFlags();
+    const DebugInfo& getDebugInfo() const { return m_debugInfo; }
 
-        undoRedoManager.undo(*graph);
-        VLOG(1) << "Undo command '" << command->getDescription() << "' executed in editor: " << name;
-
-        if (flags.needsSolve) {
-            FactorySolver::SolverResult result = solver->solve(*graph);
-            debugInfo.lastTotalSolveDurationMs = result.total_solve_time_ms;
-            debugInfo.lastSetupSolveDurationMs = result.setup_time_ms;
-            debugInfo.lastSolverDurationMs = result.solve_time_ms;
-            debugInfo.lastUpdateFactoryDurationMs = result.update_factory_time_ms;
-            debugInfo.lastSolverResult = result.status;
-        }
-        quadtreeNeedsRebuild = flags.needsRebuild;
-    }
-    void redo() {
-        if (!undoRedoManager.canRedo()) return;
-
-        const Command *command = undoRedoManager.getCommandToRedo();
-        if (!command) return;
-
-        CommandFlags flags = command->GetFlags();
-
-        undoRedoManager.redo(*graph);
-        VLOG(1) << "Redo command '" << command->getDescription() << "' executed in editor: " << name;
-
-        if (flags.needsSolve) {
-            FactorySolver::SolverResult result = solver->solve(*graph);
-            debugInfo.lastTotalSolveDurationMs = result.total_solve_time_ms;
-            debugInfo.lastSetupSolveDurationMs = result.setup_time_ms;
-            debugInfo.lastSolverDurationMs = result.solve_time_ms;
-            debugInfo.lastUpdateFactoryDurationMs = result.update_factory_time_ms;
-            debugInfo.lastSolverResult = result.status;
-        }
-        quadtreeNeedsRebuild = flags.needsRebuild;
-    }
-    bool canUndo() const { return undoRedoManager.canUndo(); }
-    bool canRedo() const { return undoRedoManager.canRedo(); }
-
-    ed::EditorContext* GetContext() { return context; }
-
-    const DebugInfo& GetDebugInfo() const { return debugInfo; }
-
-    const std::string& GetName() const { return name; }
-    const std::filesystem::path& GetProjectFilePath() const { return projectFilePath; }
-    void SetName(const std::string& newName) { name = newName; }
+    const std::string& getName() const { return m_editorName; }
+    const std::filesystem::path& getProjectFilePath() const { return m_projectFilePath; }
+    void setName(const std::string& newName) { m_editorName = newName; }
 private:
-    std::unique_ptr<FactoryGraph> graph;
-    std::unique_ptr<FactorySolver> solver;
-    UndoRedoManager undoRedoManager;
-    ed::EditorContext* context = nullptr;
+    std::unique_ptr<FactoryGraph> m_graph;
+    std::unique_ptr<FactorySolver> m_solver;
+    UndoRedoManager m_undoRedoManager;
+    ed::EditorContext* m_context = nullptr;
 
-    DebugInfo debugInfo;
-
-    ImTextureID textureID;
+    DebugInfo m_debugInfo;
 
     bool m_isFocused = false;
-    bool wasDragging = false;
-    bool draggingNodes = false;
-    ed::NodeId draggedNodeId;
-    ImVec2 draggedNodeOriginalPos = ImVec2(0, 0);
-    ImVec2 draggedNodeNewPos = ImVec2(0, 0);
+    bool m_wasDragging = false;
+    bool m_draggingNodes = false;
+    ed::NodeId m_draggedNodeId;
+    ImVec2 m_draggedNodeOriginalPos = ImVec2(0, 0);
+    ImVec2 m_draggedNodeNewPos = ImVec2(0, 0);
 
-    std::chrono::time_point<std::chrono::steady_clock> nextAutosaveTime;
+    std::chrono::time_point<std::chrono::steady_clock> m_nextAutosaveTime;
 
     ed::NodeId m_contextNodeId;
 
@@ -169,49 +126,26 @@ private:
     ed::LinkId m_contextLinkId;
 
     ImVec2 m_storedPopupPosition;
-    ImVec2 windowPos;
-    ImVec2 windowSize;
-    std::string name;
-    std::filesystem::path projectFilePath;
-    uint64_t selected_port_id = 0;
+    ImVec2 m_windowPos;
+    ImVec2 m_windowSize;
+    std::string m_editorName;
+    std::filesystem::path m_projectFilePath;
+    uint64_t m_selectedPortId = 0;
 
     // Quadtree for spatial optimization
-    std::unique_ptr<quadtree::Quadtree<NodeQuadtreeData, GetNodeBox>> nodeQuadtree;
-    bool quadtreeNeedsRebuild = true;
+    std::unique_ptr<quadtree::Quadtree<NodeQuadtreeData, GetNodeBox>> m_nodeQuadtree;
+    bool m_quadtreeNeedsRebuild = true;
 
-    void executeCommand(std::unique_ptr<Command> command) {
-        if (!command) return;
-        // check if it is a composite command and if it has no sub-commands, then ignore it
-        if (auto compositeCommand = dynamic_cast<CompositeCommand*>(command.get())) {
-            if (compositeCommand->isEmpty()) {
-                return;
-            }
-        }
-        CommandFlags flags = command->GetFlags();
-        undoRedoManager.executeCommand(std::move(command), *graph);
-        if (flags.needsSolve) {
-            FactorySolver::SolverResult result = solver->solve(*graph);
-            debugInfo.lastTotalSolveDurationMs = result.total_solve_time_ms;
-            debugInfo.lastSetupSolveDurationMs = result.setup_time_ms;
-            debugInfo.lastSolverDurationMs = result.solve_time_ms;
-            debugInfo.lastUpdateFactoryDurationMs = result.update_factory_time_ms;
-            debugInfo.lastSolverResult = result.status;
-        }
-        quadtreeNeedsRebuild = flags.needsRebuild;
-    }
+    void executeCommand(std::unique_ptr<Command> command);
 
-    void DrawHeader();
+    void updateDebugInfo();
 
-    void UpdateDebugInfo();
+    void drawNodes();
+    void drawConnections();
+    void rebuildQuadtree();
+    std::vector<NodeQuadtreeData> getVisibleNodes(const ImVec2& viewMin, const ImVec2& viewMax);
 
-    void DrawToolbar();
-
-    void DrawNodes();
-    void DrawConnections();
-    void RebuildQuadtree();
-    std::vector<NodeQuadtreeData> GetVisibleNodes(const ImVec2& viewMin, const ImVec2& viewMax);
-
-    void HandleUserInteractions();
-    void HandleContextMenus();
-    void HandlePopups();
+    void handleUserInteractions();
+    void handleContextMenus();
+    void handlePopups();
 };

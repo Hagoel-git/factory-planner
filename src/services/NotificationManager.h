@@ -32,7 +32,7 @@ public:
                         NotificationType type = NotificationType::Info,
                         float durationSeconds = 5.0f);
 
-    void Draw();
+    void draw();
 
 private:
     NotificationManager() = default;
@@ -43,8 +43,6 @@ private:
 
     std::vector<Notification> m_notifications;
     uint64_t m_nextId = 0;
-
-    ImVec4 getTypeColor(NotificationType type);
 };
 
 #endif // NOTIFICATIONMANAGER_H

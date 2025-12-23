@@ -32,7 +32,7 @@ unsigned int TextureManager::getMissingTexture() {
     if (!m_missingTextureLoaded) {
         // Try to load the standard "unknown.png" first
         std::filesystem::path path = SettingsManager::instance().getSettings().executablePath / "assets" / "icons" / "unknown.png";
-        if (!TextureUtils::LoadTextureFromFile(path.string().c_str(), &m_missingTextureId, nullptr, nullptr)) {
+        if (!TextureUtils::loadTextureFromFile(path.string().c_str(), &m_missingTextureId, nullptr, nullptr)) {
             LOG(WARNING) << "Failed to load missing texture placeholder from: " << path;
             // Create a 1x1 pink pixel texture as fallback so it is visible
             glGenTextures(1, &m_missingTextureId);
@@ -64,7 +64,7 @@ ImTextureID TextureManager::loadTexture(const std::filesystem::path& path) {
     }
 
     unsigned int textureId;
-    if (TextureUtils::LoadTextureFromFile(key.c_str(), &textureId, nullptr, nullptr)) {
+    if (TextureUtils::loadTextureFromFile(key.c_str(), &textureId, nullptr, nullptr)) {
         m_textures[key] = textureId;
         return (ImTextureID)(intptr_t)textureId;
     }

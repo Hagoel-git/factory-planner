@@ -17,8 +17,8 @@ class FactoryGraph;
 
 class ProjectIO {
 public:
-    static bool SaveProject(const std::string &path, const FactoryGraph &factoryGraph, ed::EditorContext* context = nullptr);
-    static bool LoadProject(const std::string &path, FactoryGraph &factoryGraph);
+    static bool saveProject(const std::string &path, const FactoryGraph &factoryGraph, ed::EditorContext* context = nullptr);
+    static bool loadProject(const std::string &path, FactoryGraph &factoryGraph);
 
 };
 

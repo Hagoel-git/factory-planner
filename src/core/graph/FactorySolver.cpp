@@ -15,15 +15,15 @@ FactorySolver::FactorySolver(const std::string &solver_name) {
         throw std::runtime_error("Problem type not supported for solver: " + solver_name);
     }
 
-    solver_ = std::make_unique<operations_research::MPSolver>("FactorySolver", problem_type);
+    m_solver = std::make_unique<operations_research::MPSolver>("FactorySolver", problem_type);
 }
 
 
 FactorySolver::SolverResult FactorySolver::solve(FactoryGraph &factory_graph) {
-    port_variables.clear();
-    connection_variables.clear();
-    constraints.clear();
-    solver_->Clear(); // Clear any previous state in the solver
+    m_portVariables.clear();
+    m_connectionVariables.clear();
+    m_constraints.clear();
+    m_solver->Clear(); // Clear any previous state in the solver
 
     absl::Time t_start, t_end_setup, t_end_solve, t_end_update;
 
@@ -34,7 +34,7 @@ FactorySolver::SolverResult FactorySolver::solve(FactoryGraph &factory_graph) {
         addAllConstraints(factory_graph);
         absl::SetStderrThreshold(absl::LogSeverityAtLeast::kWarning); // Suppress solver output
         t_end_setup = absl::Now();
-        const auto result_status = solver_->Solve();
+        const auto result_status = m_solver->Solve();
         t_end_solve = absl::Now();
         absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
 
@@ -51,7 +51,7 @@ FactorySolver::SolverResult FactorySolver::solve(FactoryGraph &factory_graph) {
             for (const auto &conn: connections) {
                 factory_graph.getConnection(conn.id)->rate = 0; // Update the connection rate in the factory graph
             }
-            LOG(ERROR) << "Solver failed with status: " << last_solver_status;
+            LOG(ERROR) << "Solver failed with status: " << m_lastSolverStatus;
         }
         t_end_update = absl::Now();
 
@@ -90,21 +90,21 @@ void FactorySolver::createAllVariables(const FactoryGraph &factory_graph) {
     const auto &ports = factory_graph.getPorts();
     const auto &connections = factory_graph.getConnections();
 
-    port_variables.reserve(ports.size());
-    connection_variables.reserve(connections.size());
+    m_portVariables.reserve(ports.size());
+    m_connectionVariables.reserve(connections.size());
 
     // Create variables for each port in the factory graph
     for (const auto &port: ports) {
         const std::string var_name = "Port_" + std::to_string(port.id);
-        operations_research::MPVariable *var = solver_->MakeNumVar(0.0, infinity, var_name);
-        port_variables[port.id] = var;
+        operations_research::MPVariable *var = m_solver->MakeNumVar(0.0, operations_research::MPSolver::infinity(), var_name);
+        m_portVariables[port.id] = var;
     }
 
     // Create variables for each connection
     for (const auto &conn: connections) {
         const std::string var_name = "Conn_" + std::to_string(conn.id);
-        operations_research::MPVariable *var = solver_->MakeNumVar(0.0, infinity, var_name);
-        connection_variables[conn.id] = var;
+        operations_research::MPVariable *var = m_solver->MakeNumVar(0.0, operations_research::MPSolver::infinity(), var_name);
+        m_connectionVariables[conn.id] = var;
     }
 }
 
@@ -119,13 +119,13 @@ void FactorySolver::addObjectiveFunction(const FactoryGraph &factory_graph) {
     }
 
     const auto &ports = factory_graph.getPorts();
-    operations_research::MPObjective *objective = solver_->MutableObjective();
+    operations_research::MPObjective *objective = m_solver->MutableObjective();
     bool has_objective_terms = false;
 
     // Maximize output of leaf ports that are reachable from constrained ports
     for (const auto &port: ports) {
         if (!ports_with_outputs.count(port.id) && reachable_ports.count(port.id)) {
-            objective->SetCoefficient(port_variables[port.id], 1.0);
+            objective->SetCoefficient(m_portVariables[port.id], 1.0);
             has_objective_terms = true;
         }
     }
@@ -134,7 +134,7 @@ void FactorySolver::addObjectiveFunction(const FactoryGraph &factory_graph) {
     if (!has_objective_terms) {
         // Just minimize the sum of all variables (or set a trivial objective)
         for (const auto &port: ports) {
-            objective->SetCoefficient(port_variables.at(port.id), 0.0001); // Small coefficient
+            objective->SetCoefficient(m_portVariables.at(port.id), 0.0001); // Small coefficient
         }
         objective->SetMinimization(); // Minimize instead of maximize
     } else {
@@ -213,9 +213,9 @@ void FactorySolver::addAllConstraints(const FactoryGraph &factory_graph) {
     const auto &ports = factory_graph.getPorts();
     for (const auto &port: ports) {
         if (port.user_constraint >= 0) {
-            operations_research::MPConstraint *constraint = solver_->MakeRowConstraint(-infinity, port.user_constraint);
-            constraint->SetCoefficient(port_variables.at(port.id), 1.0);
-            constraints.push_back(constraint);
+            operations_research::MPConstraint *constraint = m_solver->MakeRowConstraint(-operations_research::MPSolver::infinity(), port.user_constraint);
+            constraint->SetCoefficient(m_portVariables.at(port.id), 1.0);
+            m_constraints.push_back(constraint);
         }
     }
 
@@ -224,16 +224,16 @@ void FactorySolver::addAllConstraints(const FactoryGraph &factory_graph) {
 
 void FactorySolver::addRecipeConstraints(const Node &node, const Recipe &recipe) {
     for (int i = 0; i < recipe.input_ports.size(); ++i) {
-        operations_research::MPConstraint *constraint = solver_->MakeRowConstraint(0.0, 0.0);
-        constraint->SetCoefficient(port_variables.at(node.input_ports[i]), recipe.output_ports[0].amount * (node.production_multiplier / 100.0));
-        constraint->SetCoefficient(port_variables.at(node.output_ports[0]), -recipe.input_ports[i].amount);
-        constraints.push_back(constraint);
+        operations_research::MPConstraint *constraint = m_solver->MakeRowConstraint(0.0, 0.0);
+        constraint->SetCoefficient(m_portVariables.at(node.input_ports[i]), recipe.output_ports[0].amount * (node.production_multiplier / 100.0));
+        constraint->SetCoefficient(m_portVariables.at(node.output_ports[0]), -recipe.input_ports[i].amount);
+        m_constraints.push_back(constraint);
     }
     for (int i = 1; i < recipe.output_ports.size(); ++i) {
-        operations_research::MPConstraint *constraint = solver_->MakeRowConstraint(0.0, 0.0);
-        constraint->SetCoefficient(port_variables.at(node.output_ports[0]), recipe.output_ports[i].amount);
-        constraint->SetCoefficient(port_variables.at(node.output_ports[i]), -recipe.output_ports[0].amount);
-        constraints.push_back(constraint);
+        operations_research::MPConstraint *constraint = m_solver->MakeRowConstraint(0.0, 0.0);
+        constraint->SetCoefficient(m_portVariables.at(node.output_ports[0]), recipe.output_ports[i].amount);
+        constraint->SetCoefficient(m_portVariables.at(node.output_ports[i]), -recipe.output_ports[0].amount);
+        m_constraints.push_back(constraint);
     }
 }
 
@@ -253,24 +253,24 @@ void FactorySolver::addConnectionConstraints(const FactoryGraph &factory_graph) 
 
     // For each port with outgoing connections: port = sum(outgoing_connections)
     for (const auto &[port_id, conn_ids]: port_outgoing) {
-        auto *constraint = solver_->MakeRowConstraint(0.0, 0.0);
-        constraint->SetCoefficient(port_variables.at(port_id), 1.0);
+        auto *constraint = m_solver->MakeRowConstraint(0.0, 0.0);
+        constraint->SetCoefficient(m_portVariables.at(port_id), 1.0);
 
         for (uint64_t conn_id: conn_ids) {
-            constraint->SetCoefficient(connection_variables[conn_id], -1.0);
+            constraint->SetCoefficient(m_connectionVariables[conn_id], -1.0);
         }
-        constraints.push_back(constraint);
+        m_constraints.push_back(constraint);
     }
 
     // For each port with incoming connections: port = sum(incoming_connections)
     for (const auto &[port_id, conn_ids]: port_incoming) {
-        auto *constraint = solver_->MakeRowConstraint(0.0, 0.0);
-        constraint->SetCoefficient(port_variables.at(port_id), -1.0);
+        auto *constraint = m_solver->MakeRowConstraint(0.0, 0.0);
+        constraint->SetCoefficient(m_portVariables.at(port_id), -1.0);
 
         for (uint64_t conn_id: conn_ids) {
-            constraint->SetCoefficient(connection_variables.at(conn_id), 1.0);
+            constraint->SetCoefficient(m_connectionVariables.at(conn_id), 1.0);
         }
-        constraints.push_back(constraint);
+        m_constraints.push_back(constraint);
     }
 }
 
@@ -278,13 +278,13 @@ void FactorySolver::updateFactoryGraph(FactoryGraph &factory_graph) const {
     // Output the results to factory_graph
     const auto &ports = factory_graph.getPorts();
     for (const auto &port: ports) {
-        const double value = port_variables.at(port.id)->solution_value();
+        const double value = m_portVariables.at(port.id)->solution_value();
         factory_graph.getPort(port.id)->rate = value;
     }
 
     const auto &connections = factory_graph.getConnections();
     for (const auto &conn: connections) {
-        const double value = connection_variables.at(conn.id)->solution_value();
+        const double value = m_connectionVariables.at(conn.id)->solution_value();
         factory_graph.getConnection(conn.id)->rate = value;
     }
 

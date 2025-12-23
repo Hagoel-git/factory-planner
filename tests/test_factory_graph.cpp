@@ -949,7 +949,7 @@ TEST_F(FactoryGraphTest, RemoveConnectionWithMultipleConnectionsOnPort) {
     uint64_t connId1 = graph->addConnection(fromPort->id, toPort1->id);
     uint64_t connId2 = graph->addConnection(fromPort->id, toPort2->id);
 
-    // This tests the `break;` logic inside the `connectionsByPort` loop
+    // This tests the `break;` logic inside the `m_connectionsByPort` loop
     ASSERT_TRUE(graph->removeConnection(fromPort->id, toPort1->id));
     EXPECT_EQ(graph->getConnections().size(), 1);
     EXPECT_EQ(graph->getConnection(connId1), nullptr);

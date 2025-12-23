@@ -16,7 +16,7 @@ SessionManager::SessionManager() = default;
 
 void SessionManager::load() {
     std::error_code ec;
-    std::filesystem::create_directories(get_executable_directory().value(), ec);
+    std::filesystem::create_directories(getExecutableDirectory().value(), ec);
     if (ec) {
         LOG(ERROR) << "Failed to create settings directory: " << ec.message();
     }
@@ -37,7 +37,7 @@ void SessionManager::setSessionState(const SessionState &state) {
 
 void SessionManager::loadSession() {
     VLOG(2) << "Loading session from file.";
-    const auto path = get_executable_directory().value() / "session.json";
+    const auto path = getExecutableDirectory().value() / "session.json";
     if (!std::filesystem::exists(path)) {
         LOG(INFO) << "Session file does not exist, using defaults.";
         return;
@@ -72,7 +72,7 @@ void SessionManager::loadSession() {
 
 void SessionManager::saveSession() const {
     VLOG(2) << "Saving session to file.";
-    auto file = get_executable_directory().value() / "session.json";
+    auto file = getExecutableDirectory().value() / "session.json";
     try {
         nlohmann::json j;
         j["openProjectPaths"] = nlohmann::json::array();

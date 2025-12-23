@@ -5,7 +5,7 @@
 #include "common/FilesystemUtils.h"
 
 struct AppSettings {
-    std::filesystem::path executablePath = get_executable_directory().value_or(std::filesystem::current_path());
+    std::filesystem::path executablePath = getExecutableDirectory().value_or(std::filesystem::current_path());
     bool restorePreviousSession = true;
     std::filesystem::path gameDataPath = executablePath / "game_data";
     std::filesystem::path defaultProjectPath = executablePath / "projects";

@@ -38,10 +38,10 @@ void GameDataManager::registerAlias(const std::string &prefix, const std::string
     if (oldId == newId) return;
     // 1. Add direct alias with Namespace
     std::string namespacedOld = prefix + oldId;
-    _data.id_aliases[namespacedOld] = newId;
+    m_data.id_aliases[namespacedOld] = newId;
 
     // 2. Flatten chains: Only update aliases that belong to THIS namespace
-    for (auto& pair : _data.id_aliases) {
+    for (auto& pair : m_data.id_aliases) {
         // Check if this alias entry belongs to the same category (starts with same prefix)
         if (pair.first.rfind(prefix, 0) == 0) {
             if (pair.second == oldId) {
@@ -54,8 +54,8 @@ void GameDataManager::registerAlias(const std::string &prefix, const std::string
 
 bool GameDataManager::renameIconFile(const std::string &category, const std::string &oldKey,
     const std::string &newKey) {
-    if (_data.gameDataFilePath.empty()) return false;
-    std::filesystem::path root = _data.gameDataFilePath.parent_path().parent_path();
+    if (m_data.gameDataFilePath.empty()) return false;
+    std::filesystem::path root = m_data.gameDataFilePath.parent_path().parent_path();
     std::filesystem::path oldIcon = root / "icons" / category / (oldKey + ".png");
     std::filesystem::path newIcon = root / "icons" / category / (newKey + ".png");
 
@@ -76,8 +76,8 @@ bool GameDataManager::renameIconFile(const std::string &category, const std::str
 
 bool GameDataManager::copyIconFile(const std::string &category, const std::string &key,
     const std::filesystem::path &sourcePath) {
-    if (_data.gameDataFilePath.empty()) return false;
-    std::filesystem::path root = _data.gameDataFilePath.parent_path().parent_path();
+    if (m_data.gameDataFilePath.empty()) return false;
+    std::filesystem::path root = m_data.gameDataFilePath.parent_path().parent_path();
     std::filesystem::path destDir = root / "icons" / category;
     std::filesystem::path destFile = destDir / (key + ".png");
 
@@ -92,16 +92,16 @@ bool GameDataManager::copyIconFile(const std::string &category, const std::strin
 }
 
 bool GameDataManager::performRenameResource(const std::string& oldKey, const std::string& newKey) {
-    auto node = _data.resources.extract(oldKey);
+    auto node = m_data.resources.extract(oldKey);
     if (node.empty()) return false;
     node.key() = newKey;
-    _data.resources.insert(std::move(node));
+    m_data.resources.insert(std::move(node));
 
     registerAlias(PREFIX_RES, oldKey, newKey);
 
     renameIconFile("resources", oldKey, newKey);
 
-    for (auto &recPair : _data.recipes) {
+    for (auto &recPair : m_data.recipes) {
         Recipe &rec = recPair.second;
         for (auto &p : rec.input_ports) if (p.resource_key == oldKey) p.resource_key = newKey;
         for (auto &p : rec.output_ports) if (p.resource_key == oldKey) p.resource_key = newKey;
@@ -110,15 +110,15 @@ bool GameDataManager::performRenameResource(const std::string& oldKey, const std
 }
 
 bool GameDataManager::performRenameMachine(const std::string &oldKey, const std::string &newKey) {
-    auto node = _data.machines.extract(oldKey);
+    auto node = m_data.machines.extract(oldKey);
     if (node.empty()) return false;
     node.key() = newKey;
-    _data.machines.insert(std::move(node));
+    m_data.machines.insert(std::move(node));
 
     registerAlias(PREFIX_MAC, oldKey, newKey);
     renameIconFile("machines", oldKey, newKey);
 
-    for (auto &recPair : _data.recipes) {
+    for (auto &recPair : m_data.recipes) {
         Recipe &rec = recPair.second;
         for (auto &mk : rec.produced_in_machines_keys) if (mk == oldKey) mk = newKey;
     }
@@ -126,10 +126,10 @@ bool GameDataManager::performRenameMachine(const std::string &oldKey, const std:
 }
 
 bool GameDataManager::performRenameRecipe(const std::string &oldKey, const std::string &newKey) {
-    auto node = _data.recipes.extract(oldKey);
+    auto node = m_data.recipes.extract(oldKey);
     if (node.empty()) return false;
     node.key() = newKey;
-    _data.recipes.insert(std::move(node));
+    m_data.recipes.insert(std::move(node));
 
     registerAlias(PREFIX_REC, oldKey, newKey);
     return true;
@@ -161,8 +161,8 @@ bool GameDataManager::loadFromFile(const std::string &path, std::string &outErro
         std::filesystem::path packageRoot = dataFilePath.parent_path().parent_path(); // structure: <package_root>/game_datas/<datafile>.gd
         std::filesystem::path iconRoot = packageRoot / "icons";
 
-        _data.gameDataFilePath = path;
-        _data = jsonToGameData(j, iconRoot, outError);
+        m_data.gameDataFilePath = path;
+        m_data = jsonToGameData(j, iconRoot, outError);
 
         if (!outError.empty()) {
             LOG(ERROR) << "Validation errors while loading game data from file: " << outError;
@@ -182,7 +182,7 @@ bool GameDataManager::loadFromFile(const std::string &path, std::string &outErro
 
 bool GameDataManager::saveToFile(const std::string &path, std::string &outError) {
     try {
-        json j = gameDataToJson(_data);
+        json j = gameDataToJson(m_data);
         std::ofstream ofs(path);
         if (!ofs) {
             LOG(ERROR) << "Failed to open file for write: " << path;
@@ -213,16 +213,16 @@ GameData GameDataManager::createNew(const std::string &gameName, const std::stri
     Resource nothing;
     nothing.name = "Nothing";
     gd.resources["nothing"] = nothing;
-    _data = gd;
-    return _data;
+    m_data = gd;
+    return m_data;
 }
 
 GameData& GameDataManager::current() {
-    return _data;
+    return m_data;
 }
 
 void GameDataManager::clear() {
-    _data = {};
+    m_data = {};
 }
 
 bool GameDataManager::addResource(const Resource &r) {
@@ -232,11 +232,11 @@ bool GameDataManager::addResource(const Resource &r) {
         LOG(WARNING) << "Cannot add reserved resource 'nothing'.";
         return false;
     }
-    if (_data.resources.count(key)) {
+    if (m_data.resources.count(key)) {
         LOG(WARNING) << "Resource with key '" << key << "' already exists.";
         return false;
     }
-    _data.resources[key] = r;
+    m_data.resources[key] = r;
     VLOG(2) << "Resource added successfully: " << key;
     return true;
 }
@@ -247,7 +247,7 @@ bool GameDataManager::editResource(const std::string& current_key, const Resourc
         outError = "Cannot edit reserved resource 'nothing'.";
         return false;
     }
-    if (!_data.resources.count(current_key)) {
+    if (!m_data.resources.count(current_key)) {
         LOG(WARNING) << "Resource key not found: " << current_key;
         outError = "Resource key not found.";
         return false;
@@ -256,14 +256,14 @@ bool GameDataManager::editResource(const std::string& current_key, const Resourc
     std::string new_key = slugify(r.name);
 
     if (new_key != current_key) {
-        if (_data.id_aliases.count(PREFIX_RES + new_key)) {
-            if (_data.id_aliases.at(PREFIX_RES + new_key) != current_key) {
+        if (m_data.id_aliases.count(PREFIX_RES + new_key)) {
+            if (m_data.id_aliases.at(PREFIX_RES + new_key) != current_key) {
                 LOG(WARNING) << "Name conflicts with a historical alias: " << new_key;
                 outError = "Name conflicts with a historical alias.";
                 return false;
             }
         }
-        if (_data.resources.count(new_key)) {
+        if (m_data.resources.count(new_key)) {
             LOG(WARNING) << "Cannot change to that name; another resource uses it: " << new_key;
             outError = "Cannot change to that name; another resource uses it.";
             return false;
@@ -272,7 +272,7 @@ bool GameDataManager::editResource(const std::string& current_key, const Resourc
     }
 
     // The UI sends a partial object (missing texture).
-    _data.resources[new_key].name = r.name;
+    m_data.resources[new_key].name = r.name;
     VLOG(2) << "Resource edited successfully: " << new_key;
     return true;
 }
@@ -283,13 +283,13 @@ bool GameDataManager::deleteResource(const std::string& key_name, std::string &o
         outError = "Cannot delete reserved resource 'nothing'.";
         return false;
     }
-    if (!_data.resources.count(key_name)) {
+    if (!m_data.resources.count(key_name)) {
         LOG(WARNING) << "Resource key_name not found: " << key_name;
         outError = "Resource key_name not found.";
         return false;
     }
     // check references in recipes
-    for (const auto &recPair : _data.recipes) {
+    for (const auto &recPair : m_data.recipes) {
         const Recipe &rec = recPair.second;
         for (const auto &p : rec.input_ports) {
             if (p.resource_key == key_name) {
@@ -307,23 +307,23 @@ bool GameDataManager::deleteResource(const std::string& key_name, std::string &o
     if (!outError.empty()) {
         return false;
     }
-    _data.resources.erase(key_name);
+    m_data.resources.erase(key_name);
     VLOG(2) << "Resource deleted successfully: " << key_name;
     return true;
 }
 
 bool GameDataManager::setResourceIcon(const std::string &key, const std::filesystem::path &sourcePath,
     std::string &outError) {
-    if (!_data.resources.count(key)) {
+    if (!m_data.resources.count(key)) {
         LOG(WARNING) << "Resource key not found: " << key;
         outError = "Resource key not found.";
         return false;
     }
     if (copyIconFile("resources", key, sourcePath)) {
-        std::filesystem::path root = _data.gameDataFilePath.parent_path().parent_path();
+        std::filesystem::path root = m_data.gameDataFilePath.parent_path().parent_path();
         std::filesystem::path texPath = root / "icons" / "resources" / (key + ".png");
         TextureManager::instance().invalidateTexture(texPath);
-        _data.resources[key].texture = TextureManager::instance().loadTexture(texPath);
+        m_data.resources[key].texture = TextureManager::instance().loadTexture(texPath);
         VLOG(2) << "Resource icon set successfully for key: " << key;
         return true;
     }
@@ -334,7 +334,7 @@ bool GameDataManager::setResourceIcon(const std::string &key, const std::filesys
 
 bool GameDataManager::addMachine(const Machine &m) {
     std::string key = slugify(m.name);
-    if (_data.machines.count(key) || key.empty()) {
+    if (m_data.machines.count(key) || key.empty()) {
         LOG(WARNING) << "Machine with key '" << key << "' already exists.";
         return false;
     }
@@ -342,13 +342,13 @@ bool GameDataManager::addMachine(const Machine &m) {
         LOG(WARNING) << "Cannot add reserved machine 'nothing'.";
         return false;
     }
-    _data.machines[key] = m;
+    m_data.machines[key] = m;
     VLOG(2) << "Machine added successfully: " << key;
     return true;
 }
 
 bool GameDataManager::editMachine(const std::string& current_key, const Machine &m, std::string &outError) {
-    if (!_data.machines.count(current_key)) {
+    if (!m_data.machines.count(current_key)) {
         LOG(WARNING) << "Machine key not found: " << current_key;
         outError = "Machine key not found.";
         return false;
@@ -360,14 +360,14 @@ bool GameDataManager::editMachine(const std::string& current_key, const Machine 
         return false;
     }
     if (new_key != current_key) {
-        if (_data.id_aliases.count(PREFIX_MAC + new_key)) {
-            if (_data.id_aliases.at(PREFIX_RES + new_key) != current_key) {
+        if (m_data.id_aliases.count(PREFIX_MAC + new_key)) {
+            if (m_data.id_aliases.at(PREFIX_RES + new_key) != current_key) {
                 LOG(WARNING) << "Name conflicts with a historical alias: " << new_key;
                 outError = "Name conflicts with a historical alias.";
                 return false;
             }
         }
-        if (_data.machines.count(new_key)) {
+        if (m_data.machines.count(new_key)) {
             LOG(WARNING) << "Cannot change to that name; another machine uses it: " << new_key;
             outError = "Cannot change to that name; another machine uses it.";
             return false;
@@ -375,20 +375,20 @@ bool GameDataManager::editMachine(const std::string& current_key, const Machine 
         performRenameMachine(current_key, new_key);
     }
 
-    _data.machines[new_key].name = m.name;
-    _data.machines[new_key].base_crafting_speed = m.base_crafting_speed;
+    m_data.machines[new_key].name = m.name;
+    m_data.machines[new_key].base_crafting_speed = m.base_crafting_speed;
     VLOG(2) << "Machine edited successfully: " << new_key;
     return true;
 }
 
 bool GameDataManager::deleteMachine(const std::string& key_name, std::string &outError) {
-    if (!_data.machines.count(key_name)) {
+    if (!m_data.machines.count(key_name)) {
         LOG(WARNING) << "Machine key_name not found: " << key_name;
         outError = "Machine key_name not found.";
         return false;
     }
     // check references in recipes
-    for (const auto &recPair : _data.recipes) {
+    for (const auto &recPair : m_data.recipes) {
         const Recipe &rec = recPair.second;
         for (const auto &mk : rec.produced_in_machines_keys) {
             if (mk == key_name) {
@@ -400,23 +400,23 @@ bool GameDataManager::deleteMachine(const std::string& key_name, std::string &ou
     if (!outError.empty()) {
         return false;
     }
-    _data.machines.erase(key_name);
+    m_data.machines.erase(key_name);
     VLOG(2) << "Machine deleted successfully: " << key_name;
     return true;
 }
 
 bool GameDataManager::setMachineIcon(const std::string &key, const std::filesystem::path &sourcePath,
     std::string &outError) {
-    if (!_data.machines.count(key)) {
+    if (!m_data.machines.count(key)) {
         LOG(WARNING) << "Machine not found: " << key;
         outError = "Machine not found";
         return false;
     }
     if (copyIconFile("machines", key, sourcePath)) {
-        std::filesystem::path root = _data.gameDataFilePath.parent_path().parent_path();
+        std::filesystem::path root = m_data.gameDataFilePath.parent_path().parent_path();
         std::filesystem::path texPath = root / "icons" / "machines" / (key + ".png");
         TextureManager::instance().invalidateTexture(texPath);
-        _data.machines[key].texture = TextureManager::instance().loadTexture(texPath);
+        m_data.machines[key].texture = TextureManager::instance().loadTexture(texPath);
         return true;
     }
     LOG(WARNING) << "Failed to copy icon for machine key: " << key;
@@ -426,7 +426,7 @@ bool GameDataManager::setMachineIcon(const std::string &key, const std::filesyst
 
 bool GameDataManager::addRecipe(const Recipe &r) {
     std::string key = slugify(r.name);
-    if (_data.recipes.count(key) || key.empty()) {
+    if (m_data.recipes.count(key) || key.empty()) {
         LOG(WARNING) << "Recipe with key '" << key << "' already exists.";
         return false;
     }
@@ -442,13 +442,13 @@ bool GameDataManager::addRecipe(const Recipe &r) {
     if (rr.output_ports.empty()) {
         rr.output_ports.push_back(RecipePort{0.0, "nothing"});
     }
-    _data.recipes[key] = rr;
+    m_data.recipes[key] = rr;
     VLOG(2) << "Recipe added successfully: " << key;
     return true;
 }
 
 bool GameDataManager::editRecipe(const std::string& current_key, const Recipe &r, std::string &outError) {
-    if (!_data.recipes.count(current_key)) {
+    if (!m_data.recipes.count(current_key)) {
         LOG(WARNING) << "Recipe key not found: " << current_key;
         outError = "Recipe key not found.";
         return false;
@@ -470,14 +470,14 @@ bool GameDataManager::editRecipe(const std::string& current_key, const Recipe &r
         rr.output_ports.push_back(RecipePort{0.0, "nothing"});
     }
     if (new_key != current_key) {
-        if (_data.id_aliases.count(PREFIX_REC + new_key)) {
-            if (_data.id_aliases.at(PREFIX_RES + new_key) != current_key) {
+        if (m_data.id_aliases.count(PREFIX_REC + new_key)) {
+            if (m_data.id_aliases.at(PREFIX_RES + new_key) != current_key) {
                 LOG(WARNING) << "Name conflicts with a historical alias: " << new_key;
                 outError = "Name conflicts with a historical alias.";
                 return false;
             }
         }
-        if (_data.recipes.count(new_key)) {
+        if (m_data.recipes.count(new_key)) {
             LOG(WARNING) << "Cannot change to that name; another recipe uses it: " << new_key;
             outError = "Cannot change to that name; another recipe uses it.";
             return false;
@@ -485,18 +485,18 @@ bool GameDataManager::editRecipe(const std::string& current_key, const Recipe &r
         performRenameRecipe(current_key, new_key);
     }
 
-    _data.recipes[new_key] = rr;
+    m_data.recipes[new_key] = rr;
     VLOG(2) << "Recipe edited successfully: " << new_key;
     return true;
 }
 
 bool GameDataManager::deleteRecipe(const std::string& key_name, std::string &outError) {
-    if (!_data.recipes.count(key_name)) {
+    if (!m_data.recipes.count(key_name)) {
         LOG(WARNING) << "Recipe key_name not found: " << key_name;
         outError = "Recipe key_name not found.";
         return false;
     }
-    _data.recipes.erase(key_name);
+    m_data.recipes.erase(key_name);
     VLOG(2) << "Recipe deleted successfully: " << key_name;
     return true;
 }
@@ -568,19 +568,19 @@ bool GameDataManager::deleteDataFile(const std::filesystem::path &path, std::str
 }
 
 bool GameDataManager::renameDataFile(const std::string &newName, std::string &outError) {
-    if (_data.gameDataFilePath.empty()) {
+    if (m_data.gameDataFilePath.empty()) {
         outError = "Cannot rename: Current file is not saved to disk.";
         return false;
     }
 
-    std::filesystem::path sourcePath = _data.gameDataFilePath;
+    std::filesystem::path sourcePath = m_data.gameDataFilePath;
     std::string sanitazedName = slugify(newName);
     if (sanitazedName.empty()) {
         outError = "Invalid file name.";
         return false;
     }
 
-    std::filesystem::path destPath = _data.gameDataFilePath.parent_path() / (sanitazedName + ".gd");
+    std::filesystem::path destPath = m_data.gameDataFilePath.parent_path() / (sanitazedName + ".gd");
 
     if (std::filesystem::exists(destPath)) {
         outError = "A file with that name already exists.";
@@ -589,7 +589,7 @@ bool GameDataManager::renameDataFile(const std::string &newName, std::string &ou
 
     try {
         std::filesystem::rename(sourcePath, destPath);
-        _data.gameDataFilePath = destPath;
+        m_data.gameDataFilePath = destPath;
         LOG(INFO) << "Renamed game data file: " << sourcePath << " -> " << destPath;
         return true;
     } catch (const std::exception& e) {
@@ -600,12 +600,12 @@ bool GameDataManager::renameDataFile(const std::string &newName, std::string &ou
 }
 
 bool GameDataManager::moveDataFile(const std::string &targetGameName, std::string &outError) {
-    if (_data.gameDataFilePath.empty()) {
+    if (m_data.gameDataFilePath.empty()) {
         outError = "Cannot move: Current file is not saved to disk.";
         return false;
     }
 
-    std::filesystem::path sourcePath = _data.gameDataFilePath;
+    std::filesystem::path sourcePath = m_data.gameDataFilePath;
 
     std::filesystem::path rootDataDir = sourcePath.parent_path().parent_path().parent_path();
     std::filesystem::path targetDir = rootDataDir / targetGameName / "game_datas";
@@ -629,8 +629,8 @@ bool GameDataManager::moveDataFile(const std::string &targetGameName, std::strin
 
     try {
         std::filesystem::rename(sourcePath, destPath);
-        _data.gameDataFilePath = destPath;
-        _data.gameName = targetGameName;
+        m_data.gameDataFilePath = destPath;
+        m_data.gameName = targetGameName;
         LOG(INFO) << "Moved game data file: " << sourcePath << " -> " << destPath;
         return true;
     } catch (const std::exception& e) {
@@ -681,7 +681,7 @@ std::vector<std::string> GameDataManager::validate(const GameData &gd) {
 GameData GameDataManager::jsonToGameData(const json &j, std::filesystem::path& packageIconRoot, std::string &outError) {
     VLOG(2) << "Converting JSON to GameData.";
     outError.clear();
-    std::filesystem::path path = _data.gameDataFilePath;
+    std::filesystem::path path = m_data.gameDataFilePath;
     GameData gd;
 
     try {

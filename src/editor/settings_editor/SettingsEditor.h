@@ -8,8 +8,8 @@
 class SettingsEditor {
 public:
 
-    void Draw();
-    void SetOpen(bool open) { m_isOpen = open; StartEditing();}
+    void draw();
+    void setOpen(bool open) { m_isOpen = open; startEditing();}
 private:
     AppSettings m_savedSettings;
     AppSettings m_editSettings;
@@ -23,16 +23,16 @@ private:
     bool m_isDirty = false;
 
     bool m_isOpen = false;
-    void DrawLeftPanel();
-    void DrawRightPanel();
+    void drawLeftPanel();
+    void drawRightPanel();
 
-    void DrawBottomPanel();
+    void drawBottomPanel();
 
-    void StartEditing();
+    void startEditing();
 
-    void RevertChanges();
+    void revertChanges();
 
-    void ApplyChanges();
+    void applyChanges();
 };
 
 #endif //SETTINGSEDITOR_H

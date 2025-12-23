@@ -13,7 +13,7 @@ struct GameDataPackage {
     std::filesystem::path iconRootPath;
 };
 
-static std::vector<GameDataPackage> ScanForGameData(const std::filesystem::path& gameDataDir) {
+static std::vector<GameDataPackage> scanForGameData(const std::filesystem::path& gameDataDir) {
     std::vector<GameDataPackage> packages;
     for (const auto& gameDir : std::filesystem::directory_iterator(gameDataDir)) {
         if (!gameDir.is_directory()) continue;

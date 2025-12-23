@@ -7,7 +7,7 @@
 #include <iostream>
 #include <thread>
 
-void SettingsEditor::Draw() {
+void SettingsEditor::draw() {
     if (!m_isOpen) return;
 
     int flags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking;
@@ -15,15 +15,15 @@ void SettingsEditor::Draw() {
     ImGui::Begin("Game Data Editor", &m_isOpen, flags);
     ImGui::PopStyleVar();
 
-    DrawLeftPanel();
+    drawLeftPanel();
     ImGui::SameLine();
-    DrawRightPanel();
+    drawRightPanel();
 
-    DrawBottomPanel();
+    drawBottomPanel();
     ImGui::End();
 }
 
-void SettingsEditor::DrawLeftPanel() {
+void SettingsEditor::drawLeftPanel() {
     ImGui::BeginChild("LeftPanel", ImVec2(220, -40), true, ImGuiWindowFlags_NoScrollbar);
     ImGui::TextUnformatted("Settings");
     ImGui::Separator();
@@ -39,7 +39,7 @@ void SettingsEditor::DrawLeftPanel() {
 }
 
 
-void SettingsEditor::DrawRightPanel() {
+void SettingsEditor::drawRightPanel() {
     ImGui::BeginChild("RightPanel", ImVec2(0, -40), false);
 
     if (m_selCategory == "General") {
@@ -234,7 +234,7 @@ void SettingsEditor::DrawRightPanel() {
     ImGui::EndChild();
 }
 
-void SettingsEditor::DrawBottomPanel() {
+void SettingsEditor::drawBottomPanel() {
     ImGui::BeginChild("BottomPanel", ImVec2(0, 40), false);
 
     float panelWidth = ImGui::GetWindowWidth();
@@ -248,7 +248,7 @@ void SettingsEditor::DrawBottomPanel() {
     bool disabled = !m_isDirty;
     if (disabled) ImGui::BeginDisabled();
     if (ImGui::Button("Apply", ImVec2(buttonWidth, 0))) {
-        ApplyChanges();
+        applyChanges();
     }
     if (disabled) ImGui::EndDisabled();
 
@@ -256,7 +256,7 @@ void SettingsEditor::DrawBottomPanel() {
 
     if (ImGui::Button("Cancel", ImVec2(buttonWidth, 0))) {
         // revert edited values and close editor
-        RevertChanges();
+        revertChanges();
         m_isOpen = false;
     }
 
@@ -264,7 +264,7 @@ void SettingsEditor::DrawBottomPanel() {
 }
 
 
-void SettingsEditor::StartEditing() {
+void SettingsEditor::startEditing() {
     // pull from SettingsManager
     m_savedSettings = SettingsManager::instance().getSettings();
     m_editSettings = m_savedSettings;
@@ -283,7 +283,7 @@ void SettingsEditor::StartEditing() {
     m_selCategory = "General";
 }
 
-void SettingsEditor::RevertChanges() {
+void SettingsEditor::revertChanges() {
     m_editSettings = m_savedSettings;
     m_isDirty = false;
     // restore buffers
@@ -298,7 +298,7 @@ void SettingsEditor::RevertChanges() {
     m_bufGameDataPath[m_bufGameDataPath.size() - 1] = '\0';
 }
 
-void SettingsEditor::ApplyChanges() {
+void SettingsEditor::applyChanges() {
     // Update any fields that may not be in sync (buffers -> paths)
     m_editSettings.defaultProjectPath = std::string(m_bufDefaultProjectPath.data());
     m_editSettings.gameDataPath = std::string(m_bufGameDataPath.data());

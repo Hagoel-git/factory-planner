@@ -24,7 +24,7 @@ private:
     void loadRecentFiles();
     void saveRecentFiles() const;
 
-    std::vector<std::filesystem::path> files;
+    std::vector<std::filesystem::path> m_files;
 };
 
 

@@ -66,8 +66,8 @@ int main(int argc, char **argv) {
 
     const std::string latest_log_name = "factory_planner.log";
     const std::string prev_log_name = "factory_planner.previous.log";
-    const std::filesystem::path latest_log_path = get_executable_directory().value_or(std::filesystem::current_path()) / latest_log_name;
-    const std::filesystem::path prev_log_path = get_executable_directory().value_or(std::filesystem::current_path()) / prev_log_name;
+    const std::filesystem::path latest_log_path = getExecutableDirectory().value_or(std::filesystem::current_path()) / latest_log_name;
+    const std::filesystem::path prev_log_path = getExecutableDirectory().value_or(std::filesystem::current_path()) / prev_log_name;
 
     try {
         if (std::filesystem::exists(prev_log_path)) {
@@ -177,7 +177,7 @@ int main(int argc, char **argv) {
             ImGui::NewFrame();
 
             // Draw the application
-            app.Draw();
+            app.draw();
 
             // Rendering
             ImGui::Render();
