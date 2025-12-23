@@ -518,7 +518,7 @@ void FactoryNodeEditor::DrawNodes() {
         // --- PRE-CALC: count visible ports and heights ----
         ImGuiStyle &style = ImGui::GetStyle();
         float font_h = ImGui::GetFontSize();                // text height
-        float port_img_h = 24.0f;                          // the image height for pins
+        float port_img_h = font_h;                          // the image height for pins
         float port_line_h = std::max(port_img_h, font_h);  // effective per-pin height
         float spacing_y = style.ItemSpacing.y;             // vertical spacing between items
 
@@ -536,7 +536,7 @@ void FactoryNodeEditor::DrawNodes() {
         // Heights of each column
         float inputs_h = (visible_inputs > 0) ? (visible_inputs * port_line_h + (visible_inputs - 1) * spacing_y) : 0.0f;
         float outputs_h = (visible_outputs > 0) ? (visible_outputs * port_line_h + (visible_outputs - 1) * spacing_y) : 0.0f;
-        float machine_h = 48.0f; // the machine image height
+        float machine_h = port_img_h * 2; // the machine image height
         // Node height = tallest column
         float node_h = std::max(machine_h, std::max(inputs_h, outputs_h));
 
@@ -560,7 +560,7 @@ void FactoryNodeEditor::DrawNodes() {
                 ed::BeginPin(IdUtils::ToPinId(p->id), ed::PinKind::Input);
                 if (graph->getConnectionsForPort(p->id).empty()) {
                     ImVec2 pos = ImGui::GetCursorScreenPos();
-                    ImVec2 size(24, 24);
+                    ImVec2 size(port_img_h, port_img_h);
 
                     bool isDark = SettingsManager::instance().getSettings().themeName == "Dark";
                     ImU32 bgColor = isDark ? IM_COL32(190, 70, 70, 200)
@@ -568,7 +568,7 @@ void FactoryNodeEditor::DrawNodes() {
 
                     ImGui::GetWindowDrawList()->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), bgColor, 0.0f);
                 }
-                ImGui::Image(res.texture, ImVec2(24,24)); ImGui::SameLine();
+                ImGui::Image(res.texture, ImVec2(port_img_h,port_img_h)); ImGui::SameLine();
                 if (ImGui::IsItemHovered()) {
                     deferredTooltip = res.name;
                 }
@@ -589,7 +589,7 @@ void FactoryNodeEditor::DrawNodes() {
         ImGui::BeginGroup();
         if (machine_offset > 0.0f) ImGui::Dummy(ImVec2(0, machine_offset));
         if (graph->getGameData().machines.find(node->machine_key) != graph->getGameData().machines.end()) {
-            ImGui::Image(graph->getGameData().machines.at(node->machine_key).texture, ImVec2(48,48));
+            ImGui::Image(graph->getGameData().machines.at(node->machine_key).texture, ImVec2(machine_h,machine_h));
         } else {
             ImGui::Dummy(ImVec2(48, machine_h));
         }
@@ -597,7 +597,7 @@ void FactoryNodeEditor::DrawNodes() {
         char buf[32];
         snprintf(buf, sizeof(buf), countText, node->machine_count);
         float textWidth = ImGui::CalcTextSize(buf).x;
-        float imageWidth = 48.0f;
+        float imageWidth = machine_h;
         float groupStartX = ImGui::GetCursorPosX();
         ImGui::SetCursorPosX(groupStartX + (imageWidth - textWidth) * 0.5f);
         ImGui::Text("%s", buf);
@@ -620,7 +620,7 @@ void FactoryNodeEditor::DrawNodes() {
                 ImGui::Text("%.2f", p->rate); ImGui::SameLine();
                 if (graph->getConnectionsForPort(p->id).empty()) {
                     ImVec2 pos = ImGui::GetCursorScreenPos();
-                    ImVec2 size(24, 24);
+                    ImVec2 size(port_img_h, port_img_h);
 
                     bool isDark = SettingsManager::instance().getSettings().themeName == "Dark";
                     ImU32 bgColor = isDark ? IM_COL32(70, 190, 70, 200)
@@ -628,7 +628,7 @@ void FactoryNodeEditor::DrawNodes() {
 
                     ImGui::GetWindowDrawList()->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), bgColor, 0.0f);
                 }
-                ImGui::Image(res.texture, ImVec2(24,24));
+                ImGui::Image(res.texture, ImVec2(port_img_h,port_img_h));
                 if (ImGui::IsItemHovered()) {
                     deferredTooltip = res.name;
                 }
@@ -872,12 +872,13 @@ void FactoryNodeEditor::HandlePopups() {
 
     const bool showDebug = SettingsManager::instance().getSettings().showDebugInfo;
     const auto& gameData = graph->getGameData();
+    auto fontSize = ImGui::GetFontSize();
     if (ImGui::BeginPopup("Node Context Menu")) {
         auto node = graph->getNode(IdUtils::FromNodeId(m_contextNodeId));
         if (node) {
             if (gameData.machines.count(node->machine_key)) {
                 ImTextureID icon = gameData.machines.at(node->machine_key).texture;
-                ImGui::Image(icon, ImVec2(24, 24));
+                ImGui::Image(icon, ImVec2(fontSize, fontSize));
                 ImGui::SameLine();
             }
             ImGui::Text("%s", node->name.c_str());
@@ -911,7 +912,6 @@ void FactoryNodeEditor::HandlePopups() {
 
                         ImGui::PushID(mKey.c_str());
 
-                        auto fontSize = ImGui::GetFontSize();
 
                         ImGui::Image(machine.texture, ImVec2(fontSize, fontSize));
                         ImGui::SameLine();
@@ -1021,7 +1021,8 @@ void FactoryNodeEditor::HandlePopups() {
             }
 
             if (gameData.resources.count(port->resource_key)) {
-                ImGui::Image(gameData.resources.at(port->resource_key).texture, ImVec2(24, 24));
+                double imageSize = ImGui::GetFontSize();
+                ImGui::Image(gameData.resources.at(port->resource_key).texture, ImVec2(imageSize, imageSize));
                 ImGui::SameLine();
                 ImGui::Text("%s", gameData.resources.at(port->resource_key).name.c_str());
             } else {
@@ -1124,7 +1125,7 @@ void FactoryNodeEditor::HandlePopups() {
 
         ImGui::Separator();
 
-        const float iconSize = 24.0f;
+        const float iconSize = ImGui::GetFontSize();
         const float sideColWidth = 158.0f;
         ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(0.0f, 0.0f));
         if (ImGui::BeginTable("RecipeList", 3, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg, ImVec2(640, 480))) {

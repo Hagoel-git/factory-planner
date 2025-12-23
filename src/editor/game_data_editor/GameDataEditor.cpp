@@ -614,12 +614,13 @@ void GameDataEditor::DrawGeneralTab() {
 
 void GameDataEditor::DrawResourceCreator() {
     ImTextureID icon = TextureManager::instance().loadTexture(m_draftResource.iconPath);
+    auto fontSize = ImGui::GetFontSize();
 
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1,1,1,0.1f));
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1,1,1,0.2f));
 
-    if (ImGui::ImageButton("##icon", icon, ImVec2(24, 24))) {
+    if (ImGui::ImageButton("##icon", icon, ImVec2(fontSize, fontSize))) {
         if (!m_iconDialog.isRunning) {
             m_iconDialog.targetKey = "DRAFT_RESOURCE";
             m_iconDialog.isRunning = true;
@@ -713,6 +714,7 @@ void GameDataEditor::DrawResourceGrid() {
         m_iconDialog.isRunning = false;
     }
     auto filteredItems = FilterMap(gameDataManager.current().resources, m_searchBuffer);
+    auto fontSize = ImGui::GetFontSize();
 
     int flags = ImGuiTableFlags_ScrollY | ImGuiTableFlags_Borders |
                 ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingFixedFit;
@@ -745,7 +747,7 @@ void GameDataEditor::DrawResourceGrid() {
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1,1,1,0.1f));
                 ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1,1,1,0.2f));
 
-                if (ImGui::ImageButton("##icon", (ImTextureID)(uintptr_t)item->texture, ImVec2(24, 24))) {
+                if (ImGui::ImageButton("##icon", (ImTextureID)(uintptr_t)item->texture, ImVec2(fontSize, fontSize))) {
                     if (!m_iconDialog.isRunning) {
                         m_iconDialog.targetKey = key;
                         m_iconDialog.isRunning = true;
@@ -842,12 +844,13 @@ void GameDataEditor::DrawResourceGrid() {
 
 void GameDataEditor::DrawMachineCreator() {
     ImTextureID icon = TextureManager::instance().loadTexture(m_draftMachine.iconPath);
+    auto fontSize = ImGui::GetFontSize();
 
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1,1,1,0.1f));
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1,1,1,0.2f));
 
-    if (ImGui::ImageButton("##icon", icon, ImVec2(24, 24))) {
+    if (ImGui::ImageButton("##icon", icon, ImVec2(fontSize, fontSize))) {
         if (!m_iconDialog.isRunning) {
             m_iconDialog.targetKey = "DRAFT_MACHINE";
             m_iconDialog.isRunning = true;
@@ -958,6 +961,7 @@ void GameDataEditor::DrawMachineGrid() {
         m_iconDialog.isRunning = false;
     }
     auto filteredItems = FilterMap(gameDataManager.current().machines, m_searchBuffer);
+    auto fontSize = ImGui::GetFontSize();
 
     int flags = ImGuiTableFlags_ScrollY | ImGuiTableFlags_Borders |
                 ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingFixedFit;
@@ -991,7 +995,7 @@ void GameDataEditor::DrawMachineGrid() {
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1,1,1,0.1f));
                 ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1,1,1,0.2f));
 
-                if (ImGui::ImageButton("##icon", (ImTextureID)(uintptr_t)item->texture, ImVec2(24, 24))) {
+                if (ImGui::ImageButton("##icon", (ImTextureID)(uintptr_t)item->texture, ImVec2(fontSize, fontSize))) {
                     if (!m_iconDialog.isRunning) {
                         m_iconDialog.targetKey = key;
                         m_iconDialog.isRunning = true;
@@ -1322,7 +1326,7 @@ bool GameDataEditor::DrawTokenList(const char* str_id, std::vector<RecipePort>& 
 
     const float chipRounding = 4.0f;
     const ImVec2 chipPadding(4.0f, 2.0f);
-    const float iconSize = 16.0f;
+    const float iconSize = fontSize * 1.1f;
     ImVec4 chipBgColor = ImVec4(0.2f, 0.25f, 0.3f, 1.0f);
     ImVec4 chipHoverColor = ImVec4(0.3f, 0.35f, 0.45f, 1.0f);
     if (SettingsManager::instance().getSettings().themeName == "Light") {
