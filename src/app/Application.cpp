@@ -445,6 +445,7 @@ void Application::HandleShortcuts() {
         VLOG(1) << "F3 key pressed, toggling debug window.";
         showDebugWindow = !showDebugWindow;
     }
+    bool editorFocused = !editors.empty() && editors[activeEditor]->isFocused();
     if (io.KeyCtrl) {
         if (ImGui::IsKeyPressed(ImGuiKey_N)) {
             VLOG(1) << "Shortcut: Ctrl+N pressed, opening New Project dialog.";
@@ -458,7 +459,7 @@ void Application::HandleShortcuts() {
             VLOG(1) << "Shortcut: Ctrl+Q pressed, quitting application.";
             quitRequested = true;
         }
-        if (!editors.empty() && editors[activeEditor]->isFocused()) {
+        if (editorFocused) {
             if (ImGui::IsKeyPressed(ImGuiKey_W)) {
                 VLOG(1) << "Shortcut: Ctrl+W pressed, closing active editor.";
                 CloseActiveEditor();
@@ -501,7 +502,9 @@ void Application::HandleShortcuts() {
                 VLOG(1) << "Shortcut: Ctrl+A pressed, selecting all in active editor.";
                 SelectAllActiveEditor();
             }
-        } else {
+        }
+    } else {
+        if (editorFocused) {
             if (io.WantTextInput) return;
             if (ImGui::IsKeyPressed(ImGuiKey_F)) {
                 VLOG(1) << "F Key pressed, fitting view in active editor.";
