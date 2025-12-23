@@ -11,7 +11,7 @@ public:
     void load();
     void save();
 
-    void addFile(const std::filesystem::path& filePath);
+    void addFile(std::filesystem::path filePath);
     const std::vector<std::filesystem::path>& getFiles() const;
 
 private:
