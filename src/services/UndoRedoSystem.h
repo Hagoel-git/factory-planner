@@ -143,6 +143,41 @@ public:
     std::string getDescription() const override { return "Pasted " + std::to_string(copy_buffer.nodes.size()) + " nodes";}
 };
 
+class ChangeClockSpeedCommand : public Command {
+private:
+    uint64_t nodeId;
+    double oldSpeed;
+    double newSpeed;
+public:
+    ChangeClockSpeedCommand(uint64_t nodeId, double oldSpeed, double newSpeed)
+        : nodeId(nodeId), oldSpeed(oldSpeed), newSpeed(newSpeed) {
+    }
+
+    void execute(FactoryGraph& graph) override;
+    void undo(FactoryGraph& graph) override;
+    CommandFlags GetFlags() const override { return CommandFlags{true, false}; }
+    std::string getDescription() const override {
+        return "Change Clock Speed: Node ID " + std::to_string(nodeId) + " from " + std::to_string(oldSpeed) + " to " + std::to_string(newSpeed);
+    }
+};
+
+class ChangeProductionMultiplierCommand : public Command {
+private:
+    uint64_t nodeId;
+    double oldMultiplier;
+    double newMultiplier;
+public:
+    ChangeProductionMultiplierCommand(uint64_t nodeId, double oldMultiplier, double newMultiplier)
+        : nodeId(nodeId), oldMultiplier(oldMultiplier), newMultiplier(newMultiplier) {
+    }
+    void execute(FactoryGraph& graph) override;
+    void undo(FactoryGraph& graph) override;
+    CommandFlags GetFlags() const override { return CommandFlags{true, false}; }
+    std::string getDescription() const override {
+        return "Change Production Multiplier: Node ID " + std::to_string(nodeId) + " from " + std::to_string(oldMultiplier) + " to " + std::to_string(newMultiplier);
+    }
+};
+
 class SetPortConstraintCommand : public Command {
 private:
     uint64_t portId;
