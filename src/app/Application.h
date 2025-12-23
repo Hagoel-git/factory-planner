@@ -38,6 +38,7 @@ public:
     bool quitRequested = false;
 private:
     std::vector<std::unique_ptr<FactoryNodeEditor>> editors;
+    std::vector<std::filesystem::path> closedEditorHistory;
     GameDataManager gameDataManager;
     GameDataEditor gameDataEditor;
     SettingsEditor settingsEditor;
@@ -71,6 +72,8 @@ private:
     void DrawSaveAsDialog();
 
     void RestoreSession();
+
+    void ReopenLastClosedEditor();
 
     void SaveSession();
 
