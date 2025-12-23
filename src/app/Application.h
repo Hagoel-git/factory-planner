@@ -74,7 +74,7 @@ private:
 
     void SaveSession();
 
-    void CreateNewEditor(const std::filesystem::path &gameDataFilePath, const std::filesystem::path &location, const std::string &name);
+    void CreateNewEditor(const std::filesystem::path &gameDataFilePath, const std::filesystem::path &location, const std::string &name, bool addToRecent = true);
 
     bool SaveActiveEditor();
     bool SaveActiveEditorAs(const std::string &newFilePath, SaveAsMode mode);
