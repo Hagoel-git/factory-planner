@@ -59,7 +59,10 @@ void RecentFiles::loadRecentFiles() {
             files.clear();
             for (const auto &item : j["recentFiles"]) {
                 if (item.is_string()) {
-                    files.push_back(item.get<std::string>());
+                    bool alreadyExists = files.end() != std::find(files.begin(), files.end(), item.get<std::string>());
+                    if (!alreadyExists) {
+                        files.push_back(item.get<std::string>());
+                    }
                 }
             }
         }
