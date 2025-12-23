@@ -20,7 +20,8 @@ FactorySolver::FactorySolver(const std::string &solver_name) {
 
 
 FactorySolver::SolverResult FactorySolver::solve(FactoryGraph &factory_graph) {
-    variables.clear();
+    port_variables.clear();
+    connection_variables.clear();
     constraints.clear();
     solver_->Clear(); // Clear any previous state in the solver
 
@@ -89,31 +90,30 @@ void FactorySolver::createAllVariables(const FactoryGraph &factory_graph) {
     const auto &ports = factory_graph.getPorts();
     const auto &connections = factory_graph.getConnections();
 
-    // Reserve space for port variables + connection variables
-    variables.reserve(ports.size() + connections.size());
+    port_variables.reserve(ports.size());
+    connection_variables.reserve(connections.size());
 
     // Create variables for each port in the factory graph
     for (const auto &port: ports) {
         const std::string var_name = "Port_" + std::to_string(port.id);
         operations_research::MPVariable *var = solver_->MakeNumVar(0.0, infinity, var_name);
-        variables[port.id] = var;
+        port_variables[port.id] = var;
     }
 
-    // Create variables for each connection (using negative IDs to avoid conflicts)
+    // Create variables for each connection
     for (const auto &conn: connections) {
-        const int connection_var_id = -(static_cast<int>(conn.id) + 1); // -1, -2, -3, ...
         const std::string var_name = "Conn_" + std::to_string(conn.id);
         operations_research::MPVariable *var = solver_->MakeNumVar(0.0, infinity, var_name);
-        variables[connection_var_id] = var;
+        connection_variables[conn.id] = var;
     }
 }
 
 void FactorySolver::addObjectiveFunction(const FactoryGraph &factory_graph) {
     // Find all ports that are reachable from constrained ports
-    std::unordered_set<int> reachable_ports = findReachablePorts(factory_graph);
+    std::unordered_set<uint64_t> reachable_ports = findReachablePorts(factory_graph);
 
     // Identify all ports that have outgoing connections
-    std::unordered_set<int> ports_with_outputs;
+    std::unordered_set<uint64_t> ports_with_outputs;
     for (const auto &conn: factory_graph.getConnections()) {
         ports_with_outputs.insert(conn.from_port);
     }
@@ -125,7 +125,7 @@ void FactorySolver::addObjectiveFunction(const FactoryGraph &factory_graph) {
     // Maximize output of leaf ports that are reachable from constrained ports
     for (const auto &port: ports) {
         if (!ports_with_outputs.count(port.id) && reachable_ports.count(port.id)) {
-            objective->SetCoefficient(variables[port.id], 1.0);
+            objective->SetCoefficient(port_variables[port.id], 1.0);
             has_objective_terms = true;
         }
     }
@@ -134,7 +134,7 @@ void FactorySolver::addObjectiveFunction(const FactoryGraph &factory_graph) {
     if (!has_objective_terms) {
         // Just minimize the sum of all variables (or set a trivial objective)
         for (const auto &port: ports) {
-            objective->SetCoefficient(variables[port.id], 0.0001); // Small coefficient
+            objective->SetCoefficient(port_variables.at(port.id), 0.0001); // Small coefficient
         }
         objective->SetMinimization(); // Minimize instead of maximize
     } else {
@@ -143,9 +143,9 @@ void FactorySolver::addObjectiveFunction(const FactoryGraph &factory_graph) {
 }
 
 // Helper function to find all ports reachable from constrained ports
-std::unordered_set<int> FactorySolver::findReachablePorts(const FactoryGraph &factory_graph) {
-    std::unordered_set<int> reachable;
-    std::queue<int> to_visit;
+std::unordered_set<uint64_t> FactorySolver::findReachablePorts(const FactoryGraph &factory_graph) {
+    std::unordered_set<uint64_t> reachable;
+    std::queue<uint64_t> to_visit;
 
     // 1. Start from constrained ports
     const auto &ports = factory_graph.getPorts();
@@ -157,12 +157,12 @@ std::unordered_set<int> FactorySolver::findReachablePorts(const FactoryGraph &fa
     }
 
     // 2. Build Wire Connections
-    std::unordered_map<int, std::vector<int>> forward_connections;
+    std::unordered_map<uint64_t, std::vector<uint64_t>> forward_connections;
     for (const auto &conn: factory_graph.getConnections()) {
         forward_connections[conn.from_port].push_back(conn.to_port);
     }
 
-    std::unordered_map<int, std::vector<int>> internal_connections;
+    std::unordered_map<uint64_t, std::vector<uint64_t>> internal_connections;
     for (const auto &node : factory_graph.getNodes()) {
         // Link all inputs to all outputs for reachability
         for (uint64_t input_id : node.input_ports) {
@@ -174,12 +174,12 @@ std::unordered_set<int> FactorySolver::findReachablePorts(const FactoryGraph &fa
 
     // 4. BFS
     while (!to_visit.empty()) {
-        int current_port = to_visit.front();
+        uint64_t current_port = to_visit.front();
         to_visit.pop();
 
         // Traverse Wires
         if (forward_connections.count(current_port)) {
-            for (int next_port: forward_connections[current_port]) {
+            for (uint64_t next_port: forward_connections[current_port]) {
                 if (!reachable.count(next_port)) {
                     reachable.insert(next_port);
                     to_visit.push(next_port);
@@ -189,7 +189,7 @@ std::unordered_set<int> FactorySolver::findReachablePorts(const FactoryGraph &fa
 
         // Traverse Nodes
         if (internal_connections.count(current_port)) {
-            for (int next_port : internal_connections[current_port]) {
+            for (uint64_t next_port : internal_connections[current_port]) {
                 if (!reachable.count(next_port)) {
                     reachable.insert(next_port);
                     to_visit.push(next_port);
@@ -214,7 +214,7 @@ void FactorySolver::addAllConstraints(const FactoryGraph &factory_graph) {
     for (const auto &port: ports) {
         if (port.user_constraint >= 0) {
             operations_research::MPConstraint *constraint = solver_->MakeRowConstraint(-infinity, port.user_constraint);
-            constraint->SetCoefficient(variables[port.id], 1.0);
+            constraint->SetCoefficient(port_variables.at(port.id), 1.0);
             constraints.push_back(constraint);
         }
     }
@@ -225,14 +225,14 @@ void FactorySolver::addAllConstraints(const FactoryGraph &factory_graph) {
 void FactorySolver::addRecipeConstraints(const Node &node, const Recipe &recipe) {
     for (int i = 0; i < recipe.input_ports.size(); ++i) {
         operations_research::MPConstraint *constraint = solver_->MakeRowConstraint(0.0, 0.0);
-        constraint->SetCoefficient(variables[node.input_ports[i]], recipe.output_ports[0].amount * (node.production_multiplier / 100.0));
-        constraint->SetCoefficient(variables[node.output_ports[0]], -recipe.input_ports[i].amount);
+        constraint->SetCoefficient(port_variables.at(node.input_ports[i]), recipe.output_ports[0].amount * (node.production_multiplier / 100.0));
+        constraint->SetCoefficient(port_variables.at(node.output_ports[0]), -recipe.input_ports[i].amount);
         constraints.push_back(constraint);
     }
     for (int i = 1; i < recipe.output_ports.size(); ++i) {
         operations_research::MPConstraint *constraint = solver_->MakeRowConstraint(0.0, 0.0);
-        constraint->SetCoefficient(variables[node.output_ports[0]], recipe.output_ports[i].amount);
-        constraint->SetCoefficient(variables[node.output_ports[i]], -recipe.output_ports[0].amount);
+        constraint->SetCoefficient(port_variables.at(node.output_ports[0]), recipe.output_ports[i].amount);
+        constraint->SetCoefficient(port_variables.at(node.output_ports[i]), -recipe.output_ports[0].amount);
         constraints.push_back(constraint);
     }
 }
@@ -241,37 +241,34 @@ void FactorySolver::addConnectionConstraints(const FactoryGraph &factory_graph) 
     const auto &connections = factory_graph.getConnections();
 
     // Build maps for port -> connections
-    std::unordered_map<int, std::vector<int> > port_outgoing; // port_id -> [connection_var_ids]
-    std::unordered_map<int, std::vector<int> > port_incoming; // port_id -> [connection_var_ids]
+    std::unordered_map<uint64_t, std::vector<uint64_t> > port_outgoing;
+    std::unordered_map<uint64_t, std::vector<uint64_t> > port_incoming;
 
     for (const auto &conn: connections) {
-        // Remove size_t i
-        const int connection_var_id = -(static_cast<int>(conn.id) + 1); // Use conn.id, not index
-
-        port_outgoing[conn.from_port].push_back(connection_var_id);
-        port_incoming[conn.to_port].push_back(connection_var_id);
+        port_outgoing[conn.from_port].push_back(conn.id);
+        port_incoming[conn.to_port].push_back(conn.id);
     }
 
     // Create constraints linking ports to their connection flows
 
     // For each port with outgoing connections: port = sum(outgoing_connections)
-    for (const auto &[port_id, conn_var_ids]: port_outgoing) {
+    for (const auto &[port_id, conn_ids]: port_outgoing) {
         auto *constraint = solver_->MakeRowConstraint(0.0, 0.0);
-        constraint->SetCoefficient(variables[port_id], 1.0);
+        constraint->SetCoefficient(port_variables.at(port_id), 1.0);
 
-        for (int conn_var_id: conn_var_ids) {
-            constraint->SetCoefficient(variables[conn_var_id], -1.0);
+        for (uint64_t conn_id: conn_ids) {
+            constraint->SetCoefficient(connection_variables[conn_id], -1.0);
         }
         constraints.push_back(constraint);
     }
 
     // For each port with incoming connections: port = sum(incoming_connections)
-    for (const auto &[port_id, conn_var_ids]: port_incoming) {
+    for (const auto &[port_id, conn_ids]: port_incoming) {
         auto *constraint = solver_->MakeRowConstraint(0.0, 0.0);
-        constraint->SetCoefficient(variables[port_id], -1.0);
+        constraint->SetCoefficient(port_variables.at(port_id), -1.0);
 
-        for (int conn_var_id: conn_var_ids) {
-            constraint->SetCoefficient(variables[conn_var_id], 1.0);
+        for (uint64_t conn_id: conn_ids) {
+            constraint->SetCoefficient(connection_variables.at(conn_id), 1.0);
         }
         constraints.push_back(constraint);
     }
@@ -281,14 +278,13 @@ void FactorySolver::updateFactoryGraph(FactoryGraph &factory_graph) const {
     // Output the results to factory_graph
     const auto &ports = factory_graph.getPorts();
     for (const auto &port: ports) {
-        const double value = variables.at(port.id)->solution_value();
-        factory_graph.getPort(port.id)->rate = value; // Update the port rate in the factory graph
+        const double value = port_variables.at(port.id)->solution_value();
+        factory_graph.getPort(port.id)->rate = value;
     }
 
     const auto &connections = factory_graph.getConnections();
     for (const auto &conn: connections) {
-        const int connection_var_id = -(static_cast<int>(conn.id) + 1); // Use conn.id consistently
-        const double value = variables.at(connection_var_id)->solution_value();
+        const double value = connection_variables.at(conn.id)->solution_value();
         factory_graph.getConnection(conn.id)->rate = value;
     }
 

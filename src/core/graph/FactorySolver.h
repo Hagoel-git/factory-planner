@@ -54,14 +54,15 @@ private:
     double last_solve_time = 0.0;
     std::string last_solver_status = "NOT_SOLVED";
 
-    std::unordered_map<int, operations_research::MPVariable *> variables;
+    std::unordered_map<uint64_t, operations_research::MPVariable *> port_variables;
+    std::unordered_map<uint64_t, operations_research::MPVariable *> connection_variables;
     std::vector<operations_research::MPConstraint *> constraints; // position = constraint id
 
     void createAllVariables(const FactoryGraph &factory_graph);
 
     void addObjectiveFunction(const FactoryGraph &factory_graph);
 
-    std::unordered_set<int> findReachablePorts(const FactoryGraph &factory_graph);
+    std::unordered_set<uint64_t> findReachablePorts(const FactoryGraph &factory_graph);
 
     void addAllConstraints(const FactoryGraph &factory_graph);
     void addRecipeConstraints(const Node &node, const Recipe &recipe);
