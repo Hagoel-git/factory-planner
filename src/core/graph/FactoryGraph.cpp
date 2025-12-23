@@ -283,6 +283,12 @@ nlohmann::json FactoryGraph::serialize() const {
         node_json["input_ports"] = node.input_ports;
         node_json["output_ports"] = node.output_ports;
         node_json["machine"] = node.machine_key;
+        if (node.clock_speed != 100.0) {
+            node_json["clock_speed"] = node.clock_speed;
+        }
+        if (node.production_multiplier != 100.0) {
+            node_json["production_multiplier"] = node.production_multiplier;
+        }
 
         // Save constraints in a simple map of { "port_id": constraint_value }
         nlohmann::json port_constraints = nlohmann::json::object();
@@ -375,10 +381,15 @@ void FactoryGraph::deserialize(const nlohmann::json& j, const GameData &game_dat
 
             const Recipe& recipe = recipeIt->second;
 
+            double clockSpeed = node_json.value("clock_speed", 100.0);
+            double productionMultiplier = node_json.value("production_multiplier", 100.0);
+
             Node node;
             node.id = nodeId;
             node.selected_recipe_key = recipeKey;
             node.name = recipe.name;
+            node.clock_speed = clockSpeed;
+            node.production_multiplier = productionMultiplier;
 
             std::string machKey = node_json.value("machine", "");
 
@@ -520,6 +531,26 @@ bool FactoryGraph::setNodeRecipe(uint64_t node_id, const std::string& recipe_key
     // } else {
     //     //node->type = NodeType::PROCESSOR;
     // }
+    return true;
+}
+
+bool FactoryGraph::setNodeClockSpeed(uint64_t node_id, double speed) {
+    Node *node = getNode(node_id);
+    if (!node) {
+        return false;
+    }
+    node->clock_speed = speed;
+    VLOG(3) << "Set clock speed to " << speed << "% for node ID: " << node_id;
+    return true;
+}
+
+bool FactoryGraph::setProductionMultiplier(uint64_t node_id, double multiplier) {
+    Node *node = getNode(node_id);
+    if (!node) {
+        return false;
+    }
+    node->production_multiplier = multiplier;
+    VLOG(3) << "Set production multiplier to " << multiplier << "% for node ID: " << node_id;
     return true;
 }
 

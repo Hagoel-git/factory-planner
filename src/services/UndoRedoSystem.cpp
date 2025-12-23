@@ -167,6 +167,22 @@ void RemoveConnectionCommand::undo(FactoryGraph &graph) {
     graph.restoreConnection(connectionData);
 }
 
+void ChangeClockSpeedCommand::execute(FactoryGraph &graph) {
+    graph.setNodeClockSpeed(nodeId, newSpeed);
+}
+
+void ChangeClockSpeedCommand::undo(FactoryGraph &graph) {
+    graph.setNodeClockSpeed(nodeId, oldSpeed);
+}
+
+void ChangeProductionMultiplierCommand::execute(FactoryGraph &graph) {
+    graph.setProductionMultiplier(nodeId, newMultiplier);
+}
+
+void ChangeProductionMultiplierCommand::undo(FactoryGraph &graph) {
+    graph.setProductionMultiplier(nodeId, oldMultiplier);
+}
+
 void SetPortConstraintCommand::execute(FactoryGraph &graph) {
     graph.setPortConstraint(portId, newConstraint);
 }

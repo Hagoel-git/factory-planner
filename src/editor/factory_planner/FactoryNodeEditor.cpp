@@ -949,6 +949,45 @@ void FactoryNodeEditor::HandlePopups() {
                 ImGui::Text("%s", gameData.machines.count(node->machine_key) ? gameData.machines.at(node->machine_key).name.c_str() : node->machine_key.c_str());
             }
 
+            static double s_startClockSpeed = 0.0;
+            float clockSpeedFlt = node->clock_speed;
+
+            ImGui::SetNextItemWidth(200.0f);
+            if (ImGui::DragFloat("Clock speed (%)", &clockSpeedFlt, 1, 0, FLT_MAX, "%.2f")) {
+                node->clock_speed = static_cast<double>(clockSpeedFlt);
+            }
+
+            if (ImGui::IsItemActivated()) {
+                s_startClockSpeed = node->clock_speed;
+            }
+
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                if (s_startClockSpeed != node->clock_speed) {
+                    executeCommand(std::make_unique<ChangeClockSpeedCommand>(
+                        node->id, s_startClockSpeed, node->clock_speed
+                    ));
+                }
+            }
+
+            static double s_startProductionMultiplier = 0.0;
+            float prodMultFlt = node->production_multiplier;
+
+            ImGui::SetNextItemWidth(200.0f);
+            if (ImGui::DragFloat("Production Multiplier (%)", &prodMultFlt, 1, 0, FLT_MAX, "%.2f")) {
+                node->production_multiplier = static_cast<double>(prodMultFlt);
+            }
+
+            if (ImGui::IsItemActivated()) {
+                s_startProductionMultiplier = node->production_multiplier;
+            }
+
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                if (s_startProductionMultiplier != node->production_multiplier) {
+                    executeCommand(std::make_unique<ChangeProductionMultiplierCommand>(
+                        node->id, s_startProductionMultiplier, node->production_multiplier
+                    ));
+                }
+            }
             ImGui::Separator();
 
             if (ImGui::MenuItem("Delete Node")) {
