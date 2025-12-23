@@ -992,7 +992,7 @@ void Application::RestoreSession() {
     const auto& session = SessionManager::instance().getSessionState();
     for (const auto& path : session.openProjectPaths) {
         if (std::filesystem::exists(path)) {
-            CreateNewEditor("", path, path.stem().string());
+            CreateNewEditor("", path, path.stem().string(), false);
         } else {
             LOG(WARNING) << "Project file from previous session does not exist: " << path;
         }
@@ -1018,7 +1018,7 @@ void Application::SaveSession() {
 }
 
 void Application::CreateNewEditor(const std::filesystem::path &gameDataFilePath, const std::filesystem::path &location,
-                                  const std::string &name) {
+                                  const std::string &name, bool addToRecent) {
     // Check if an editor with the same name already exists
     if (std::any_of(editors.begin(), editors.end(), [&](const auto &editor) {
         return editor->GetName() == name;
@@ -1066,7 +1066,9 @@ void Application::CreateNewEditor(const std::filesystem::path &gameDataFilePath,
     activeEditor = static_cast<int>(editors.size()) - 1;
 
     SaveSession();
-    RecentFiles::instance().addFile(location);
+    if (addToRecent) {
+        RecentFiles::instance().addFile(location);
+    }
 }
 
 bool Application::SaveActiveEditor() {
