@@ -100,11 +100,11 @@ void GameDataEditor::Draw() {
             ImGui::OpenPopup("New File");
             m_requestNewFilePopup = false;
         }
-        DrawNewFileDialog();
         if (m_requestDeletePopup) {
             ImGui::OpenPopup("Delete Confirmation");
             m_requestDeletePopup = false;
         }
+        DrawNewFileDialog();
         DrawDeleteFileConfirmation();
     }
     ImGui::End();
