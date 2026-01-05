@@ -147,7 +147,7 @@ add_custom_command(
 if(WIN32)
     add_custom_command(TARGET factory_planner POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${CMAKE_SOURCE_DIR}/external/or-tools_x64_VisualStudio2022_cpp_v9.14.6206/bin"
+            "${CMAKE_SOURCE_DIR}/external/or-tools/bin"
             "$<TARGET_FILE_DIR:factory_planner>"
             COMMENT "Copying missing DLLs..."
     )
