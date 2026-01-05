@@ -18,20 +18,10 @@
 #include "absl/debugging/failure_signal_handler.h"
 #include "absl/debugging/symbolize.h"
 #include <fstream>
-#ifdef _WIN32
-    #include <io.h>
-    #include <fcntl.h>
-    #define OPEN_LOG _open
-    #define DUP2_LOG _dup2
-    #define CLOSE_LOG _close
-#else
-    // Linux / macOS
-    #include <unistd.h>
-    #include <fcntl.h>
-    #define OPEN_LOG open
-    #define DUP2_LOG dup2
-    #define CLOSE_LOG close
-#endif
+#include <cstdio>
+#include <iostream>
+#include <filesystem>
+#include <string>
 
 // Return true if current session *looks like* Wayland.
 static bool RunningOnWayland()
@@ -50,26 +40,24 @@ static void glfw_error_callback(int error, const char *description) {
 }
 
 void RedirectStdErrToLogFile(const std::string& log_path) {
-    // O_WRONLY: Write only
-    // O_CREAT: Create if not exists
-    // O_APPEND: Always write to the end
-    // 0644: Permissions (RW-R--R--)
-    int logFd = OPEN_LOG(log_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    FILE* new_stream;
 
-    if (logFd == -1) {
-        std::cerr << "Failed to open log file: " << log_path << std::endl;
-        return;
+#ifdef _WIN32
+    errno_t err = freopen_s(&new_stream, log_path.c_str(), "w", stderr);
+    if (err != 0) {
+        std::cerr << "Failed to redirect stderr to log file: " << log_path << std::endl;
     }
-
-    // Redirect Standard Error (FD 2) to our log file (log_fd)
-    // After this call, anything written to stderr goes to the file.
-    if (DUP2_LOG(logFd, 2) == -1) {
-        std::cerr << "Failed to redirect stderr." << std::endl;
-        CLOSE_LOG(logFd);
-        return;
+#else
+    new_stream = freopen(log_path.c_str(), "w", stderr);
+    if (new_stream == nullptr) {
+        std::cerr << "Failed to redirect stderr to log file: " << log_path << std::endl;
     }
+#endif
 
-    CLOSE_LOG(logFd);
+    // Disable buffering so logs appear in the file immediately
+    if (stderr) {
+        setvbuf(stderr, nullptr, _IONBF, 0);
+    }
 }
 
 int main(int argc, char **argv) {
