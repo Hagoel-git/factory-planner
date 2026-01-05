@@ -1,6 +1,6 @@
 #include "TextureManager.h"
 #include <absl/log/log.h>
-#include <GL/gl.h>
+#include <GLFW/glfw3.h>
 
 #include "SettingsManager.h"
 #include "common/TextureUtils.h"

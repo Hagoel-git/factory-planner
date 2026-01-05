@@ -12,7 +12,7 @@ class GameDataManager {
 public:
     GameDataManager();
     // Load from file path (reads JSON)
-    bool loadFromFile(const std::string &path, std::string &outError);
+    bool loadFromFile(const std::filesystem::path &path, std::string &outError);
 
     // Save to file (writes JSON)
     bool saveToFile(const std::string &path, std::string &outError);

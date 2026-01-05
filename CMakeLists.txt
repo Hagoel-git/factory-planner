@@ -21,7 +21,22 @@ FetchContent_MakeAvailable(googletest)
 
 # Find system packages
 find_package(OpenGL REQUIRED)
-find_package(glfw3 REQUIRED)    # provide glfw3Config.cmake on system or provide via subdir
+
+FetchContent_Declare(
+        glfw
+        GIT_REPOSITORY https://github.com/glfw/glfw.git
+        GIT_TAG        3.4
+)
+FetchContent_MakeAvailable(glfw)
+
+# Check if the 'glfw' target exists, if not, alias it (depending on how glfw builds)
+if(NOT TARGET glfw)
+    # Sometimes it builds as glfw3 or similar, ensuring compatibility
+    if(TARGET glfw3)
+        add_library(glfw ALIAS glfw3)
+    endif()
+endif()
+
 find_package(ortools REQUIRED)
 
 # Define a project-wide compile definition (equivalent to -DOR_PROTO_DLL=)
@@ -127,6 +142,16 @@ add_custom_command(
         "$<TARGET_FILE_DIR:factory_planner>/assets"
         COMMENT "Copying runtime data and assets to output directory..."
 )
+
+# Only for Windows: Copy external DLLs to the output directory
+if(WIN32)
+    add_custom_command(TARGET factory_planner POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_SOURCE_DIR}/external/or-tools_x64_VisualStudio2022_cpp_v9.14.6206/bin"
+            "$<TARGET_FILE_DIR:factory_planner>"
+            COMMENT "Copying missing DLLs..."
+    )
+endif()
 
 # Include directories for the target
 target_include_directories(factory_planner_lib PUBLIC

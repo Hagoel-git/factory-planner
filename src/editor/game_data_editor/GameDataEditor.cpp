@@ -493,7 +493,7 @@ void GameDataEditor::drawGeneralTab() {
             std::string err;
             if (m_gameDataManager.renameDataFile(newName, err)) {
                 NotificationManager::instance().addNotification("Success", "File renamed successfully.", NotificationType::Success);
-                strncpy(fileNameBuf, data.gameDataFilePath.stem().c_str(), sizeof(fileNameBuf));
+                strncpy(fileNameBuf, data.gameDataFilePath.stem().string().c_str(), sizeof(fileNameBuf));
                 m_selectedFilePath = data.gameDataFilePath;
                 refreshPackageList();
             } else {

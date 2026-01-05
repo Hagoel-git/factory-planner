@@ -22,6 +22,8 @@ struct NodeQuadtreeData {
 
     NodeQuadtreeData(uint64_t id, const ImVec2& pos, const ImVec2& sz)
         : nodeId(id), position(pos), size(sz) {}
+
+    bool operator==(const NodeQuadtreeData &) const = default;
 };
 
 // Functor to get bounding box for quadtree
@@ -46,7 +48,7 @@ struct DebugInfo {
     double lastSetupSolveDurationMs = 0;
     double lastSolverDurationMs = 0;
     double lastUpdateFactoryDurationMs = 0;
-    FactorySolver::SolverResultStatus lastSolverResult = FactorySolver::SolverResultStatus::ERROR;
+    FactorySolver::SolverResultStatus lastSolverResult = FactorySolver::SolverResultStatus::ERROR_;
     std::string lastSolverStatus;
     float quadtreeBoundsMin[2] = {0, 0};
     float quadtreeBoundsMax[2] = {0, 0};
@@ -59,7 +61,7 @@ struct DebugInfo {
 class FactoryNodeEditor {
 public:
 
-    FactoryNodeEditor(const GameData& game_data, const std::string& projectFilePath, std::string  title );
+    FactoryNodeEditor(const GameData& game_data, const std::filesystem::path& projectFilePath, std::string  title );
 
     ~FactoryNodeEditor();
 
