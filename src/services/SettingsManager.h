@@ -19,6 +19,10 @@ struct AppSettings {
     int autoSaveIntervalMinutes = 5;
     int maxUndoHistory = 100;
     int maxRecentFiles = 10;
+
+    int windowWidth = 1280;
+    int windowHeight = 720;
+    bool windowMaximized = false;
 };
 
 class SettingsManager {

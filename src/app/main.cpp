@@ -8,6 +8,7 @@
 
 #include "nfd_glfw3.h"
 #include "app/Application.h"
+#include "services/SettingsManager.h"
 
 #include "absl/log/log.h"
 #include "absl/log/initialize.h"
@@ -86,6 +87,13 @@ int main(int argc, char **argv) {
 
     absl::ParseCommandLine(argc, argv);
     LOG(INFO) << "Starting Factory Planner Application";
+
+    SettingsManager::instance().load();
+    const auto& settings = SettingsManager::instance().getSettings();
+    int initWidth = settings.windowWidth;
+    int initHeight = settings.windowHeight;
+    bool initMaximized = settings.windowMaximized;
+
     // Setup window
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit()) {
@@ -102,7 +110,11 @@ int main(int argc, char **argv) {
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 #endif
 
-    GLFWwindow *window = glfwCreateWindow(1280, 720, "Factory Planner", nullptr, nullptr);
+    if (initMaximized) {
+        glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
+    }
+
+    GLFWwindow *window = glfwCreateWindow(initWidth, initHeight, "Factory Planner", nullptr, nullptr);
     if (window == nullptr) {
         LOG(FATAL) << "Failed to create GLFW window";
         return 1;
@@ -205,6 +217,21 @@ int main(int argc, char **argv) {
         } else {
             LOG(INFO) << "Shutting down application (window closed)";
         }
+
+        AppSettings newSettings = SettingsManager::instance().getSettings();
+
+        int maximized = glfwGetWindowAttrib(window, GLFW_MAXIMIZED);
+        newSettings.windowMaximized = (maximized == GLFW_TRUE);
+
+        if (!newSettings.windowMaximized) {
+            int w, h;
+            glfwGetWindowSize(window, &w, &h);
+            newSettings.windowWidth = w;
+            newSettings.windowHeight = h;
+        }
+
+        SettingsManager::instance().setSettings(newSettings);
+        // Application destructor will run here and call SettingsManager::save()
     }
     // Cleanup
     ImGui_ImplOpenGL3_Shutdown();

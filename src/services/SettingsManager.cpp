@@ -92,6 +92,15 @@ void SettingsManager::loadAppSettings() {
         if (j.contains("maxRecentFiles") && j["maxRecentFiles"].is_number_integer()) {
             m_settings.maxRecentFiles = j["maxRecentFiles"].get<int>();
         }
+        if (j.contains("windowWidth") && j["windowWidth"].is_number_integer()) {
+            m_settings.windowWidth = j["windowWidth"].get<int>();
+        }
+        if (j.contains("windowHeight") && j["windowHeight"].is_number_integer()) {
+            m_settings.windowHeight = j["windowHeight"].get<int>();
+        }
+        if (j.contains("windowMaximized") && j["windowMaximized"].is_boolean()) {
+            m_settings.windowMaximized = j["windowMaximized"].get<bool>();
+        }
 
     } catch (const std::exception& e) {
         LOG(ERROR) << "Failed to parse settings file: " << e.what();
@@ -115,6 +124,9 @@ void SettingsManager::saveAppSettings() const {
     j["autoSaveIntervalMinutes"] = m_settings.autoSaveIntervalMinutes;
     j["maxUndoHistory"] = m_settings.maxUndoHistory;
     j["maxRecentFiles"] = m_settings.maxRecentFiles;
+    j["windowWidth"] = m_settings.windowWidth;
+    j["windowHeight"] = m_settings.windowHeight;
+    j["windowMaximized"] = m_settings.windowMaximized;
     const auto path = getExecutableDirectory().value() / "app_settings.json";
     std::ofstream o(path);
     if (!o.is_open()) {
