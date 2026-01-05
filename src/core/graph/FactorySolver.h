@@ -13,7 +13,7 @@ public:
         SUCCESS,
         INFEASIBLE,
         UNBOUNDED,
-        ERROR
+        ERROR_
     };
 
     static std::string toString(SolverResultStatus status) {
@@ -21,7 +21,7 @@ public:
             case SolverResultStatus::SUCCESS: return "SUCCESS";
             case SolverResultStatus::INFEASIBLE: return "INFEASIBLE";
             case SolverResultStatus::UNBOUNDED: return "UNBOUNDED";
-            case SolverResultStatus::ERROR: return "ERROR";
+            case SolverResultStatus::ERROR_: return "ERROR";
             default: return "UNKNOWN";
         }
     }

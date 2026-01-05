@@ -16,7 +16,7 @@
 #include "services/SettingsManager.h"
 namespace ed = ax::NodeEditor;
 
-FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::string &projectFilePath, std::string title)
+FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::filesystem::path &projectFilePath, std::string title)
     : m_editorName(std::move(title)), m_projectFilePath(projectFilePath), m_contextNodeId(0), m_contextPinId(0),
       m_contextLinkId(0), m_undoRedoManager(SettingsManager::instance().getSettings().maxUndoHistory) {
     try {
@@ -54,7 +54,7 @@ FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::strin
         ed_style.FlowDuration = 6.0f;
 
         if (std::filesystem::exists(projectFilePath)) {
-            ProjectIO::loadProject(projectFilePath, *m_graph);
+            ProjectIO::loadProject(projectFilePath.string(), *m_graph);
         }
 
         // Initialize quadtree with large world bounds to handle extreme zoom levels
@@ -149,7 +149,7 @@ void FactoryNodeEditor::draw() {
 }
 
 bool FactoryNodeEditor::save() {
-    if (ProjectIO::saveProject(m_projectFilePath, *m_graph, this->m_context)) {
+    if (ProjectIO::saveProject(m_projectFilePath.string(), *m_graph, this->m_context)) {
         return true;
     }
     return false;

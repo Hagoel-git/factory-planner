@@ -1,6 +1,6 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <imgui.h>
-#include <GL/gl.h>
+#include <GLFW/glfw3.h>
 #include "TextureUtils.h"
 
 #include "imgui-node-editor/external/stb_image/stb_image.h"

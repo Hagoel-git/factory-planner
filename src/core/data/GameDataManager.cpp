@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <random>
 #include <absl/log/log.h>
-#include <GL/gl.h>
+#include <GLFW/glfw3.h>
 
 #include <nlohmann/json.hpp>
 
@@ -141,17 +141,17 @@ GameDataManager::GameDataManager() {
     createNew("New Game", "seconds");
 }
 
-bool GameDataManager::loadFromFile(const std::string &path, std::string &outError) {
+bool GameDataManager::loadFromFile(const std::filesystem::path &path, std::string &outError) {
     try {
         if (!std::filesystem::exists(path)) {
             LOG(ERROR) << "File does not exist: " << path;
-            outError = "File does not exist: " + path;
+            outError = "File does not exist: " + path.string();
             return false;
         }
         std::ifstream ifs(path);
         if (!ifs) {
             LOG(ERROR) << "Failed to open file: " << path;
-            outError = "Failed to open file: " + path;
+            outError = "Failed to open file: " + path.string();
             return false;
         }
         json j;

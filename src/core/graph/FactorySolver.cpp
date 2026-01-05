@@ -76,7 +76,7 @@ FactorySolver::SolverResult FactorySolver::solve(FactoryGraph &factory_graph) {
             NotificationType::Error
         );
         return {
-            SolverResultStatus::ERROR,
+            SolverResultStatus::ERROR_,
             absl::ToDoubleMilliseconds(t_end_update - t_start),
             absl::ToDoubleMilliseconds(t_end_setup - t_start),
             absl::ToDoubleMilliseconds(t_end_solve - t_end_setup),
@@ -326,6 +326,6 @@ FactorySolver::SolverResultStatus FactorySolver::convertSolverStatus(
         case operations_research::MPSolver::UNBOUNDED:
             return SolverResultStatus::UNBOUNDED;
         default:
-            return SolverResultStatus::ERROR;
+            return SolverResultStatus::ERROR_;
     }
 }

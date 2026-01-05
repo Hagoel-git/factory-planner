@@ -18,7 +18,20 @@
 #include "absl/debugging/failure_signal_handler.h"
 #include "absl/debugging/symbolize.h"
 #include <fstream>
-#include <fcntl.h>
+#ifdef _WIN32
+    #include <io.h>
+    #include <fcntl.h>
+    #define OPEN_LOG _open
+    #define DUP2_LOG _dup2
+    #define CLOSE_LOG _close
+#else
+    // Linux / macOS
+    #include <unistd.h>
+    #include <fcntl.h>
+    #define OPEN_LOG open
+    #define DUP2_LOG dup2
+    #define CLOSE_LOG close
+#endif
 
 // Return true if current session *looks like* Wayland.
 static bool RunningOnWayland()
@@ -41,22 +54,22 @@ void RedirectStdErrToLogFile(const std::string& log_path) {
     // O_CREAT: Create if not exists
     // O_APPEND: Always write to the end
     // 0644: Permissions (RW-R--R--)
-    int log_fd = open(log_path.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
+    int logFd = OPEN_LOG(log_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 
-    if (log_fd == -1) {
-        std::cerr << "Failed to open log file for stderr redirection: " << log_path << std::endl;
+    if (logFd == -1) {
+        std::cerr << "Failed to open log file: " << log_path << std::endl;
         return;
     }
 
     // Redirect Standard Error (FD 2) to our log file (log_fd)
     // After this call, anything written to stderr goes to the file.
-    if (dup2(log_fd, STDERR_FILENO) == -1) {
-        std::cerr << "Failed to redirect stderr to log file." << std::endl;
-        close(log_fd);
+    if (DUP2_LOG(logFd, 2) == -1) {
+        std::cerr << "Failed to redirect stderr." << std::endl;
+        CLOSE_LOG(logFd);
         return;
     }
 
-    close(log_fd);
+    CLOSE_LOG(logFd);
 }
 
 int main(int argc, char **argv) {
@@ -78,7 +91,7 @@ int main(int argc, char **argv) {
         std::cerr << "Failed to rotate log file: " << e.what() << std::endl;
     }
 
-    RedirectStdErrToLogFile(latest_log_path);
+    RedirectStdErrToLogFile(latest_log_path.string());
     absl::FailureSignalHandlerOptions handler_options;
     absl::InstallFailureSignalHandler(handler_options);
 
@@ -149,7 +162,6 @@ int main(int argc, char **argv) {
     (void) io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
     io.IniFilename = nullptr;
     io.LogFilename = nullptr;
 
