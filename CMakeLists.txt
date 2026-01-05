@@ -129,28 +129,14 @@ set(FACTORY_PLANNER_LIB_SRC
 
 add_library(factory_planner_lib STATIC ${FACTORY_PLANNER_LIB_SRC})
 
-add_executable(factory_planner src/app/main.cpp)
-
-# ---- Copy runtime assets to the binary directory ----
-add_custom_command(
-        TARGET factory_planner POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_SOURCE_DIR}/data/game_data"
-        "$<TARGET_FILE_DIR:factory_planner>/game_data"
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_SOURCE_DIR}/data/assets"
-        "$<TARGET_FILE_DIR:factory_planner>/assets"
-        COMMENT "Copying runtime data and assets to output directory..."
-)
-
-# Only for Windows: Copy external DLLs to the output directory
-if(WIN32)
-    add_custom_command(TARGET factory_planner POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${CMAKE_SOURCE_DIR}/external/or-tools/bin"
-            "$<TARGET_FILE_DIR:factory_planner>"
-            COMMENT "Copying missing DLLs..."
-    )
+if(!WIN32)
+    add_executable(factory_planner src/app/main.cpp)
+else()
+    add_executable(factory_planner WIN32 src/app/main.cpp)
+    if(MSVC)
+        # Force the linker to use standard main() instead of looking for WinMain()
+        target_link_options(factory_planner PRIVATE "/ENTRY:mainCRTStartup")
+    endif()
 endif()
 
 # Include directories for the target
@@ -196,3 +182,23 @@ install(TARGETS factory_planner RUNTIME DESTINATION bin)
 
 enable_testing()
 add_subdirectory(tests)
+
+add_custom_command(
+        TARGET factory_planner POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_SOURCE_DIR}/data/game_data"
+        "$<TARGET_FILE_DIR:factory_planner>/game_data"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_SOURCE_DIR}/data/assets"
+        "$<TARGET_FILE_DIR:factory_planner>/assets"
+        COMMENT "Copying runtime data and assets to output directory..."
+)
+
+if(WIN32)
+    add_custom_command(TARGET factory_planner POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_SOURCE_DIR}/external/or-tools/bin"
+            "$<TARGET_FILE_DIR:factory_planner>"
+            COMMENT "Copying missing DLLs..."
+    )
+endif()
