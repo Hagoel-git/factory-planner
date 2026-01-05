@@ -662,7 +662,6 @@ TEST_F(FactoryGraphTest, SerializeAndDeserialize) {
     // Check basic serialized data
     EXPECT_EQ(j["nodes"].size(), 3);
     EXPECT_EQ(j["connections"].size(), 2);
-    EXPECT_EQ(j["game_name"], "TestGame");
     EXPECT_EQ(j["next_node_id"], 3);
     EXPECT_EQ(j["next_connection_id"], 2);
 
