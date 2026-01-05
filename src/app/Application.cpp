@@ -249,8 +249,8 @@ void Application::drawDebugWindow() {
     if (m_activeEditor != -1 && m_activeEditor < static_cast<int>(m_editors.size())) {
         const DebugInfo &debugInfo = m_editors[m_activeEditor]->getDebugInfo();
         ImGui::Text(m_editors[m_activeEditor]->isFocused() ? "Focused" : "Not Focused");
-        ImGui::TextWrapped("File path: %s", debugInfo.filePath.c_str());
-        ImGui::TextWrapped("Game data path: %s", debugInfo.gameDataPath.c_str());
+        ImGui::TextWrapped("File path: %s", debugInfo.filePath.string().c_str());
+        ImGui::TextWrapped("Game data path: %s", debugInfo.gameDataPath.string().c_str());
         ImGui::Text("Total nodes: %d", debugInfo.totalNodes);
         ImGui::Text("Total connections: %d", debugInfo.totalConnections);
         ImGui::Text("Total ports: %d", debugInfo.totalPorts);
@@ -652,6 +652,14 @@ void Application::drawNewProjectDialog() {
             dirDialogState.hasError = false;
 
             std::thread([]() {
+                if (NFD_Init() != NFD_OKAY) {
+                    std::lock_guard<std::mutex> threadLock(dirDialogState.mutex);
+                    dirDialogState.hasError = true;
+                    dirDialogState.errorMessage = "Failed to initialize native file dialog system.";
+                    dirDialogState.isRunning = false;
+                    return;
+                }
+
                 nfdu8char_t *outPath = nullptr;
                 nfdpickfolderu8args_t args = {0};
                 nfdresult_t result = NFD_PickFolderU8_With(&outPath, &args);
@@ -667,6 +675,7 @@ void Application::drawNewProjectDialog() {
                     dirDialogState.errorMessage = "An error occurred while opening the directory selection dialog.";
                     LOG(ERROR) << "New Project: File dialog error.";
                 }
+                NFD_Quit();
                 dirDialogState.isRunning = false;
             }).detach();
         }
@@ -848,12 +857,15 @@ void Application::drawOpenProjectDialog() {
 
                 lock.unlock();
                 NotificationManager::instance().addNotification("Error", msg, NotificationType::Error);
+                m_showOpenProjectDialog = false;
+                return;
             }
 
             // 3. Handle Cancel
             if (openDialogState.isCancelled) {
                 m_showOpenProjectDialog = false;
                 openDialogState.isCancelled = false;
+                return;
             }
         }
     }
@@ -877,6 +889,13 @@ void Application::drawOpenProjectDialog() {
         }
 
         std::thread([]() {
+            if (NFD_Init() != NFD_OKAY) {
+                 std::lock_guard<std::mutex> lock(openDialogState.mutex);
+                 openDialogState.hasError = true;
+                 openDialogState.errorMessage = "Failed to initialize native file dialog system.";
+                 openDialogState.isRunning = false;
+                 return;
+            }
             nfdu8char_t *outPath;
             nfdopendialogu8args_t args = {0};
             nfdu8filteritem_t filters[1] = { { "Factory Planner Project", "fpp" } };
@@ -897,6 +916,7 @@ void Application::drawOpenProjectDialog() {
                 LOG(ERROR) << "Open dialog error.";
             }
 
+            NFD_Quit();
             openDialogState.isRunning = false;
         }).detach();
     }
@@ -951,12 +971,14 @@ void Application::drawSaveAsDialog() {
                 NotificationManager::instance().addNotification("Error", msg, NotificationType::Error);
 
                 m_showSaveDialog = false;
+                return;
             }
 
             // 3. Handle Cancel
             if (saveDialogState.isCancelled) {
-                m_showSaveDialog = false;
                 saveDialogState.isCancelled = false;
+                m_showSaveDialog = false;
+                return;
             }
         }
     }
@@ -979,6 +1001,13 @@ void Application::drawSaveAsDialog() {
         }
 
         std::thread([]() {
+            if (NFD_Init() != NFD_OKAY) {
+                 std::lock_guard<std::mutex> lock(saveDialogState.mutex);
+                 saveDialogState.hasError = true;
+                 saveDialogState.errorMessage = "Failed to initialize native file dialog system.";
+                 saveDialogState.isRunning = false;
+                 return;
+            }
             nfdu8char_t *outPath = nullptr;
             nfdsavedialogu8args_t args = {0};
             nfdu8filteritem_t filters[1] = { { "Factory Planner Project", "fpp" } };

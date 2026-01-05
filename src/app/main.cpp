@@ -63,6 +63,7 @@ void RedirectStdErrToLogFile(const std::string& log_path) {
 int main(int argc, char **argv) {
     absl::InitializeSymbolizer(argv[0]);
     absl::InitializeLog();
+    absl::SetGlobalVLogLevel(2);
     absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
 
     const std::string latest_log_name = "factory_planner.log";
