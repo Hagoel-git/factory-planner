@@ -44,6 +44,7 @@ private:
     std::string m_gameDataManagerError;
     std::string m_currentTheme;
     bool m_currentShowGrid = false;
+    int m_currentNavButtonIndex = -1;
 
     bool m_dockInitialized = false;
     int m_activeEditor = -1; // No active editor initially

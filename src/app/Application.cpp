@@ -84,6 +84,10 @@ Application::Application() : m_gameDataEditor(m_gameDataManager) {
     auto im_gui_style = &ImGui::GetStyle();
     im_gui_style->_NextFrameFontSizeBase = SettingsManager::instance().getSettings().fontSize;
     VLOG(2) << "Set default font size to " << SettingsManager::instance().getSettings().fontSize;
+
+    m_currentTheme = SettingsManager::instance().getSettings().themeName;
+    m_currentShowGrid = SettingsManager::instance().getSettings().showGrid;
+    m_currentNavButtonIndex = SettingsManager::instance().getSettings().navigationButtonIndex;
 }
 
 Application::~Application() {
@@ -95,10 +99,12 @@ Application::~Application() {
 }
 
 void Application::draw() {
-    if (SettingsManager::instance().getSettings().themeName != m_currentTheme || SettingsManager::instance().getSettings().showGrid != m_currentShowGrid) {
+    if (SettingsManager::instance().getSettings().themeName != m_currentTheme || SettingsManager::instance().getSettings().showGrid != m_currentShowGrid ||
+        SettingsManager::instance().getSettings().navigationButtonIndex != m_currentNavButtonIndex) {
         VLOG(1) << "Theme or grid setting changed, updating editors.";
         m_currentTheme = SettingsManager::instance().getSettings().themeName;
         m_currentShowGrid = SettingsManager::instance().getSettings().showGrid;
+        m_currentNavButtonIndex = SettingsManager::instance().getSettings().navigationButtonIndex;
         applyThemeToAllEditors();
         VLOG(1) << "Applied theme: " << m_currentTheme;
     }
@@ -227,6 +233,8 @@ void Application::applyThemeToAllEditors() {
             if (!SettingsManager::instance().getSettings().showGrid) {
                 ed_style.Colors[ed::StyleColor_Grid] = ed_style.Colors[ed::StyleColor_Bg];
             }
+            auto& config = const_cast<ed::Config&>(ed::GetConfig());
+            config.NavigateButtonIndex = SettingsManager::instance().getSettings().navigationButtonIndex;
             ed::SetCurrentEditor(nullptr);
         }
     }
