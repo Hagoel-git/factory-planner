@@ -661,7 +661,7 @@ std::vector<std::string> GameDataManager::validate(const GameData &gd) {
             }
         }
         for (const auto &p : r.second.output_ports) {
-            if (p.amount <= 0.0) messages.push_back("Recipe '" + r.second.name + "' has non-positive product amount.");
+            if (p.amount <= 0.0 && p.resource_key != "nothing") messages.push_back("Recipe '" + r.second.name + "' has non-positive product amount.");
             if (gd.resources.find(p.resource_key) == gd.resources.end()) {
                 messages.push_back("Recipe '" + r.second.name + "' references unknown output resource key '" + p.resource_key + "'.");
             }
