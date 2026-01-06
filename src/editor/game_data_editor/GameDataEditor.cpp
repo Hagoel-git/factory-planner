@@ -626,19 +626,25 @@ void GameDataEditor::drawResourceCreator() {
             m_iconDialog.isRunning = true;
 
             std::thread([this]() {
-                nfdu8char_t *outPath = nullptr;
-                nfdu8filteritem_t filters[1] = { { "Images", "png,jpg,jpeg" } };
-                nfdopendialogu8args_t args = {0};
-                args.filterList = filters;
-                args.filterCount = 1;
+                if (NFD_Init() == NFD_OKAY) {
+                    nfdu8char_t *outPath = nullptr;
+                    nfdu8filteritem_t filters[1] = { { "Images", "png,jpg,jpeg" } };
+                    nfdopendialogu8args_t args = {0};
+                    args.filterList = filters;
+                    args.filterCount = 1;
 
-                nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
+                    nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
 
-                if (result == NFD_OKAY) {
-                    m_iconDialog.resultPath = outPath;
-                    NFD_FreePathU8(outPath);
+                    if (result == NFD_OKAY) {
+                        m_iconDialog.resultPath = outPath;
+                        NFD_FreePathU8(outPath);
+                    }
+                    m_iconDialog.isReady = true;
+                    NFD_Quit();
+                } else {
+                    LOG(ERROR) << "Failed to initialize NFD in Resource Creator thread." << std::endl;
                 }
-                m_iconDialog.isReady = true;
+                m_iconDialog.isRunning = false;
             }).detach();
         }
     }
@@ -753,19 +759,25 @@ void GameDataEditor::drawResourceGrid() {
                         m_iconDialog.isRunning = true;
 
                         std::thread([this]() {
-                            nfdu8char_t *outPath = nullptr;
-                            nfdu8filteritem_t filters[1] = { { "Images", "png,jpg,jpeg" } };
-                            nfdopendialogu8args_t args = {0};
-                            args.filterList = filters;
-                            args.filterCount = 1;
+                            if (NFD_Init() == NFD_OKAY) {
+                                nfdu8char_t *outPath = nullptr;
+                                nfdu8filteritem_t filters[1] = { { "Images", "png,jpg,jpeg" } };
+                                nfdopendialogu8args_t args = {0};
+                                args.filterList = filters;
+                                args.filterCount = 1;
 
-                            nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
+                                nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
 
-                            if (result == NFD_OKAY) {
-                                m_iconDialog.resultPath = outPath;
-                                NFD_FreePathU8(outPath);
+                                if (result == NFD_OKAY) {
+                                    m_iconDialog.resultPath = outPath;
+                                    NFD_FreePathU8(outPath);
+                                }
+                                NFD_Quit();
+                                m_iconDialog.isReady = true;
+                            } else {
+                                LOG(ERROR) << "Failed to initialize NFD in Resource Grid thread." << std::endl;
                             }
-                            m_iconDialog.isReady = true;
+                            m_iconDialog.isRunning = false;
                         }).detach();
                     }
                 }
@@ -856,19 +868,25 @@ void GameDataEditor::drawMachineCreator() {
             m_iconDialog.isRunning = true;
 
             std::thread([this]() {
-                nfdu8char_t *outPath = nullptr;
-                nfdu8filteritem_t filters[1] = { { "Images", "png,jpg,jpeg" } };
-                nfdopendialogu8args_t args = {0};
-                args.filterList = filters;
-                args.filterCount = 1;
+                if (NFD_Init() == NFD_OKAY) {
+                    nfdu8char_t *outPath = nullptr;
+                    nfdu8filteritem_t filters[1] = { { "Images", "png,jpg,jpeg" } };
+                    nfdopendialogu8args_t args = {0};
+                    args.filterList = filters;
+                    args.filterCount = 1;
 
-                nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
+                    nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
 
-                if (result == NFD_OKAY) {
-                    m_iconDialog.resultPath = outPath;
-                    NFD_FreePathU8(outPath);
+                    if (result == NFD_OKAY) {
+                        m_iconDialog.resultPath = outPath;
+                        NFD_FreePathU8(outPath);
+                    }
+                    NFD_Quit();
+                    m_iconDialog.isReady = true;
+                } else {
+                    LOG(ERROR) << "Failed to initialize NFD in Machine Creator thread." << std::endl;
                 }
-                m_iconDialog.isReady = true;
+                m_iconDialog.isRunning = false;
             }).detach();
         }
     }
@@ -1001,19 +1019,27 @@ void GameDataEditor::drawMachineGrid() {
                         m_iconDialog.isRunning = true;
 
                         std::thread([this]() {
-                            nfdu8char_t *outPath = nullptr;
-                            nfdu8filteritem_t filters[1] = { { "Images", "png,jpg,jpeg" } };
-                            nfdopendialogu8args_t args = {0};
-                            args.filterList = filters;
-                            args.filterCount = 1;
+                            if (NFD_Init() == NFD_OKAY) {
+                                nfdu8char_t *outPath = nullptr;
+                                nfdu8filteritem_t filters[1] = { { "Images", "png,jpg,jpeg" } };
+                                nfdopendialogu8args_t args = {0};
+                                args.filterList = filters;
+                                args.filterCount = 1;
 
-                            nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
+                                nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
 
-                            if (result == NFD_OKAY) {
-                                m_iconDialog.resultPath = outPath;
-                                NFD_FreePathU8(outPath);
+                                if (result == NFD_OKAY) {
+                                    m_iconDialog.resultPath = outPath;
+                                    NFD_FreePathU8(outPath);
+                                } else {
+
+                                }
+                                NFD_Quit();
+                                m_iconDialog.isReady = true;
+                            } else {
+                                LOG(ERROR) << "Failed to initialize NFD in Machine Grid thread." << std::endl;
                             }
-                            m_iconDialog.isReady = true;
+                            m_iconDialog.isRunning = false;
                         }).detach();
                     }
                 }
