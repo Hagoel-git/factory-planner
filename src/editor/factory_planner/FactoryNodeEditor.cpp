@@ -1186,8 +1186,8 @@ void FactoryNodeEditor::handlePopups() {
         ImGui::SetNextItemWidth(-1);
         ImGui::InputTextWithHint("##search", "Search Recipe...", m_recipeSearchBuffer, sizeof(m_recipeSearchBuffer));
 
-        ImGui::Checkbox("Generate", &m_useGenerate);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Toggle to use generate functionality");
+        // ImGui::Checkbox("Generate", &m_useGenerate);
+        // if (ImGui::IsItemHovered()) ImGui::SetTooltip("Toggle to use generate functionality");
 
         ImGui::Separator();
 
