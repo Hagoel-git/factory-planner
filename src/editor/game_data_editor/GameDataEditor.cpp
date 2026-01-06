@@ -623,6 +623,7 @@ void GameDataEditor::drawResourceCreator() {
     if (ImGui::ImageButton("##icon", icon, ImVec2(fontSize, fontSize))) {
         if (!m_iconDialog.isRunning) {
             m_iconDialog.targetKey = "DRAFT_RESOURCE";
+            m_iconDialog.resultPath.clear();
             m_iconDialog.isRunning = true;
 
             std::thread([this]() {
@@ -756,6 +757,7 @@ void GameDataEditor::drawResourceGrid() {
                 if (ImGui::ImageButton("##icon", (ImTextureID)(uintptr_t)item->texture, ImVec2(fontSize, fontSize))) {
                     if (!m_iconDialog.isRunning) {
                         m_iconDialog.targetKey = key;
+                        m_iconDialog.resultPath.clear();
                         m_iconDialog.isRunning = true;
 
                         std::thread([this]() {
@@ -865,6 +867,7 @@ void GameDataEditor::drawMachineCreator() {
     if (ImGui::ImageButton("##icon", icon, ImVec2(fontSize, fontSize))) {
         if (!m_iconDialog.isRunning) {
             m_iconDialog.targetKey = "DRAFT_MACHINE";
+            m_iconDialog.resultPath.clear();
             m_iconDialog.isRunning = true;
 
             std::thread([this]() {
@@ -1016,6 +1019,7 @@ void GameDataEditor::drawMachineGrid() {
                 if (ImGui::ImageButton("##icon", (ImTextureID)(uintptr_t)item->texture, ImVec2(fontSize, fontSize))) {
                     if (!m_iconDialog.isRunning) {
                         m_iconDialog.targetKey = key;
+                        m_iconDialog.resultPath.clear();
                         m_iconDialog.isRunning = true;
 
                         std::thread([this]() {
