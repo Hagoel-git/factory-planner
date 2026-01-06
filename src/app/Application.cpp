@@ -1036,6 +1036,7 @@ void Application::drawSaveAsDialog() {
                 LOG(ERROR) << "Save dialog error.";
             }
 
+            NFD_Quit();
             saveDialogState.isRunning = false;
         }).detach();
     }
