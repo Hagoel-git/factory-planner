@@ -146,9 +146,8 @@ void Application::draw() {
     // Workaround for ImGuiConfigFlags_NavEnableKeyboard
     // When the Alt key is released alone, some systems or ImGui's internal navigation state can cause focus to be lost.
     if (ImGui::IsKeyReleased(ImGuiKey_LeftAlt) || ImGui::IsKeyReleased(ImGuiKey_RightAlt)) {
-        if (m_activeEditor != -1) {
-            // If an editor window was previously active (indicated by activeEditor not being -1),
-            // we'll explicitly restore keyboard focus to it.
+        // Only restore factory editor focus if the Game Data Manager isn't the one currently focused
+        if (m_activeEditor != -1 && !m_gameDataEditor.isFocused()) {
             ImGui::SetWindowFocus(m_editors[m_activeEditor]->getName().c_str());
         }
     }
