@@ -852,6 +852,13 @@ void GameDataEditor::drawResourceGrid() {
             NotificationManager::instance().addNotification("Delete Error", err, NotificationType::Error);
         } else {
             m_isDirty = true;
+            auto& inputs = m_draftRecipe.inputs;
+            inputs.erase(std::remove_if(inputs.begin(), inputs.end(),
+                [&](const auto& port){ return port.resource_key == keyToDelete; }), inputs.end());
+
+            auto& outputs = m_draftRecipe.outputs;
+            outputs.erase(std::remove_if(outputs.begin(), outputs.end(),
+                [&](const auto& port){ return port.resource_key == keyToDelete; }), outputs.end());
         }
     }
 }
@@ -1129,6 +1136,9 @@ void GameDataEditor::drawMachineGrid() {
         if (!m_gameDataManager.deleteMachine(keyToDelete, err)) {
             NotificationManager::instance().addNotification("Delete Error", err, NotificationType::Error);
         } else {
+            auto& machines = m_draftRecipe.producedIn;
+            machines.erase(std::remove(machines.begin(), machines.end(), keyToDelete), machines.end());
+
             m_isDirty = true;
         }
     }
