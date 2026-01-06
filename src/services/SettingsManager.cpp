@@ -86,6 +86,9 @@ void SettingsManager::loadAppSettings() {
         if (j.contains("autoSaveIntervalMinutes") && j["autoSaveIntervalMinutes"].is_number_integer()) {
             m_settings.autoSaveIntervalMinutes = j["autoSaveIntervalMinutes"].get<int>();
         }
+        if (j.contains("navigationButtonIndex") && j["navigationButtonIndex"].is_number_integer()) {
+            m_settings.navigationButtonIndex = j["navigationButtonIndex"].get<int>();
+        }
         if (j.contains("maxUndoHistory") && j["maxUndoHistory"].is_number_integer()) {
             m_settings.maxUndoHistory = j["maxUndoHistory"].get<int>();
         }
@@ -122,6 +125,7 @@ void SettingsManager::saveAppSettings() const {
     j["showDebug"] = m_settings.showDebugInfo;
     j["autoSaveEnabled"] = m_settings.autoSaveEnabled;
     j["autoSaveIntervalMinutes"] = m_settings.autoSaveIntervalMinutes;
+    j["navigationButtonIndex"] = m_settings.navigationButtonIndex;
     j["maxUndoHistory"] = m_settings.maxUndoHistory;
     j["maxRecentFiles"] = m_settings.maxRecentFiles;
     j["windowWidth"] = m_settings.windowWidth;

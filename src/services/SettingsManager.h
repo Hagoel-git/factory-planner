@@ -17,6 +17,7 @@ struct AppSettings {
     bool showDebugInfo = false;
     bool autoSaveEnabled = true;
     int autoSaveIntervalMinutes = 5;
+    int navigationButtonIndex = 2; // Mouse button index navigate action will react to (0-left, 1-right, 2-middle)
     int maxUndoHistory = 100;
     int maxRecentFiles = 10;
 

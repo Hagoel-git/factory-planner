@@ -167,6 +167,16 @@ void SettingsEditor::drawRightPanel() {
 
         ImGui::Spacing();
 
+        const char* navigateButtons[] = { "Right", "Middle" };
+        int current = m_editSettings.navigationButtonIndex - 1;
+
+        if (ImGui::Combo("Navigate mouse button", &current, navigateButtons, IM_ARRAYSIZE(navigateButtons))) {
+            m_editSettings.navigationButtonIndex = current + 1;
+            m_isDirty = true;
+        }
+
+        ImGui::Spacing();
+
         if (ImGui::Checkbox("Show Debug Info", &m_editSettings.showDebugInfo)) {
             m_isDirty = true;
         }

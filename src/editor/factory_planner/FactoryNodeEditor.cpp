@@ -36,6 +36,7 @@ FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::files
         cfg.SaveNodeSettings = nullptr;
         cfg.LoadNodeSettings = nullptr;
         cfg.UserPointer = nullptr;
+        cfg.NavigateButtonIndex = SettingsManager::instance().getSettings().navigationButtonIndex;
         m_context = ed::CreateEditor(&cfg);
         ed::SetCurrentEditor(m_context);
 
