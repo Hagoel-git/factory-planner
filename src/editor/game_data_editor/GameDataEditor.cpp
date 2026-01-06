@@ -1497,13 +1497,13 @@ bool GameDataEditor::drawTokenList(const char* str_id, std::vector<RecipePort>& 
 
                     ImVec2 start_pos = ImGui::GetCursorPos();
 
+                    ImGui::SetNextItemAllowOverlap();
                     if (ImGui::Selectable(std::string("##" + key).c_str(), is_selected, ImGuiSelectableFlags_None)) {
                         ports[i].resource_key = key;
                         changed = true;
                         ImGui::CloseCurrentPopup();
                     }
 
-                    ImGui::SetItemAllowOverlap();
 
                     ImGui::SetCursorPos(start_pos);
 
@@ -1567,6 +1567,7 @@ bool GameDataEditor::drawTokenList(const char* str_id, std::vector<RecipePort>& 
 
                 ImVec2 start_pos = ImGui::GetCursorPos();
 
+                ImGui::SetNextItemAllowOverlap();
                 if (ImGui::Selectable(std::string("##" + key).c_str(), is_selected, ImGuiSelectableFlags_None)) {
                     if (m_tokenPopupState.targetVector) {
                         m_tokenPopupState.targetVector->push_back({1.0, key});
@@ -1576,7 +1577,6 @@ bool GameDataEditor::drawTokenList(const char* str_id, std::vector<RecipePort>& 
                     ImGui::CloseCurrentPopup();
                 }
 
-                ImGui::SetItemAllowOverlap();
 
                 ImGui::SetCursorPos(start_pos);
 
@@ -1799,13 +1799,13 @@ bool GameDataEditor::drawMachineList(const char* str_id, std::vector<std::string
 
                 ImVec2 start_pos = ImGui::GetCursorPos();
 
+                ImGui::SetNextItemAllowOverlap();
                 if (ImGui::Selectable(std::string("##" + key).c_str(), is_selected, ImGuiSelectableFlags_None)) {
                     machineKeys.push_back(key);
                     changed = true;
                     ImGui::CloseCurrentPopup();
                 }
 
-                ImGui::SetItemAllowOverlap();
 
                 ImGui::SetCursorPos(start_pos);
 

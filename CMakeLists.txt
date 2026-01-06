@@ -4,8 +4,7 @@ project(factory_planner VERSION 0.1 LANGUAGES CXX)
 # Define FACTORY_PLANNER_ROOT_DIR pointing to project root directory
 get_filename_component(FACTORY_PLANNER_ROOT_DIR ${CMAKE_SOURCE_DIR}/.. ABSOLUTE CACHE)
 
-# Use modern C++
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
@@ -35,6 +34,13 @@ if(NOT TARGET glfw)
     if(TARGET glfw3)
         add_library(glfw ALIAS glfw3)
     endif()
+endif()
+
+if (UNIX AND NOT APPLE)
+    # Only look for X11 on Linux
+    find_package(X11 REQUIRED)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(re2 REQUIRED re2 IMPORTED_TARGET)
 endif()
 
 find_package(ortools REQUIRED)
@@ -162,6 +168,10 @@ target_link_libraries(factory_planner_lib
         absl::failure_signal_handler
         ortools::ortools
 )
+
+if (UNIX AND NOT APPLE)
+    target_link_libraries(factory_planner_lib PRIVATE ${X11_LIBRARIES})
+endif()
 
 target_link_libraries(factory_planner
         PRIVATE
