@@ -3144,7 +3144,9 @@
       "key_name": "bauxite",
       "name": "Bauxite",
       "produced_in": [
-        "miner-mk1"
+        "miner-mk1",
+        "miner-mk2",
+        "miner-mk3"
       ],
       "products": [
         [
@@ -7379,7 +7381,9 @@
       "key_name": "uranium-ore",
       "name": "Uranium Ore",
       "produced_in": [
-        "miner-mk1"
+        "miner-mk1",
+        "miner-mk2",
+        "miner-mk3"
       ],
       "products": [
         [
