@@ -1,8 +1,5 @@
 {
-  "id_aliases": {
-    "mac@chamical-combustion-chamber": "chemical-combustion-chamber",
-    "res@hydrogene": "hydrogen"
-  },
+  "id_aliases": {},
   "machines": [
     {
       "base_crafting_speed": 1.0,
@@ -133,6 +130,11 @@
       "base_crafting_speed": 1.0,
       "key_name": "impact-drill",
       "name": "Impact Drill"
+    },
+    {
+      "base_crafting_speed": 1.0,
+      "key_name": "impact-reactor",
+      "name": "Impact Reactor"
     },
     {
       "base_crafting_speed": 118.799,
@@ -860,6 +862,66 @@
     {
       "ingredients": [
         [
+          "blast-compound",
+          1.0
+        ]
+      ],
+      "key_name": "combustion-generator-blast",
+      "name": "Combustion Generator (Blast)",
+      "produced_in": [
+        "combustion-generator"
+      ],
+      "products": [],
+      "time": 2.0
+    },
+    {
+      "ingredients": [
+        [
+          "coal",
+          1.0
+        ]
+      ],
+      "key_name": "combustion-generator-coal",
+      "name": "Combustion Generator (Coal)",
+      "produced_in": [
+        "combustion-generator"
+      ],
+      "products": [],
+      "time": 2.0
+    },
+    {
+      "ingredients": [
+        [
+          "pyratite",
+          1.0
+        ]
+      ],
+      "key_name": "combustion-generator-pyratite",
+      "name": "Combustion Generator (Pyratite)",
+      "produced_in": [
+        "combustion-generator"
+      ],
+      "products": [],
+      "time": 2.0
+    },
+    {
+      "ingredients": [
+        [
+          "spore-pod",
+          1.0
+        ]
+      ],
+      "key_name": "combustion-generator-spore",
+      "name": "Combustion Generator (Spore)",
+      "produced_in": [
+        "combustion-generator"
+      ],
+      "products": [],
+      "time": 2.0
+    },
+    {
+      "ingredients": [
+        [
           "cyanogen",
           1620.0
         ],
@@ -995,7 +1057,7 @@
       "ingredients": [
         [
           "water",
-          10.8
+          30.0
         ]
       ],
       "key_name": "cultivator",
@@ -1094,6 +1156,25 @@
         ]
       ],
       "time": 15.0
+    },
+    {
+      "ingredients": [
+        [
+          "pyratite",
+          1.0
+        ],
+        [
+          "cryofluid",
+          22.0
+        ]
+      ],
+      "key_name": "differential-generator",
+      "name": "Differential Generator",
+      "produced_in": [
+        "differential-generator"
+      ],
+      "products": [],
+      "time": 3.6667
     },
     {
       "ingredients": [
@@ -1380,6 +1461,25 @@
         ]
       ],
       "time": 10.0
+    },
+    {
+      "ingredients": [
+        [
+          "blast-compound",
+          1.0
+        ],
+        [
+          "cryofluid",
+          35.0
+        ]
+      ],
+      "key_name": "impact-reactor",
+      "name": "Impact Reactor",
+      "produced_in": [
+        "impact-reactor"
+      ],
+      "products": [],
+      "time": 2.333333
     },
     {
       "ingredients": [
@@ -2463,6 +2563,36 @@
       "time": 45.0
     },
     {
+      "ingredients": [
+        [
+          "phase-fabric",
+          1.0
+        ]
+      ],
+      "key_name": "rtg-generator-phase",
+      "name": "RTG Generator (Phase)",
+      "produced_in": [
+        "rtg-generator"
+      ],
+      "products": [],
+      "time": 213.0
+    },
+    {
+      "ingredients": [
+        [
+          "thorium",
+          1.0
+        ]
+      ],
+      "key_name": "rtg-generator-thorium",
+      "name": "RTG Generator (Thorium)",
+      "produced_in": [
+        "rtg-generator"
+      ],
+      "products": [],
+      "time": 14.0
+    },
+    {
       "ingredients": [],
       "key_name": "sand",
       "name": "Sand",
@@ -2794,6 +2924,82 @@
     {
       "ingredients": [
         [
+          "blast-compound",
+          1.0
+        ],
+        [
+          "water",
+          9.0
+        ]
+      ],
+      "key_name": "steam-generator-blast",
+      "name": "Steam Generator (Blast)",
+      "produced_in": [
+        "steam-generator"
+      ],
+      "products": [],
+      "time": 1.5
+    },
+    {
+      "ingredients": [
+        [
+          "coal",
+          1.0
+        ],
+        [
+          "water",
+          9.0
+        ]
+      ],
+      "key_name": "steam-generator-coal",
+      "name": "Steam Generator (Coal)",
+      "produced_in": [
+        "steam-generator"
+      ],
+      "products": [],
+      "time": 1.5
+    },
+    {
+      "ingredients": [
+        [
+          "pyratite",
+          1.0
+        ],
+        [
+          "water",
+          9.0
+        ]
+      ],
+      "key_name": "steam-generator-pyratite",
+      "name": "Steam Generator (Pyratite)",
+      "produced_in": [
+        "steam-generator"
+      ],
+      "products": [],
+      "time": 1.5
+    },
+    {
+      "ingredients": [
+        [
+          "spore-pod",
+          1.0
+        ],
+        [
+          "water",
+          9.0
+        ]
+      ],
+      "key_name": "steam-generator-spore",
+      "name": "Steam Generator (Spore)",
+      "produced_in": [
+        "steam-generator"
+      ],
+      "products": [],
+      "time": 1.5
+    },
+    {
+      "ingredients": [
+        [
           "beryllium",
           40.0
         ],
@@ -2920,6 +3126,25 @@
         ]
       ],
       "time": 1.714
+    },
+    {
+      "ingredients": [
+        [
+          "thorium",
+          1.0
+        ],
+        [
+          "cryofluid",
+          14.4
+        ]
+      ],
+      "key_name": "thorium-reactor",
+      "name": "Thorium Reactor",
+      "produced_in": [
+        "thorium-reactor"
+      ],
+      "products": [],
+      "time": 6.0
     },
     {
       "ingredients": [],
