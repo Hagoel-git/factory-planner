@@ -1037,7 +1037,7 @@
         ],
         [
           "water",
-          6.0
+          24.0
         ]
       ],
       "key_name": "cryofluid-mixer",
@@ -1048,7 +1048,7 @@
       "products": [
         [
           "cryofluid",
-          6.0
+          24.0
         ]
       ],
       "time": 2.0
