@@ -109,6 +109,9 @@ void Application::draw() {
         VLOG(1) << "Applied theme: " << m_currentTheme;
     }
 
+    // Prevent Alt key from focusing menu bar
+    ImGui::SetKeyOwner(ImGuiKey_LeftAlt, ImGuiKeyOwner_Any, ImGuiInputFlags_LockThisFrame);
+
     handleShortcuts();
     drawDebugWindow();
     drawMenuBar();
@@ -141,15 +144,6 @@ void Application::draw() {
         ImGui::DockBuilderFinish(dockspace_id);
 
         m_dockInitialized = true;
-    }
-
-    // Workaround for ImGuiConfigFlags_NavEnableKeyboard
-    // When the Alt key is released alone, some systems or ImGui's internal navigation state can cause focus to be lost.
-    if (ImGui::IsKeyReleased(ImGuiKey_LeftAlt) || ImGui::IsKeyReleased(ImGuiKey_RightAlt)) {
-        // Only restore factory editor focus if the Game Data Manager isn't the one currently focused
-        if (m_activeEditor != -1 && !m_gameDataEditor.isFocused()) {
-            ImGui::SetWindowFocus(m_editors[m_activeEditor]->getName().c_str());
-        }
     }
     m_gameDataEditor.draw();
     for (int i = 0; i < static_cast<int>(m_editors.size()); ++i) {
