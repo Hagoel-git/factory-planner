@@ -96,10 +96,7 @@ slowdowns, making it predictable and stable even at extreme scales.
 ```bash
 git clone https://github.com/Hagoel-git/factory-planner
 cd factory-planner
-git checkout dev
 ```
-
-> you must checkout the `dev` branch as the `main` branch is not up to date.
 
 #### 2. Initialize submodules:
 
@@ -157,10 +154,7 @@ cmake --build .
 ```bash
 git clone https://github.com/Hagoel-git/factory-planner
 cd factory-planner
-git checkout dev
 ```
-
-> you must checkout the `dev` branch as the `main` branch is not up to date.
 
 #### 2. Initialize submodules:
 
