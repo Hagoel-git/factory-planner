@@ -717,14 +717,20 @@ void FactoryNodeEditor::drawNodes() {
         ed::Suspend();
 
         ImGui::SetNextWindowPos(ImGui::GetMousePos() + ImVec2(15, 15));
+        if (SettingsManager::instance().getSettings().themeName == "Dark") {
+            ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.1f, 0.1f, 0.1f, 0.95f));
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+        } else {
+            ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(1.0f, 1.0f, 1.0f, 0.95f));
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 0.0f, 0.0f, 1.0f));
+        }
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 4.0f);
-        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.1f, 0.1f, 0.1f, 0.95f));
 
         ImGui::BeginTooltip();
         ImGui::Text("%s", deferredTooltip.c_str());
         ImGui::EndTooltip();
 
-        ImGui::PopStyleColor();
+        ImGui::PopStyleColor(2);
         ImGui::PopStyleVar();
 
         ed::Resume();
