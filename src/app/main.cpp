@@ -24,8 +24,12 @@
 #include <filesystem>
 #include <string>
 
+// [CONSTANTS] extract magic numbers for configuration
+constexpr double IDLE_THRESHOLD_SECONDS = 0.5;    // Time before dropping to idle mode
+constexpr double IDLE_POLL_TIMEOUT_SECONDS = 0.1; // Wait time when idle
+
 // Return true if current session *looks like* Wayland.
-static bool RunningOnWayland()
+static bool runningOnWayland()
 {
     const char *xdg = std::getenv("XDG_SESSION_TYPE");
     if (xdg && std::strcmp(xdg, "wayland") == 0) return true;
@@ -40,7 +44,7 @@ static void glfw_error_callback(int error, const char *description) {
     LOG(ERROR) << "GLFW Error " << error << ": " << description;
 }
 
-void RedirectStdErrToLogFile(const std::string& log_path) {
+void redirectStdErrToLogFile(const std::string& log_path) {
     FILE* new_stream;
 
 #ifdef _WIN32
@@ -59,6 +63,24 @@ void RedirectStdErrToLogFile(const std::string& log_path) {
     if (stderr) {
         setvbuf(stderr, nullptr, _IONBF, 0);
     }
+}
+
+static bool checkUserInteraction() {
+    ImGuiIO& io = ImGui::GetIO();
+
+    // Check Mouse/Scroll
+    if (ImGui::IsAnyMouseDown() || io.MouseWheel != 0.0f || io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f) {
+        return true;
+    }
+
+    // Check Keyboard
+    for (int key = ImGuiKey_NamedKey_BEGIN; key < ImGuiKey_NamedKey_END; key++) {
+        if (ImGui::IsKeyDown((ImGuiKey)key)) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 int main(int argc, char **argv) {
@@ -81,7 +103,7 @@ int main(int argc, char **argv) {
         std::cerr << "Failed to rotate log file: " << e.what() << std::endl;
     }
 
-    RedirectStdErrToLogFile(latest_log_path.string());
+    redirectStdErrToLogFile(latest_log_path.string());
     absl::FailureSignalHandlerOptions handler_options;
     absl::InstallFailureSignalHandler(handler_options);
 
@@ -130,7 +152,7 @@ int main(int argc, char **argv) {
     LOG(INFO) << "  Version: " << glGetString(GL_VERSION);
 
 #if __linux__
-    bool is_wayland = RunningOnWayland();
+    bool is_wayland = runningOnWayland();
 
     LOG(INFO) << "Running on " << (is_wayland ? "Wayland" : "X11");
     if (is_wayland) {
@@ -177,17 +199,37 @@ int main(int argc, char **argv) {
 
     LOG(INFO) << "ImGui backends initialized";
     {
-        // Create our application
         Application app;
 
+        double lastActivityTime = glfwGetTime();
         // Main loop
         while (!glfwWindowShouldClose(window) && !app.quitRequested) {
-            glfwPollEvents();
+            double currentTime = glfwGetTime();
+            bool isIdle = (currentTime - lastActivityTime) > IDLE_THRESHOLD_SECONDS;
+
+            if (!isIdle) {
+                glfwPollEvents();
+            } else {
+                glfwWaitEventsTimeout(IDLE_POLL_TIMEOUT_SECONDS);
+            }
 
             // Start the Dear ImGui frame
             ImGui_ImplOpenGL3_NewFrame();
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
+
+            // Update Idle Status if interaction detected
+            if (checkUserInteraction()) {
+                lastActivityTime = glfwGetTime();
+                isIdle = false;
+            }
+
+#if __linux__
+            // Wayland Fix: Reset timer if we just woke up from idle
+            if (is_wayland && isIdle) {
+                nextFrame = std::chrono::steady_clock::now();
+            }
+#endif
 
             // Draw the application
             app.draw();
@@ -200,12 +242,18 @@ int main(int argc, char **argv) {
             glClearColor(0.1569f, 0.1647f, 0.1726f, 1.00f);
             glClear(GL_COLOR_BUFFER_BIT);
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
 #if __linux__
             // fix for Wayland: Application not responding with vsync enabled, so we use a manual frame rate control
             if (is_wayland) {
-                nextFrame += std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-                    std::chrono::duration<double>(targetTime));
-                std::this_thread::sleep_until(nextFrame);
+                if (!isIdle) {
+                    nextFrame += std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                        std::chrono::duration<double>(targetTime));
+                    std::this_thread::sleep_until(nextFrame);
+                } else {
+                    std::this_thread::sleep_for(std::chrono::duration<double>(IDLE_POLL_TIMEOUT_SECONDS));
+                    nextFrame = std::chrono::steady_clock::now();
+                }
             }
 #endif
 
