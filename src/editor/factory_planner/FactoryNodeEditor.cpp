@@ -151,6 +151,7 @@ void FactoryNodeEditor::draw() {
 
 bool FactoryNodeEditor::save() {
     if (ProjectIO::saveProject(m_projectFilePath.string(), *m_graph, this->m_context)) {
+        m_isDirty = false;
         return true;
     }
     return false;
@@ -161,6 +162,7 @@ bool FactoryNodeEditor::saveAs(const std::string &newFilePath, SaveAsMode mode) 
         if (mode == SaveAsMode::SwitchToNewFile) {
             m_projectFilePath = newFilePath;
             m_editorName = std::filesystem::path(newFilePath).stem().string();
+            m_isDirty = false;
         }
         LOG(INFO) << "Project saved as: " << newFilePath;
         return true;
@@ -384,6 +386,7 @@ void FactoryNodeEditor::undo() {
     CommandFlags flags = command->getFlags();
 
     m_undoRedoManager.undo(*m_graph);
+    m_isDirty = true;
     VLOG(1) << "Undo command '" << command->getDescription() << "' executed in editor: " << m_editorName;
 
     if (flags.needsSolve) {
@@ -406,6 +409,7 @@ void FactoryNodeEditor::redo() {
     CommandFlags flags = command->getFlags();
 
     m_undoRedoManager.redo(*m_graph);
+    m_isDirty = true;
     VLOG(1) << "Redo command '" << command->getDescription() << "' executed in editor: " << m_editorName;
 
     if (flags.needsSolve) {
@@ -430,6 +434,7 @@ void FactoryNodeEditor::executeCommand(std::unique_ptr<Command> command) {
     }
     CommandFlags flags = command->getFlags();
     m_undoRedoManager.executeCommand(std::move(command), *m_graph);
+    m_isDirty = true;
     if (flags.needsSolve) {
         FactorySolver::SolverResult result = m_solver->solve(*m_graph);
         m_debugInfo.lastTotalSolveDurationMs = result.total_solve_time_ms;

@@ -154,7 +154,9 @@ void Application::draw() {
             // Give each window a unique ID if you have duplicate names
             ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(640, 480));
             bool is_open = true;
-            ImGui::Begin(editor->getName().c_str(), &is_open, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings);
+            ImGuiWindowFlags editorWindowFlags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings;
+            if (editor->isDirty()) editorWindowFlags |= ImGuiWindowFlags_UnsavedDocument;
+            ImGui::Begin(editor->getName().c_str(), &is_open, editorWindowFlags);
             ImGui::PopStyleVar();
             if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
                 m_activeEditor = i;
