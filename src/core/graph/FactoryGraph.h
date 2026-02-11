@@ -3,6 +3,7 @@
 #include <utility>
 #include <vector>
 #include <unordered_map>
+#include <absl/log/log.h>
 
 #include "Connection.h"
 #include "Node.h"
@@ -91,6 +92,28 @@ private:
     void removeNodeFromIndex(uint64_t id) { m_nodeIdToIndex.erase(id); }
     void removePortFromIndex(uint64_t id) { m_portIdToIndex.erase(id); }
     void removeConnectionFromIndex(uint64_t id) { m_connectionIdToIndex.erase(id); }
+
+    void deserializeNode(const nlohmann::json &node_json, const GameData &game_data);
+    void processPorts(const std::vector<RecipePort> &recipePorts, const nlohmann::json &savedPortsJson,
+                      std::vector<uint64_t> &nodePortList, const nlohmann::json &constraints, uint64_t nodeId);
+    void deserializeConnection(const nlohmann::json &conn_json);
+
+    template<typename TMap>
+    std::string resolveLegacyKey(std::string key, const std::string &prefix,
+                                 const TMap &primaryMap,
+                                 const auto &aliasMap) {
+        if (key.empty()) return "";
+
+        // Direct match
+        if (primaryMap.find(key) != primaryMap.end()) return key;
+
+        // Alias lookup
+        auto it = aliasMap.find(prefix + key);
+        if (it != aliasMap.end()) return it->second;
+
+        LOG(ERROR) << "Unknown key: " << key << " (prefix: " << prefix << ")";
+        return ""; // Empty string indicates failure
+    }
 };
 
 #endif //FACTORYGRAPH_H

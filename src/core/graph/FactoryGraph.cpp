@@ -329,169 +329,160 @@ nlohmann::json FactoryGraph::serialize() const {
 }
 
 void FactoryGraph::deserialize(const nlohmann::json& j, const GameData &game_data) {
-    // Clear existing data
     clear();
-
     this->m_gameData = game_data;
 
-    if (j.contains("next_node_id") && j["next_node_id"].is_number()) {
-        m_nextNodeId = j.value("next_node_id", 0);
-    }
-    if (j.contains("next_connection_id") && j["next_connection_id"].is_number()) {
-        m_nextConnectionId = j.value("next_connection_id", 0);
-    }
+    // 1. Restore Global Counters
+    if (j.contains("next_node_id") && j["next_node_id"].is_number()) m_nextNodeId = j.value("next_node_id", 0);
+    if (j.contains("next_connection_id") && j["next_connection_id"].is_number()) m_nextConnectionId = j.value("next_connection_id", 0);
+    if (j.contains("next_port_id") && j["next_port_id"].is_number()) m_nextPortId = j.value("next_port_id", 0);
+
     if (j.contains("preferred_machines") && j["preferred_machines"].is_array()) {
         m_preferredMachines = j["preferred_machines"].get<std::vector<std::string>>();
     }
 
-    m_nextPortId = 0;
-
-    const std::string PREFIX_RES = "res@";
-    const std::string PREFIX_MAC = "mac@";
-    const std::string PREFIX_REC = "rec@";
-
-    std::unordered_map<uint64_t, uint64_t> oldToNewPortIdMap;
-
-    // Deserialize nodes
+    // 2. Deserialize Nodes
     if (j.contains("nodes") && j["nodes"].is_array()) {
         for (const auto& node_json : j["nodes"]) {
-            uint64_t nodeId = node_json.value("id", -1);
-            std::string recipeKey = node_json.value("selected_recipe_key", "");
-
-            if (game_data.recipes.find(recipeKey) == game_data.recipes.end()) {
-                auto it = game_data.id_aliases.find(PREFIX_REC + recipeKey);
-                if (it != game_data.id_aliases.end()) {
-                    recipeKey = it->second;
-                } else {
-                    LOG(ERROR) << "Unknown recipe key: " << recipeKey;
-                    continue;
-                }
-            }
-
-            if (nodeId == -1 || recipeKey.empty()) {
-                LOG(ERROR) << "Invalid node data in saved graph.";
-                continue;
-            }
-
-            auto recipeIt = game_data.recipes.find(recipeKey);
-            if (recipeIt == game_data.recipes.end()) {
-                LOG(ERROR) << "Recipe key '" << recipeKey << "' not found in game data.";
-                continue;
-            }
-
-            const Recipe& recipe = recipeIt->second;
-
-            double clockSpeed = node_json.value("clock_speed", 100.0);
-            double productionMultiplier = node_json.value("production_multiplier", 100.0);
-
-            Node node;
-            node.id = nodeId;
-            node.selected_recipe_key = recipeKey;
-            node.name = recipe.name;
-            node.clock_speed = clockSpeed;
-            node.production_multiplier = productionMultiplier;
-
-            std::string machKey = node_json.value("machine", "");
-
-            if (!machKey.empty() && game_data.machines.find(machKey) == game_data.machines.end()) {
-                auto it = game_data.id_aliases.find(PREFIX_MAC + machKey);
-                if (it != game_data.id_aliases.end()) {
-                    machKey = it->second;
-                }
-            }
-
-            if (!recipe.produced_in_machines_keys.empty()) {
-                if (machKey.empty()) {
-                    node.machine_key = resolvePreferredMachine(recipe.produced_in_machines_keys);
-                } else {
-                    node.machine_key = machKey;
-                }
-            } else {
-                LOG(WARNING) << "Recipe '" << recipeKey << "' has no associated machines.";
-                node.machine_key = "";
-            }
-
-            const auto& portConstraints = node_json.value("port_constraints", nlohmann::json::object());
-            const auto& savedInputPorts = node_json.value("input_ports", nlohmann::json::array());
-            for (size_t i = 0; i < recipe.input_ports.size(); ++i) {
-                const auto& recipePort = recipe.input_ports[i];
-                Port p;
-                p.id = m_nextPortId++;
-                p.resource_key = recipePort.resource_key;
-                p.node_id = nodeId;
-
-                if (savedInputPorts.is_array() && i < savedInputPorts.size() && savedInputPorts[i].is_number()) {
-                    uint64_t oldPortId = savedInputPorts[i].get<uint64_t>();
-                    oldToNewPortIdMap[oldPortId] = p.id;
-
-                    if (portConstraints.contains(std::to_string(oldPortId))) {
-                        p.user_constraint = portConstraints[std::to_string(oldPortId)].get<double>();
-                    }
-                }
-
-                node.input_ports.push_back(p.id);
-                m_ports.push_back(p);
-                addPortToIndex(p.id, m_ports.size() - 1);
-            }
-
-            const auto& savedOutputPorts = node_json.value("output_ports", nlohmann::json::array());
-            for (size_t i = 0; i < recipe.output_ports.size(); ++i) {
-                const auto& recipePort = recipe.output_ports[i];
-                Port p;
-                p.id = m_nextPortId++;
-                p.resource_key = recipePort.resource_key;
-                p.node_id = nodeId;
-
-                if (savedOutputPorts.is_array() && i < savedOutputPorts.size() && savedOutputPorts[i].is_number()) {
-                    uint64_t oldPortId = savedOutputPorts[i].get<uint64_t>();
-                    oldToNewPortIdMap[oldPortId] = p.id;
-
-                    if (portConstraints.contains(std::to_string(oldPortId))) {
-                        p.user_constraint = portConstraints[std::to_string(oldPortId)].get<double>();
-                    }
-                }
-
-                node.output_ports.push_back(p.id);
-                m_ports.push_back(p);
-                addPortToIndex(p.id, m_ports.size() - 1);
-            }
-
-            m_nodes.push_back(node);
-            addNodeToIndex(node.id, m_nodes.size() - 1);
+            deserializeNode(node_json, game_data);
         }
     }
 
-    // Deserialize connections
+    // 3. Deserialize Connections
     if (j.contains("connections") && j["connections"].is_array()) {
         for (const auto& conn_json : j["connections"]) {
-            uint64_t oldFromPort = conn_json.value("from_port", -1);
-            uint64_t oldToPort = conn_json.value("to_port", -1);
-
-            if (oldFromPort == -1 || oldToPort == -1) {
-                LOG(ERROR) << "Invalid connection data in saved graph.";
-                continue;
-            }
-
-            if (oldToNewPortIdMap.count(oldFromPort) && oldToNewPortIdMap.count(oldToPort)) {
-                uint64_t newFromPort = oldToNewPortIdMap[oldFromPort];
-                uint64_t newToPort = oldToNewPortIdMap[oldToPort];
-
-                Connection conn;
-                conn.id = conn_json.value("id", -1);
-                if (conn.id == -1) {
-                    LOG(ERROR) << "Invalid connection id in saved graph.";
-                    continue;
-                }
-                conn.from_port = newFromPort;
-                conn.to_port = newToPort;
-                m_connections.push_back(conn);
-                addConnectionToIndex(conn.id, m_connections.size() - 1);
-                m_connectionsByPort.insert({conn.from_port, conn.id});
-                m_connectionsByPort.insert({conn.to_port, conn.id});
-            }
+            deserializeConnection(conn_json);
         }
     }
+
     VLOG(3) << "Deserialized FactoryGraph.";
+}
+
+void FactoryGraph::deserializeNode(const nlohmann::json& node_json, const GameData& game_data) {
+    // A. Resolve Recipe Key
+    std::string recipeKey = resolveLegacyKey(node_json.value("selected_recipe_key", ""), "rec@", game_data.recipes, game_data.id_aliases);
+    if (recipeKey.empty()) return; // Error logged in helper
+
+    const Recipe& recipe = game_data.recipes.at(recipeKey);
+    uint64_t nodeId = node_json.value("id", (uint64_t)-1);
+
+    if (nodeId == (uint64_t)-1) {
+        LOG(ERROR) << "Invalid node data in saved graph: missing ID.";
+        return;
+    }
+
+    // B. Build Base Node
+    Node node;
+    node.id = nodeId;
+    node.selected_recipe_key = recipeKey;
+    node.name = recipe.name;
+    node.clock_speed = node_json.value("clock_speed", 100.0);
+    node.production_multiplier = node_json.value("production_multiplier", 100.0);
+
+    // Update global counter to ensure next generated ID is safe
+    if (node.id >= m_nextNodeId) m_nextNodeId = node.id + 1;
+
+    // C. Resolve Machine
+    std::string machKey = node_json.value("machine", "");
+    // Attempt to resolve legacy machine key if necessary
+    if (!machKey.empty() && game_data.machines.find(machKey) == game_data.machines.end()) {
+        machKey = resolveLegacyKey(machKey, "mac@", game_data.machines, game_data.id_aliases);
+    }
+
+    // Assign Machine Strategy
+    if (!recipe.produced_in_machines_keys.empty()) {
+        node.machine_key = machKey.empty() ? resolvePreferredMachine(recipe.produced_in_machines_keys) : machKey;
+    } else {
+        LOG(WARNING) << "Recipe '" << recipeKey << "' has no associated machines.";
+        node.machine_key = "";
+    }
+
+    // D. Process Ports
+    const auto& portConstraints = node_json.value("port_constraints", nlohmann::json::object());
+
+    processPorts(recipe.input_ports, node_json.value("input_ports", nlohmann::json::array()),
+                 node.input_ports, portConstraints, nodeId);
+
+    processPorts(recipe.output_ports, node_json.value("output_ports", nlohmann::json::array()),
+                 node.output_ports, portConstraints, nodeId);
+
+    m_nodes.push_back(node);
+    addNodeToIndex(node.id, m_nodes.size() - 1);
+}
+
+void FactoryGraph::processPorts(const std::vector<RecipePort>& recipePorts,
+                                const nlohmann::json& savedPortsJson,
+                                std::vector<uint64_t>& nodePortList,
+                                const nlohmann::json& constraints,
+                                uint64_t nodeId) {
+    for (size_t i = 0; i < recipePorts.size(); ++i) {
+        Port p;
+        p.resource_key = recipePorts[i].resource_key;
+        p.node_id = nodeId;
+
+        if (savedPortsJson.is_array() && i < savedPortsJson.size() && savedPortsJson[i].is_number()) {
+            p.id = savedPortsJson[i].get<uint64_t>();
+            std::string originalIdStr = std::to_string(p.id);
+
+            if (m_portIdToIndex.find(p.id) != m_portIdToIndex.end()) {
+                LOG(WARNING) << "Duplicate Port ID " << p.id << " detected on node " << nodeId
+                             << ". Remapping to new ID.";
+                p.id = m_nextPortId++;
+            }
+
+            // Check for constraints on this existing port
+            if (constraints.contains(originalIdStr) && constraints[originalIdStr].is_number()) {
+                p.user_constraint = constraints[originalIdStr].get<double>();
+            }
+        } else {
+            // New port (recipe changed?) -> Generate new ID
+            p.id = m_nextPortId++;
+        }
+
+        // Ensure global counter is always ahead of any loaded (or remapped) ID
+        if (p.id >= m_nextPortId) m_nextPortId = p.id + 1;
+
+        nodePortList.push_back(p.id);
+        m_ports.push_back(p);
+        addPortToIndex(p.id, m_ports.size() - 1);
+    }
+}
+
+void FactoryGraph::deserializeConnection(const nlohmann::json& conn_json) {
+    Connection conn;
+    conn.id = conn_json.value("id", (uint64_t)-1);
+    conn.from_port = conn_json.value("from_port", (uint64_t)-1);
+    conn.to_port = conn_json.value("to_port", (uint64_t)-1);
+
+    // Basic structure check
+    if (conn.id == (uint64_t)-1 || conn.from_port == (uint64_t)-1 || conn.to_port == (uint64_t)-1) {
+        LOG(ERROR) << "Invalid connection data in saved graph: missing IDs.";
+        return;
+    }
+
+    Port* fromPort = getPort(conn.from_port);
+    Port* toPort = getPort(conn.to_port);
+
+    if (!fromPort || !toPort) {
+        LOG(WARNING) << "Skipping connection " << conn.id
+                     << ": Ports " << conn.from_port << "->" << conn.to_port
+                     << " do not exist.";
+        return;
+    }
+
+    if (!isValidConnection(conn.from_port, conn.to_port)) {
+        LOG(WARNING) << "Skipping invalid connection " << conn.id
+                     << " (" << fromPort->resource_key << " -> " << toPort->resource_key << ")"
+                     << ": Connection rules violated.";
+        return;
+    }
+
+    if (conn.id >= m_nextConnectionId) m_nextConnectionId = conn.id + 1;
+
+    m_connections.push_back(conn);
+    addConnectionToIndex(conn.id, m_connections.size() - 1);
+    m_connectionsByPort.insert({conn.from_port, conn.id});
+    m_connectionsByPort.insert({conn.to_port, conn.id});
 }
 
 bool FactoryGraph::setNodeRecipe(uint64_t node_id, const std::string& recipe_key) {
