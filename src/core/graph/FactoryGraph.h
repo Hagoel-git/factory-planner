@@ -93,6 +93,8 @@ private:
     void removePortFromIndex(uint64_t id) { m_portIdToIndex.erase(id); }
     void removeConnectionFromIndex(uint64_t id) { m_connectionIdToIndex.erase(id); }
 
+    nlohmann::json serializePortConstraints(const Node& node) const;
+
     void deserializeNode(const nlohmann::json &node_json, const GameData &game_data);
     void processPorts(const std::vector<RecipePort> &recipePorts, const nlohmann::json &savedPortsJson,
                       std::vector<uint64_t> &nodePortList, const nlohmann::json &constraints, uint64_t nodeId);
