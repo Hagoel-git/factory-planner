@@ -332,18 +332,43 @@ void Application::drawMenuBar() {
                 if (recentFiles.empty()) {
                     ImGui::TextDisabled("No recent files");
                 } else {
+                    // Detect duplicates to determine how to display them
+                    std::map<std::string, int> nameCounts;
                     for (const auto &file : recentFiles) {
-                        if (ImGui::MenuItem(file.stem().string().c_str())) {
-                            if (!std::filesystem::exists(file)) {
-                                LOG(WARNING) << "Recent file does not exist: " << file;
+                        nameCounts[file.stem().string()]++;
+                    }
+
+                    for (size_t i = 0; i < recentFiles.size(); ++i) {
+                        const auto& file = recentFiles[i];
+                        std::string stem = file.stem().string();
+                        std::string displayName = stem;
+
+                        if (nameCounts[stem] > 1) {
+                            displayName += " (" + file.parent_path().filename().string() + ")";
+                        }
+
+                        bool exists = std::filesystem::exists(file);
+                        if (!exists) {
+                            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
+                            displayName += " (Missing)";
+                        }
+
+                        ImGui::PushID(file.string().c_str());
+                        if (ImGui::MenuItem(displayName.c_str())) {
+                            if (exists) {
+                                VLOG(1) << "Menu: Open Recent selected: " << file.string();
+                                createNewEditor("", file, file.stem().string());
+                            } else {
                                 NotificationManager::instance().addNotification(
-                                    "Error Opening Recent File",
-                                    "The file does not exist: " + file.string(),
-                                    NotificationType::Error);
-                                continue;
+                                   "File Not Found",
+                                   "The file at " + file.string() + " no longer exists.",
+                                   NotificationType::Warning);
                             }
-                            VLOG(1)<< "Menu: Open Recent selected for file: " << file.string();
-                            createNewEditor("", file, file.stem().string());
+                        }
+                        ImGui::PopID();
+
+                        if (!exists) {
+                            ImGui::PopStyleColor();
                         }
                     }
                 }
@@ -1125,6 +1150,11 @@ void Application::createNewEditor(const std::filesystem::path &gameDataFilePath,
         LOG(INFO) << "Game data loaded successfully for editor '" << name << "'.";
         m_gameDataManager.clear();
 
+    }
+
+    if (!std::filesystem::exists(location) && location.has_filename()) {
+        m_editors.back()->save();
+        VLOG(1) << "Initialized new project file on disk: " << location;
     }
 
     applyThemeToAllEditors(); // Apply current theme
