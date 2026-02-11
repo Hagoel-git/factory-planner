@@ -283,28 +283,12 @@ nlohmann::json FactoryGraph::serialize() const {
         node_json["input_ports"] = node.input_ports;
         node_json["output_ports"] = node.output_ports;
         node_json["machine"] = node.machine_key;
-        if (node.clock_speed != 100.0) {
-            node_json["clock_speed"] = node.clock_speed;
-        }
-        if (node.production_multiplier != 100.0) {
-            node_json["production_multiplier"] = node.production_multiplier;
-        }
 
-        // Save constraints in a simple map of { "port_id": constraint_value }
-        nlohmann::json port_constraints = nlohmann::json::object();
-        for (uint64_t port_id : node.input_ports) {
-            const Port* port = getPort(port_id);
-            if (port && port->user_constraint != -1.0) { // Only save non-default values
-                port_constraints[std::to_string(port_id)] = port->user_constraint;
-            }
-        }
-        for (uint64_t port_id : node.output_ports) {
-            const Port* port = getPort(port_id);
-            if (port && port->user_constraint != -1.0) {
-                port_constraints[std::to_string(port_id)] = port->user_constraint;
-            }
-        }
-        node_json["port_constraints"] = port_constraints;
+        if (node.clock_speed != 100.0) node_json["clock_speed"] = node.clock_speed;
+        if (node.production_multiplier != 100.0) node_json["production_multiplier"] = node.production_multiplier;
+
+        node_json["port_constraints"] = serializePortConstraints(node);
+
         j["nodes"].push_back(node_json);
     }
 
@@ -322,10 +306,27 @@ nlohmann::json FactoryGraph::serialize() const {
 
     // Serialize ID counters
     j["next_node_id"] = m_nextNodeId;
+    j["next_port_id"] = m_nextPortId;
     j["next_connection_id"] = m_nextConnectionId;
     j["game_data_uuid"] = m_gameData.uuid;
     VLOG(3) << "Serialized FactoryGraph.";
     return j;
+}
+
+nlohmann::json FactoryGraph::serializePortConstraints(const Node& node) const {
+    nlohmann::json constraints = nlohmann::json::object();
+
+    auto save_constraint = [&](uint64_t port_id) {
+        const Port* port = getPort(port_id);
+        if (port && port->user_constraint != -1.0) {
+            constraints[std::to_string(port_id)] = port->user_constraint;
+        }
+    };
+
+    for (uint64_t pid : node.input_ports) save_constraint(pid);
+    for (uint64_t pid : node.output_ports) save_constraint(pid);
+
+    return constraints;
 }
 
 void FactoryGraph::deserialize(const nlohmann::json& j, const GameData &game_data) {
