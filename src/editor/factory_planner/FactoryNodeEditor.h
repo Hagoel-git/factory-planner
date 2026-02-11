@@ -82,6 +82,8 @@ public:
 
     bool isFocused() const { return m_isFocused; }
 
+    bool isDirty() const { return m_isDirty; }
+
     void undo();
     void redo();
     bool canUndo() const { return m_undoRedoManager.canUndo(); }
@@ -102,6 +104,7 @@ private:
 
     DebugInfo m_debugInfo;
 
+    bool m_isDirty = false;
     bool m_isFocused = false;
     bool m_wasDragging = false;
     bool m_draggingNodes = false;
