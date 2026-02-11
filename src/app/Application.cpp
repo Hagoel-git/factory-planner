@@ -1194,6 +1194,7 @@ bool Application::saveActiveEditor() {
     auto &editor = m_editors[m_activeEditor];
     if (editor) {
         editor->save();
+        RecentFiles::instance().addFile(editor->getProjectFilePath());
         return true;
     }
     return false;
@@ -1207,6 +1208,7 @@ bool Application::saveActiveEditorAs(const std::string &newFilePath, SaveAsMode 
     auto &editor = m_editors[m_activeEditor];
     if (editor) {
         return editor->saveAs(newFilePath, mode);
+        RecentFiles::instance().addFile(editor->getProjectFilePath());
     }
     return false;
 }
