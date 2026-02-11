@@ -74,6 +74,8 @@ private:
     void saveSession();
     void reopenLastClosedEditor();
 
+    bool validateNewEditor(const std::string& name, const std::filesystem::path& location);
+    std::optional<GameData> loadGameDataForNewEditor(const std::filesystem::path& path);
     void createNewEditor(const std::filesystem::path &gameDataFilePath, const std::filesystem::path &location, const std::string &name, bool addToRecent = true);
 
     bool saveActiveEditor();

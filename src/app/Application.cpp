@@ -1109,60 +1109,78 @@ void Application::saveSession() {
     SessionManager::instance().save();
 }
 
-void Application::createNewEditor(const std::filesystem::path &gameDataFilePath, const std::filesystem::path &location,
-                                  const std::string &name, bool addToRecent) {
-    // Check if an editor with the same name already exists
-    if (std::any_of(m_editors.begin(), m_editors.end(), [&](const auto &editor) {
+bool Application::validateNewEditor(const std::string &name, const std::filesystem::path &location) {
+    bool nameExists = std::any_of(m_editors.begin(), m_editors.end(), [&](const auto &editor) {
         return editor->getName() == name;
-    })) {
-        VLOG(1) << "An editor with the name '" << name << "' already exists. Not creating a new one.";
+    });
+
+    if (nameExists) {
+        VLOG(1) << "Editor with name '" << name << "' already exists.";
         m_showFileAlreadyOpenPopup = true;
-        return; // Do not create a new editor if the name already exists
+        return false;
     }
-    if (location.empty() || !std::filesystem::exists(std::filesystem::path(location).parent_path())) {
-        LOG(ERROR) << "Invalid location for new editor: " << location;
+
+    if (location.empty() || !std::filesystem::exists(location.parent_path())) {
+        LOG(ERROR) << "Invalid location: " << location;
         NotificationManager::instance().addNotification("Invalid Project Location",
             "The specified project location is invalid or does not exist.",
             NotificationType::Error);
+        return false;
+    }
+
+    return true;
+}
+
+std::optional<GameData> Application::loadGameDataForNewEditor(const std::filesystem::path &path) {
+    if (path.empty()) {
+        VLOG(1) << "Game data path is empty.";
+        return GameData(); // Empty GameData -> load GameData from save file
+    }
+
+    VLOG(1) << "Game data path: " << path;
+    GameDataManager initDataManager;
+    std::string errorMessage;
+
+    initDataManager.loadFromFile(path, errorMessage);
+
+    if (!errorMessage.empty()) {
+        LOG(ERROR) << "Failed to load game data from file: " << errorMessage;
+        NotificationManager::instance().addNotification("Error Loading Game Data",
+            "Failed to load game data: " + errorMessage,
+            NotificationType::Error);
+        return std::nullopt;
+    }
+
+    LOG(INFO) << "Game data loaded successfully.";
+    return initDataManager.current();
+}
+
+void Application::createNewEditor(const std::filesystem::path &gameDataFilePath, const std::filesystem::path &location,
+                                  const std::string &name, bool addToRecent) {
+    if (!validateNewEditor(name, location)) {
         return;
     }
-    // Create new editor with its own graph and solver
-    if (gameDataFilePath.empty()) {
-        LOG(INFO) << "Creating new editor '" << name << "' with empty game data.";
-        auto editor = std::make_unique<FactoryNodeEditor>(GameData(), location, name);
-        m_editors.push_back(std::move(editor));
-    } else {
-        LOG(INFO) << "Creating new editor '" << name << "' with game data from file: " << gameDataFilePath;
-        GameDataManager tempDataManager;
-        std::string tempDataManagerError;
-        tempDataManager.loadFromFile(gameDataFilePath, tempDataManagerError);
-        if (!tempDataManagerError.empty()) {
-            LOG(ERROR) << "Failed to load game data from file '" << gameDataFilePath
-                       << "': " << tempDataManagerError;
-            NotificationManager::instance().addNotification("Error Loading Game Data",
-                "Failed to load game data from file: " + tempDataManagerError,
-                NotificationType::Error);
-            return;
-        }
 
-        auto editor = std::make_unique<FactoryNodeEditor>(tempDataManager.current(), location, name);
-        m_editors.push_back(std::move(editor));
-        LOG(INFO) << "Game data loaded successfully for editor '" << name << "'.";
-        m_gameDataManager.clear();
-
+    auto gameData = loadGameDataForNewEditor(gameDataFilePath);
+    if (!gameData.has_value()) {
+        return;
     }
 
+    LOG(INFO) << "Creating new editor '" << name << "'";
+
+    auto newEditor = std::make_unique<FactoryNodeEditor>(std::move(*gameData), location, name);
+
     if (!std::filesystem::exists(location) && location.has_filename()) {
-        m_editors.back()->save();
+        newEditor->save();
         VLOG(1) << "Initialized new project file on disk: " << location;
     }
 
-    applyThemeToAllEditors(); // Apply current theme
+    m_editors.push_back(std::move(newEditor));
 
-    // Switch to the new tab
+    applyThemeToAllEditors();
     m_activeEditor = static_cast<int>(m_editors.size()) - 1;
-
     saveSession();
+
     if (addToRecent) {
         RecentFiles::instance().addFile(location);
     }
