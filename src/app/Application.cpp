@@ -113,6 +113,15 @@ void Application::draw() {
     ImGui::SetKeyOwner(ImGuiKey_LeftAlt, ImGuiKeyOwner_Any, ImGuiInputFlags_LockThisFrame);
 
     handleShortcuts();
+
+    if (m_focusRequested != -1) {
+        if (m_focusRequested >= 0 && m_focusRequested < static_cast<int>(m_editors.size())) {
+            ImGui::SetWindowFocus(m_editors[m_focusRequested]->getName().c_str());
+            m_activeEditor = m_focusRequested;
+        }
+        m_focusRequested = -1; // Reset after focusing
+    }
+
     drawDebugWindow();
     drawMenuBar();
     drawNewProjectDialog();
@@ -164,23 +173,16 @@ void Application::draw() {
             editor->draw();
             ImGui::End();
             if (!is_open) {
-                closeEditor(i);
+                requestCloseEditor(i);
             }
         }
     }
 
-    if (m_focusRequested != -1) {
-        if (m_focusRequested >= 0 && m_focusRequested < static_cast<int>(m_editors.size())) {
-            ImGui::SetWindowFocus(m_editors[m_focusRequested]->getName().c_str());
-            m_activeEditor = m_focusRequested;
-        }
-        m_focusRequested = -1; // Reset after focusing
-    }
-    NotificationManager::instance().draw();
     if (m_showFileAlreadyOpenPopup) {
         ImGui::OpenPopup("FileAlreadyOpen");
         m_showFileAlreadyOpenPopup = false; // Reset after drawing
     }
+
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     if (ImGui::BeginPopupModal("FileAlreadyOpen", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
@@ -190,6 +192,89 @@ void Application::draw() {
         }
         ImGui::EndPopup();
     }
+
+    if (m_showUnsavedChangesDialog) {
+        ImGui::OpenPopup("Unsaved Changes");
+        m_showUnsavedChangesDialog = false; // Reset after drawing
+    }
+
+    center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+    if (ImGui::BeginPopupModal("Unsaved Changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+
+        std::string name = m_currentEditorToClose ? m_currentEditorToClose->getName() : "Unknown";
+        ImGui::Text("Save changes to \"%s\"?", name.c_str());
+        ImGui::Separator();
+
+        if (m_editorsToClose.size() > 1) {
+            ImGui::Checkbox("Apply to all remaining files", &m_applyToAllEditors);
+            ImGui::Separator();
+        }
+
+        if (ImGui::Button("Save", ImVec2(120, 0))) {
+            bool saveSuccess = m_currentEditorToClose && m_currentEditorToClose->save();
+
+            if (saveSuccess) {
+                if (!m_isQuitting) {
+                    int idx = getEditorIndex(m_currentEditorToClose);
+                    if (idx != -1) closeEditor(idx);
+                }
+                if (m_applyToAllEditors) {
+                    for (auto* otherEditor : m_editorsToClose) {
+                        if (otherEditor == m_currentEditorToClose) continue; // Skip the one we just handled
+                        auto* ed = otherEditor;
+                        if (ed->save() && !m_isQuitting) {
+                            int edIdx = getEditorIndex(ed);
+                            if (edIdx != -1) closeEditor(edIdx);
+                        }
+                    }
+                    m_editorsToClose.clear(); // All handled
+                }
+
+                processUnsavedChangesQueue();
+                ImGui::CloseCurrentPopup();
+            }
+        }
+
+        ImGui::SameLine();
+
+        if (ImGui::Button("Discard", ImVec2(120, 0))) {
+            if (!m_isQuitting) {
+                int idx = getEditorIndex(m_currentEditorToClose);
+                if (idx != -1) closeEditor(idx);
+            }
+
+            if (m_applyToAllEditors) {
+                if (!m_isQuitting) {
+                    for (auto otherEditor : m_editorsToClose) {
+                        if (otherEditor == m_currentEditorToClose) continue; // Skip the one we just handled
+                        int edIdx = getEditorIndex(otherEditor);
+                        if (edIdx != -1) closeEditor(edIdx);
+                    }
+                }
+                m_editorsToClose.clear();
+            }
+
+            processUnsavedChangesQueue();
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::SameLine();
+
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+            m_showUnsavedChangesDialog = false;
+            m_editorsToClose.clear();
+            m_isQuitting = false;
+            m_currentEditorToClose = nullptr;
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+
+    NotificationManager::instance().draw();
+
     ImGui::End();
 }
 
@@ -421,7 +506,7 @@ void Application::drawMenuBar() {
             ImGui::Separator();
             if (ImGui::MenuItem("Quit", "Ctrl+Q")) {
                 VLOG(1) << "Menu: Quit selected.";
-                quitRequested = true;
+                requestQuit();
             }
 
             ImGui::EndMenu();
@@ -497,7 +582,7 @@ void Application::handleShortcuts() {
         }
         if (ImGui::IsKeyPressed(ImGuiKey_Q)) {
             VLOG(1) << "Shortcut: Ctrl+Q pressed, quitting application.";
-            quitRequested = true;
+            requestQuit();
         }
         if (io.KeyShift) {
             if (ImGui::IsKeyPressed(ImGuiKey_T)) {
@@ -1062,6 +1147,74 @@ void Application::drawSaveAsDialog() {
     }
 }
 
+void Application::requestCloseEditor(int index) {
+    if (index < 0 || index >= static_cast<int>(m_editors.size())) return;
+
+    auto* editor = m_editors[index].get();
+    if (editor->isDirty()) {
+        m_editorsToClose.clear();
+        m_editorsToClose.push_back(editor);
+        m_isQuitting = false;
+        m_applyToAllEditors = false;
+        m_showUnsavedChangesDialog = true;
+        m_currentEditorToClose = editor;
+        m_focusRequested = index;
+    } else {
+        closeEditor(index);
+    }
+}
+
+void Application::requestQuit() {
+    m_editorsToClose.clear();
+    for (const auto& editor : m_editors) {
+        if (editor->isDirty()) {
+            m_editorsToClose.push_back(editor.get());
+        }
+    }
+
+    if (m_editorsToClose.empty()) {
+        m_quitConfirmed = true; // No unsaved changes, safe to quit
+    } else {
+        m_isQuitting = true;
+        m_applyToAllEditors = false;
+        m_showUnsavedChangesDialog = true;
+        m_currentEditorToClose = m_editorsToClose.front();
+        // Focus the editor so the user sees what they are saving
+        int idx = getEditorIndex(m_currentEditorToClose);
+        if (idx != -1) m_focusRequested = idx;
+    }
+}
+
+void Application::processUnsavedChangesQueue() {
+    if (!m_editorsToClose.empty() && m_editorsToClose.front() == m_currentEditorToClose) {
+        m_editorsToClose.erase(m_editorsToClose.begin());
+    }
+
+    if (m_editorsToClose.empty()) {
+        m_showUnsavedChangesDialog = false;
+        m_currentEditorToClose = nullptr;
+
+        if (m_isQuitting) {
+            m_quitConfirmed = true;
+        }
+    } else {
+        // Move to next
+        m_currentEditorToClose = m_editorsToClose.front();
+        m_showUnsavedChangesDialog = true;
+
+        // Focus the next one
+        int idx = getEditorIndex(m_currentEditorToClose);
+        if (idx != -1) m_focusRequested = idx;
+    }
+}
+
+int Application::getEditorIndex(FactoryNodeEditor *editor) const {
+    for (size_t i = 0; i < m_editors.size(); ++i) {
+        if (m_editors[i].get() == editor) return static_cast<int>(i);
+    }
+    return -1;
+}
+
 void Application::restoreSession() {
     m_restoringSession = true;
     SessionManager::instance().load();
@@ -1353,7 +1506,7 @@ void Application::closeEditorByName(const std::string& name) {
     });
     if (it != m_editors.end()) {
         int index = static_cast<int>(std::distance(m_editors.begin(), it));
-        closeEditor(index);
+        requestCloseEditor(index);
     }
 }
 
@@ -1361,10 +1514,10 @@ void Application::closeActiveEditor() {
     if (m_editors.empty()) return;
 
     if (m_activeEditor >= 0 && static_cast<size_t>(m_activeEditor) < m_editors.size()) {
-        closeEditor(m_activeEditor);
+        requestCloseEditor(m_activeEditor);
     } else {
         // No focused editor, close the last tab as a sensible default
-        closeEditor(static_cast<int>(m_editors.size()) - 1);
+        requestCloseEditor(static_cast<int>(m_editors.size()) - 1);
     }
 }
 

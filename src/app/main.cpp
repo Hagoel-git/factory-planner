@@ -203,7 +203,13 @@ int main(int argc, char **argv) {
 
         double lastActivityTime = glfwGetTime();
         // Main loop
-        while (!glfwWindowShouldClose(window) && !app.quitRequested) {
+        while (!app.isQuitConfirmed()) {
+            if (glfwWindowShouldClose(window)) {
+                glfwSetWindowShouldClose(window, GLFW_FALSE); // Cancel immediate closure
+                app.requestQuit(); // Start the unsaved changes workflow
+                if (app.isQuitConfirmed()) break;
+            }
+
             double currentTime = glfwGetTime();
             bool isIdle = (currentTime - lastActivityTime) > IDLE_THRESHOLD_SECONDS;
 
@@ -260,11 +266,7 @@ int main(int argc, char **argv) {
             glfwSwapBuffers(window);
         }
 
-        if (app.quitRequested) {
-            LOG(INFO) << "Shutting down application (quit requested by app)";
-        } else {
-            LOG(INFO) << "Shutting down application (window closed)";
-        }
+        LOG(INFO) << "Shutting down application";
 
         AppSettings newSettings = SettingsManager::instance().getSettings();
 
