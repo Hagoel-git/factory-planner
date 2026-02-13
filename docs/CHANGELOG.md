@@ -7,7 +7,8 @@ This document holds the user-facing changelog that is also used in release notes
 - The "Open Recent" list is now updated when saving a file, ensuring the most recently active projects stay at the top.
 - Improved Recent Files reliability by saving the list immediately upon modification.
 - New projects are now saved to disk immediately upon creation.
-- Added "unsaved changes" indicator near the editor name.
+- Added a safety confirmation dialog when closing tabs or quitting the application with unsaved changes.
+- Added visual "unsaved changes" indicator (dot) to editor tabs.
 - Save loading now preserves original IDs for nodes and ports instead of remapping them.
 
 ### Fixed
