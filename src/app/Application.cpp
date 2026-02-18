@@ -119,7 +119,9 @@ void Application::draw() {
             ImGui::SetWindowFocus(m_editors[m_focusRequested]->getName().c_str());
             m_activeEditor = m_focusRequested;
         }
-        m_focusRequested = -1; // Reset after focusing
+        if (!m_firstFrame) { // Skip resetting focus on the very first frame to allow initial window focus to work properly
+            m_focusRequested = -1; // Reset after focusing
+        }
     }
 
     drawDebugWindow();
@@ -275,6 +277,7 @@ void Application::draw() {
 
     NotificationManager::instance().draw();
 
+    m_firstFrame = false;
     ImGui::End();
 }
 
@@ -1172,6 +1175,7 @@ void Application::requestQuit() {
         }
     }
 
+    m_activeEditorIndexBeforeQuit = m_activeEditor;
     if (m_editorsToClose.empty()) {
         m_quitConfirmed = true; // No unsaved changes, safe to quit
     } else {
@@ -1259,7 +1263,7 @@ void Application::saveSession() {
             state.openProjectPaths.push_back(editor->getProjectFilePath());
         }
     }
-    state.activeProjectIndex = m_activeEditor;
+    state.activeProjectIndex = m_activeEditorIndexBeforeQuit;
     SessionManager::instance().setSessionState(state);
     SessionManager::instance().save();
 }
