@@ -75,10 +75,10 @@ const Node *FactoryGraph::getNode(uint64_t id) const {
     return (it != m_nodeIdToIndex.end()) ? &m_nodes[it->second] : nullptr;
 }
 
-uint64_t FactoryGraph::addPort(const std::string& resource_key, uint64_t node_id) {
+uint64_t FactoryGraph::addPort(const std::string& resource_key, uint64_t node_id, ConstraintType constraint_type) {
     uint64_t port_id = m_nextPortId++;
     size_t index = m_ports.size();
-    m_ports.emplace_back(port_id, node_id, resource_key);
+    m_ports.emplace_back(port_id, node_id, resource_key, constraint_type);
     addPortToIndex(port_id, index);
     VLOG(3) << "Added port ID: " << port_id << " to node ID: " << node_id << " with resource: " << resource_key;
     return port_id;
@@ -401,11 +401,14 @@ void FactoryGraph::deserializeNode(const nlohmann::json& node_json, const GameDa
     // D. Process Ports
     const auto& portConstraints = node_json.value("port_constraints", nlohmann::json::object());
 
+    ConstraintType inputType = getPortConstraintType(recipe, true);
+    ConstraintType outputType = getPortConstraintType(recipe, false);
+
     processPorts(recipe.input_ports, node_json.value("input_ports", nlohmann::json::array()),
-                 node.input_ports, portConstraints, nodeId);
+                 node.input_ports, portConstraints, nodeId, inputType);
 
     processPorts(recipe.output_ports, node_json.value("output_ports", nlohmann::json::array()),
-                 node.output_ports, portConstraints, nodeId);
+                 node.output_ports, portConstraints, nodeId, outputType);
 
     m_nodes.push_back(node);
     addNodeToIndex(node.id, m_nodes.size() - 1);
@@ -415,11 +418,13 @@ void FactoryGraph::processPorts(const std::vector<RecipePort>& recipePorts,
                                 const nlohmann::json& savedPortsJson,
                                 std::vector<uint64_t>& nodePortList,
                                 const nlohmann::json& constraints,
-                                uint64_t nodeId) {
+                                uint64_t nodeId,
+                                ConstraintType constraintType) {
     for (size_t i = 0; i < recipePorts.size(); ++i) {
         Port p;
         p.resource_key = recipePorts[i].resource_key;
         p.node_id = nodeId;
+        p.constraint_type = constraintType;
 
         if (savedPortsJson.is_array() && i < savedPortsJson.size() && savedPortsJson[i].is_number()) {
             p.id = savedPortsJson[i].get<uint64_t>();
@@ -486,6 +491,19 @@ void FactoryGraph::deserializeConnection(const nlohmann::json& conn_json) {
     m_connectionsByPort.insert({conn.to_port, conn.id});
 }
 
+ConstraintType FactoryGraph::getPortConstraintType(const Recipe &recipe, bool is_input) {
+    bool is_producer = recipe.input_ports.size() == 1 && recipe.input_ports.at(0).resource_key == "nothing";
+    bool is_consumer = recipe.output_ports.size() == 1 && recipe.output_ports.at(0).resource_key == "nothing";
+
+    if (is_input && is_consumer) {
+        return ConstraintType::TARGET;
+    }
+    if (is_input || is_producer) {
+        return ConstraintType::LIMIT;
+    }
+    return ConstraintType::TARGET;
+}
+
 bool FactoryGraph::setNodeRecipe(uint64_t node_id, const std::string& recipe_key) {
     Node *node = getNode(node_id);
     if (!node) {
@@ -506,11 +524,11 @@ bool FactoryGraph::setNodeRecipe(uint64_t node_id, const std::string& recipe_key
     node->output_ports.resize(recipe.output_ports.size());
     node->input_ports.resize(recipe.input_ports.size());
     for (int i = 0; i < recipe.input_ports.size(); ++i) {
-        uint64_t port_id = addPort(recipe.input_ports.at(i).resource_key, node_id);
+        uint64_t port_id = addPort(recipe.input_ports.at(i).resource_key, node_id, getPortConstraintType(recipe, true));
         node->input_ports[i] = port_id;
     }
     for (int i = 0; i < recipe.output_ports.size(); ++i) {
-        uint64_t port_id = addPort(recipe.output_ports.at(i).resource_key, node_id);
+        uint64_t port_id = addPort(recipe.output_ports.at(i).resource_key, node_id, getPortConstraintType(recipe, false));
         node->output_ports[i] = port_id;
     }
 

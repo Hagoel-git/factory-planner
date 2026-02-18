@@ -22,6 +22,7 @@ FactorySolver::FactorySolver(const std::string &solver_name) {
 FactorySolver::SolverResult FactorySolver::solve(FactoryGraph &factory_graph) {
     m_portVariables.clear();
     m_connectionVariables.clear();
+    m_excessVariables.clear();
     m_constraints.clear();
     m_solver->Clear(); // Clear any previous state in the solver
 
@@ -98,6 +99,11 @@ void FactorySolver::createAllVariables(const FactoryGraph &factory_graph) {
         const std::string var_name = "Port_" + std::to_string(port.id);
         operations_research::MPVariable *var = m_solver->MakeNumVar(0.0, operations_research::MPSolver::infinity(), var_name);
         m_portVariables[port.id] = var;
+
+        if (port.user_constraint >= 0 && port.constraint_type == ConstraintType::TARGET) {
+            auto* excess = m_solver->MakeNumVar(0.0, operations_research::MPSolver::infinity(), "Excess_Port_" + std::to_string(port.id));
+            m_excessVariables[port.id] = excess;
+        }
     }
 
     // Create variables for each connection
@@ -130,8 +136,12 @@ void FactorySolver::addObjectiveFunction(const FactoryGraph &factory_graph) {
         }
     }
 
+    for (const auto &pair : m_excessVariables) {
+        objective->SetCoefficient(pair.second, 1.0e-4);
+    }
+
     // If no reachable leaf ports found, add a dummy objective to avoid unbounded problem
-    if (!has_objective_terms) {
+    if (!has_objective_terms && m_excessVariables.empty()) {
         // Just minimize the sum of all variables (or set a trivial objective)
         for (const auto &port: ports) {
             objective->SetCoefficient(m_portVariables.at(port.id), 0.0001); // Small coefficient
@@ -213,9 +223,23 @@ void FactorySolver::addAllConstraints(const FactoryGraph &factory_graph) {
     const auto &ports = factory_graph.getPorts();
     for (const auto &port: ports) {
         if (port.user_constraint >= 0) {
-            operations_research::MPConstraint *constraint = m_solver->MakeRowConstraint(-operations_research::MPSolver::infinity(), port.user_constraint);
-            constraint->SetCoefficient(m_portVariables.at(port.id), 1.0);
-            m_constraints.push_back(constraint);
+            switch (port.constraint_type) {
+                case ConstraintType::LIMIT: {
+                    operations_research::MPConstraint* constraint = m_solver->MakeRowConstraint(-operations_research::MPSolver::infinity(), port.user_constraint);
+                    constraint->SetCoefficient(m_portVariables.at(port.id), 1.0);
+                    m_constraints.push_back(constraint);
+                    break;
+                }
+                case ConstraintType::TARGET: {
+                    if (m_excessVariables.count(port.id)) {
+                        auto* constraint = m_solver->MakeRowConstraint(0.0, port.user_constraint);
+                        constraint->SetCoefficient(m_portVariables.at(port.id), 1.0);
+                        constraint->SetCoefficient(m_excessVariables.at(port.id), 1.0);
+                        m_constraints.push_back(constraint);
+                    }
+                    break;
+                }
+            }
         }
     }
 
@@ -223,34 +247,41 @@ void FactorySolver::addAllConstraints(const FactoryGraph &factory_graph) {
 }
 
 void FactorySolver::addRecipeConstraints(const Node &node, const Recipe &recipe) {
+    auto addTerm = [&](operations_research::MPConstraint* constraint, uint64_t port_id, double coeff) {
+        constraint->SetCoefficient(m_portVariables.at(port_id), coeff);
+        if (m_excessVariables.count(port_id)) {
+            constraint->SetCoefficient(m_excessVariables.at(port_id), coeff);
+        }
+    };
     if (!recipe.output_ports.empty() && recipe.output_ports[0].amount > 0.0) {
         for (int i = 0; i < recipe.input_ports.size(); ++i) {
             operations_research::MPConstraint *constraint = m_solver->MakeRowConstraint(0.0, 0.0);
+            double ratio = recipe.output_ports[0].amount * (node.production_multiplier / 100.0);
             // Input = Output * (input_amount / output_amount) * (production_multiplier / 100)
-            constraint->SetCoefficient(m_portVariables.at(node.input_ports[i]), recipe.output_ports[0].amount * (node.production_multiplier / 100.0));
-            constraint->SetCoefficient(m_portVariables.at(node.output_ports[0]), -recipe.input_ports[i].amount);
+            addTerm(constraint, node.input_ports[i], ratio);
+            addTerm(constraint, node.output_ports[0], -recipe.input_ports[i].amount);
             m_constraints.push_back(constraint);
         }
         for (int i = 1; i < recipe.output_ports.size(); ++i) {
             operations_research::MPConstraint *constraint = m_solver->MakeRowConstraint(0.0, 0.0);
             // Output_i = Output_0 * (output_i_amount / output_0_amount)
-            constraint->SetCoefficient(m_portVariables.at(node.output_ports[0]), recipe.output_ports[i].amount);
-            constraint->SetCoefficient(m_portVariables.at(node.output_ports[i]), -recipe.output_ports[0].amount);
+            addTerm(constraint, node.output_ports[0], recipe.output_ports[i].amount);
+            addTerm(constraint, node.output_ports[i], -recipe.output_ports[0].amount);
             m_constraints.push_back(constraint);
         }
     } else if (!recipe.input_ports.empty() && recipe.input_ports[0].amount > 0.0) {
         for (int i = 1; i < recipe.input_ports.size(); ++i) {
             operations_research::MPConstraint *constraint = m_solver->MakeRowConstraint(0.0, 0.0);
             // Input_i = Input_0 * (input_i_amount / input_0_amount)
-            constraint->SetCoefficient(m_portVariables.at(node.input_ports[i]), recipe.input_ports[0].amount);
-            constraint->SetCoefficient(m_portVariables.at(node.input_ports[0]), -recipe.input_ports[i].amount);
+            addTerm(constraint, node.input_ports[i], recipe.input_ports[0].amount);
+            addTerm(constraint, node.input_ports[0], -recipe.input_ports[i].amount);
             m_constraints.push_back(constraint);
         }
         for (int i = 0; i < recipe.output_ports.size(); ++i) {
             operations_research::MPConstraint *constraint = m_solver->MakeRowConstraint(0.0, 0.0);
             // Output = Input * (output_amount / input_amount) * (production_multiplier / 100)
-            constraint->SetCoefficient(m_portVariables.at(node.output_ports[i]), recipe.input_ports[0].amount);
-            constraint->SetCoefficient(m_portVariables.at(node.input_ports[0]), -recipe.output_ports[i].amount * (node.production_multiplier / 100.0));
+            addTerm(constraint, node.output_ports[i], recipe.input_ports[0].amount);
+            addTerm(constraint, node.input_ports[0], -recipe.output_ports[i].amount * (node.production_multiplier / 100.0));
             m_constraints.push_back(constraint);
         }
     } else {
@@ -307,7 +338,8 @@ void FactorySolver::updateFactoryGraph(FactoryGraph &factory_graph) const {
     const auto &ports = factory_graph.getPorts();
     for (const auto &port: ports) {
         const double value = m_portVariables.at(port.id)->solution_value();
-        factory_graph.getPort(port.id)->rate = value;
+        factory_graph.getPort(port.id)->rate = value + (m_excessVariables.count(port.id) ? m_excessVariables.at(port.id)->solution_value() : 0.0);
+        factory_graph.getPort(port.id)->excess_rate = m_excessVariables.count(port.id) ? m_excessVariables.at(port.id)->solution_value() : 0.0;
     }
 
     const auto &connections = factory_graph.getConnections();
