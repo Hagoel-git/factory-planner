@@ -56,6 +56,7 @@ private:
     bool m_applyToAllEditors = false;
     bool m_isQuitting = false;
     bool m_quitConfirmed = false;
+    int m_activeEditorIndexBeforeQuit = -1;
 
     std::vector<FactoryNodeEditor*> m_editorsToClose;
     FactoryNodeEditor* m_currentEditorToClose = nullptr;
@@ -75,6 +76,7 @@ private:
     bool m_isSaveAsCopy = false;
 
     bool m_restoringSession = false;
+    bool m_firstFrame = true;
 
     void drawMenuBar();
 
