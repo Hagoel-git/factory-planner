@@ -55,6 +55,8 @@ private:
 
     std::unordered_map<uint64_t, operations_research::MPVariable *> m_portVariables;
     std::unordered_map<uint64_t, operations_research::MPVariable *> m_connectionVariables;
+    std::unordered_map<uint64_t, operations_research::MPVariable *> m_excessVariables;
+    std::unordered_map<uint64_t, operations_research::MPVariable *> m_overflowVariables;
     std::vector<operations_research::MPConstraint *> m_constraints; // position = constraint id
 
     void createAllVariables(const FactoryGraph &factory_graph);

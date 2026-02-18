@@ -37,7 +37,7 @@ public:
     std::vector<Connection*> getConnectionsForPort(uint64_t id);
     [[nodiscard]] const std::vector<Connection>& getConnections() const;
 
-    uint64_t addPort(const std::string& resource_key, uint64_t node_id);
+    uint64_t addPort(const std::string& resource_key, uint64_t node_id, ConstraintType constraint_type = ConstraintType::LIMIT);
     bool removePort(uint64_t port_id);
     Port* getPort(uint64_t id);
     const Port* getPort(uint64_t id) const;
@@ -97,7 +97,8 @@ private:
 
     void deserializeNode(const nlohmann::json &node_json, const GameData &game_data);
     void processPorts(const std::vector<RecipePort> &recipePorts, const nlohmann::json &savedPortsJson,
-                      std::vector<uint64_t> &nodePortList, const nlohmann::json &constraints, uint64_t nodeId);
+                      std::vector<uint64_t> &nodePortList, const nlohmann::json &constraints, uint64_t nodeId,
+                      ConstraintType constraintType);
     void deserializeConnection(const nlohmann::json &conn_json);
 
     template<typename TMap>
@@ -116,6 +117,8 @@ private:
         LOG(ERROR) << "Unknown key: " << key << " (prefix: " << prefix << ")";
         return ""; // Empty string indicates failure
     }
+
+    ConstraintType getPortConstraintType(const Recipe &recipe, bool is_input);
 };
 
 #endif //FACTORYGRAPH_H

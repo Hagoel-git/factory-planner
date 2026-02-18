@@ -4,6 +4,7 @@ This document holds the user-facing changelog that is also used in release notes
 
 ## Unreleased [WIP] - YYYY-MM-DD
 ### Changed
+- Improved solver logic. This fixes machines slowing down on target production.
 - The "Open Recent" list is now updated when saving a file, ensuring the most recently active projects stay at the top.
 - Improved Recent Files reliability by saving the list immediately upon modification.
 - New projects are now saved to disk immediately upon creation.

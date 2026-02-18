@@ -640,6 +640,14 @@ void FactoryNodeEditor::drawNodes() {
 
                     ImGui::GetWindowDrawList()->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), bgColor, 0.0f);
                 }
+                if (std::abs(p->excess_rate) > 0.0001f) {
+                    ImVec2 pos = ImGui::GetCursorScreenPos();
+                    ImVec2 size(port_img_h, port_img_h);
+
+                    ImU32 bgColor = IM_COL32(255, 204, 0, 255);
+
+                    ImGui::GetWindowDrawList()->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), bgColor, 0.0f);
+                }
                 ImGui::Image(res.texture, ImVec2(port_img_h,port_img_h)); ImGui::SameLine();
                 if (ImGui::IsItemHovered()) {
                     deferredTooltip = res.name;
@@ -697,6 +705,14 @@ void FactoryNodeEditor::drawNodes() {
                     bool isDark = SettingsManager::instance().getSettings().themeName == "Dark";
                     ImU32 bgColor = isDark ? IM_COL32(70, 190, 70, 200)
                                            : IM_COL32(180, 235, 180, 255);
+
+                    ImGui::GetWindowDrawList()->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), bgColor, 0.0f);
+                }
+                if (std::abs(p->excess_rate) > 0.0001f) {
+                    ImVec2 pos = ImGui::GetCursorScreenPos();
+                    ImVec2 size(port_img_h, port_img_h);
+
+                    ImU32 bgColor = IM_COL32(255, 204, 0, 255);
 
                     ImGui::GetWindowDrawList()->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), bgColor, 0.0f);
                 }
@@ -1149,6 +1165,8 @@ void FactoryNodeEditor::handlePopups() {
                 ImGui::Text("Port ID: %lu", port->id);
                 ImGui::Text("Node ID: %lu", port->node_id);
                 ImGui::Text("Constraint Val: %f", port->user_constraint);
+                ImGui::Text("Excess Rate Val: %f", port->excess_rate);
+                ImGui::Text("Constraint Type: %s", port->constraint_type == ConstraintType::LIMIT ? "Limit" : "Target");
             }
         }
         ImGui::EndPopup();
