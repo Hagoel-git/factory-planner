@@ -1,0 +1,23 @@
+{
+  "cmake.generator": "Ninja",
+  "cmake.configureArgs": [
+    "-DCMAKE_PREFIX_PATH=${workspaceFolder}/external/or-tools",
+    "-Dortools_DIR=${workspaceFolder}/external/or-tools/lib/cmake/ortools",
+    "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+  ],
+  "cmake.copyCompileCommands": "${workspaceFolder}/build/compile_commands.json",
+  "clangd.arguments": [
+    "--background-index",
+    "--compile-commands-dir=${workspaceFolder}/build",
+    "-j=8",
+    "--header-insertion=iwyu",
+    "--completion-style=detailed"
+  ],
+  "clangd.fallbackFlags": [
+    "-std=c++20"
+  ],
+  "files.associations": {
+    "*.h": "cpp",
+    "*.cpp": "cpp"
+  }
+}
