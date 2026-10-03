@@ -13,6 +13,12 @@
 class FactoryNodeEditor;
 enum class SaveAsMode;
 
+enum class CloseFlow {
+    Idle,
+    ClosingTab,
+    Quitting
+};
+
 struct DialogState {
     std::mutex mutex; // Protects the result string
     std::string resultPath;
@@ -32,9 +38,9 @@ public:
 
     void applyThemeToAllEditors();
 
-    void drawDebugWindow();
+    void requestQuit();
 
-    bool quitRequested = false;
+    bool isQuitConfirmed() const { return m_quitConfirmed;}
 private:
     std::vector<std::unique_ptr<FactoryNodeEditor>> m_editors;
     std::vector<std::filesystem::path> m_closedEditorHistory;
@@ -45,6 +51,15 @@ private:
     std::string m_currentTheme;
     bool m_currentShowGrid = false;
     int m_currentNavButtonIndex = -1;
+
+    bool m_showUnsavedChangesDialog = false;
+    bool m_applyToAllEditors = false;
+    bool m_isQuitting = false;
+    bool m_quitConfirmed = false;
+    int m_activeEditorIndexBeforeQuit = -1;
+
+    std::vector<FactoryNodeEditor*> m_editorsToClose;
+    FactoryNodeEditor* m_currentEditorToClose = nullptr;
 
     bool m_dockInitialized = false;
     int m_activeEditor = -1; // No active editor initially
@@ -61,6 +76,7 @@ private:
     bool m_isSaveAsCopy = false;
 
     bool m_restoringSession = false;
+    bool m_firstFrame = true;
 
     void drawMenuBar();
 
@@ -69,11 +85,18 @@ private:
     void drawNewProjectDialog();
     void drawOpenProjectDialog();
     void drawSaveAsDialog();
+    void drawDebugWindow();
+
+    void requestCloseEditor(int index);
+    void processUnsavedChangesQueue();
+    int getEditorIndex(FactoryNodeEditor* editor) const;
 
     void restoreSession();
     void saveSession();
     void reopenLastClosedEditor();
 
+    bool validateNewEditor(const std::string& name, const std::filesystem::path& location);
+    std::optional<GameData> loadGameDataForNewEditor(const std::filesystem::path& path);
     void createNewEditor(const std::filesystem::path &gameDataFilePath, const std::filesystem::path &location, const std::string &name, bool addToRecent = true);
 
     bool saveActiveEditor();
