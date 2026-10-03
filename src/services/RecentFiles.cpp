@@ -32,6 +32,8 @@ void RecentFiles::addFile(std::filesystem::path filePath) {
     if (static_cast<int>(m_files.size()) > maxFiles) {
         m_files.resize(maxFiles);
     }
+
+    save();
 }
 
 const std::vector<std::filesystem::path> &RecentFiles::getFiles() const {

@@ -113,6 +113,17 @@ void Application::draw() {
     ImGui::SetKeyOwner(ImGuiKey_LeftAlt, ImGuiKeyOwner_Any, ImGuiInputFlags_LockThisFrame);
 
     handleShortcuts();
+
+    if (m_focusRequested != -1) {
+        if (m_focusRequested >= 0 && m_focusRequested < static_cast<int>(m_editors.size())) {
+            ImGui::SetWindowFocus(m_editors[m_focusRequested]->getName().c_str());
+            m_activeEditor = m_focusRequested;
+        }
+        if (!m_firstFrame) { // Skip resetting focus on the very first frame to allow initial window focus to work properly
+            m_focusRequested = -1; // Reset after focusing
+        }
+    }
+
     drawDebugWindow();
     drawMenuBar();
     drawNewProjectDialog();
@@ -154,7 +165,9 @@ void Application::draw() {
             // Give each window a unique ID if you have duplicate names
             ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(640, 480));
             bool is_open = true;
-            ImGui::Begin(editor->getName().c_str(), &is_open, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings);
+            ImGuiWindowFlags editorWindowFlags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings;
+            if (editor->isDirty()) editorWindowFlags |= ImGuiWindowFlags_UnsavedDocument;
+            ImGui::Begin(editor->getName().c_str(), &is_open, editorWindowFlags);
             ImGui::PopStyleVar();
             if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
                 m_activeEditor = i;
@@ -162,23 +175,16 @@ void Application::draw() {
             editor->draw();
             ImGui::End();
             if (!is_open) {
-                closeEditor(i);
+                requestCloseEditor(i);
             }
         }
     }
 
-    if (m_focusRequested != -1) {
-        if (m_focusRequested >= 0 && m_focusRequested < static_cast<int>(m_editors.size())) {
-            ImGui::SetWindowFocus(m_editors[m_focusRequested]->getName().c_str());
-            m_activeEditor = m_focusRequested;
-        }
-        m_focusRequested = -1; // Reset after focusing
-    }
-    NotificationManager::instance().draw();
     if (m_showFileAlreadyOpenPopup) {
         ImGui::OpenPopup("FileAlreadyOpen");
         m_showFileAlreadyOpenPopup = false; // Reset after drawing
     }
+
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     if (ImGui::BeginPopupModal("FileAlreadyOpen", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
@@ -188,6 +194,90 @@ void Application::draw() {
         }
         ImGui::EndPopup();
     }
+
+    if (m_showUnsavedChangesDialog) {
+        ImGui::OpenPopup("Unsaved Changes");
+        m_showUnsavedChangesDialog = false; // Reset after drawing
+    }
+
+    center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+    if (ImGui::BeginPopupModal("Unsaved Changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+
+        std::string name = m_currentEditorToClose ? m_currentEditorToClose->getName() : "Unknown";
+        ImGui::Text("Save changes to \"%s\"?", name.c_str());
+        ImGui::Separator();
+
+        if (m_editorsToClose.size() > 1) {
+            ImGui::Checkbox("Apply to all remaining files", &m_applyToAllEditors);
+            ImGui::Separator();
+        }
+
+        if (ImGui::Button("Save", ImVec2(120, 0))) {
+            bool saveSuccess = m_currentEditorToClose && m_currentEditorToClose->save();
+
+            if (saveSuccess) {
+                if (!m_isQuitting) {
+                    int idx = getEditorIndex(m_currentEditorToClose);
+                    if (idx != -1) closeEditor(idx);
+                }
+                if (m_applyToAllEditors) {
+                    for (auto* otherEditor : m_editorsToClose) {
+                        if (otherEditor == m_currentEditorToClose) continue; // Skip the one we just handled
+                        auto* ed = otherEditor;
+                        if (ed->save() && !m_isQuitting) {
+                            int edIdx = getEditorIndex(ed);
+                            if (edIdx != -1) closeEditor(edIdx);
+                        }
+                    }
+                    m_editorsToClose.clear(); // All handled
+                }
+
+                processUnsavedChangesQueue();
+                ImGui::CloseCurrentPopup();
+            }
+        }
+
+        ImGui::SameLine();
+
+        if (ImGui::Button("Discard", ImVec2(120, 0))) {
+            if (!m_isQuitting) {
+                int idx = getEditorIndex(m_currentEditorToClose);
+                if (idx != -1) closeEditor(idx);
+            }
+
+            if (m_applyToAllEditors) {
+                if (!m_isQuitting) {
+                    for (auto otherEditor : m_editorsToClose) {
+                        if (otherEditor == m_currentEditorToClose) continue; // Skip the one we just handled
+                        int edIdx = getEditorIndex(otherEditor);
+                        if (edIdx != -1) closeEditor(edIdx);
+                    }
+                }
+                m_editorsToClose.clear();
+            }
+
+            processUnsavedChangesQueue();
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::SameLine();
+
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+            m_showUnsavedChangesDialog = false;
+            m_editorsToClose.clear();
+            m_isQuitting = false;
+            m_currentEditorToClose = nullptr;
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+
+    NotificationManager::instance().draw();
+
+    m_firstFrame = false;
     ImGui::End();
 }
 
@@ -332,18 +422,43 @@ void Application::drawMenuBar() {
                 if (recentFiles.empty()) {
                     ImGui::TextDisabled("No recent files");
                 } else {
+                    // Detect duplicates to determine how to display them
+                    std::map<std::string, int> nameCounts;
                     for (const auto &file : recentFiles) {
-                        if (ImGui::MenuItem(file.stem().string().c_str())) {
-                            if (!std::filesystem::exists(file)) {
-                                LOG(WARNING) << "Recent file does not exist: " << file;
+                        nameCounts[file.stem().string()]++;
+                    }
+
+                    for (size_t i = 0; i < recentFiles.size(); ++i) {
+                        const auto& file = recentFiles[i];
+                        std::string stem = file.stem().string();
+                        std::string displayName = stem;
+
+                        if (nameCounts[stem] > 1) {
+                            displayName += " (" + file.parent_path().filename().string() + ")";
+                        }
+
+                        bool exists = std::filesystem::exists(file);
+                        if (!exists) {
+                            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
+                            displayName += " (Missing)";
+                        }
+
+                        ImGui::PushID(file.string().c_str());
+                        if (ImGui::MenuItem(displayName.c_str())) {
+                            if (exists) {
+                                VLOG(1) << "Menu: Open Recent selected: " << file.string();
+                                createNewEditor("", file, file.stem().string());
+                            } else {
                                 NotificationManager::instance().addNotification(
-                                    "Error Opening Recent File",
-                                    "The file does not exist: " + file.string(),
-                                    NotificationType::Error);
-                                continue;
+                                   "File Not Found",
+                                   "The file at " + file.string() + " no longer exists.",
+                                   NotificationType::Warning);
                             }
-                            VLOG(1)<< "Menu: Open Recent selected for file: " << file.string();
-                            createNewEditor("", file, file.stem().string());
+                        }
+                        ImGui::PopID();
+
+                        if (!exists) {
+                            ImGui::PopStyleColor();
                         }
                     }
                 }
@@ -394,7 +509,7 @@ void Application::drawMenuBar() {
             ImGui::Separator();
             if (ImGui::MenuItem("Quit", "Ctrl+Q")) {
                 VLOG(1) << "Menu: Quit selected.";
-                quitRequested = true;
+                requestQuit();
             }
 
             ImGui::EndMenu();
@@ -470,7 +585,7 @@ void Application::handleShortcuts() {
         }
         if (ImGui::IsKeyPressed(ImGuiKey_Q)) {
             VLOG(1) << "Shortcut: Ctrl+Q pressed, quitting application.";
-            quitRequested = true;
+            requestQuit();
         }
         if (io.KeyShift) {
             if (ImGui::IsKeyPressed(ImGuiKey_T)) {
@@ -1035,6 +1150,75 @@ void Application::drawSaveAsDialog() {
     }
 }
 
+void Application::requestCloseEditor(int index) {
+    if (index < 0 || index >= static_cast<int>(m_editors.size())) return;
+
+    auto* editor = m_editors[index].get();
+    if (editor->isDirty()) {
+        m_editorsToClose.clear();
+        m_editorsToClose.push_back(editor);
+        m_isQuitting = false;
+        m_applyToAllEditors = false;
+        m_showUnsavedChangesDialog = true;
+        m_currentEditorToClose = editor;
+        m_focusRequested = index;
+    } else {
+        closeEditor(index);
+    }
+}
+
+void Application::requestQuit() {
+    m_editorsToClose.clear();
+    for (const auto& editor : m_editors) {
+        if (editor->isDirty()) {
+            m_editorsToClose.push_back(editor.get());
+        }
+    }
+
+    m_activeEditorIndexBeforeQuit = m_activeEditor;
+    if (m_editorsToClose.empty()) {
+        m_quitConfirmed = true; // No unsaved changes, safe to quit
+    } else {
+        m_isQuitting = true;
+        m_applyToAllEditors = false;
+        m_showUnsavedChangesDialog = true;
+        m_currentEditorToClose = m_editorsToClose.front();
+        // Focus the editor so the user sees what they are saving
+        int idx = getEditorIndex(m_currentEditorToClose);
+        if (idx != -1) m_focusRequested = idx;
+    }
+}
+
+void Application::processUnsavedChangesQueue() {
+    if (!m_editorsToClose.empty() && m_editorsToClose.front() == m_currentEditorToClose) {
+        m_editorsToClose.erase(m_editorsToClose.begin());
+    }
+
+    if (m_editorsToClose.empty()) {
+        m_showUnsavedChangesDialog = false;
+        m_currentEditorToClose = nullptr;
+
+        if (m_isQuitting) {
+            m_quitConfirmed = true;
+        }
+    } else {
+        // Move to next
+        m_currentEditorToClose = m_editorsToClose.front();
+        m_showUnsavedChangesDialog = true;
+
+        // Focus the next one
+        int idx = getEditorIndex(m_currentEditorToClose);
+        if (idx != -1) m_focusRequested = idx;
+    }
+}
+
+int Application::getEditorIndex(FactoryNodeEditor *editor) const {
+    for (size_t i = 0; i < m_editors.size(); ++i) {
+        if (m_editors[i].get() == editor) return static_cast<int>(i);
+    }
+    return -1;
+}
+
 void Application::restoreSession() {
     m_restoringSession = true;
     SessionManager::instance().load();
@@ -1079,60 +1263,83 @@ void Application::saveSession() {
             state.openProjectPaths.push_back(editor->getProjectFilePath());
         }
     }
-    state.activeProjectIndex = m_activeEditor;
+    state.activeProjectIndex = m_activeEditorIndexBeforeQuit;
     SessionManager::instance().setSessionState(state);
     SessionManager::instance().save();
 }
 
-void Application::createNewEditor(const std::filesystem::path &gameDataFilePath, const std::filesystem::path &location,
-                                  const std::string &name, bool addToRecent) {
-    // Check if an editor with the same name already exists
-    if (std::any_of(m_editors.begin(), m_editors.end(), [&](const auto &editor) {
+bool Application::validateNewEditor(const std::string &name, const std::filesystem::path &location) {
+    bool nameExists = std::any_of(m_editors.begin(), m_editors.end(), [&](const auto &editor) {
         return editor->getName() == name;
-    })) {
-        VLOG(1) << "An editor with the name '" << name << "' already exists. Not creating a new one.";
+    });
+
+    if (nameExists) {
+        VLOG(1) << "Editor with name '" << name << "' already exists.";
         m_showFileAlreadyOpenPopup = true;
-        return; // Do not create a new editor if the name already exists
+        return false;
     }
-    if (location.empty() || !std::filesystem::exists(std::filesystem::path(location).parent_path())) {
-        LOG(ERROR) << "Invalid location for new editor: " << location;
+
+    if (location.empty() || !std::filesystem::exists(location.parent_path())) {
+        LOG(ERROR) << "Invalid location: " << location;
         NotificationManager::instance().addNotification("Invalid Project Location",
             "The specified project location is invalid or does not exist.",
             NotificationType::Error);
+        return false;
+    }
+
+    return true;
+}
+
+std::optional<GameData> Application::loadGameDataForNewEditor(const std::filesystem::path &path) {
+    if (path.empty()) {
+        VLOG(1) << "Game data path is empty.";
+        return GameData(); // Empty GameData -> load GameData from save file
+    }
+
+    VLOG(1) << "Game data path: " << path;
+    GameDataManager initDataManager;
+    std::string errorMessage;
+
+    initDataManager.loadFromFile(path, errorMessage);
+
+    if (!errorMessage.empty()) {
+        LOG(ERROR) << "Failed to load game data from file: " << errorMessage;
+        NotificationManager::instance().addNotification("Error Loading Game Data",
+            "Failed to load game data: " + errorMessage,
+            NotificationType::Error);
+        return std::nullopt;
+    }
+
+    LOG(INFO) << "Game data loaded successfully.";
+    return initDataManager.current();
+}
+
+void Application::createNewEditor(const std::filesystem::path &gameDataFilePath, const std::filesystem::path &location,
+                                  const std::string &name, bool addToRecent) {
+    if (!validateNewEditor(name, location)) {
         return;
     }
-    // Create new editor with its own graph and solver
-    if (gameDataFilePath.empty()) {
-        LOG(INFO) << "Creating new editor '" << name << "' with empty game data.";
-        auto editor = std::make_unique<FactoryNodeEditor>(GameData(), location, name);
-        m_editors.push_back(std::move(editor));
-    } else {
-        LOG(INFO) << "Creating new editor '" << name << "' with game data from file: " << gameDataFilePath;
-        GameDataManager tempDataManager;
-        std::string tempDataManagerError;
-        tempDataManager.loadFromFile(gameDataFilePath, tempDataManagerError);
-        if (!tempDataManagerError.empty()) {
-            LOG(ERROR) << "Failed to load game data from file '" << gameDataFilePath
-                       << "': " << tempDataManagerError;
-            NotificationManager::instance().addNotification("Error Loading Game Data",
-                "Failed to load game data from file: " + tempDataManagerError,
-                NotificationType::Error);
-            return;
-        }
 
-        auto editor = std::make_unique<FactoryNodeEditor>(tempDataManager.current(), location, name);
-        m_editors.push_back(std::move(editor));
-        LOG(INFO) << "Game data loaded successfully for editor '" << name << "'.";
-        m_gameDataManager.clear();
-
+    auto gameData = loadGameDataForNewEditor(gameDataFilePath);
+    if (!gameData.has_value()) {
+        return;
     }
 
-    applyThemeToAllEditors(); // Apply current theme
+    LOG(INFO) << "Creating new editor '" << name << "'";
 
-    // Switch to the new tab
+    auto newEditor = std::make_unique<FactoryNodeEditor>(std::move(*gameData), location, name);
+
+    if (!std::filesystem::exists(location) && location.has_filename()) {
+        newEditor->save();
+        VLOG(1) << "Initialized new project file on disk: " << location;
+    }
+
+    m_editors.push_back(std::move(newEditor));
+
+    applyThemeToAllEditors();
     m_activeEditor = static_cast<int>(m_editors.size()) - 1;
-
     saveSession();
+
     if (addToRecent) {
         RecentFiles::instance().addFile(location);
     }
@@ -1146,6 +1353,7 @@ bool Application::saveActiveEditor() {
     auto &editor = m_editors[m_activeEditor];
     if (editor) {
         editor->save();
+        RecentFiles::instance().addFile(editor->getProjectFilePath());
         return true;
     }
     return false;
@@ -1159,6 +1367,7 @@ bool Application::saveActiveEditorAs(const std::string &newFilePath, SaveAsMode 
     auto &editor = m_editors[m_activeEditor];
     if (editor) {
         return editor->saveAs(newFilePath, mode);
+        RecentFiles::instance().addFile(editor->getProjectFilePath());
     }
     return false;
 }
@@ -1301,7 +1510,7 @@ void Application::closeEditorByName(const std::string& name) {
     });
     if (it != m_editors.end()) {
         int index = static_cast<int>(std::distance(m_editors.begin(), it));
-        closeEditor(index);
+        requestCloseEditor(index);
     }
 }
 
@@ -1309,10 +1518,10 @@ void Application::closeActiveEditor() {
     if (m_editors.empty()) return;
 
     if (m_activeEditor >= 0 && static_cast<size_t>(m_activeEditor) < m_editors.size()) {
-        closeEditor(m_activeEditor);
+        requestCloseEditor(m_activeEditor);
     } else {
         // No focused editor, close the last tab as a sensible default
-        closeEditor(static_cast<int>(m_editors.size()) - 1);
+        requestCloseEditor(static_cast<int>(m_editors.size()) - 1);
     }
 }
 
