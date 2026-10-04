@@ -585,10 +585,6 @@ operations_research::MPSolver::ResultStatus FactorySolver::solveLexicographic(co
 
     // 3. Stage 3: Waste Clean-up & Fair Splitting
     Terms waste_terms;
-    std::map<uint64_t, operations_research::MPVariable*> ordered_excess(m_excessVariables.begin(), m_excessVariables.end());
-    for (const auto &[id, var]: ordered_excess) {
-        waste_terms.emplace_back(var, 1.0);
-    }
     std::map<uint64_t, operations_research::MPVariable*> ordered_ports(m_portVariables.begin(), m_portVariables.end());
     for (const auto &[id, var]: ordered_ports) {
         waste_terms.emplace_back(var, kFlowWasteWeight);
