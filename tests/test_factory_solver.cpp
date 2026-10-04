@@ -327,3 +327,23 @@ TEST_F(FactorySolverTest, UnconstrainedGraph) {
     // The current solver implementation will default to 0.
     EXPECT_NEAR(getPort(n_smelter, "iron_ingot", false)->rate, 0.0, 0.001);
 }
+
+#include <fstream>
+#include "core/data/GameDataManager.h"
+TEST(TMP_RealProject, Factory1) {
+    GameDataManager gdm; std::string err;
+    ASSERT_TRUE(gdm.loadFromFile("/home/hagoel/Projects/factory-planner/build/bin/game_data/satisfactory/game_datas/version-1.1.x.x.gd", err)) << err;
+    std::ifstream f("/home/hagoel/Projects/factory-planner/build/bin/projects/Factory_1.fpp");
+    nlohmann::json j; f >> j;
+    for (double screwA : {0.0, -1.0, 40.0}) {
+        FactoryGraph g(gdm.current());
+        g.deserialize(j["graph_data"], gdm.current());
+        g.setPortConstraint(13, screwA);
+        FactorySolver s;
+        auto r = s.solve(g);
+        printf("=== screwA input constraint = %g  status=%s\n", screwA, FactorySolver::toString(r.status).c_str());
+        for (const auto &p : g.getPorts())
+            printf("  node %-2lu %-28s port %-2lu %-12s rate %8.3f excess %8.3f kind=%s\n", p.node_id, g.getNode(p.node_id)->selected_recipe_key.c_str(), p.id, p.resource_key.c_str(), p.rate, p.excess_rate,
+                   p.user_constraint >= 0 ? (FactorySolver::classifyConstraint(g, p) == FactorySolver::ConstraintKind::LIMIT ? "LIMIT" : "TARGET") : "-");
+    }
+}

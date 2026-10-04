@@ -7,6 +7,9 @@
 struct Port {
     double rate = 0.0; // Rate of the port, e.g., how much resource it can handle per second
     double user_constraint = -1.0; // User-defined constraint for the port, -1 means no constraint
+    // Solver output (not serialized). For output ports with connections: production not consumed downstream.
+    // Otherwise: amount by which the rate overshoots its target constraint.
+    double excess_rate = 0.0;
     uint64_t id;
     uint64_t node_id;
     std::string resource_key; // ID of the resource associated with this port

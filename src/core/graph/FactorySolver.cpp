@@ -1,9 +1,33 @@
 #include "FactorySolver.h"
 #include "FactoryGraph.h"
+#include <algorithm>
+#include <cmath>
+#include <map>
 #include <queue>
 #include <absl/log/globals.h>
 
 #include "services/NotificationManager.h"
+
+namespace {
+    using operations_research::MPConstraint;
+    using operations_research::MPSolver;
+    using operations_research::MPVariable;
+
+    // Weight of plain port flow relative to unconsumed excess in the waste stage.
+    constexpr double kFlowWasteWeight = 1e-3;
+    // Values with a smaller magnitude are reported as exactly zero.
+    constexpr double kZeroEpsilon = 1e-9;
+
+    // Slack allowed when locking in the optimum of a stage, so that numerical noise does not render later
+    // stages infeasible.
+    double lockTolerance(const double value) {
+        return 1e-9 * std::max(1.0, std::abs(value));
+    }
+
+    double cleanValue(const double value) {
+        return std::abs(value) < kZeroEpsilon ? 0.0 : value;
+    }
+}
 
 FactorySolver::FactorySolver(const std::string &solver_name) {
     operations_research::MPSolver::OptimizationProblemType problem_type;
@@ -22,7 +46,10 @@ FactorySolver::FactorySolver(const std::string &solver_name) {
 FactorySolver::SolverResult FactorySolver::solve(FactoryGraph &factory_graph) {
     m_portVariables.clear();
     m_connectionVariables.clear();
+    m_excessVariables.clear();
+    m_balanceVariables.clear();
     m_constraints.clear();
+    m_solution.clear();
     m_solver->Clear(); // Clear any previous state in the solver
 
     absl::Time t_start, t_end_setup, t_end_solve, t_end_update;
@@ -30,22 +57,24 @@ FactorySolver::SolverResult FactorySolver::solve(FactoryGraph &factory_graph) {
     try {
         t_start = absl::Now();
         createAllVariables(factory_graph);
-        addObjectiveFunction(factory_graph);
         addAllConstraints(factory_graph);
         absl::SetStderrThreshold(absl::LogSeverityAtLeast::kWarning); // Suppress solver output
         t_end_setup = absl::Now();
-        const auto result_status = m_solver->Solve();
+        const auto result_status = solveLexicographic(factory_graph);
         t_end_solve = absl::Now();
         absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
 
         const SolverResultStatus result = convertSolverStatus(result_status);
+        m_lastSolverStatus = toString(result);
 
         if (result == SolverResultStatus::SUCCESS) {
             updateFactoryGraph(factory_graph);
         } else {
             const auto &ports = factory_graph.getPorts();
             for (const auto &port: ports) {
-                factory_graph.getPort(port.id)->rate = 0; // Update the port rate in the factory graph
+                Port *graph_port = factory_graph.getPort(port.id);
+                graph_port->rate = 0; // Update the port rate in the factory graph
+                graph_port->excess_rate = 0;
             }
             const auto &connections = factory_graph.getConnections();
             for (const auto &conn: connections) {
@@ -54,6 +83,7 @@ FactorySolver::SolverResult FactorySolver::solve(FactoryGraph &factory_graph) {
             LOG(ERROR) << "Solver failed with status: " << m_lastSolverStatus;
         }
         t_end_update = absl::Now();
+        m_lastSolveTime = absl::ToDoubleMilliseconds(t_end_update - t_start);
 
         if (result == SolverResultStatus::SUCCESS) {
             VLOG(1) << "Solver finished in " << absl::ToDoubleMilliseconds(t_end_update - t_start) << "ms";
@@ -69,6 +99,7 @@ FactorySolver::SolverResult FactorySolver::solve(FactoryGraph &factory_graph) {
             absl::ToDoubleMilliseconds(t_end_update - t_end_solve)
         };
     } catch (const std::exception &e) {
+        absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
         LOG(ERROR) << "Exception during solving: " << e.what();
         NotificationManager::instance().addNotification(
             "Solver Error",
@@ -83,6 +114,27 @@ FactorySolver::SolverResult FactorySolver::solve(FactoryGraph &factory_graph) {
             absl::ToDoubleMilliseconds(t_end_update - t_end_solve)
         };
     }
+}
+
+
+FactorySolver::ConstraintKind FactorySolver::classifyConstraint(const FactoryGraph &factory_graph, const Port &port) {
+    // - Input ports: the constraint is a ceiling ("at most this much may flow in").
+    // - Raw producers (miners, extractors, ...) consume nothing but the "nothing" resource; a constraint on them
+    //   describes how much is available (a capacity).
+    // - Any other output port: the constraint describes how much of the product is wanted (a target).
+    if (factory_graph.isInputPort(port.id)) {
+        return ConstraintKind::LIMIT;
+    }
+    const Node *node = factory_graph.getNode(port.node_id);
+    if (!node) {
+        return ConstraintKind::TARGET;
+    }
+    const bool is_raw_source = std::all_of(node->input_ports.begin(), node->input_ports.end(),
+        [&](const uint64_t input_id) {
+            const Port *input = factory_graph.getPort(input_id);
+            return input && input->resource_key == "nothing";
+        });
+    return is_raw_source ? ConstraintKind::LIMIT : ConstraintKind::TARGET;
 }
 
 
@@ -108,7 +160,7 @@ void FactorySolver::createAllVariables(const FactoryGraph &factory_graph) {
     }
 }
 
-void FactorySolver::addObjectiveFunction(const FactoryGraph &factory_graph) {
+FactorySolver::Terms FactorySolver::buildThroughputTerms(const FactoryGraph &factory_graph) {
     // Find all ports that are reachable from constrained ports
     std::unordered_set<uint64_t> reachable_ports = findReachablePorts(factory_graph);
 
@@ -118,28 +170,24 @@ void FactorySolver::addObjectiveFunction(const FactoryGraph &factory_graph) {
         ports_with_outputs.insert(conn.from_port);
     }
 
-    const auto &ports = factory_graph.getPorts();
-    operations_research::MPObjective *objective = m_solver->MutableObjective();
-    bool has_objective_terms = false;
-
-    // Maximize output of leaf ports that are reachable from constrained ports
-    for (const auto &port: ports) {
-        if (!ports_with_outputs.count(port.id) && reachable_ports.count(port.id)) {
-            objective->SetCoefficient(m_portVariables[port.id], 1.0);
-            has_objective_terms = true;
+    // Leaf products are output ports nothing consumes. Nodes without any outputs are pure consumers; their inputs
+    // are the end of the line instead.
+    Terms terms;
+    for (const auto &node: factory_graph.getNodes()) {
+        for (const uint64_t port_id: node.output_ports) {
+            if (!ports_with_outputs.count(port_id) && reachable_ports.count(port_id)) {
+                terms.emplace_back(m_portVariables.at(port_id), 1.0);
+            }
+        }
+        if (node.output_ports.empty()) {
+            for (const uint64_t port_id: node.input_ports) {
+                if (reachable_ports.count(port_id)) {
+                    terms.emplace_back(m_portVariables.at(port_id), 1.0);
+                }
+            }
         }
     }
-
-    // If no reachable leaf ports found, add a dummy objective to avoid unbounded problem
-    if (!has_objective_terms) {
-        // Just minimize the sum of all variables (or set a trivial objective)
-        for (const auto &port: ports) {
-            objective->SetCoefficient(m_portVariables.at(port.id), 0.0001); // Small coefficient
-        }
-        objective->SetMinimization(); // Minimize instead of maximize
-    } else {
-        objective->SetMaximization();
-    }
+    return terms;
 }
 
 // Helper function to find all ports reachable from constrained ports
@@ -212,11 +260,21 @@ void FactorySolver::addAllConstraints(const FactoryGraph &factory_graph) {
     // Add user-defined constraints for each port
     const auto &ports = factory_graph.getPorts();
     for (const auto &port: ports) {
-        if (port.user_constraint >= 0) {
-            operations_research::MPConstraint *constraint = m_solver->MakeRowConstraint(-operations_research::MPSolver::infinity(), port.user_constraint);
-            constraint->SetCoefficient(m_portVariables.at(port.id), 1.0);
-            m_constraints.push_back(constraint);
+        if (port.user_constraint < 0) {
+            continue;
         }
+        MPVariable *rate = m_portVariables.at(port.id);
+        const std::string suffix = std::to_string(port.id);
+
+
+        if (classifyConstraint(factory_graph, port) == ConstraintKind::LIMIT) {
+            // Capacity: 0 <= rate <= limit
+            rate->SetUB(port.user_constraint);
+        } else {
+            // Target: rate <= target
+            rate->SetUB(port.user_constraint);
+        }
+
     }
 
     addConnectionConstraints(factory_graph);
@@ -268,26 +326,57 @@ void FactorySolver::addRecipeConstraints(const Node &node, const Recipe &recipe)
 void FactorySolver::addConnectionConstraints(const FactoryGraph &factory_graph) {
     const auto &connections = factory_graph.getConnections();
 
-    // Build maps for port -> connections
-    std::unordered_map<uint64_t, std::vector<uint64_t> > port_outgoing;
-    std::unordered_map<uint64_t, std::vector<uint64_t> > port_incoming;
+    // Build maps for port -> connections (ordered, so the model is built deterministically)
+    std::map<uint64_t, std::vector<uint64_t> > port_outgoing;
+    std::map<uint64_t, std::vector<uint64_t> > port_incoming;
 
     for (const auto &conn: connections) {
         port_outgoing[conn.from_port].push_back(conn.id);
         port_incoming[conn.to_port].push_back(conn.id);
     }
 
+    // For splits/merges: hi >= flow_c >= lo for every branch c. Minimizing (hi - lo) later spreads the flow evenly
+    // over branches that are not otherwise determined, instead of starving some of them.
+    auto addBalance = [&](const uint64_t port_id, const std::vector<uint64_t> &conn_ids) {
+        if (conn_ids.size() < 2) {
+            return;
+        }
+        const std::string suffix = std::to_string(port_id);
+        MPVariable *hi = m_solver->MakeNumVar(0.0, MPSolver::infinity(), "BalanceMax_" + suffix);
+        MPVariable *lo = m_solver->MakeNumVar(0.0, MPSolver::infinity(), "BalanceMin_" + suffix);
+        for (const uint64_t conn_id: conn_ids) {
+            MPVariable *flow = m_connectionVariables.at(conn_id);
+
+            MPConstraint *upper = m_solver->MakeRowConstraint(-MPSolver::infinity(), 0.0);
+            upper->SetCoefficient(flow, 1.0);
+            upper->SetCoefficient(hi, -1.0);
+            m_constraints.push_back(upper);
+
+            MPConstraint *lower = m_solver->MakeRowConstraint(-MPSolver::infinity(), 0.0);
+            lower->SetCoefficient(lo, 1.0);
+            lower->SetCoefficient(flow, -1.0);
+            m_constraints.push_back(lower);
+        }
+        m_balanceVariables.emplace_back(hi, lo);
+    };
+
     // Create constraints linking ports to their connection flows
 
-    // For each port with outgoing connections: port = sum(outgoing_connections)
+    // For each port with outgoing connections: port = sum(outgoing_connections) + excess
+    // The excess is production that nothing downstream consumes (e.g. surplus byproducts).
     for (const auto &[port_id, conn_ids]: port_outgoing) {
+        MPVariable *excess = m_solver->MakeNumVar(0.0, MPSolver::infinity(), "Excess_" + std::to_string(port_id));
+        m_excessVariables[port_id] = excess;
+
         auto *constraint = m_solver->MakeRowConstraint(0.0, 0.0);
         constraint->SetCoefficient(m_portVariables.at(port_id), 1.0);
+        constraint->SetCoefficient(excess, -1.0);
 
         for (uint64_t conn_id: conn_ids) {
-            constraint->SetCoefficient(m_connectionVariables[conn_id], -1.0);
+            constraint->SetCoefficient(m_connectionVariables.at(conn_id), -1.0);
         }
         m_constraints.push_back(constraint);
+        addBalance(port_id, conn_ids);
     }
 
     // For each port with incoming connections: port = sum(incoming_connections)
@@ -299,21 +388,283 @@ void FactorySolver::addConnectionConstraints(const FactoryGraph &factory_graph) 
             constraint->SetCoefficient(m_connectionVariables.at(conn_id), 1.0);
         }
         m_constraints.push_back(constraint);
+        addBalance(port_id, conn_ids);
     }
+}
+
+
+std::unordered_map<uint64_t, int> FactorySolver::computeNodeDepths(const FactoryGraph &factory_graph) const {
+    std::unordered_map<uint64_t, std::vector<uint64_t>> adj;
+    std::unordered_set<uint64_t> all_nodes;
+    
+    for (const auto& node : factory_graph.getNodes()) {
+        all_nodes.insert(node.id);
+        adj[node.id] = {};
+    }
+    
+    std::unordered_map<uint64_t, uint64_t> port_to_node;
+    for (const auto& port : factory_graph.getPorts()) {
+        port_to_node[port.id] = port.node_id;
+    }
+    
+    for (const auto& conn : factory_graph.getConnections()) {
+        uint64_t from_node = port_to_node[conn.from_port];
+        uint64_t to_node = port_to_node[conn.to_port];
+        if (from_node != to_node) {
+            adj[from_node].push_back(to_node);
+        }
+    }
+    
+    std::vector<uint64_t> order;
+    std::unordered_set<uint64_t> visited;
+    
+    std::function<void(uint64_t)> dfs1 = [&](uint64_t u) {
+        visited.insert(u);
+        for (uint64_t v : adj[u]) {
+            if (!visited.count(v)) dfs1(v);
+        }
+        order.push_back(u);
+    };
+    
+    for (uint64_t u : all_nodes) {
+        if (!visited.count(u)) dfs1(u);
+    }
+    
+    std::unordered_map<uint64_t, std::vector<uint64_t>> rev_adj;
+    for (const auto& kv : adj) {
+        for (uint64_t v : kv.second) rev_adj[v].push_back(kv.first);
+    }
+    
+    visited.clear();
+    std::vector<std::vector<uint64_t>> sccs;
+    std::unordered_map<uint64_t, int> node_to_scc;
+    
+    std::function<void(uint64_t, std::vector<uint64_t>&)> dfs2 = [&](uint64_t u, std::vector<uint64_t>& comp) {
+        visited.insert(u);
+        comp.push_back(u);
+        node_to_scc[u] = sccs.size();
+        for (uint64_t v : rev_adj[u]) {
+            if (!visited.count(v)) dfs2(v, comp);
+        }
+    };
+    
+    for (auto it = order.rbegin(); it != order.rend(); ++it) {
+        if (!visited.count(*it)) {
+            std::vector<uint64_t> comp;
+            dfs2(*it, comp);
+            sccs.push_back(comp);
+        }
+    }
+    
+    std::unordered_map<uint64_t, int> memo;
+    std::function<int(int)> get_scc_depth = [&](int scc_id) {
+        if (memo.count(scc_id)) return memo[scc_id];
+        int max_d = 0;
+        for (uint64_t u : sccs[scc_id]) {
+            for (uint64_t v : rev_adj[u]) {
+                int v_scc = node_to_scc[v];
+                if (v_scc != scc_id) {
+                    max_d = std::max(max_d, 1 + get_scc_depth(v_scc));
+                }
+            }
+        }
+        return memo[scc_id] = max_d;
+    };
+    
+    std::unordered_map<uint64_t, int> depths;
+    for (int i = 0; i < (int)sccs.size(); ++i) {
+        int d = get_scc_depth(i);
+        for (uint64_t u : sccs[i]) depths[u] = d;
+    }
+    
+    return depths;
+}
+
+
+operations_research::MPSolver::ResultStatus FactorySolver::solveLexicographic(const FactoryGraph &factory_graph) {
+    // 1. Stage 1: Water-filling for TARGETs
+    std::vector<uint64_t> active_targets;
+    for (const auto &port : factory_graph.getPorts()) {
+        if (port.user_constraint >= 0 && classifyConstraint(factory_graph, port) == ConstraintKind::TARGET) {
+            active_targets.push_back(port.id);
+        }
+    }
+
+    if (!active_targets.empty()) {
+        operations_research::MPVariable* S = m_solver->MakeNumVar(0.0, 1.0, "Saturation");
+        std::unordered_map<uint64_t, operations_research::MPConstraint*> s_constraints;
+        
+        for (uint64_t port_id : active_targets) {
+            double target = factory_graph.getPort(port_id)->user_constraint;
+            auto* c = m_solver->MakeRowConstraint(0.0, operations_research::MPSolver::infinity());
+            c->SetCoefficient(m_portVariables.at(port_id), 1.0);
+            c->SetCoefficient(S, -target);
+            s_constraints[port_id] = c;
+        }
+        
+        while (!active_targets.empty()) {
+            operations_research::MPObjective* obj = m_solver->MutableObjective();
+            obj->Clear();
+            obj->SetCoefficient(S, 1.0);
+            obj->SetOptimizationDirection(true);
+            
+            if (m_solver->Solve() != operations_research::MPSolver::OPTIMAL) break;
+            
+            double s_val = S->solution_value();
+            if (s_val >= 1.0 - kZeroEpsilon) {
+                for (uint64_t port_id : active_targets) {
+                    double target = factory_graph.getPort(port_id)->user_constraint;
+                    m_portVariables.at(port_id)->SetLB(std::max(0.0, target));
+                }
+                break;
+            }
+            
+            std::vector<uint64_t> next_active;
+            double old_lb = S->lb();
+            S->SetLB(s_val);
+            
+            for (uint64_t port_id : active_targets) {
+                double target = factory_graph.getPort(port_id)->user_constraint;
+                auto* test_c = m_solver->MakeRowConstraint(target * (s_val + 0.001), operations_research::MPSolver::infinity());
+                test_c->SetCoefficient(m_portVariables.at(port_id), 1.0);
+                
+                auto status = m_solver->Solve();
+                
+                test_c->SetBounds(-operations_research::MPSolver::infinity(), operations_research::MPSolver::infinity());
+                test_c->SetCoefficient(m_portVariables.at(port_id), 0.0);
+                
+                if (status == operations_research::MPSolver::OPTIMAL) {
+                    next_active.push_back(port_id);
+                } else {
+                    double locked_val = target * s_val;
+                    auto* R_i = m_portVariables.at(port_id);
+                    R_i->SetLB(std::max(R_i->lb(), locked_val - lockTolerance(locked_val)));
+                    
+                    auto* c = s_constraints[port_id];
+                    c->SetBounds(-operations_research::MPSolver::infinity(), operations_research::MPSolver::infinity());
+                    c->SetCoefficient(R_i, 0.0);
+                    c->SetCoefficient(S, 0.0);
+                }
+            }
+            S->SetLB(old_lb);
+            if (next_active.size() == active_targets.size()) break;
+            active_targets = next_active;
+        }
+    }
+
+    // 2. Stage 2: Lexicographic Depth Priority
+    auto node_depths = computeNodeDepths(factory_graph);
+    std::unordered_map<uint64_t, uint64_t> port_to_node;
+    for (const auto& port : factory_graph.getPorts()) port_to_node[port.id] = port.node_id;
+    
+    Terms all_throughput = buildThroughputTerms(factory_graph);
+    std::map<int, Terms, std::greater<int>> depth_terms;
+    
+    for (const auto& term : all_throughput) {
+        uint64_t port_id = 0;
+        for (const auto& kv : m_portVariables) {
+            if (kv.second == term.first) { port_id = kv.first; break; }
+        }
+        int depth = node_depths[port_to_node[port_id]];
+        depth_terms[depth].push_back(term);
+    }
+    
+    for (const auto& kv : depth_terms) {
+        double obj_val = 0.0;
+        if (solveStage(kv.second, true, obj_val) == operations_research::MPSolver::OPTIMAL) {
+            lockStage(kv.second, true, obj_val);
+        }
+    }
+
+    // 3. Stage 3: Waste Clean-up & Fair Splitting
+    Terms waste_terms;
+    std::map<uint64_t, operations_research::MPVariable*> ordered_excess(m_excessVariables.begin(), m_excessVariables.end());
+    for (const auto &[id, var]: ordered_excess) {
+        waste_terms.emplace_back(var, 1.0);
+    }
+    std::map<uint64_t, operations_research::MPVariable*> ordered_ports(m_portVariables.begin(), m_portVariables.end());
+    for (const auto &[id, var]: ordered_ports) {
+        waste_terms.emplace_back(var, kFlowWasteWeight);
+    }
+    
+    for (const auto &[hi, lo]: m_balanceVariables) {
+        waste_terms.emplace_back(hi, 1e-4);
+        waste_terms.emplace_back(lo, -1e-4);
+    }
+    
+    double obj_val = 0.0;
+    auto final_status = solveStage(waste_terms, false, obj_val);
+    
+    if (final_status == operations_research::MPSolver::OPTIMAL) {
+        storeSolution();
+    }
+    return final_status;
+}
+
+
+operations_research::MPSolver::ResultStatus FactorySolver::solveStage(const Terms &terms, const bool maximize,
+                                                                      double &objective_value) {
+    operations_research::MPObjective *objective = m_solver->MutableObjective();
+    objective->Clear();
+    for (const auto &[var, coefficient]: terms) {
+        objective->SetCoefficient(var, objective->GetCoefficient(var) + coefficient);
+    }
+    objective->SetOptimizationDirection(maximize);
+
+    const MPSolver::ResultStatus status = m_solver->Solve();
+    if (status == MPSolver::OPTIMAL) {
+        objective_value = objective->Value();
+    }
+    return status;
+}
+
+void FactorySolver::lockStage(const Terms &terms, const bool maximize, const double objective_value) {
+    if (terms.empty()) {
+        return;
+    }
+    const double tolerance = lockTolerance(objective_value);
+    MPConstraint *constraint = maximize
+        ? m_solver->MakeRowConstraint(objective_value - tolerance, MPSolver::infinity())
+        : m_solver->MakeRowConstraint(-MPSolver::infinity(), objective_value + tolerance);
+    for (const auto &[var, coefficient]: terms) {
+        constraint->SetCoefficient(var, constraint->GetCoefficient(var) + coefficient);
+    }
+    m_constraints.push_back(constraint);
+}
+
+void FactorySolver::storeSolution() {
+    const auto &variables = m_solver->variables();
+    m_solution.assign(variables.size(), 0.0);
+    for (const MPVariable *var: variables) {
+        m_solution[var->index()] = var->solution_value();
+    }
+}
+
+double FactorySolver::solutionValue(const MPVariable *var) const {
+    const int index = var->index();
+    return index >= 0 && static_cast<size_t>(index) < m_solution.size() ? cleanValue(m_solution[index]) : 0.0;
 }
 
 void FactorySolver::updateFactoryGraph(FactoryGraph &factory_graph) const {
     // Output the results to factory_graph
     const auto &ports = factory_graph.getPorts();
     for (const auto &port: ports) {
-        const double value = m_portVariables.at(port.id)->solution_value();
-        factory_graph.getPort(port.id)->rate = value;
+        Port *graph_port = factory_graph.getPort(port.id);
+        graph_port->rate = solutionValue(m_portVariables.at(port.id));
+
+        // Unconsumed production on connected outputs; otherwise the overshoot above a target.
+        double excess = 0.0;
+        if (const auto it = m_excessVariables.find(port.id); it != m_excessVariables.end()) {
+            excess = solutionValue(it->second);
+        
+            
+        }
+        graph_port->excess_rate = excess;
     }
 
     const auto &connections = factory_graph.getConnections();
     for (const auto &conn: connections) {
-        const double value = m_connectionVariables.at(conn.id)->solution_value();
-        factory_graph.getConnection(conn.id)->rate = value;
+        factory_graph.getConnection(conn.id)->rate = solutionValue(m_connectionVariables.at(conn.id));
     }
 
     // calculate machine counts and power usage for each node
