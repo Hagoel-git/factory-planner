@@ -13,6 +13,9 @@ This document holds the user-facing changelog that is also used in release notes
 - Constraints on raw producers (e.g. miners) are now treated as capacities, while constraints on any other port are treated as targets the solver tries to meet.
 - Surplus production that nothing downstream consumes (e.g. byproducts) is now allowed and reported as excess instead of throttling the whole production line.
 - Flow is now split evenly between otherwise unconstrained branches of a split or merge.
+- Massively improved solver performance on large graphs by optimizing the Target Water-Filling algorithm (from $O(N^2)$ to $O(1)$ solves per iteration).
+- Fixed "Waste Compression" in the solver where byproducts were unnecessarily processed into denser items (pulling in extra raw resources) to numerically minimize excess item counts. Excess now stops at the earliest possible unconstrained port.
+- UI: Unconsumed byproducts now highlight their output port in orange and display the exact excess amount in tooltips and the right-click context menu.
 
 ### Fixed
 - Fixed high CPU usage when the application is running in the background.
