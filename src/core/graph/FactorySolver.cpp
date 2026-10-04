@@ -519,23 +519,27 @@ operations_research::MPSolver::ResultStatus FactorySolver::solveLexicographic(co
                 break;
             }
             
-            std::vector<uint64_t> next_active;
+            // OPTIMIZATION: Instead of N test solves, we do 1 solve maximizing sum(R_i)
+            // to instantly reveal which targets are strictly bottlenecked.
             double old_lb = S->lb();
+            double old_ub = S->ub();
             S->SetLB(s_val);
+            S->SetUB(s_val);
             
+            obj->Clear();
+            for (uint64_t port_id : active_targets) {
+                obj->SetCoefficient(m_portVariables.at(port_id), 1.0);
+            }
+            obj->SetOptimizationDirection(true);
+            m_solver->Solve();
+            
+            std::vector<uint64_t> next_active;
             for (uint64_t port_id : active_targets) {
                 double target = factory_graph.getPort(port_id)->user_constraint;
-                auto* test_c = m_solver->MakeRowConstraint(target * (s_val + 0.001), operations_research::MPSolver::infinity());
-                test_c->SetCoefficient(m_portVariables.at(port_id), 1.0);
+                double r_val = m_portVariables.at(port_id)->solution_value();
                 
-                auto status = m_solver->Solve();
-                
-                test_c->SetBounds(-operations_research::MPSolver::infinity(), operations_research::MPSolver::infinity());
-                test_c->SetCoefficient(m_portVariables.at(port_id), 0.0);
-                
-                if (status == operations_research::MPSolver::OPTIMAL) {
-                    next_active.push_back(port_id);
-                } else {
+                // If it couldn't grow beyond the S constraint, it's a bottleneck
+                if (r_val <= target * s_val + 1e-6) {
                     double locked_val = target * s_val;
                     auto* R_i = m_portVariables.at(port_id);
                     R_i->SetLB(std::max(R_i->lb(), locked_val - lockTolerance(locked_val)));
@@ -544,9 +548,12 @@ operations_research::MPSolver::ResultStatus FactorySolver::solveLexicographic(co
                     c->SetBounds(-operations_research::MPSolver::infinity(), operations_research::MPSolver::infinity());
                     c->SetCoefficient(R_i, 0.0);
                     c->SetCoefficient(S, 0.0);
+                } else {
+                    next_active.push_back(port_id);
                 }
             }
             S->SetLB(old_lb);
+            S->SetUB(old_ub);
             if (next_active.size() == active_targets.size()) break;
             active_targets = next_active;
         }
