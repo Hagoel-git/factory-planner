@@ -3,6 +3,7 @@
 #include "core/graph/FactoryGraph.h"
 #include "common/IdUtils.h"
 #include <cstdint>
+#include <unordered_set>
 #include <absl/log/log.h>
 
 namespace ed = ax::NodeEditor;
@@ -49,25 +50,36 @@ void AddNodeCommand::execute(FactoryGraph &graph) {
         uint64_t newNodeId = graph.addNode(nodeName, recipeKey);
         ed::SetNodePosition(IdUtils::toNodeId(newNodeId), position);
 
-        if (fromPort != -1) {
-            bool fromInput = graph.isInputPort(graph.getPort(fromPort)->id);
-            // Find the corresponding port on the newly created node to connect to
-            const auto &ports_on_new_node = fromInput
-                                                ? graph.getNode(newNodeId)->output_ports
-                                                : graph.getNode(newNodeId)->input_ports;
-            for (uint64_t new_port_id: ports_on_new_node) {
-                if (graph.getPort(new_port_id)->resource_key == graph.getPort(fromPort)->resource_key) {
-                    // Determine connection direction dynamically
-                    uint64_t source_id = fromInput ? new_port_id : fromPort;
-                    uint64_t target_id = fromInput ? fromPort : new_port_id;
-                    uint64_t conn_id = graph.addConnection(source_id, target_id);
-                    connectionData = *graph.getConnection(conn_id); // Store connection data for undo
+        connectionData = Connection(-1, -1, -1, "");
+        if (fromPort != (uint64_t)-1) {
+            Port* fromPortPtr = graph.getPort(fromPort);
+            if (fromPortPtr) {
+                bool fromInput = graph.isInputPort(fromPortPtr->id);
+                // Find the corresponding port on the newly created node to connect to
+                Node* newNodePtr = graph.getNode(newNodeId);
+                if (newNodePtr) {
+                    const auto &ports_on_new_node = fromInput
+                                                        ? newNodePtr->output_ports
+                                                        : newNodePtr->input_ports;
+                    for (uint64_t new_port_id: ports_on_new_node) {
+                        Port* newPortPtr = graph.getPort(new_port_id);
+                        if (newPortPtr && newPortPtr->resource_key == fromPortPtr->resource_key) {
+                            // Determine connection direction dynamically
+                            uint64_t source_id = fromInput ? new_port_id : fromPort;
+                            uint64_t target_id = fromInput ? fromPort : new_port_id;
+                            uint64_t newConnId = graph.addConnection(source_id, target_id);
+                            if (newConnId != (uint64_t)-1) {
+                                auto conn = graph.getConnection(newConnId);
+                                if (conn) {
+                                    connectionData = *conn; // Store connection data for undo
+                                }
+                            }
 
-                    break; // Connect to the first available port and stop searching
+                            break; // Connect to the first available port and stop searching
+                        }
+                    }
                 }
             }
-        } else {
-            connectionData = Connection(-1, -1, -1, ""); // No connection data if no port is specified
         }
         auto node = graph.getNode(newNodeId);
         if (node) {
@@ -90,7 +102,7 @@ void AddNodeCommand::execute(FactoryGraph &graph) {
         graph.restoreNode(nodeData, ports_data);
         ed::SetNodePosition(IdUtils::toNodeId(nodeData.id), position);
         // Reconnect ports if necessary
-        if (connectionData.from_port != -1 && connectionData.to_port != -1) {
+        if (connectionData.from_port != (uint64_t)-1 && connectionData.to_port != (uint64_t)-1) {
             graph.restoreConnection(connectionData);
         }
     }
@@ -104,15 +116,21 @@ void RemoveNodeCommand::execute(FactoryGraph &graph) {
     Node *node = graph.getNode(id);
     if (!node) return;
     nodeData = *node; // Store the node data for undo
+    nodeName = node->name;
     position = ed::GetNodePosition(IdUtils::toNodeId(id));
     // Store all ports and connections for undo
+    ports_data.clear();
+    connections_data.clear();
+    std::unordered_set<uint64_t> recorded_connections;
     for (uint64_t port_id: nodeData.input_ports) {
         auto port = graph.getPort(port_id);
         if (port) {
             ports_data.push_back(*port); // Store input port data
         }
         for (const auto &conn: graph.getConnectionsForPort(port_id)) {
-            connections_data.push_back(*conn); // Store connection data
+            if (conn && recorded_connections.insert(conn->id).second) {
+                connections_data.push_back(*conn); // Store connection data
+            }
         }
     }
     for (uint64_t port_id: nodeData.output_ports) {
@@ -121,7 +139,9 @@ void RemoveNodeCommand::execute(FactoryGraph &graph) {
             ports_data.push_back(*port); // Store output port data
         }
         for (const auto &conn: graph.getConnectionsForPort(port_id)) {
-            connections_data.push_back(*conn); // Store connection data
+            if (conn && recorded_connections.insert(conn->id).second) {
+                connections_data.push_back(*conn); // Store connection data
+            }
         }
     }
 
@@ -144,15 +164,24 @@ void RemoveNodeCommand::undo(FactoryGraph &graph) {
 void AddConnectionCommand::execute(FactoryGraph &graph) {
     if (!executed) {
         uint64_t connId = graph.addConnection(fromPort, toPort);
-        connectionData = *graph.getConnection(connId); // Store connection data for undo
+        if (connId != (uint64_t)-1) {
+            auto conn = graph.getConnection(connId);
+            if (conn) {
+                connectionData = *conn; // Store connection data for undo
+            }
+        }
         executed = true;
     } else {
-        graph.restoreConnection(connectionData);
+        if (connectionData.from_port != (uint64_t)-1 && connectionData.to_port != (uint64_t)-1) {
+            graph.restoreConnection(connectionData);
+        }
     }
 }
 
 void AddConnectionCommand::undo(FactoryGraph &graph) {
-    graph.removeConnection(fromPort, toPort);
+    if (connectionData.from_port != (uint64_t)-1 && connectionData.to_port != (uint64_t)-1) {
+        graph.removeConnection(fromPort, toPort);
+    }
 }
 
 void RemoveConnectionCommand::execute(FactoryGraph &graph) {
@@ -164,7 +193,9 @@ void RemoveConnectionCommand::execute(FactoryGraph &graph) {
 }
 
 void RemoveConnectionCommand::undo(FactoryGraph &graph) {
-    graph.restoreConnection(connectionData);
+    if (connectionData.from_port != (uint64_t)-1 && connectionData.to_port != (uint64_t)-1) {
+        graph.restoreConnection(connectionData);
+    }
 }
 
 void ChangeClockSpeedCommand::execute(FactoryGraph &graph) {
@@ -212,10 +243,12 @@ void PasteCommand::execute(FactoryGraph &graph) {
             originalCenter.y += pair.second.y; // Sum up original positions
         }
 
-        originalCenter.x /= copy_buffer.nodePositions.size();
-        originalCenter.y /= copy_buffer.nodePositions.size();
-
-        ImVec2 offset = ImVec2(mousePos.x - originalCenter.x, mousePos.y - originalCenter.y);
+        ImVec2 offset = ImVec2(0, 0);
+        if (!copy_buffer.nodePositions.empty()) {
+            originalCenter.x /= copy_buffer.nodePositions.size();
+            originalCenter.y /= copy_buffer.nodePositions.size();
+            offset = ImVec2(mousePos.x - originalCenter.x, mousePos.y - originalCenter.y);
+        }
 
         std::unordered_map<uint64_t, uint64_t> nodeIdMap;
 
@@ -223,15 +256,19 @@ void PasteCommand::execute(FactoryGraph &graph) {
             uint64_t oldId = pair.first;
             const auto &node = pair.second;
             uint64_t newId = graph.addNode(node.name, node.selected_recipe_key);
-            ImVec2 oldPos = copy_buffer.nodePositions[oldId];
+            auto posIt = copy_buffer.nodePositions.find(oldId);
+            ImVec2 oldPos = (posIt != copy_buffer.nodePositions.end()) ? posIt->second : ImVec2(0, 0);
             ImVec2 newPos = ImVec2(oldPos.x + offset.x, oldPos.y + offset.y);
 
-            pastedNodes.push_back(*graph.getNode(newId));
-            pastedNodePositions[newId] = newPos;
+            auto newNodePtr = graph.getNode(newId);
+            if (newNodePtr) {
+                pastedNodes.push_back(*newNodePtr);
+                pastedNodePositions[newId] = newPos;
 
-            ed::SetNodePosition(IdUtils::toNodeId(newId), newPos);
-            ed::SelectNode(IdUtils::toNodeId(newId), true);
-            nodeIdMap[oldId] = newId; // Map old node ID to new node
+                ed::SetNodePosition(IdUtils::toNodeId(newId), newPos);
+                ed::SelectNode(IdUtils::toNodeId(newId), true);
+                nodeIdMap[oldId] = newId; // Map old node ID to new node
+            }
         }
         std::unordered_map<uint64_t, uint64_t> oldToNewPortMap;
         for (const auto &pair: nodeIdMap) {
@@ -242,23 +279,35 @@ void PasteCommand::execute(FactoryGraph &graph) {
             auto newNode = graph.getNode(newNodeId);
 
             if (newNode) {
-                for (size_t i = 0; i < oldNode.input_ports.size(); ++i) {
+                size_t inputCount = std::min(oldNode.input_ports.size(), newNode->input_ports.size());
+                for (size_t i = 0; i < inputCount; ++i) {
                     uint64_t oldPortId = oldNode.input_ports[i];
                     uint64_t newPortId = newNode->input_ports[i];
                     oldToNewPortMap[oldPortId] = newPortId;
 
-                    // Copy constraints
-                    graph.getPort(newPortId)->user_constraint = copy_buffer.ports[oldPortId].user_constraint;
-                    pastedPorts.insert({newNodeId, *graph.getPort(newPortId)});
+                    Port* newPort = graph.getPort(newPortId);
+                    if (newPort) {
+                        auto oldPortIt = copy_buffer.ports.find(oldPortId);
+                        if (oldPortIt != copy_buffer.ports.end()) {
+                            newPort->user_constraint = oldPortIt->second.user_constraint;
+                        }
+                        pastedPorts.insert({newNodeId, *newPort});
+                    }
                 }
-                for (size_t i = 0; i < oldNode.output_ports.size(); ++i) {
+                size_t outputCount = std::min(oldNode.output_ports.size(), newNode->output_ports.size());
+                for (size_t i = 0; i < outputCount; ++i) {
                     uint64_t oldPortId = oldNode.output_ports[i];
                     uint64_t newPortId = newNode->output_ports[i];
                     oldToNewPortMap[oldPortId] = newPortId;
 
-                    // Copy constraints
-                    graph.getPort(newPortId)->user_constraint = copy_buffer.ports[oldPortId].user_constraint;
-                    pastedPorts.insert({newNodeId, *graph.getPort(newPortId)});
+                    Port* newPort = graph.getPort(newPortId);
+                    if (newPort) {
+                        auto oldPortIt = copy_buffer.ports.find(oldPortId);
+                        if (oldPortIt != copy_buffer.ports.end()) {
+                            newPort->user_constraint = oldPortIt->second.user_constraint;
+                        }
+                        pastedPorts.insert({newNodeId, *newPort});
+                    }
                 }
             }
         }
@@ -275,7 +324,12 @@ void PasteCommand::execute(FactoryGraph &graph) {
                 uint64_t newFromPort = oldToNewPortMap[fromPort];
                 uint64_t newToPort = oldToNewPortMap[toPort];
                 uint64_t newConnId = graph.addConnection(newFromPort, newToPort);
-                pastedConnections.push_back(*graph.getConnection(newConnId));
+                if (newConnId != (uint64_t)-1) {
+                    auto conn_ptr = graph.getConnection(newConnId);
+                    if (conn_ptr) {
+                        pastedConnections.push_back(*conn_ptr);
+                    }
+                }
             }
 
             if (mapExternalConnections) {
@@ -284,14 +338,24 @@ void PasteCommand::execute(FactoryGraph &graph) {
                     uint64_t newFromPort = oldToNewPortMap[fromPort];
                     uint64_t originalToPort = toPort;
                     uint64_t newConnId = graph.addConnection(newFromPort, originalToPort);
-                    pastedConnections.push_back(*graph.getConnection(newConnId));
+                    if (newConnId != (uint64_t)-1) {
+                        auto conn_ptr = graph.getConnection(newConnId);
+                        if (conn_ptr) {
+                            pastedConnections.push_back(*conn_ptr);
+                        }
+                    }
                 }
                 // Case 3: From port is external, to port is copied
                 else if (!fromIsCopied && toIsCopied) {
                     uint64_t originalFromPort = fromPort;
                     uint64_t newToPort = oldToNewPortMap[toPort];
                     uint64_t newConnId = graph.addConnection(originalFromPort, newToPort);
-                    pastedConnections.push_back(*graph.getConnection(newConnId));
+                    if (newConnId != (uint64_t)-1) {
+                        auto conn_ptr = graph.getConnection(newConnId);
+                        if (conn_ptr) {
+                            pastedConnections.push_back(*conn_ptr);
+                        }
+                    }
                 }
             }
         }
@@ -306,6 +370,10 @@ void PasteCommand::execute(FactoryGraph &graph) {
             }
 
             graph.restoreNode(node, ports);
+            auto pos_it = pastedNodePositions.find(node.id);
+            if (pos_it != pastedNodePositions.end()) {
+                ed::SetNodePosition(IdUtils::toNodeId(node.id), pos_it->second);
+            }
         }
         for (const auto &conn: pastedConnections) {
             graph.restoreConnection(conn);

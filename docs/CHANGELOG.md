@@ -31,6 +31,11 @@ This document holds the user-facing changelog that is also used in release notes
 - Fixed an unhandled filesystem exception when scanning for game data packages in missing or inaccessible directories.
 - Fixed a file descriptor leak in texture loading when encountering invalid or empty files.
 - Fixed crashes (`std::bad_optional_access`) on path resolution failures across settings, recent files, and session managers.
+- Fixed container iterator invalidation causing port leaks and dangling connections when deleting nodes with multiple input or output ports.
+- Fixed internal connection index corruption and accidental connection deletion when removing ports with duplicate or self-referential connections.
+- Fixed application crashes caused by null pointer dereferences when invalid or rejected connections are created during node addition or pasting.
+- Fixed duplicate connection restoration and graph corruption when undoing node deletions that have internal self-connections between input and output ports.
+- Fixed pasted nodes losing their positions in the canvas editor when redoing a paste operation.
 
 ---
 
