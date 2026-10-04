@@ -361,7 +361,7 @@ bool GameDataManager::editMachine(const std::string& current_key, const Machine 
     }
     if (new_key != current_key) {
         if (m_data.id_aliases.count(PREFIX_MAC + new_key)) {
-            if (m_data.id_aliases.at(PREFIX_RES + new_key) != current_key) {
+            if (m_data.id_aliases.at(PREFIX_MAC + new_key) != current_key) {
                 LOG(WARNING) << "Name conflicts with a historical alias: " << new_key;
                 outError = "Name conflicts with a historical alias.";
                 return false;
@@ -471,7 +471,7 @@ bool GameDataManager::editRecipe(const std::string& current_key, const Recipe &r
     }
     if (new_key != current_key) {
         if (m_data.id_aliases.count(PREFIX_REC + new_key)) {
-            if (m_data.id_aliases.at(PREFIX_RES + new_key) != current_key) {
+            if (m_data.id_aliases.at(PREFIX_REC + new_key) != current_key) {
                 LOG(WARNING) << "Name conflicts with a historical alias: " << new_key;
                 outError = "Name conflicts with a historical alias.";
                 return false;

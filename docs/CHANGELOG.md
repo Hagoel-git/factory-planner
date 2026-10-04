@@ -27,6 +27,10 @@ This document holds the user-facing changelog that is also used in release notes
 - Fixed wrong tooltip styling when hovering over node icons in Light theme.
 - Fixed potential crashes when loading save files containing invalid connections or duplicate IDs.
 - Fixed the solver starving a constrained branch of a split (running it at 0) while sending all flow to an unconstrained sibling branch.
+- Fixed application crashes when renaming machines or recipes that have historical aliases in the Game Data Manager.
+- Fixed an unhandled filesystem exception when scanning for game data packages in missing or inaccessible directories.
+- Fixed a file descriptor leak in texture loading when encountering invalid or empty files.
+- Fixed crashes (`std::bad_optional_access`) on path resolution failures across settings, recent files, and session managers.
 
 ---
 
