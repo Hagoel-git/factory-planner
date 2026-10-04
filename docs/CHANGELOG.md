@@ -18,6 +18,9 @@ This document holds the user-facing changelog that is also used in release notes
 - UI: Unconsumed byproducts now highlight their output port in orange and display the exact excess amount in tooltips and the right-click context menu.
 
 ### Fixed
+- Fixed context menu failing to open if the mouse moved slightly during a right-click, especially noticeable on high-DPI mice.
+- Fixed the port context menu incorrectly displaying the constraint of a previously right-clicked port instead of the current one.
+- Fixed the text input field in the port context menu failing to consistently auto-focus when opened for quick editing.
 - Fixed high CPU usage when the application is running in the background.
 - Fixed a bug where creating a new project would unintentionally clear the data in the Game Data Manager window.
 - Fixed wrong tooltip styling when hovering over node icons in Light theme.
