@@ -916,6 +916,7 @@ void FactoryNodeEditor::handleContextMenus() {
     }
     if (ed::ShowPinContextMenu(&m_contextPinId)) {
         ImGui::OpenPopup("Pin Context Menu");
+        m_isContextMenuInitialized = false;
     }
     if (ed::ShowLinkContextMenu(&m_contextLinkId)) {
         ImGui::OpenPopup("Link Context Menu");
@@ -1098,8 +1099,6 @@ void FactoryNodeEditor::handlePopups() {
     if (ImGui::BeginPopup("Pin Context Menu")) {
         auto port = m_graph->getPort(IdUtils::fromPinId(m_contextPinId));
         if (port) {
-            bool shouldFocusRate = false;
-
             if (!m_isContextMenuInitialized) {
                 m_contextPinOriginalConstraint = port->user_constraint;
                 m_contextPinCurrentConstraint = port->user_constraint;
@@ -1107,7 +1106,6 @@ void FactoryNodeEditor::handlePopups() {
                 else snprintf(m_contextPinConstraintBuf, sizeof(m_contextPinConstraintBuf), "%.15g", port->user_constraint);
 
                 m_isContextMenuInitialized = true;
-                shouldFocusRate = true; // Signal to focus the input later
             }
 
             if (gameData.resources.count(port->resource_key)) {
@@ -1129,7 +1127,7 @@ void FactoryNodeEditor::handlePopups() {
 
             bool hugeGraph = m_graph->getNodes().size() >= 1000;
 
-            if (shouldFocusRate) ImGui::SetKeyboardFocusHere();
+            if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
             if (ImGui::InputText("##rate", m_contextPinConstraintBuf, sizeof(m_contextPinConstraintBuf), ImGuiInputTextFlags_AutoSelectAll)) {
                 double v = strtod(m_contextPinConstraintBuf, nullptr);
                 if (m_contextPinConstraintBuf[0] == '\0') m_contextPinCurrentConstraint = -1.0;
