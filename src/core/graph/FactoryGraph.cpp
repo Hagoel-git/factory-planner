@@ -37,11 +37,14 @@ bool FactoryGraph::removeNode(uint64_t node_id) {
     size_t index = map_it->second;
     Node& node = m_nodes[index];
 
+    std::vector<uint64_t> input_ports = node.input_ports;
+    std::vector<uint64_t> output_ports = node.output_ports;
+
     // Remove all associated ports (these functions already handle their own swap-and-pop)
-    for (uint64_t port_id : node.input_ports) {
+    for (uint64_t port_id : input_ports) {
         removePort(port_id);
     }
-    for (uint64_t port_id : node.output_ports) {
+    for (uint64_t port_id : output_ports) {
         removePort(port_id);
     }
 
@@ -102,7 +105,11 @@ bool FactoryGraph::removePort(uint64_t port_id) {
         connections_to_remove.push_back(it->second);
     }
     for (uint64_t conn_id : connections_to_remove) {
-        const auto& conn = m_connections[m_connectionIdToIndex[conn_id]];
+        auto it = m_connectionIdToIndex.find(conn_id);
+        if (it == m_connectionIdToIndex.end()) {
+            continue;
+        }
+        const auto& conn = m_connections[it->second];
         removeConnection(conn.from_port, conn.to_port);
     }
 

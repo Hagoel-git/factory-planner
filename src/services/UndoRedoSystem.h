@@ -61,7 +61,7 @@ private:
     bool executed;
 public:
     AddNodeCommand(std::string  name, std::string recipeKey, uint64_t fromPort, const ImVec2& pos)
-        : nodeName(std::move(name)), recipeKey(std::move(recipeKey)), fromPort(fromPort), position(pos), nodeData(), connectionData(), executed(false) {
+        : nodeName(std::move(name)), recipeKey(std::move(recipeKey)), fromPort(fromPort), position(pos), nodeData(), connectionData(-1, -1, -1, ""), executed(false) {
     }
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
@@ -72,6 +72,7 @@ public:
 class RemoveNodeCommand : public Command {
 private:
     uint64_t id;
+    std::string nodeName;
 
     Node nodeData;
     std::vector<Port> ports_data;
@@ -79,12 +80,14 @@ private:
     ImVec2 position;
 public:
     explicit RemoveNodeCommand(uint64_t id)
-        : id(id), nodeData(), position(0, 0) {
+        : id(id), nodeName(), nodeData(), position(0, 0) {
     }
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
     CommandFlags getFlags() const override { return CommandFlags{true, true}; }
-    std::string getDescription() const override { return "Remove Node: " + nodeData.name; }
+    std::string getDescription() const override {
+        return "Remove Node: " + (!nodeName.empty() ? nodeName : nodeData.name);
+    }
 
 };
 
@@ -97,7 +100,7 @@ private:
     bool executed;
 public:
     AddConnectionCommand(uint64_t fromPort, uint64_t toPort)
-        : fromPort(fromPort), toPort(toPort), connectionData(), executed(false) {
+        : fromPort(fromPort), toPort(toPort), connectionData(-1, -1, -1, ""), executed(false) {
     }
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
@@ -111,9 +114,9 @@ private:
     uint64_t toPort;
 
     Connection connectionData;
-    public:
+public:
     RemoveConnectionCommand(uint64_t fromPort, uint64_t toPort)
-        : fromPort(fromPort), toPort(toPort), connectionData() {
+        : fromPort(fromPort), toPort(toPort), connectionData(-1, -1, -1, "") {
     }
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
