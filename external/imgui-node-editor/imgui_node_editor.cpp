@@ -4296,7 +4296,8 @@ ed::EditorAction::AcceptResult ed::ContextMenuAction::Accept(const Control& cont
 {
     const auto isPressed  = ImGui::IsMouseClicked(Editor->GetConfig().ContextMenuButtonIndex);
     const auto isReleased = ImGui::IsMouseReleased(Editor->GetConfig().ContextMenuButtonIndex);
-    const auto isDragging = ImGui::IsMouseDragging(Editor->GetConfig().ContextMenuButtonIndex, 1);
+    const float dragThreshold = (Editor->GetConfig().ContextMenuButtonIndex == Editor->GetConfig().NavigateButtonIndex) ? -1.0f : 1000.0f;
+    const auto isDragging = ImGui::IsMouseDragging(Editor->GetConfig().ContextMenuButtonIndex, dragThreshold);
 
     if (isPressed || isReleased || isDragging)
     {
