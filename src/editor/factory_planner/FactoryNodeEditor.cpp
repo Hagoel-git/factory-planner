@@ -690,19 +690,31 @@ void FactoryNodeEditor::drawNodes() {
                 Resource res = m_graph->getGameData().resources.at(p->resource_key);
                 ed::BeginPin(IdUtils::toPinId(p->id), ed::PinKind::Output);
                 ImGui::Text("%.2f", p->rate); ImGui::SameLine();
-                if (m_graph->getConnectionsForPort(p->id).empty()) {
+                bool has_excess = p->excess_rate > 1e-4;
+                bool is_unconnected = m_graph->getConnectionsForPort(p->id).empty();
+                if (has_excess || is_unconnected) {
                     ImVec2 pos = ImGui::GetCursorScreenPos();
                     ImVec2 size(port_img_h, port_img_h);
 
                     bool isDark = SettingsManager::instance().getSettings().themeName == "Dark";
-                    ImU32 bgColor = isDark ? IM_COL32(70, 190, 70, 200)
-                                           : IM_COL32(180, 235, 180, 255);
+                    ImU32 bgColor;
+                    if (has_excess) {
+                        bgColor = isDark ? IM_COL32(210, 140, 50, 200) : IM_COL32(245, 190, 100, 255); // Orange
+                    } else {
+                        bgColor = isDark ? IM_COL32(70, 190, 70, 200) : IM_COL32(180, 235, 180, 255); // Green
+                    }
 
                     ImGui::GetWindowDrawList()->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), bgColor, 0.0f);
                 }
                 ImGui::Image(res.texture, ImVec2(port_img_h,port_img_h));
                 if (ImGui::IsItemHovered()) {
-                    deferredTooltip = res.name;
+                    if (has_excess) {
+                        char ex_buf[128];
+                        snprintf(ex_buf, sizeof(ex_buf), "%s\nExcess: %.2f/min", res.name.c_str(), p->excess_rate);
+                        deferredTooltip = ex_buf;
+                    } else {
+                        deferredTooltip = res.name;
+                    }
                 }
                 if (SettingsManager::instance().getSettings().showResourceNames) {
                     ImGui::Text("%s", res.name.c_str());
@@ -1141,6 +1153,13 @@ void FactoryNodeEditor::handlePopups() {
             }
 
             ImGui::TextDisabled("Current Actual Flow: %.2f", port->rate);
+            if (!m_graph->isInputPort(port->id)) {
+                if (port->excess_rate > 1e-4) {
+                    ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "Excess (Unconsumed): %.2f", port->excess_rate);
+                } else {
+                    ImGui::TextDisabled("Excess (Unconsumed): 0.00");
+                }
+            }
 
 
             if (showDebug) {
