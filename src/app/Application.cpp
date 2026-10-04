@@ -114,16 +114,6 @@ void Application::draw() {
 
     handleShortcuts();
 
-    if (m_focusRequested != -1) {
-        if (m_focusRequested >= 0 && m_focusRequested < static_cast<int>(m_editors.size())) {
-            ImGui::SetWindowFocus(m_editors[m_focusRequested]->getName().c_str());
-            m_activeEditor = m_focusRequested;
-        }
-        if (!m_firstFrame) { // Skip resetting focus on the very first frame to allow initial window focus to work properly
-            m_focusRequested = -1; // Reset after focusing
-        }
-    }
-
     drawDebugWindow();
     drawMenuBar();
     drawNewProjectDialog();
@@ -166,8 +156,14 @@ void Application::draw() {
             ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(640, 480));
             bool is_open = true;
             ImGuiWindowFlags editorWindowFlags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings;
-            if (editor->isDirty()) editorWindowFlags |= ImGuiWindowFlags_UnsavedDocument;
-            ImGui::Begin(editor->getName().c_str(), &is_open, editorWindowFlags);
+            
+            std::string windowTitle = editor->getName();
+            if (editor->isDirty()) {
+                windowTitle += " *";
+            }
+            windowTitle += "###" + editor->getName();
+            
+            ImGui::Begin(windowTitle.c_str(), &is_open, editorWindowFlags);
             ImGui::PopStyleVar();
             if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
                 m_activeEditor = i;
@@ -177,6 +173,16 @@ void Application::draw() {
             if (!is_open) {
                 requestCloseEditor(i);
             }
+        }
+    }
+
+    if (m_focusRequested != -1) {
+        if (m_focusRequested >= 0 && m_focusRequested < static_cast<int>(m_editors.size())) {
+            ImGui::SetWindowFocus(m_editors[m_focusRequested]->getName().c_str());
+            m_activeEditor = m_focusRequested;
+        }
+        if (!m_firstFrame) {
+            m_focusRequested = -1;
         }
     }
 
