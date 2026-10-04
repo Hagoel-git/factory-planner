@@ -48,10 +48,16 @@ bool TextureUtils::loadTextureFromFile(const char* file_name, GLuint* out_textur
         return false;
     fseek(f, 0, SEEK_END);
     size_t file_size = (size_t)ftell(f);
-    if (file_size == -1)
+    if (file_size == (size_t)-1 || file_size == 0) {
+        fclose(f);
         return false;
+    }
     fseek(f, 0, SEEK_SET);
     void* file_data = IM_ALLOC(file_size);
+    if (file_data == NULL) {
+        fclose(f);
+        return false;
+    }
     fread(file_data, 1, file_size, f);
     fclose(f);
     bool ret = loadTextureFromMemory(file_data, file_size, out_texture, out_width, out_height);

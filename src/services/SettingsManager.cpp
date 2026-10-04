@@ -14,7 +14,7 @@ SettingsManager& SettingsManager::instance() {
 
 void SettingsManager::load() {
     std::error_code ec;
-    std::filesystem::create_directories(getExecutableDirectory().value(), ec);
+    std::filesystem::create_directories(getExecutableDirectory().value_or(std::filesystem::current_path()), ec);
     if (ec) {
         LOG(ERROR) << "Failed to create settings directory: " << ec.message();
     }
@@ -37,7 +37,7 @@ SettingsManager::SettingsManager() = default;
 
 void SettingsManager::loadAppSettings() {
     VLOG(2) << "Loading app settings from file.";
-    const auto path = getExecutableDirectory().value() / "app_settings.json";
+    const auto path = getExecutableDirectory().value_or(std::filesystem::current_path()) / "app_settings.json";
     if (!std::filesystem::exists(path)) {
         LOG(WARNING) << "Settings file does not exist, using defaults.";
         return;
@@ -131,7 +131,7 @@ void SettingsManager::saveAppSettings() const {
     j["windowWidth"] = m_settings.windowWidth;
     j["windowHeight"] = m_settings.windowHeight;
     j["windowMaximized"] = m_settings.windowMaximized;
-    const auto path = getExecutableDirectory().value() / "app_settings.json";
+    const auto path = getExecutableDirectory().value_or(std::filesystem::current_path()) / "app_settings.json";
     std::ofstream o(path);
     if (!o.is_open()) {
         LOG(ERROR) << "Failed to open settings file for writing: " << path;

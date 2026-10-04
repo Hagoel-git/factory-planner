@@ -13,7 +13,7 @@ RecentFiles &RecentFiles::instance() {
 
 void RecentFiles::load() {
     std::error_code ec;
-    std::filesystem::create_directories(getExecutableDirectory().value(), ec);
+    std::filesystem::create_directories(getExecutableDirectory().value_or(std::filesystem::current_path()), ec);
     if (ec) {
         LOG(ERROR) << "Failed to create settings directory: " << ec.message();
     }
@@ -42,7 +42,7 @@ const std::vector<std::filesystem::path> &RecentFiles::getFiles() const {
 
 void RecentFiles::loadRecentFiles() {
     VLOG(2) << "Loading recent files.";
-    const auto path = getExecutableDirectory().value() / "recent.json";
+    const auto path = getExecutableDirectory().value_or(std::filesystem::current_path()) / "recent.json";
     if (!std::filesystem::exists(path)) {
         LOG(INFO) << "Recent files does not exist: " << path;
         return;
@@ -81,7 +81,7 @@ void RecentFiles::saveRecentFiles() const {
     for (const auto &path : m_files) {
         j["recentFiles"].push_back(path);
     }
-    auto file = getExecutableDirectory().value() / "recent.json";
+    auto file = getExecutableDirectory().value_or(std::filesystem::current_path()) / "recent.json";
     try {
         std::ofstream ofs(file);
         if (!ofs) {
