@@ -25,6 +25,9 @@ void RecentFiles::save() {
 }
 
 void RecentFiles::addFile(std::filesystem::path filePath) {
+    if (filePath.empty()) {
+        return;
+    }
     VLOG(2) << "Adding recent file: " << filePath;
     m_files.erase(std::remove(m_files.begin(), m_files.end(), filePath), m_files.end());
     m_files.insert(m_files.begin(), std::move(filePath));
@@ -61,9 +64,11 @@ void RecentFiles::loadRecentFiles() {
             m_files.clear();
             for (const auto &item : j["recentFiles"]) {
                 if (item.is_string()) {
-                    bool alreadyExists = m_files.end() != std::find(m_files.begin(), m_files.end(), item.get<std::string>());
+                    std::string str = item.get<std::string>();
+                    if (str.empty()) continue;
+                    bool alreadyExists = m_files.end() != std::find(m_files.begin(), m_files.end(), str);
                     if (!alreadyExists) {
-                        m_files.push_back(item.get<std::string>());
+                        m_files.push_back(std::move(str));
                     }
                 }
             }

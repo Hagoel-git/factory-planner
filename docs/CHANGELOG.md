@@ -45,6 +45,12 @@ This document holds the user-facing changelog that is also used in release notes
 - Fixed empty resource key on connections deserialized from saved project files, ensuring correct link labels and flow displays.
 - Improved connection removal performance from $O(E)$ to $O(1)$ by using an ID-based index lookup.
 - Fixed crashes (null pointer dereference) in project saving and loading operations when executing in headless mode or without an active node editor context.
+- Fixed Save As operations failing to register the newly saved project in the Recent Files history.
+- Fixed premature teardown of the native file dialog system caused by background dialog threads, which caused subsequent file and folder pickers across the application to fail.
+- Fixed window title collision in Settings Editor that conflicted with Game Data Manager.
+- Fixed active editor tab desynchronization when closing a tab situated before the currently active tab.
+- Fixed project-dependent menu items (Save, Save As, Undo, Redo, Cut, Copy, Paste, Select All, Show Flow, Fit View) remaining active when no projects are open.
+- Removed debug crash button from the debug interface.
 
 ---
 
