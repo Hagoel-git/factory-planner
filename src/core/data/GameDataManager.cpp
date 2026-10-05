@@ -176,6 +176,7 @@ bool GameDataManager::loadFromFile(const std::filesystem::path &path, std::strin
             "Error Loading Game Data",
             "An error occurred while loading game data: " + std::string(ex.what()),
             NotificationType::Error);
+        outError = ex.what();
         return false;
     }
 }
@@ -631,6 +632,46 @@ bool GameDataManager::moveDataFile(const std::string &targetGameName, std::strin
         std::filesystem::rename(sourcePath, destPath);
         m_data.gameDataFilePath = destPath;
         m_data.gameName = targetGameName;
+
+        // Copy associated icon assets to target package icons directory
+        std::filesystem::path sourcePackageRoot = sourcePath.parent_path().parent_path();
+        std::filesystem::path targetPackageRoot = rootDataDir / targetGameName;
+        if (sourcePackageRoot != targetPackageRoot) {
+            std::filesystem::path sourceIconsDir = sourcePackageRoot / "icons";
+            std::filesystem::path targetIconsDir = targetPackageRoot / "icons";
+            std::error_code ec;
+
+            for (auto& [key, res] : m_data.resources) {
+                ec.clear();
+                std::filesystem::path srcIcon = sourceIconsDir / "resources" / (key + ".png");
+                if (std::filesystem::exists(srcIcon, ec) && !ec) {
+                    std::filesystem::path dstDir = targetIconsDir / "resources";
+                    std::filesystem::create_directories(dstDir, ec);
+                    ec.clear();
+                    std::filesystem::path dstIcon = dstDir / (key + ".png");
+                    std::filesystem::copy_file(srcIcon, dstIcon, std::filesystem::copy_options::overwrite_existing, ec);
+                    if (!ec) {
+                        res.texture = TextureManager::instance().loadTexture(dstIcon);
+                    }
+                }
+            }
+
+            for (auto& [key, mach] : m_data.machines) {
+                ec.clear();
+                std::filesystem::path srcIcon = sourceIconsDir / "machines" / (key + ".png");
+                if (std::filesystem::exists(srcIcon, ec) && !ec) {
+                    std::filesystem::path dstDir = targetIconsDir / "machines";
+                    std::filesystem::create_directories(dstDir, ec);
+                    ec.clear();
+                    std::filesystem::path dstIcon = dstDir / (key + ".png");
+                    std::filesystem::copy_file(srcIcon, dstIcon, std::filesystem::copy_options::overwrite_existing, ec);
+                    if (!ec) {
+                        mach.texture = TextureManager::instance().loadTexture(dstIcon);
+                    }
+                }
+            }
+        }
+
         LOG(INFO) << "Moved game data file: " << sourcePath << " -> " << destPath;
         return true;
     } catch (const std::exception& e) {
@@ -833,6 +874,7 @@ GameData GameDataManager::jsonToGameData(const json &j, std::filesystem::path& p
         NotificationManager::instance().addNotification("Error Loading Game Data",
             "An error occurred while parsing game data: " + std::string(ex.what()),
             NotificationType::Error);
+        outError = ex.what();
         return {};
     }
 }

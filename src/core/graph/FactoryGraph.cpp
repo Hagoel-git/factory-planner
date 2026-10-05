@@ -105,12 +105,7 @@ bool FactoryGraph::removePort(uint64_t port_id) {
         connections_to_remove.push_back(it->second);
     }
     for (uint64_t conn_id : connections_to_remove) {
-        auto it = m_connectionIdToIndex.find(conn_id);
-        if (it == m_connectionIdToIndex.end()) {
-            continue;
-        }
-        const auto& conn = m_connections[it->second];
-        removeConnection(conn.from_port, conn.to_port);
+        removeConnection(conn_id);
     }
 
     Node* parent_node = getNode(node_id);
@@ -176,6 +171,9 @@ uint64_t FactoryGraph::addConnection(uint64_t from_port, uint64_t to_port) {
 }
 
 void FactoryGraph::restoreConnection(const Connection &connection) {
+    if (connection.id >= m_nextConnectionId) {
+        m_nextConnectionId = connection.id + 1;
+    }
     m_connections.push_back(connection);
     size_t index = m_connections.size() - 1;
     addConnectionToIndex(connection.id, index);
@@ -184,47 +182,62 @@ void FactoryGraph::restoreConnection(const Connection &connection) {
     VLOG(3) << "Restored connection ID: " << connection.id << " from port ID: " << connection.from_port << " to port ID: " << connection.to_port;
 }
 
+bool FactoryGraph::removeConnection(uint64_t conn_id) {
+    auto it = m_connectionIdToIndex.find(conn_id);
+    if (it == m_connectionIdToIndex.end()) {
+        VLOG(3) << "No connection found with ID: " << conn_id << " to remove.";
+        return false;
+    }
+
+    size_t index = it->second;
+    uint64_t from_port = m_connections[index].from_port;
+    uint64_t to_port = m_connections[index].to_port;
+
+    // Remove from m_connectionsByPort before erasing
+    auto range_from = m_connectionsByPort.equal_range(from_port);
+    for (auto multi_it = range_from.first; multi_it != range_from.second; ++multi_it) {
+        if (multi_it->second == conn_id) {
+            m_connectionsByPort.erase(multi_it);
+            break;
+        }
+    }
+    auto range_to = m_connectionsByPort.equal_range(to_port);
+    for (auto multi_it = range_to.first; multi_it != range_to.second; ++multi_it) {
+        if (multi_it->second == conn_id) {
+            m_connectionsByPort.erase(multi_it);
+            break;
+        }
+    }
+
+    // If it's not the last element, swap with the last
+    size_t last_index = m_connections.size() - 1;
+    if (index != last_index) {
+        std::swap(m_connections[index], m_connections[last_index]);
+
+        // Update index map for the swapped element
+        uint64_t swapped_id = m_connections[index].id;
+        m_connectionIdToIndex[swapped_id] = index;
+    }
+
+    // Remove from index map
+    removeConnectionFromIndex(conn_id);
+
+    // Actually remove the element
+    m_connections.pop_back();
+    VLOG(3) << "Removed connection ID: " << conn_id << " from port ID: " << from_port << " to port ID: " << to_port;
+    return true;
+}
+
 bool FactoryGraph::removeConnection(uint64_t from_port, uint64_t to_port) {
-    for (size_t index = 0; index < m_connections.size(); ++index) {
-        if (m_connections[index].from_port == from_port &&
-            m_connections[index].to_port == to_port) {
-
-            uint64_t connection_id = m_connections[index].id;
-
-            // Remove from m_connectionsByPort before erasing
-            auto range_from = m_connectionsByPort.equal_range(from_port);
-            for (auto multi_it = range_from.first; multi_it != range_from.second; ++multi_it) {
-                if (multi_it->second == connection_id) {
-                    m_connectionsByPort.erase(multi_it);
-                    break;
-                }
-            }
-            auto range_to = m_connectionsByPort.equal_range(to_port);
-            for (auto multi_it = range_to.first; multi_it != range_to.second; ++multi_it) {
-                if (multi_it->second == connection_id) {
-                    m_connectionsByPort.erase(multi_it);
-                    break;
-                }
-            }
-
-            // If it's not the last element, swap with the last
-            size_t last_index = m_connections.size() - 1;
-            if (index != last_index) {
-                std::swap(m_connections[index], m_connections[last_index]);
-
-                // Update index map for the swapped element
-                uint64_t swapped_id = m_connections[index].id;
-                m_connectionIdToIndex[swapped_id] = index;
-            }
-
-            // Remove from index map
-            removeConnectionFromIndex(connection_id);
-
-            // Actually remove the element
-            m_connections.pop_back();
-            VLOG(3) << "Removed connection ID: " << connection_id << " from port ID: " << from_port << " to port ID: " << to_port;
-            return true;
-            }
+    auto range = m_connectionsByPort.equal_range(from_port);
+    for (auto it = range.first; it != range.second; ++it) {
+        uint64_t conn_id = it->second;
+        auto idx_it = m_connectionIdToIndex.find(conn_id);
+        if (idx_it == m_connectionIdToIndex.end()) continue;
+        const Connection &c = m_connections[idx_it->second];
+        if (c.from_port == from_port && c.to_port == to_port) {
+            return removeConnection(conn_id);
+        }
     }
     VLOG(3) << "No connection found from port ID: " << from_port << " to port ID: " << to_port << " to remove.";
     return false;
@@ -247,7 +260,21 @@ Connection *FactoryGraph::getConnection(uint64_t from_port, uint64_t to_port) {
         auto idx_it = m_connectionIdToIndex.find(conn_id);
         if (idx_it == m_connectionIdToIndex.end()) continue;
         const Connection &c = m_connections[idx_it->second];
-        if (c.to_port == to_port) {
+        if (c.from_port == from_port && c.to_port == to_port) {
+            return getConnection(conn_id);
+        }
+    }
+    return nullptr;
+}
+
+const Connection *FactoryGraph::getConnection(uint64_t from_port, uint64_t to_port) const {
+    auto range = m_connectionsByPort.equal_range(from_port);
+    for (auto it = range.first; it != range.second; ++it) {
+        uint64_t conn_id = it->second;
+        auto idx_it = m_connectionIdToIndex.find(conn_id);
+        if (idx_it == m_connectionIdToIndex.end()) continue;
+        const Connection &c = m_connections[idx_it->second];
+        if (c.from_port == from_port && c.to_port == to_port) {
             return getConnection(conn_id);
         }
     }
@@ -271,6 +298,8 @@ void FactoryGraph::clear() {
     m_nodeIdToIndex.clear();
     m_portIdToIndex.clear();
     m_connectionIdToIndex.clear();
+    m_connectionsByPort.clear();
+    m_preferredMachines.clear();
     m_nextPortId = 0;
     m_nextNodeId = 0;
     m_nextConnectionId = 0;
@@ -306,6 +335,7 @@ nlohmann::json FactoryGraph::serialize() const {
         conn_json["id"] = connection.id;
         conn_json["from_port"] = connection.from_port;
         conn_json["to_port"] = connection.to_port;
+        conn_json["resource_key"] = connection.resource_key;
         j["connections"].push_back(conn_json);
     }
 
@@ -485,6 +515,8 @@ void FactoryGraph::deserializeConnection(const nlohmann::json& conn_json) {
         return;
     }
 
+    conn.resource_key = fromPort->resource_key;
+
     if (conn.id >= m_nextConnectionId) m_nextConnectionId = conn.id + 1;
 
     m_connections.push_back(conn);
@@ -510,13 +542,23 @@ bool FactoryGraph::setNodeRecipe(uint64_t node_id, const std::string& recipe_key
         node->machine_key = "";
     }
 
-    node->output_ports.resize(recipe.output_ports.size());
+    std::vector<uint64_t> old_ports;
+    old_ports.reserve(node->input_ports.size() + node->output_ports.size());
+    old_ports.insert(old_ports.end(), node->input_ports.begin(), node->input_ports.end());
+    old_ports.insert(old_ports.end(), node->output_ports.begin(), node->output_ports.end());
+    for (uint64_t pid : old_ports) {
+        removePort(pid);
+    }
+    node->input_ports.clear();
+    node->output_ports.clear();
+
     node->input_ports.resize(recipe.input_ports.size());
-    for (int i = 0; i < recipe.input_ports.size(); ++i) {
+    for (size_t i = 0; i < recipe.input_ports.size(); ++i) {
         uint64_t port_id = addPort(recipe.input_ports.at(i).resource_key, node_id);
         node->input_ports[i] = port_id;
     }
-    for (int i = 0; i < recipe.output_ports.size(); ++i) {
+    node->output_ports.resize(recipe.output_ports.size());
+    for (size_t i = 0; i < recipe.output_ports.size(); ++i) {
         uint64_t port_id = addPort(recipe.output_ports.at(i).resource_key, node_id);
         node->output_ports[i] = port_id;
     }
@@ -590,14 +632,14 @@ bool FactoryGraph::isValidConnection(uint64_t from_port, uint64_t to_port) {
     return true;
 }
 
-bool FactoryGraph::connectionExists(uint64_t from_port, uint64_t to_port) {
+bool FactoryGraph::connectionExists(uint64_t from_port, uint64_t to_port) const {
     auto range = m_connectionsByPort.equal_range(from_port);
     for (auto it = range.first; it != range.second; ++it) {
         uint64_t conn_id = it->second;
         auto idx_it = m_connectionIdToIndex.find(conn_id);
         if (idx_it == m_connectionIdToIndex.end()) continue;
         const Connection &c = m_connections[idx_it->second];
-        if (c.to_port == to_port) return true;
+        if (c.from_port == from_port && c.to_port == to_port) return true;
     }
     return false;
 }

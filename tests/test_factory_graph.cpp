@@ -1,6 +1,10 @@
 #include <gtest/gtest.h>
 #include <core/data/GameData.h>
 #include "core/graph/FactoryGraph.h"
+#include "core/data/GameDataManager.h"
+#include "services/ProjectIo.h"
+#include <fstream>
+#include <filesystem>
 
 class FactoryGraphTest : public ::testing::Test {
 protected:
@@ -1038,4 +1042,176 @@ TEST_F(FactoryGraphDeserializeTest, DeserializeNodeWithInvalidPortConstraintType
 
     Port* inPort = graph->getPort(node->input_ports[0]);
     EXPECT_EQ(inPort->user_constraint, -1.0); // Remains default
+}
+
+TEST_F(FactoryGraphTest, RemoveConnectionById) {
+    uint64_t n1 = addNode("mine_ore");
+    uint64_t n2 = addNode("smelt_ingot");
+    Port* fromPort = getPort(n1, "iron_ore", false);
+    Port* toPort = getPort(n2, "iron_ore", true);
+    uint64_t connId = graph->addConnection(fromPort->id, toPort->id);
+
+    ASSERT_EQ(graph->getConnections().size(), 1);
+    EXPECT_FALSE(graph->removeConnection(99999));
+    EXPECT_TRUE(graph->removeConnection(connId));
+    EXPECT_EQ(graph->getConnections().size(), 0);
+    EXPECT_FALSE(graph->connectionExists(fromPort->id, toPort->id));
+    EXPECT_EQ(graph->getConnection(connId), nullptr);
+    EXPECT_EQ(graph->getConnectionsForPort(fromPort->id).size(), 0);
+    EXPECT_EQ(graph->getConnectionsForPort(toPort->id).size(), 0);
+}
+
+TEST_F(FactoryGraphTest, SetNodeRecipeCleansUpOldPortsAndConnections) {
+    uint64_t n1 = addNode("mine_ore");
+    uint64_t n2 = addNode("smelt_ingot");
+    Port* fromPort = getPort(n1, "iron_ore", false);
+    Port* toPort = getPort(n2, "iron_ore", true);
+    uint64_t connId = graph->addConnection(fromPort->id, toPort->id);
+
+    ASSERT_EQ(graph->getPorts().size(), 4);
+    ASSERT_EQ(graph->getConnections().size(), 1);
+
+    // Change recipe of n2 to "make_plates"
+    ASSERT_TRUE(graph->setNodeRecipe(n2, "make_plates"));
+
+    // Total ports should be 2 (from n1) + 2 (from n2) = 4, not 6
+    EXPECT_EQ(graph->getPorts().size(), 4);
+    // Connection should be automatically removed because the connected port was destroyed
+    EXPECT_EQ(graph->getConnections().size(), 0);
+    EXPECT_EQ(graph->getConnection(connId), nullptr);
+    EXPECT_EQ(graph->getConnectionsForPort(fromPort->id).size(), 0);
+
+    // Check that new ports exist on n2
+    Node* node2 = graph->getNode(n2);
+    ASSERT_NE(node2, nullptr);
+    EXPECT_EQ(node2->selected_recipe_key, "make_plates");
+    EXPECT_EQ(node2->input_ports.size(), 1);
+    EXPECT_EQ(node2->output_ports.size(), 1);
+    EXPECT_NE(graph->getPort(node2->input_ports[0]), nullptr);
+    EXPECT_EQ(graph->getPort(node2->input_ports[0])->resource_key, "iron_ingot");
+    EXPECT_NE(graph->getPort(node2->output_ports[0]), nullptr);
+    EXPECT_EQ(graph->getPort(node2->output_ports[0])->resource_key, "iron_plate");
+}
+
+TEST_F(FactoryGraphTest, ClearGraphCleansPortConnectionsAndPreferredMachines) {
+    uint64_t n1 = addNode("mine_ore");
+    uint64_t n2 = addNode("smelt_ingot");
+    Port* fromPort = getPort(n1, "iron_ore", false);
+    Port* toPort = getPort(n2, "iron_ore", true);
+    graph->addConnection(fromPort->id, toPort->id);
+    graph->setMachinePreferred("smelter", true);
+    EXPECT_TRUE(graph->isMachinePreferred("smelter"));
+    EXPECT_FALSE(graph->getConnectionsForPort(fromPort->id).empty());
+
+    graph->clear();
+
+    EXPECT_FALSE(graph->isMachinePreferred("smelter"));
+    EXPECT_TRUE(graph->getConnectionsForPort(fromPort->id).empty());
+    EXPECT_TRUE(graph->getNodes().empty());
+    EXPECT_TRUE(graph->getPorts().empty());
+    EXPECT_TRUE(graph->getConnections().empty());
+}
+
+TEST_F(FactoryGraphDeserializeTest, DeserializedConnectionPopulatesResourceKey) {
+    uint64_t n1 = graph->addNode("Miner", "mine_ore");
+    uint64_t n2 = graph->addNode("Smelter", "smelt_ingot");
+    Node* node1 = graph->getNode(n1);
+    Node* node2 = graph->getNode(n2);
+    ASSERT_NE(node1, nullptr);
+    ASSERT_NE(node2, nullptr);
+    ASSERT_FALSE(node1->output_ports.empty());
+    ASSERT_FALSE(node2->input_ports.empty());
+    uint64_t outPortId = node1->output_ports[0];
+    uint64_t inPortId = node2->input_ports[0];
+    uint64_t connId = graph->addConnection(outPortId, inPortId);
+
+    nlohmann::json j = graph->serialize();
+
+    FactoryGraph newGraph(testGameData);
+    newGraph.deserialize(j, testGameData);
+
+    ASSERT_EQ(newGraph.getConnections().size(), 1);
+    const Connection* conn = newGraph.getConnection(connId);
+    ASSERT_NE(conn, nullptr);
+    EXPECT_EQ(conn->resource_key, "iron_ore");
+}
+
+TEST_F(FactoryGraphTest, ConstConnectionExistsAndGetConnection) {
+    uint64_t n1 = addNode("mine_ore");
+    uint64_t n2 = addNode("smelt_ingot");
+    Port* fromPort = getPort(n1, "iron_ore", false);
+    Port* toPort = getPort(n2, "iron_ore", true);
+    uint64_t connId = graph->addConnection(fromPort->id, toPort->id);
+
+    const FactoryGraph& constGraph = *graph;
+    EXPECT_TRUE(constGraph.connectionExists(fromPort->id, toPort->id));
+    EXPECT_FALSE(constGraph.connectionExists(toPort->id, fromPort->id));
+    const Connection* conn = constGraph.getConnection(fromPort->id, toPort->id);
+    ASSERT_NE(conn, nullptr);
+    EXPECT_EQ(conn->id, connId);
+    EXPECT_EQ(constGraph.getConnection(toPort->id, fromPort->id), nullptr);
+}
+
+TEST(GameDataManagerTest, LoadFromFileCorruptedJsonReturnsFalseAndPopulatesError) {
+    std::filesystem::path tempFile = std::filesystem::temp_directory_path() / "test_corrupted_gamedata.gd";
+    std::ofstream ofs(tempFile);
+    ofs << "{ \"name\": \"broken\", \"recipes\": [ invalid_json }";
+    ofs.close();
+
+    GameDataManager manager;
+    std::string error;
+    EXPECT_FALSE(manager.loadFromFile(tempFile, error));
+    EXPECT_FALSE(error.empty());
+
+    std::filesystem::remove(tempFile);
+}
+
+TEST(GameDataManagerTest, LoadFromFileNonExistentFileReturnsFalseAndPopulatesError) {
+    GameDataManager manager;
+    std::string error;
+    EXPECT_FALSE(manager.loadFromFile("/non/existent/path/gamedata_404.gd", error));
+    EXPECT_FALSE(error.empty());
+}
+
+TEST_F(FactoryGraphTest, ProjectIOSaveHeadlessDoesNotCrash) {
+    uint64_t n1 = addNode("mine_ore");
+    uint64_t n2 = addNode("smelt_ingot");
+    Port* fromPort = getPort(n1, "iron_ore", false);
+    Port* toPort = getPort(n2, "iron_ore", true);
+    graph->addConnection(fromPort->id, toPort->id);
+
+    std::filesystem::path tempProject = std::filesystem::temp_directory_path() / "test_headless_save.fpp";
+    // Saving with default context = nullptr must not crash
+    bool saveResult = ProjectIO::saveProject(tempProject.string(), *graph);
+    EXPECT_TRUE(saveResult);
+
+    std::ifstream ifs(tempProject);
+    ASSERT_TRUE(ifs.is_open());
+    nlohmann::json j;
+    EXPECT_NO_THROW(ifs >> j);
+    EXPECT_TRUE(j.contains("graph_data"));
+    EXPECT_TRUE(j.contains("editor_settings"));
+
+    std::filesystem::remove(tempProject);
+}
+
+TEST_F(FactoryGraphTest, ProjectIOLoadProjectErrorHandling) {
+    FactoryGraph targetGraph(testGameData);
+    EXPECT_FALSE(ProjectIO::loadProject("/non/existent/project_404.fpp", targetGraph));
+
+    std::filesystem::path tempCorrupted = std::filesystem::temp_directory_path() / "test_corrupted.fpp";
+    std::ofstream ofs(tempCorrupted);
+    ofs << "not valid json {{{";
+    ofs.close();
+
+    EXPECT_FALSE(ProjectIO::loadProject(tempCorrupted.string(), targetGraph));
+    std::filesystem::remove(tempCorrupted);
+
+    std::filesystem::path tempNotObject = std::filesystem::temp_directory_path() / "test_not_object.fpp";
+    std::ofstream ofs2(tempNotObject);
+    ofs2 << "[1, 2, 3]";
+    ofs2.close();
+
+    EXPECT_FALSE(ProjectIO::loadProject(tempNotObject.string(), targetGraph));
+    std::filesystem::remove(tempNotObject);
 }

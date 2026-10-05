@@ -27,13 +27,15 @@ public:
     [[nodiscard]] const std::vector<Node>& getNodes() const;
 
     bool isValidConnection(uint64_t from_port, uint64_t to_port);
-    bool connectionExists(uint64_t from_port, uint64_t to_port);
+    bool connectionExists(uint64_t from_port, uint64_t to_port) const;
     uint64_t addConnection(uint64_t from_port, uint64_t to_port);
     void restoreConnection(const Connection& connection);
+    bool removeConnection(uint64_t conn_id);
     bool removeConnection(uint64_t from_port, uint64_t to_port);
     Connection* getConnection(uint64_t id);
     const Connection *getConnection(uint64_t id) const;
     Connection* getConnection(uint64_t from_port, uint64_t to_port);
+    const Connection* getConnection(uint64_t from_port, uint64_t to_port) const;
     std::vector<Connection*> getConnectionsForPort(uint64_t id);
     [[nodiscard]] const std::vector<Connection>& getConnections() const;
 
