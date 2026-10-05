@@ -14,25 +14,30 @@
 
 bool ProjectIO::saveProject(const std::string &path, const FactoryGraph &factoryGraph, ed::EditorContext *context) {
     try {
-        // Serialize editor settings
-        ed::SetCurrentEditor(context);
-        std::string editorSettings = ed::SerializeSettingsToString();
-        ed::SetCurrentEditor(nullptr);
         json projectData;
 
-        // Parse editor settings as JSON (with error handling)
-        try {
-            projectData["editor_settings"] = json::parse(editorSettings);
-        } catch (const json::parse_error& e) {
-            LOG(ERROR) << "Failed to parse editor settings: " << e.what();
-            // Continue without editor settings rather than failing completely
-            NotificationManager::instance().addNotification(
-                "Warning Saving Project",
-                "Failed to parse editor settings, saving project without them.",
-                NotificationType::Warning);
+        // Serialize editor settings only if context is valid
+        if (context != nullptr) {
+            ed::SetCurrentEditor(context);
+            std::string editorSettings = ed::SerializeSettingsToString();
+            ed::SetCurrentEditor(nullptr);
+
+            // Parse editor settings as JSON (with error handling)
+            try {
+                projectData["editor_settings"] = json::parse(editorSettings);
+            } catch (const json::parse_error& e) {
+                LOG(ERROR) << "Failed to parse editor settings: " << e.what();
+                // Continue without editor settings rather than failing completely
+                NotificationManager::instance().addNotification(
+                    "Warning Saving Project",
+                    "Failed to parse editor settings, saving project without them.",
+                    NotificationType::Warning);
+                projectData["editor_settings"] = json::object();
+            }
+            VLOG(2) << "Editor settings serialized.";
+        } else {
             projectData["editor_settings"] = json::object();
         }
-        VLOG(2) << "Editor settings serialized.";
 
         // Serialize graph data
         projectData["graph_data"] = factoryGraph.serialize();
@@ -158,9 +163,14 @@ bool ProjectIO::loadProject(const std::string &path, FactoryGraph &factoryGraph)
                 std::vector<GameDataPackage> packages = scanForGameData(SettingsManager::instance().getSettings().gameDataPath);
                 // search for path from name in packages
                 std::filesystem::path gameDataPath;
+                std::error_code ec;
                 for (const auto& pkg : packages) {
                     if (!targetUUID.empty() && pkg.uuid == targetUUID) {
-                        gameDataPath = SettingsManager::instance().getSettings().gameDataPath / pkg.dataFilePath;
+                        if (pkg.dataFilePath.is_absolute() || (std::filesystem::exists(pkg.dataFilePath, ec) && !ec)) {
+                            gameDataPath = pkg.dataFilePath;
+                        } else {
+                            gameDataPath = SettingsManager::instance().getSettings().gameDataPath / pkg.dataFilePath;
+                        }
                         break;
                     }
                 }
@@ -194,7 +204,7 @@ bool ProjectIO::loadProject(const std::string &path, FactoryGraph &factoryGraph)
         VLOG(2) << "Graph data deserialized successfully.";
 
         // Load editor settings
-        if (projectData.contains("editor_settings")) {
+        if (projectData.contains("editor_settings") && ed::GetCurrentEditor() != nullptr) {
             try {
                 std::string editorSettings = projectData["editor_settings"].dump();
                 ed::ApplySettingsFromString(editorSettings);

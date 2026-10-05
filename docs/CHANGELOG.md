@@ -36,6 +36,15 @@ This document holds the user-facing changelog that is also used in release notes
 - Fixed application crashes caused by null pointer dereferences when invalid or rejected connections are created during node addition or pasting.
 - Fixed duplicate connection restoration and graph corruption when undoing node deletions that have internal self-connections between input and output ports.
 - Fixed pasted nodes losing their positions in the canvas editor when redoing a paste operation.
+- Fixed game data parser silently failing without error details when encountering corrupted or invalid JSON in game data files.
+- Fixed new editor creation proceeding with empty game data if loading the game data file failed.
+- Fixed duplicated path prefixes when loading projects or creating new projects with scanned game data packages.
+- Fixed immediate data loss when choosing "Close All" from the menu by safely checking for unsaved changes across all open editor tabs.
+- Fixed leaked ports and orphaned connections when changing a node's recipe by cleaning up existing ports before creating new ones.
+- Fixed broken resource and machine icons after moving a game data file to another package by copying associated icon assets to the destination package folder.
+- Fixed empty resource key on connections deserialized from saved project files, ensuring correct link labels and flow displays.
+- Improved connection removal performance from $O(E)$ to $O(1)$ by using an ID-based index lookup.
+- Fixed crashes (null pointer dereference) in project saving and loading operations when executing in headless mode or without an active node editor context.
 
 ---
 

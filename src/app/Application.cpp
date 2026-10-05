@@ -499,9 +499,27 @@ void Application::drawMenuBar() {
             }
             if (ImGui::MenuItem("Close All")) {
                 VLOG(1) << "Menu: Close All Selected.";
-                m_editors.clear();
-                m_activeEditor = -1; // Reset active editor
-                saveSession();
+                for (int i = static_cast<int>(m_editors.size()) - 1; i >= 0; --i) {
+                    if (m_editors[i] && !m_editors[i]->isDirty()) {
+                        closeEditor(i);
+                    }
+                }
+                if (!m_editors.empty()) {
+                    m_editorsToClose.clear();
+                    for (const auto& editor : m_editors) {
+                        if (editor) {
+                            m_editorsToClose.push_back(editor.get());
+                        }
+                    }
+                    if (!m_editorsToClose.empty()) {
+                        m_isQuitting = false;
+                        m_applyToAllEditors = false;
+                        m_showUnsavedChangesDialog = true;
+                        m_currentEditorToClose = m_editorsToClose.front();
+                        int idx = getEditorIndex(m_currentEditorToClose);
+                        if (idx != -1) m_focusRequested = idx;
+                    }
+                }
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Game Data Manager")) {
@@ -913,8 +931,14 @@ void Application::drawNewProjectDialog() {
         std::filesystem::create_directories(locationPath, ec);
 
         if (selectedGameDataFile >= 0 && selectedGameDataFile < static_cast<int>(m_cachedGameDataPackages.size())) {
-            std::filesystem::path gameDataPath = SettingsManager::instance().getSettings().gameDataPath;
-            std::filesystem::path selectedGameData = gameDataPath / m_cachedGameDataPackages.at(selectedGameDataFile).dataFilePath;
+            const auto& pkg = m_cachedGameDataPackages.at(selectedGameDataFile);
+            std::filesystem::path selectedGameData;
+            ec.clear();
+            if (pkg.dataFilePath.is_absolute() || (std::filesystem::exists(pkg.dataFilePath, ec) && !ec)) {
+                selectedGameData = pkg.dataFilePath;
+            } else {
+                selectedGameData = SettingsManager::instance().getSettings().gameDataPath / pkg.dataFilePath;
+            }
 
             createNewEditor(selectedGameData, fullPath, projectNameStr);
         }
@@ -1306,12 +1330,10 @@ std::optional<GameData> Application::loadGameDataForNewEditor(const std::filesys
     GameDataManager initDataManager;
     std::string errorMessage;
 
-    initDataManager.loadFromFile(path, errorMessage);
-
-    if (!errorMessage.empty()) {
+    if (!initDataManager.loadFromFile(path, errorMessage)) {
         LOG(ERROR) << "Failed to load game data from file: " << errorMessage;
         NotificationManager::instance().addNotification("Error Loading Game Data",
-            "Failed to load game data: " + errorMessage,
+            "Failed to load game data: " + (errorMessage.empty() ? "Unknown error" : errorMessage),
             NotificationType::Error);
         return std::nullopt;
     }
