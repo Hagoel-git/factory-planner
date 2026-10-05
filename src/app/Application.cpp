@@ -137,7 +137,7 @@ void Application::draw() {
     ImGuiID dockspace_id = ImGui::GetID("Root");
     ImGui::DockSpace(dockspace_id, ImVec2(0, 0), ImGuiDockNodeFlags_PassthruCentralNode);
 
-    if (!m_dockInitialized) {
+    if ((ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_DockingEnable) && !m_dockInitialized) {
         ImGui::DockBuilderRemoveNode(dockspace_id);
         ImGui::DockBuilderAddNode(dockspace_id, host_flags | ImGuiDockNodeFlags_DockSpace);
         ImGui::DockBuilderSetNodeSize(dockspace_id, viewport->Size);
@@ -147,10 +147,15 @@ void Application::draw() {
         m_dockInitialized = true;
     }
     m_gameDataEditor.draw();
+    int editorToClose = -1;
     for (int i = 0; i < static_cast<int>(m_editors.size()); ++i) {
         auto &editor = m_editors[i];
         if (editor) {
             ImGui::SetNextWindowDockID(dockspace_id, ImGuiCond_FirstUseEver);
+
+            if (m_focusRequested == i) {
+                ImGui::SetNextWindowFocus();
+            }
 
             // Give each window a unique ID if you have duplicate names
             ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(640, 480));
@@ -171,19 +176,17 @@ void Application::draw() {
             editor->draw();
             ImGui::End();
             if (!is_open) {
-                requestCloseEditor(i);
+                editorToClose = i;
             }
         }
     }
 
-    if (m_focusRequested != -1) {
-        if (m_focusRequested >= 0 && m_focusRequested < static_cast<int>(m_editors.size())) {
-            ImGui::SetWindowFocus(m_editors[m_focusRequested]->getName().c_str());
-            m_activeEditor = m_focusRequested;
-        }
-        if (!m_firstFrame) {
-            m_focusRequested = -1;
-        }
+    if (!m_firstFrame) {
+        m_focusRequested = -1;
+    }
+
+    if (editorToClose != -1) {
+        requestCloseEditor(editorToClose);
     }
 
     if (m_showFileAlreadyOpenPopup) {
@@ -343,7 +346,7 @@ void Application::drawDebugWindow() {
     ImGui::Text("Copy buffer size: Nodes: %d, Ports: %d, Connections: % d", m_copyBuffer.nodes.size(), m_copyBuffer.ports.size(), m_copyBuffer.connections.size());
 
     ImGui::SeparatorText("Editor Specific");
-    if (m_activeEditor != -1 && m_activeEditor < static_cast<int>(m_editors.size())) {
+    if (m_activeEditor != -1 && m_activeEditor < static_cast<int>(m_editors.size()) && m_editors[m_activeEditor]) {
         const DebugInfo &debugInfo = m_editors[m_activeEditor]->getDebugInfo();
         ImGui::Text(m_editors[m_activeEditor]->isFocused() ? "Focused" : "Not Focused");
         ImGui::TextWrapped("File path: %s", debugInfo.filePath.string().c_str());
@@ -368,10 +371,6 @@ void Application::drawDebugWindow() {
         ImGui::Text("Redo stack size: %zu", debugInfo.redoStackSize);
     } else {
         ImGui::Text("No active editor.");
-    }
-    if (ImGui::Button("Simulate Crash")) {
-        volatile int* ptr = nullptr;
-        *ptr = 42; // Triggers SIGSEGV
     }
     if (ImGui::TreeNode("Notification Test")) {
         char title[64] = "System Update";
@@ -414,6 +413,7 @@ void Application::drawDebugWindow() {
 
 void Application::drawMenuBar() {
     if (ImGui::BeginMainMenuBar()) {
+        bool hasOpenProjects = !m_editors.empty();
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("New", "Ctrl+N")) {
                 VLOG(1) << "Menu: New Project selected.";
@@ -475,29 +475,29 @@ void Application::drawMenuBar() {
                 reopenLastClosedEditor();
             }
             ImGui::Separator();
-            if (ImGui::MenuItem("Save", "Ctrl+S")) {
+            if (ImGui::MenuItem("Save", "Ctrl+S", false, hasOpenProjects)) {
                 VLOG(1) << "Menu: Save selected.";
                 saveActiveEditor();
             }
-            if (ImGui::MenuItem("Save As...", "Ctrl+Shift+S")) {
+            if (ImGui::MenuItem("Save As...", "Ctrl+Shift+S", false, hasOpenProjects)) {
                 VLOG(1) << "Menu: Save As selected.";
                 m_showSaveDialog = true;
             }
-            if (ImGui::MenuItem("Save a Copy")) {
+            if (ImGui::MenuItem("Save a Copy", nullptr, false, hasOpenProjects)) {
                 VLOG(1) << "Menu: Save a Copy selected.";
                 m_isSaveAsCopy = true;
                 m_showSaveDialog = true;
             }
-            if (ImGui::MenuItem("Save All")) {
+            if (ImGui::MenuItem("Save All", nullptr, false, hasOpenProjects)) {
                 VLOG(1) << "Menu: Save All selected.";
                 saveAll();
             }
             ImGui::Separator();
-            if (ImGui::MenuItem("Close Active", "Ctrl+W") && !m_editors.empty()) {
+            if (ImGui::MenuItem("Close Active", "Ctrl+W", false, hasOpenProjects)) {
                 VLOG(1) << "Menu: Close Active Editor selected.";
                 closeActiveEditor();
             }
-            if (ImGui::MenuItem("Close All")) {
+            if (ImGui::MenuItem("Close All", nullptr, false, hasOpenProjects)) {
                 VLOG(1) << "Menu: Close All Selected.";
                 for (int i = static_cast<int>(m_editors.size()) - 1; i >= 0; --i) {
                     if (m_editors[i] && !m_editors[i]->isDirty()) {
@@ -539,44 +539,44 @@ void Application::drawMenuBar() {
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Edit")) {
-            if (ImGui::MenuItem("Undo", "Ctrl+Z")) {
+            if (ImGui::MenuItem("Undo", "Ctrl+Z", false, hasOpenProjects)) {
                 VLOG(1) << "Menu: Undo selected.";
                 undoActiveEditor();
             }
-            if (ImGui::MenuItem("Redo", "Ctrl+Y")) {
+            if (ImGui::MenuItem("Redo", "Ctrl+Y", false, hasOpenProjects)) {
                 VLOG(1) << "Menu: Redo selected.";
                 redoActiveEditor();
             }
             ImGui::Separator();
-            if (ImGui::MenuItem("Cut", "Ctrl+X")) {
+            if (ImGui::MenuItem("Cut", "Ctrl+X", false, hasOpenProjects)) {
                 VLOG(1) << "Menu: Cut selected.";
                 cutActiveEditor();
             }
-            if (ImGui::MenuItem("Copy", "Ctrl+C")) {
+            if (ImGui::MenuItem("Copy", "Ctrl+C", false, hasOpenProjects)) {
                 VLOG(1) << "Menu: Copy selected.";
                 copyActiveEditor();
             }
-            if (ImGui::MenuItem("Paste", "Ctrl+V")) {
+            if (ImGui::MenuItem("Paste", "Ctrl+V", false, hasOpenProjects)) {
                 VLOG(1) << "Menu: Paste selected.";
                 pasteActiveEditor(false);
             }
-            if (ImGui::MenuItem("Paste Special", "Ctrl+Shift+V")) {
+            if (ImGui::MenuItem("Paste Special", "Ctrl+Shift+V", false, hasOpenProjects)) {
                 VLOG(1) << "Menu: Paste Special selected.";
                 pasteActiveEditor(true);
             }
             ImGui::Separator();
-            if (ImGui::MenuItem("Select All", "Ctrl+A")) {
+            if (ImGui::MenuItem("Select All", "Ctrl+A", false, hasOpenProjects)) {
                 VLOG(1) << "Menu: Select All selected.";
                 selectAllActiveEditor();
             }
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("View")) {
-            if (ImGui::MenuItem("Show Flow", "Z")) {
+            if (ImGui::MenuItem("Show Flow", "Z", false, hasOpenProjects)) {
                 VLOG(1) << "Menu: Show Flow selected.";
                 showFlowActiveEditor();
             }
-            if (ImGui::MenuItem("Fit View", "F")) {
+            if (ImGui::MenuItem("Fit View", "F", false, hasOpenProjects)) {
                 VLOG(1) << "Menu: Fit View selected.";
                 fitViewActiveEditor();
             }
@@ -597,7 +597,9 @@ void Application::handleShortcuts() {
         VLOG(1) << "F3 key pressed, toggling debug window.";
         m_showDebugWindow = !m_showDebugWindow;
     }
-    bool editorFocused = !m_editors.empty() && m_editors[m_activeEditor]->isFocused();
+    bool editorFocused = (m_activeEditor >= 0 && static_cast<size_t>(m_activeEditor) < m_editors.size())
+                         && m_editors[m_activeEditor]
+                         && m_editors[m_activeEditor]->isFocused();
     if (io.KeyCtrl) {
         if (ImGui::IsKeyPressed(ImGuiKey_N)) {
             VLOG(1) << "Shortcut: Ctrl+N pressed, opening New Project dialog.";
@@ -792,14 +794,6 @@ void Application::drawNewProjectDialog() {
             dirDialogState.hasError = false;
 
             std::thread([]() {
-                if (NFD_Init() != NFD_OKAY) {
-                    std::lock_guard<std::mutex> threadLock(dirDialogState.mutex);
-                    dirDialogState.hasError = true;
-                    dirDialogState.errorMessage = "Failed to initialize native file dialog system.";
-                    dirDialogState.isRunning = false;
-                    return;
-                }
-
                 nfdu8char_t *outPath = nullptr;
                 nfdpickfolderu8args_t args = {0};
                 nfdresult_t result = NFD_PickFolderU8_With(&outPath, &args);
@@ -815,7 +809,6 @@ void Application::drawNewProjectDialog() {
                     dirDialogState.errorMessage = "An error occurred while opening the directory selection dialog.";
                     LOG(ERROR) << "New Project: File dialog error.";
                 }
-                NFD_Quit();
                 dirDialogState.isRunning = false;
             }).detach();
         }
@@ -1035,14 +1028,7 @@ void Application::drawOpenProjectDialog() {
         }
 
         std::thread([]() {
-            if (NFD_Init() != NFD_OKAY) {
-                 std::lock_guard<std::mutex> lock(openDialogState.mutex);
-                 openDialogState.hasError = true;
-                 openDialogState.errorMessage = "Failed to initialize native file dialog system.";
-                 openDialogState.isRunning = false;
-                 return;
-            }
-            nfdu8char_t *outPath;
+            nfdu8char_t *outPath = nullptr;
             nfdopendialogu8args_t args = {0};
             nfdu8filteritem_t filters[1] = { { "Factory Planner Project", "fpp" } };
             args.filterList = filters;
@@ -1062,7 +1048,6 @@ void Application::drawOpenProjectDialog() {
                 LOG(ERROR) << "Open dialog error.";
             }
 
-            NFD_Quit();
             openDialogState.isRunning = false;
         }).detach();
     }
@@ -1093,9 +1078,11 @@ void Application::drawSaveAsDialog() {
                 } else {
                     std::string newFileName = std::filesystem::path(path).stem().string();
 
-                    // Check for duplicate names
+                    // Check for duplicate names among other open tabs
+                    auto* currentEditor = (m_activeEditor >= 0 && static_cast<size_t>(m_activeEditor) < m_editors.size())
+                                              ? m_editors[m_activeEditor].get() : nullptr;
                     bool nameExists = std::any_of(m_editors.begin(), m_editors.end(), [&](const auto &editor) {
-                        return editor->getName() == newFileName;
+                        return editor.get() != currentEditor && editor->getName() == newFileName;
                     });
 
                     if (nameExists) {
@@ -1147,13 +1134,6 @@ void Application::drawSaveAsDialog() {
         }
 
         std::thread([]() {
-            if (NFD_Init() != NFD_OKAY) {
-                 std::lock_guard<std::mutex> lock(saveDialogState.mutex);
-                 saveDialogState.hasError = true;
-                 saveDialogState.errorMessage = "Failed to initialize native file dialog system.";
-                 saveDialogState.isRunning = false;
-                 return;
-            }
             nfdu8char_t *outPath = nullptr;
             nfdsavedialogu8args_t args = {0};
             nfdu8filteritem_t filters[1] = { { "Factory Planner Project", "fpp" } };
@@ -1174,7 +1154,6 @@ void Application::drawSaveAsDialog() {
                 LOG(ERROR) << "Save dialog error.";
             }
 
-            NFD_Quit();
             saveDialogState.isRunning = false;
         }).detach();
     }
@@ -1293,7 +1272,7 @@ void Application::saveSession() {
             state.openProjectPaths.push_back(editor->getProjectFilePath());
         }
     }
-    state.activeProjectIndex = m_activeEditorIndexBeforeQuit;
+    state.activeProjectIndex = m_isQuitting ? m_activeEditorIndexBeforeQuit : m_activeEditor;
     SessionManager::instance().setSessionState(state);
     SessionManager::instance().save();
 }
@@ -1366,6 +1345,7 @@ void Application::createNewEditor(const std::filesystem::path &gameDataFilePath,
 
     applyThemeToAllEditors();
     m_activeEditor = static_cast<int>(m_editors.size()) - 1;
+    m_focusRequested = m_activeEditor;
     saveSession();
 
     if (addToRecent) {
@@ -1394,8 +1374,11 @@ bool Application::saveActiveEditorAs(const std::string &newFilePath, SaveAsMode 
 
     auto &editor = m_editors[m_activeEditor];
     if (editor) {
-        return editor->saveAs(newFilePath, mode);
-        RecentFiles::instance().addFile(editor->getProjectFilePath());
+        bool success = editor->saveAs(newFilePath, mode);
+        if (success && !editor->getProjectFilePath().empty()) {
+            RecentFiles::instance().addFile(editor->getProjectFilePath());
+        }
+        return success;
     }
     return false;
 }
@@ -1507,8 +1490,7 @@ void Application::fitViewActiveEditor() {
 
 void Application::closeEditor(int index) {
     // index is signed; compare safely with size()
-    if (index < 0) return;
-    if (static_cast<size_t>(index) >= m_editors.size()) return;
+    if (index < 0 || static_cast<size_t>(index) >= m_editors.size()) return;
 
     auto &editor = m_editors[index];
     if (editor) {
@@ -1523,8 +1505,14 @@ void Application::closeEditor(int index) {
     // Adjust activeEditor:
     if (m_editors.empty()) {
         m_activeEditor = -1;
-    } else if (m_activeEditor >= static_cast<int>(m_editors.size())) {
-        m_activeEditor = static_cast<int>(m_editors.size()) - 1;
+        m_focusRequested = -1;
+    } else {
+        if (index < m_activeEditor) {
+            --m_activeEditor;
+        } else if (m_activeEditor >= static_cast<int>(m_editors.size())) {
+            m_activeEditor = static_cast<int>(m_editors.size()) - 1;
+        }
+        m_focusRequested = m_activeEditor;
     }
 
     saveSession();
