@@ -73,6 +73,10 @@ void SessionManager::loadSession() {
 void SessionManager::saveSession() const {
     VLOG(2) << "Saving session to file.";
     auto file = getExecutableDirectory().value_or(std::filesystem::current_path()) / "session.json";
+    std::filesystem::path tmp = file;
+    tmp += ".tmp";
+    std::error_code dirEc;
+    std::filesystem::create_directories(file.parent_path(), dirEc);
     try {
         nlohmann::json j;
         j["openProjectPaths"] = nlohmann::json::array();
@@ -80,14 +84,34 @@ void SessionManager::saveSession() const {
             j["openProjectPaths"].push_back(path.string());
         }
         j["activeProjectIndex"] = m_state.activeProjectIndex;
-        std::ofstream ofs(file);
-        if (!ofs) {
-            LOG(ERROR) << "Failed to open session file for write: " << file;
+        {
+            std::ofstream ofs(tmp);
+            if (!ofs) {
+                LOG(ERROR) << "Failed to open temporary session file for write: " << tmp;
+                return;
+            }
+            ofs << j.dump(2);
+            ofs.flush();
+            if (!ofs.good()) {
+                LOG(ERROR) << "Failed to write session data to temporary file: " << tmp;
+                ofs.close();
+                std::error_code ec;
+                std::filesystem::remove(tmp, ec);
+                return;
+            }
+        }
+        std::error_code ec;
+        std::filesystem::rename(tmp, file, ec);
+        if (ec) {
+            LOG(ERROR) << "Failed to rename temp session file to final path: " << ec.message();
+            std::filesystem::remove(tmp, ec);
             return;
         }
-        ofs << j.dump(2);
     } catch (const std::exception &e) {
+        std::error_code ec;
+        std::filesystem::remove(tmp, ec);
         LOG(ERROR) << "Exception while saving session: " << e.what();
+        return;
     }
     LOG(INFO) << "Session saved.";
 }

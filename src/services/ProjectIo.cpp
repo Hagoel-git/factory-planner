@@ -11,8 +11,12 @@
 #include "core/data/GameDataManager.h"
 #include "core/data/GameDataScanner.h"
 #include "services/SettingsManager.h"
+#include <nlohmann/json.hpp>
 
-bool ProjectIO::saveProject(const std::string &path, const FactoryGraph &factoryGraph, ed::EditorContext *context) {
+using json = nlohmann::json;
+namespace ed = ax::NodeEditor;
+
+bool ProjectIO::saveProject(const std::string &path, const FactoryGraph &factoryGraph, ax::NodeEditor::EditorContext *context) {
     try {
         json projectData;
 

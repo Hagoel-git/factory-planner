@@ -2,7 +2,13 @@
 #include <core/data/GameData.h>
 #include "core/graph/FactoryGraph.h"
 #include "core/data/GameDataManager.h"
+#include "core/data/GameDataScanner.h"
 #include "services/ProjectIo.h"
+#include "services/SettingsManager.h"
+#include "services/SessionManager.h"
+#include "services/RecentFiles.h"
+#include "services/TextureManager.h"
+#include "common/FilesystemUtils.h"
 #include <fstream>
 #include <filesystem>
 
@@ -1214,4 +1220,203 @@ TEST_F(FactoryGraphTest, ProjectIOLoadProjectErrorHandling) {
 
     EXPECT_FALSE(ProjectIO::loadProject(tempNotObject.string(), targetGraph));
     std::filesystem::remove(tempNotObject);
+}
+
+TEST(SettingsManagerTest, LoadSettingsWithIntegerAndFloatFontSize) {
+    auto configDir = getExecutableDirectory().value_or(std::filesystem::current_path());
+    auto settingsPath = configDir / "app_settings.json";
+    auto backupPath = configDir / "app_settings.json.bak_test";
+
+    AppSettings origSettings = SettingsManager::instance().getSettings();
+
+    std::error_code ec;
+    bool hadExisting = std::filesystem::exists(settingsPath, ec);
+    if (hadExisting) {
+        std::filesystem::rename(settingsPath, backupPath, ec);
+    }
+
+    struct Guard {
+        std::filesystem::path p, b;
+        bool had;
+        AppSettings s;
+        ~Guard() {
+            std::error_code cleanupEc;
+            std::filesystem::remove(p, cleanupEc);
+            if (had) {
+                std::filesystem::rename(b, p, cleanupEc);
+            }
+            SettingsManager::instance().setSettings(s);
+        }
+    } guard{settingsPath, backupPath, hadExisting, origSettings};
+
+    // 1. Write settings with integer fontSize (e.g. 24 instead of 24.0)
+    {
+        std::ofstream ofs(settingsPath);
+        ofs << "{\n  \"fontSize\": 24\n}\n";
+    }
+
+    SettingsManager::instance().load();
+    EXPECT_FLOAT_EQ(SettingsManager::instance().getSettings().fontSize, 24.0f);
+
+    // Test atomic save
+    SettingsManager::instance().save();
+    EXPECT_TRUE(std::filesystem::exists(settingsPath));
+    EXPECT_FALSE(std::filesystem::exists(settingsPath.string() + ".tmp"));
+
+    // 2. Write settings with float fontSize (e.g. 19.5)
+    {
+        std::ofstream ofs(settingsPath);
+        ofs << "{\n  \"fontSize\": 19.5\n}\n";
+    }
+
+    SettingsManager::instance().load();
+    EXPECT_FLOAT_EQ(SettingsManager::instance().getSettings().fontSize, 19.5f);
+
+    // 3. Write invalid negative fontSize (should not overwrite existing valid size)
+    {
+        std::ofstream ofs(settingsPath);
+        ofs << "{\n  \"fontSize\": -5.0\n}\n";
+    }
+
+    SettingsManager::instance().load();
+    EXPECT_FLOAT_EQ(SettingsManager::instance().getSettings().fontSize, 19.5f);
+}
+
+TEST(SessionManagerTest, AtomicSaveLeavesNoTempFile) {
+    auto sessionPath = getExecutableDirectory().value_or(std::filesystem::current_path()) / "session.json";
+    auto backupPath = sessionPath.string() + ".bak_test";
+
+    SessionState origState = SessionManager::instance().getSessionState();
+
+    std::error_code ec;
+    bool hadExisting = std::filesystem::exists(sessionPath, ec);
+    if (hadExisting) {
+        std::filesystem::rename(sessionPath, backupPath, ec);
+    }
+
+    struct Guard {
+        std::filesystem::path p, b;
+        bool had;
+        SessionState s;
+        ~Guard() {
+            std::error_code cleanupEc;
+            std::filesystem::remove(p, cleanupEc);
+            if (had) {
+                std::filesystem::rename(b, p, cleanupEc);
+            }
+            SessionManager::instance().setSessionState(s);
+        }
+    } guard{sessionPath, backupPath, hadExisting, origState};
+
+    SessionManager::instance().save();
+    EXPECT_TRUE(std::filesystem::exists(sessionPath));
+    EXPECT_FALSE(std::filesystem::exists(sessionPath.string() + ".tmp"));
+}
+
+TEST(RecentFilesTest, AtomicSaveLeavesNoTempFile) {
+    auto recentPath = getExecutableDirectory().value_or(std::filesystem::current_path()) / "recent.json";
+    auto backupPath = recentPath.string() + ".bak_test";
+
+    std::error_code ec;
+    bool hadExisting = std::filesystem::exists(recentPath, ec);
+    if (hadExisting) {
+        std::filesystem::rename(recentPath, backupPath, ec);
+    }
+
+    struct Guard {
+        std::filesystem::path p, b;
+        bool had;
+        ~Guard() {
+            std::error_code cleanupEc;
+            std::filesystem::remove(p, cleanupEc);
+            if (had) {
+                std::filesystem::rename(b, p, cleanupEc);
+            }
+            RecentFiles::instance().load();
+        }
+    } guard{recentPath, backupPath, hadExisting};
+
+    RecentFiles::instance().save();
+    EXPECT_TRUE(std::filesystem::exists(recentPath));
+    EXPECT_FALSE(std::filesystem::exists(recentPath.string() + ".tmp"));
+}
+
+TEST(TextureManagerTest, CacheMissingTexturePreventsRepeatedDiskLookups) {
+    std::filesystem::path nonExistent = "this_path_does_not_exist_12345.png";
+    ImTextureID id1 = TextureManager::instance().loadTexture(nonExistent);
+    ImTextureID id2 = TextureManager::instance().loadTexture(nonExistent);
+    EXPECT_EQ(id1, id2);
+
+    TextureManager::instance().invalidateTexture(nonExistent);
+    ImTextureID id3 = TextureManager::instance().loadTexture(nonExistent);
+    EXPECT_EQ(id1, id3);
+
+    TextureManager::instance().cleanup();
+}
+
+TEST(GameDataScannerTest, ScanNonExistentDirectoryReturnsEmpty) {
+    auto pkgs = scanForGameData("/non/existent/path/for/scanner");
+    EXPECT_TRUE(pkgs.empty());
+}
+
+TEST(GameDataEditorTest, VectorDeletionLoopDoesNotSkipElements) {
+    // 1. Delete middle element
+    {
+        std::vector<std::string> keys = {"machine_A", "machine_B", "machine_C", "machine_D"};
+        std::vector<std::string> visited;
+
+        for (int i = 0; i < (int)keys.size(); ++i) {
+            visited.push_back(keys[i]);
+            if (keys[i] == "machine_B") {
+                keys.erase(keys.begin() + i);
+                --i;
+                continue;
+            }
+        }
+
+        std::vector<std::string> expectedVisited = {"machine_A", "machine_B", "machine_C", "machine_D"};
+        EXPECT_EQ(visited, expectedVisited);
+        std::vector<std::string> expectedRemaining = {"machine_A", "machine_C", "machine_D"};
+        EXPECT_EQ(keys, expectedRemaining);
+    }
+
+    // 2. Delete first element
+    {
+        std::vector<std::string> keys = {"first", "second", "third"};
+        std::vector<std::string> visited;
+
+        for (int i = 0; i < (int)keys.size(); ++i) {
+            visited.push_back(keys[i]);
+            if (keys[i] == "first") {
+                keys.erase(keys.begin() + i);
+                --i;
+                continue;
+            }
+        }
+
+        std::vector<std::string> expectedVisited = {"first", "second", "third"};
+        EXPECT_EQ(visited, expectedVisited);
+        std::vector<std::string> expectedRemaining = {"second", "third"};
+        EXPECT_EQ(keys, expectedRemaining);
+    }
+
+    // 3. Delete consecutive elements
+    {
+        std::vector<std::string> keys = {"A", "delete_1", "delete_2", "B"};
+        std::vector<std::string> visited;
+
+        for (int i = 0; i < (int)keys.size(); ++i) {
+            visited.push_back(keys[i]);
+            if (keys[i].rfind("delete_", 0) == 0) {
+                keys.erase(keys.begin() + i);
+                --i;
+                continue;
+            }
+        }
+
+        std::vector<std::string> expectedVisited = {"A", "delete_1", "delete_2", "B"};
+        EXPECT_EQ(visited, expectedVisited);
+        std::vector<std::string> expectedRemaining = {"A", "B"};
+        EXPECT_EQ(keys, expectedRemaining);
+    }
 }

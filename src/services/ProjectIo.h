@@ -7,17 +7,14 @@
 
 
 #include <filesystem>
-#include <nlohmann/json.hpp>
+#include <string>
 #include "imgui-node-editor/imgui_node_editor.h"
 
-using json = nlohmann::json;
-
-namespace ed = ax::NodeEditor;
 class FactoryGraph;
 
 class ProjectIO {
 public:
-    static bool saveProject(const std::string &path, const FactoryGraph &factoryGraph, ed::EditorContext* context = nullptr);
+    static bool saveProject(const std::string &path, const FactoryGraph &factoryGraph, ax::NodeEditor::EditorContext* context = nullptr);
     static bool loadProject(const std::string &path, FactoryGraph &factoryGraph);
 
 };

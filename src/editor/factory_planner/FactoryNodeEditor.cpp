@@ -660,8 +660,10 @@ void FactoryNodeEditor::drawNodes() {
         // --- MIDDLE (machine) ---
         ImGui::BeginGroup();
         if (machine_offset > 0.0f) ImGui::Dummy(ImVec2(0, machine_offset));
-        if (m_graph->getGameData().machines.find(node->machine_key) != m_graph->getGameData().machines.end()) {
-            ImGui::Image(m_graph->getGameData().machines.at(node->machine_key).texture, ImVec2(machine_h,machine_h));
+        const auto& machines = m_graph->getGameData().machines;
+        auto machIt = machines.find(node->machine_key);
+        if (machIt != machines.end()) {
+            ImGui::Image(machIt->second.texture, ImVec2(machine_h, machine_h));
         } else {
             ImGui::Dummy(ImVec2(48, machine_h));
         }
@@ -987,8 +989,9 @@ void FactoryNodeEditor::handlePopups() {
                 ImGui::TextDisabled("Change Machine:");
 
                 std::string currentMachineName = node->machine_key;
-                if (gameData.machines.count(node->machine_key)) {
-                    currentMachineName = gameData.machines.at(node->machine_key).name;
+                auto currentMachIt = gameData.machines.find(node->machine_key);
+                if (currentMachIt != gameData.machines.end()) {
+                    currentMachineName = currentMachIt->second.name;
                 } else if (node->machine_key.empty()) {
                     currentMachineName = "None";
                 }
@@ -996,9 +999,10 @@ void FactoryNodeEditor::handlePopups() {
                 ImGui::SetNextItemWidth(200.0f);
                 if (ImGui::BeginCombo("##machine_selector", currentMachineName.c_str())) {
                     for (const auto& mKey : allowedMachines) {
-                        if (gameData.machines.find(mKey) == gameData.machines.end()) continue;
+                        auto machIt = gameData.machines.find(mKey);
+                        if (machIt == gameData.machines.end()) continue;
 
-                        const auto& machine = gameData.machines.at(mKey);
+                        const auto& machine = machIt->second;
                         bool isSelected = (node->machine_key == mKey);
 
                         ImGui::PushID(mKey.c_str());
@@ -1037,7 +1041,8 @@ void FactoryNodeEditor::handlePopups() {
             } else {
                 ImGui::TextDisabled("Machine:");
                 ImGui::SameLine();
-                ImGui::Text("%s", gameData.machines.count(node->machine_key) ? gameData.machines.at(node->machine_key).name.c_str() : node->machine_key.c_str());
+                auto machIt = gameData.machines.find(node->machine_key);
+                ImGui::Text("%s", machIt != gameData.machines.end() ? machIt->second.name.c_str() : node->machine_key.c_str());
             }
 
             static double s_startClockSpeed = 0.0;

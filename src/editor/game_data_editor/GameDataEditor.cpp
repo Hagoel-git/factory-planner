@@ -1363,10 +1363,11 @@ bool GameDataEditor::drawTokenList(const char* str_id, std::vector<RecipePort>& 
         }
 
         ImTextureID icon = 0;
-        if (m_gameDataManager.current().resources.count(resName)) {
-            const auto& res = m_gameDataManager.current().resources.at(resName);
-            resName = res.name;
-            icon = (ImTextureID)(uintptr_t)res.texture;
+        const auto& resources = m_gameDataManager.current().resources;
+        auto resIt = resources.find(resName);
+        if (resIt != resources.end()) {
+            resName = resIt->second.name;
+            icon = (ImTextureID)(uintptr_t)resIt->second.texture;
         }
 
         char label[128];
@@ -1481,6 +1482,7 @@ bool GameDataEditor::drawTokenList(const char* str_id, std::vector<RecipePort>& 
             ports.erase(ports.begin() + i);
             changed = true;
             ImGui::PopID();
+            --i;
             continue;
         }
 
@@ -1648,10 +1650,11 @@ bool GameDataEditor::drawMachineList(const char* str_id, std::vector<std::string
         }
 
         ImTextureID icon = 0;
-        if (m_gameDataManager.current().machines.count(machName)) {
-            const auto& mach = m_gameDataManager.current().machines.at(machName);
-            machName = mach.name;
-            icon = (ImTextureID)(uintptr_t)mach.texture;
+        const auto& machines = m_gameDataManager.current().machines;
+        auto machIt = machines.find(machName);
+        if (machIt != machines.end()) {
+            machName = machIt->second.name;
+            icon = (ImTextureID)(uintptr_t)machIt->second.texture;
         }
 
         ImVec2 textSize = ImGui::CalcTextSize(machName.c_str());
@@ -1746,6 +1749,7 @@ bool GameDataEditor::drawMachineList(const char* str_id, std::vector<std::string
             machineKeys.erase(machineKeys.begin() + i);
             changed = true;
             ImGui::PopID();
+            --i;
             continue;
         }
         ImGui::PopID();
