@@ -16,12 +16,16 @@ TextureManager::~TextureManager() {
 
 void TextureManager::cleanup() {
     for (auto& pair : m_textures) {
-        glDeleteTextures(1, &pair.second);
+        if (pair.second != 0 && pair.second != m_missingTextureId) {
+            glDeleteTextures(1, &pair.second);
+        }
     }
     m_textures.clear();
 
     if (m_missingTextureLoaded) {
-        glDeleteTextures(1, &m_missingTextureId);
+        if (m_missingTextureId != 0) {
+            glDeleteTextures(1, &m_missingTextureId);
+        }
         m_missingTextureLoaded = false;
         m_missingTextureId = 0;
     }
@@ -70,7 +74,9 @@ ImTextureID TextureManager::loadTexture(const std::filesystem::path& path) {
     }
 
     LOG(WARNING) << "Texture not found: " << key;
-    return (ImTextureID)(intptr_t)getMissingTexture();
+    unsigned int missingId = getMissingTexture();
+    m_textures[key] = missingId;
+    return (ImTextureID)(intptr_t)missingId;
 }
 
 void TextureManager::invalidateTexture(const std::filesystem::path& path) {
@@ -81,7 +87,9 @@ void TextureManager::invalidateTexture(const std::filesystem::path& path) {
     std::string key = absPath.string();
     auto it = m_textures.find(key);
     if (it != m_textures.end()) {
-        glDeleteTextures(1, &it->second);
+        if (it->second != 0 && it->second != m_missingTextureId) {
+            glDeleteTextures(1, &it->second);
+        }
         m_textures.erase(it);
     }
 }

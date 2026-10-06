@@ -6,7 +6,6 @@
 
 #include "GameData.h"
 #include <nlohmann/json.hpp>
-using json = nlohmann::json;
 
 class GameDataManager {
 public:
@@ -48,8 +47,8 @@ public:
 private:
     GameData m_data;
 
-    GameData jsonToGameData(const json &j, std::filesystem::path& packageIconRoot, std::string &outError);
-    json gameDataToJson(const GameData &gd);
+    GameData jsonToGameData(const nlohmann::json &j, std::filesystem::path& packageIconRoot, std::string &outError);
+    nlohmann::json gameDataToJson(const GameData &gd);
 
     void registerAlias(const std::string& prefix, const std::string& oldId, const std::string& newId);
     bool performRenameResource(const std::string& oldKey, const std::string& newKey);

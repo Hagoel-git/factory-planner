@@ -84,18 +84,42 @@ void RecentFiles::saveRecentFiles() const {
     nlohmann::json j;
     j["recentFiles"] = nlohmann::json::array();
     for (const auto &path : m_files) {
-        j["recentFiles"].push_back(path);
+        j["recentFiles"].push_back(path.string());
     }
     auto file = getExecutableDirectory().value_or(std::filesystem::current_path()) / "recent.json";
+    std::filesystem::path tmp = file;
+    tmp += ".tmp";
+    std::error_code dirEc;
+    std::filesystem::create_directories(file.parent_path(), dirEc);
     try {
-        std::ofstream ofs(file);
-        if (!ofs) {
-            LOG(ERROR) << "Failed to open recent file for write: " << file;
+        {
+            std::ofstream ofs(tmp);
+            if (!ofs) {
+                LOG(ERROR) << "Failed to open temporary recent file for write: " << tmp;
+                return;
+            }
+            ofs << j.dump(2);
+            ofs.flush();
+            if (!ofs.good()) {
+                LOG(ERROR) << "Failed to write recent files data to temporary file: " << tmp;
+                ofs.close();
+                std::error_code ec;
+                std::filesystem::remove(tmp, ec);
+                return;
+            }
+        }
+        std::error_code ec;
+        std::filesystem::rename(tmp, file, ec);
+        if (ec) {
+            LOG(ERROR) << "Failed to rename temp recent file to final path: " << ec.message();
+            std::filesystem::remove(tmp, ec);
             return;
         }
-        ofs << j.dump(2);
     } catch (const std::exception &e) {
+        std::error_code ec;
+        std::filesystem::remove(tmp, ec);
         LOG(ERROR) << "Error saving recent files: " << e.what();
+        return;
     }
     LOG(INFO) << "Recent files saved to: " << file;
 }

@@ -14,7 +14,7 @@ struct GameDataPackage {
     std::filesystem::path iconRootPath;
 };
 
-static std::vector<GameDataPackage> scanForGameData(const std::filesystem::path& gameDataDir) {
+inline std::vector<GameDataPackage> scanForGameData(const std::filesystem::path& gameDataDir) {
     std::vector<GameDataPackage> packages;
     std::error_code ec;
     if (!std::filesystem::exists(gameDataDir, ec) || !std::filesystem::is_directory(gameDataDir, ec)) {

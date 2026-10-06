@@ -55,6 +55,13 @@ This document holds the user-facing changelog that is also used in release notes
 - Fixed division by zero when calculating node machine counts for nodes with zero or negative clock speed or recipes with zero execution time.
 - Fixed stack overflow crashes on deep linear graph chains by converting recursive graph traversal and SCC depth analysis in the solver to an iterative stack algorithm.
 - Improved connection validation performance by removing an unnecessary deep copy of the resource definition registry.
+- Fixed index-skipping bug when deleting ports or machine definitions in Game Data Editor loops.
+- Fixed redundant map lookups in Game Data Editor and Factory Node Editor by reusing iterators.
+- Fixed `fontSize` setting discarded when specified as an integer in configuration JSON by accepting any valid number format.
+- Hardened `SettingsManager`, `SessionManager`, and `RecentFiles` against corrupted files by implementing atomic file writes (temporary file and rename).
+- Optimized missing texture handling in `TextureManager` by caching missing texture IDs to eliminate continuous per-frame disk polling.
+- Cleaned up header hygiene by eliminating leaked global `using json` and `namespace ed` from `GameDataManager.h` and `ProjectIo.h`.
+- Changed `scanForGameData` header function from `static` to `inline` in `GameDataScanner.h` to prevent duplicate instances across translation units.
 
 ---
 

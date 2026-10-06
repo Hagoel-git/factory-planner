@@ -68,8 +68,11 @@ void SettingsManager::loadAppSettings() {
         if (j.contains("fontName") && j["fontName"].is_string()) {
             m_settings.fontName = j["fontName"].get<std::string>();
         }
-        if (j.contains("fontSize") && j["fontSize"].is_number_float()) {
-            m_settings.fontSize = j["fontSize"].get<float>();
+        if (j.contains("fontSize") && j["fontSize"].is_number()) {
+            float fs = j["fontSize"].get<float>();
+            if (fs > 0.0f) {
+                m_settings.fontSize = fs;
+            }
         }
         if (j.contains("showGrid") && j["showGrid"].is_boolean()) {
             m_settings.showGrid = j["showGrid"].get<bool>();
@@ -132,12 +135,38 @@ void SettingsManager::saveAppSettings() const {
     j["windowHeight"] = m_settings.windowHeight;
     j["windowMaximized"] = m_settings.windowMaximized;
     const auto path = getExecutableDirectory().value_or(std::filesystem::current_path()) / "app_settings.json";
-    std::ofstream o(path);
-    if (!o.is_open()) {
-        LOG(ERROR) << "Failed to open settings file for writing: " << path;
-        return;
+    std::filesystem::path tmp = path;
+    tmp += ".tmp";
+    std::error_code dirEc;
+    std::filesystem::create_directories(path.parent_path(), dirEc);
+    try {
+        {
+            std::ofstream o(tmp);
+            if (!o.is_open()) {
+                LOG(ERROR) << "Failed to open temporary settings file for writing: " << tmp;
+                return;
+            }
+            o << j.dump(4);
+            o.flush();
+            if (!o.good()) {
+                LOG(ERROR) << "Failed to write app settings to temporary file: " << tmp;
+                o.close();
+                std::error_code ec;
+                std::filesystem::remove(tmp, ec);
+                return;
+            }
+        }
+        std::error_code ec;
+        std::filesystem::rename(tmp, path, ec);
+        if (ec) {
+            LOG(ERROR) << "Failed to rename temp settings file to final path: " << ec.message();
+            std::filesystem::remove(tmp, ec);
+            return;
+        }
+        LOG(INFO) << "App settings saved successfully.";
+    } catch (const std::exception& e) {
+        LOG(ERROR) << "Exception while saving app settings: " << e.what();
+        std::error_code ec;
+        std::filesystem::remove(tmp, ec);
     }
-    o << j.dump(4);
-    o.close();
-    LOG(INFO) << "App settings saved successfully.";
 }
