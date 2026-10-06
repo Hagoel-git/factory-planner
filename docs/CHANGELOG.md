@@ -51,6 +51,10 @@ This document holds the user-facing changelog that is also used in release notes
 - Fixed active editor tab desynchronization when closing a tab situated before the currently active tab.
 - Fixed project-dependent menu items (Save, Save As, Undo, Redo, Cut, Copy, Paste, Select All, Show Flow, Fit View) remaining active when no projects are open.
 - Removed debug crash button from the debug interface.
+- Fixed potential crashes and out-of-bounds memory accesses in the solver when evaluating recipes with mismatched node port counts or missing recipe/machine definitions.
+- Fixed division by zero when calculating node machine counts for nodes with zero or negative clock speed or recipes with zero execution time.
+- Fixed stack overflow crashes on deep linear graph chains by converting recursive graph traversal and SCC depth analysis in the solver to an iterative stack algorithm.
+- Improved connection validation performance by removing an unnecessary deep copy of the resource definition registry.
 
 ---
 

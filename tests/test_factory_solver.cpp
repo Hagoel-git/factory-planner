@@ -328,6 +328,361 @@ TEST_F(FactorySolverTest, UnconstrainedGraph) {
     EXPECT_NEAR(getPort(n_smelter, "iron_ingot", false)->rate, 0.0, 0.001);
 }
 
+TEST_F(FactorySolverTest, ComputeNodeDepths_EmptyAndSingleNode) {
+    auto depths = solver->computeNodeDepths(*graph);
+    EXPECT_TRUE(depths.empty());
+
+    uint64_t n_miner = addNode("mine_ore");
+    depths = solver->computeNodeDepths(*graph);
+    ASSERT_EQ(depths.size(), 1);
+    EXPECT_EQ(depths[n_miner], 0);
+}
+
+TEST_F(FactorySolverTest, ComputeNodeDepths_LinearChain) {
+    uint64_t n_miner = addNode("mine_ore");
+    uint64_t n_smelter = addNode("smelt_ingot");
+    uint64_t n_plates = addNode("make_plates");
+
+    addConnection(getPort(n_miner, "iron_ore", false), getPort(n_smelter, "iron_ore", true));
+    addConnection(getPort(n_smelter, "iron_ingot", false), getPort(n_plates, "iron_ingot", true));
+
+    auto depths = solver->computeNodeDepths(*graph);
+    EXPECT_EQ(depths[n_miner], 0);
+    EXPECT_EQ(depths[n_smelter], 1);
+    EXPECT_EQ(depths[n_plates], 2);
+}
+
+TEST_F(FactorySolverTest, ComputeNodeDepths_DiamondGraph) {
+    uint64_t n_miner = addNode("mine_ore");
+    uint64_t n_smelter = addNode("smelt_ingot");
+    uint64_t n_plates = addNode("make_plates");
+    uint64_t n_screws = addNode("make_screws");
+    uint64_t n_reinf = addNode("make_reinforced");
+
+    addConnection(getPort(n_miner, "iron_ore", false), getPort(n_smelter, "iron_ore", true));
+    addConnection(getPort(n_smelter, "iron_ingot", false), getPort(n_plates, "iron_ingot", true));
+    addConnection(getPort(n_smelter, "iron_ingot", false), getPort(n_screws, "iron_ingot", true));
+    addConnection(getPort(n_plates, "iron_plate", false), getPort(n_reinf, "iron_plate", true));
+    addConnection(getPort(n_screws, "screw", false), getPort(n_reinf, "screw", true));
+
+    auto depths = solver->computeNodeDepths(*graph);
+    EXPECT_EQ(depths[n_miner], 0);
+    EXPECT_EQ(depths[n_smelter], 1);
+    EXPECT_EQ(depths[n_plates], 2);
+    EXPECT_EQ(depths[n_screws], 2);
+    EXPECT_EQ(depths[n_reinf], 3);
+}
+
+TEST_F(FactorySolverTest, ComputeNodeDepths_Cycle) {
+    Recipe r1;
+    r1.name = "Cycle Recipe 1";
+    r1.input_ports.push_back(RecipePort{10.0, "iron_ingot"});
+    r1.output_ports.push_back(RecipePort{10.0, "screw"});
+    r1.time_seconds = 1.0;
+    testGameData.recipes["cycle1"] = r1;
+
+    Recipe r2;
+    r2.name = "Cycle Recipe 2";
+    r2.input_ports.push_back(RecipePort{10.0, "screw"});
+    r2.output_ports.push_back(RecipePort{10.0, "iron_ingot"});
+    r2.time_seconds = 1.0;
+    testGameData.recipes["cycle2"] = r2;
+
+    graph = std::make_unique<FactoryGraph>(testGameData);
+
+    uint64_t n_c1 = graph->addNode("Cycle 1", "cycle1");
+    uint64_t n_c2 = graph->addNode("Cycle 2", "cycle2");
+
+    Port* c1_out = getPort(n_c1, "screw", false);
+    Port* c2_in = getPort(n_c2, "screw", true);
+    Port* c2_out = getPort(n_c2, "iron_ingot", false);
+    Port* c1_in = getPort(n_c1, "iron_ingot", true);
+
+    addConnection(c1_out, c2_in);
+    addConnection(c2_out, c1_in);
+
+    auto depths = solver->computeNodeDepths(*graph);
+    EXPECT_EQ(depths[n_c1], 0);
+    EXPECT_EQ(depths[n_c2], 0);
+}
+
+TEST_F(FactorySolverTest, ComputeNodeDepths_CycleWithRootAndLeaf) {
+    Recipe r_root;
+    r_root.name = "Root Recipe";
+    r_root.input_ports.push_back(RecipePort{1.0, "nothing"});
+    r_root.output_ports.push_back(RecipePort{10.0, "iron_ingot"});
+    r_root.time_seconds = 1.0;
+    testGameData.recipes["r_root"] = r_root;
+
+    Recipe r1;
+    r1.name = "C1";
+    r1.input_ports.push_back(RecipePort{10.0, "iron_ingot"});
+    r1.output_ports.push_back(RecipePort{10.0, "screw"});
+    r1.time_seconds = 1.0;
+    testGameData.recipes["c1"] = r1;
+
+    Recipe r2;
+    r2.name = "C2";
+    r2.input_ports.push_back(RecipePort{10.0, "screw"});
+    r2.output_ports.push_back(RecipePort{10.0, "iron_ingot"});
+    r2.output_ports.push_back(RecipePort{10.0, "wire"});
+    r2.time_seconds = 1.0;
+    testGameData.recipes["c2"] = r2;
+
+    Recipe r_leaf;
+    r_leaf.name = "Leaf Recipe";
+    r_leaf.input_ports.push_back(RecipePort{10.0, "wire"});
+    r_leaf.output_ports.push_back(RecipePort{1.0, "nothing"});
+    r_leaf.time_seconds = 1.0;
+    testGameData.recipes["r_leaf"] = r_leaf;
+
+    graph = std::make_unique<FactoryGraph>(testGameData);
+
+    uint64_t n_root = graph->addNode("Root", "r_root");
+    uint64_t n_c1 = graph->addNode("Cycle1", "c1");
+    uint64_t n_c2 = graph->addNode("Cycle2", "c2");
+    uint64_t n_leaf = graph->addNode("Leaf", "r_leaf");
+
+    addConnection(getPort(n_root, "iron_ingot", false), getPort(n_c1, "iron_ingot", true));
+    addConnection(getPort(n_c1, "screw", false), getPort(n_c2, "screw", true));
+    addConnection(getPort(n_c2, "iron_ingot", false), getPort(n_c1, "iron_ingot", true));
+    addConnection(getPort(n_c2, "wire", false), getPort(n_leaf, "wire", true));
+
+    auto depths = solver->computeNodeDepths(*graph);
+    EXPECT_EQ(depths[n_root], 0);
+    EXPECT_EQ(depths[n_c1], 1);
+    EXPECT_EQ(depths[n_c2], 1);
+    EXPECT_EQ(depths[n_leaf], 2);
+}
+
+TEST_F(FactorySolverTest, RobustnessInvalidRecipeOrMachine) {
+    uint64_t n1 = addNode("mine_ore");
+    Node* node = graph->getNode(n1);
+    ASSERT_NE(node, nullptr);
+
+    // Corrupt recipe key
+    node->selected_recipe_key = "non_existent_recipe";
+    FactorySolver::SolverResult result = solver->solve(*graph);
+    EXPECT_NEAR(node->machine_count, 0.0, 0.001);
+
+    // Restore recipe, corrupt machine key
+    node->selected_recipe_key = "mine_ore";
+    node->machine_key = "non_existent_machine";
+    result = solver->solve(*graph);
+    EXPECT_NEAR(node->machine_count, 0.0, 0.001);
+}
+
+TEST_F(FactorySolverTest, RobustnessZeroOrNegativeClockSpeed) {
+    uint64_t n_miner = addNode("mine_ore");
+    uint64_t n_smelter = addNode("smelt_ingot");
+    addConnection(getPort(n_miner, "iron_ore", false), getPort(n_smelter, "iron_ore", true));
+
+    // Zero clock speed
+    graph->setNodeClockSpeed(n_smelter, 0.0);
+    graph->setPortConstraint(getPort(n_miner, "iron_ore", false)->id, 30.0);
+
+    FactorySolver::SolverResult result = solver->solve(*graph);
+    ASSERT_EQ(result.status, FactorySolver::SolverResultStatus::SUCCESS);
+    EXPECT_NEAR(graph->getNode(n_smelter)->machine_count, 0.0, 0.001);
+
+    // Negative clock speed
+    graph->setNodeClockSpeed(n_smelter, -50.0);
+    result = solver->solve(*graph);
+    ASSERT_EQ(result.status, FactorySolver::SolverResultStatus::SUCCESS);
+    EXPECT_NEAR(graph->getNode(n_smelter)->machine_count, 0.0, 0.001);
+}
+
+TEST_F(FactorySolverTest, RobustnessZeroRecipeTime) {
+    Recipe zero_time_recipe;
+    zero_time_recipe.name = "Zero Time Recipe";
+    zero_time_recipe.produced_in_machines_keys.push_back("smelter");
+    zero_time_recipe.input_ports.push_back(RecipePort{30.0, "iron_ore"});
+    zero_time_recipe.output_ports.push_back(RecipePort{30.0, "iron_ingot"});
+    zero_time_recipe.time_seconds = 0.0;
+    testGameData.recipes["zero_time"] = zero_time_recipe;
+
+    graph = std::make_unique<FactoryGraph>(testGameData);
+
+    uint64_t n_node = graph->addNode("Zero Time Node", "zero_time");
+    FactorySolver::SolverResult result = solver->solve(*graph);
+    ASSERT_EQ(result.status, FactorySolver::SolverResultStatus::SUCCESS);
+    EXPECT_NEAR(graph->getNode(n_node)->machine_count, 0.0, 0.001);
+}
+
+TEST_F(FactorySolverTest, RobustnessNodeFewerPortsThanRecipe) {
+    uint64_t n_rfp = addNode("make_reinforced");
+    Node* node = graph->getNode(n_rfp);
+    ASSERT_NE(node, nullptr);
+
+    // Case A: 0 input and 0 output ports
+    node->input_ports.clear();
+    node->output_ports.clear();
+    FactorySolver::SolverResult result = solver->solve(*graph);
+    EXPECT_NEAR(node->machine_count, 0.0, 0.001);
+
+    // Case B: 1 input port (recipe has 2 input ports) and 0 output ports
+    node->input_ports.push_back(999999); // non-existent port variable ID
+    result = solver->solve(*graph);
+    EXPECT_NEAR(node->machine_count, 0.0, 0.001);
+}
+
+TEST_F(FactorySolverTest, ComputeNodeDepths_DeepChain) {
+    // 1000 nodes in a linear chain
+    Recipe chain_step;
+    chain_step.name = "Step";
+    chain_step.produced_in_machines_keys.push_back("constructor");
+    chain_step.input_ports.push_back(RecipePort{1.0, "iron_ingot"});
+    chain_step.output_ports.push_back(RecipePort{1.0, "iron_ingot"});
+    chain_step.time_seconds = 1.0;
+    testGameData.recipes["chain_step"] = chain_step;
+
+    graph = std::make_unique<FactoryGraph>(testGameData);
+    const int kChainLen = 1000;
+    std::vector<uint64_t> chain_nodes;
+    chain_nodes.reserve(kChainLen);
+
+    for (int i = 0; i < kChainLen; ++i) {
+        chain_nodes.push_back(graph->addNode("Step_" + std::to_string(i), "chain_step"));
+    }
+
+    for (int i = 0; i < kChainLen - 1; ++i) {
+        Node* curr = graph->getNode(chain_nodes[i]);
+        Node* next = graph->getNode(chain_nodes[i + 1]);
+        ASSERT_NE(curr, nullptr);
+        ASSERT_NE(next, nullptr);
+        addConnection(graph->getPort(curr->output_ports[0]), graph->getPort(next->input_ports[0]));
+    }
+
+    auto depths = solver->computeNodeDepths(*graph);
+    ASSERT_EQ(depths.size(), static_cast<size_t>(kChainLen));
+    EXPECT_EQ(depths[chain_nodes[0]], 0);
+    EXPECT_EQ(depths[chain_nodes[500]], 500);
+    EXPECT_EQ(depths[chain_nodes[kChainLen - 1]], kChainLen - 1);
+}
+
+TEST_F(FactorySolverTest, ComputeNodeDepths_ComplexSCCCondensationWithBypasses) {
+    // S -> Cycle1 -> Cycle2 -> Cycle3 -> T
+    // With parallel bypasses: S -> Cycle2, Cycle1 -> Cycle3, and S -> T
+    Recipe r_source;
+    r_source.name = "Source";
+    r_source.input_ports.push_back(RecipePort{1.0, "nothing"});
+    r_source.output_ports.push_back(RecipePort{10.0, "iron_ingot"});
+    r_source.output_ports.push_back(RecipePort{10.0, "copper_ingot"});
+    r_source.output_ports.push_back(RecipePort{10.0, "screw"});
+    r_source.time_seconds = 1.0;
+    testGameData.recipes["r_source"] = r_source;
+
+    Recipe r_c1_a;
+    r_c1_a.name = "C1_A";
+    r_c1_a.input_ports.push_back(RecipePort{10.0, "iron_ingot"});
+    r_c1_a.input_ports.push_back(RecipePort{10.0, "wire"});
+    r_c1_a.output_ports.push_back(RecipePort{10.0, "iron_plate"});
+    r_c1_a.time_seconds = 1.0;
+    testGameData.recipes["r_c1_a"] = r_c1_a;
+
+    Recipe r_c1_b;
+    r_c1_b.name = "C1_B";
+    r_c1_b.input_ports.push_back(RecipePort{10.0, "iron_plate"});
+    r_c1_b.output_ports.push_back(RecipePort{10.0, "wire"});
+    r_c1_b.output_ports.push_back(RecipePort{10.0, "copper_ore"});
+    r_c1_b.output_ports.push_back(RecipePort{10.0, "iron_ore"});
+    r_c1_b.time_seconds = 1.0;
+    testGameData.recipes["r_c1_b"] = r_c1_b;
+
+    Recipe r_c2_a;
+    r_c2_a.name = "C2_A";
+    r_c2_a.input_ports.push_back(RecipePort{10.0, "copper_ore"});
+    r_c2_a.input_ports.push_back(RecipePort{10.0, "copper_ingot"});
+    r_c2_a.input_ports.push_back(RecipePort{10.0, "reinforced_plate"});
+    r_c2_a.output_ports.push_back(RecipePort{10.0, "screw"});
+    r_c2_a.time_seconds = 1.0;
+    testGameData.recipes["r_c2_a"] = r_c2_a;
+
+    Recipe r_c2_b;
+    r_c2_b.name = "C2_B";
+    r_c2_b.input_ports.push_back(RecipePort{10.0, "screw"});
+    r_c2_b.output_ports.push_back(RecipePort{10.0, "reinforced_plate"});
+    r_c2_b.output_ports.push_back(RecipePort{10.0, "iron_ingot"});
+    r_c2_b.time_seconds = 1.0;
+    testGameData.recipes["r_c2_b"] = r_c2_b;
+
+    Recipe r_c3_a;
+    r_c3_a.name = "C3_A";
+    r_c3_a.input_ports.push_back(RecipePort{10.0, "iron_ingot"});
+    r_c3_a.input_ports.push_back(RecipePort{10.0, "iron_ore"});
+    r_c3_a.input_ports.push_back(RecipePort{10.0, "wire"});
+    r_c3_a.output_ports.push_back(RecipePort{10.0, "copper_ingot"});
+    r_c3_a.time_seconds = 1.0;
+    testGameData.recipes["r_c3_a"] = r_c3_a;
+
+    Recipe r_c3_b;
+    r_c3_b.name = "C3_B";
+    r_c3_b.input_ports.push_back(RecipePort{10.0, "copper_ingot"});
+    r_c3_b.output_ports.push_back(RecipePort{10.0, "wire"});
+    r_c3_b.output_ports.push_back(RecipePort{10.0, "screw"});
+    r_c3_b.time_seconds = 1.0;
+    testGameData.recipes["r_c3_b"] = r_c3_b;
+
+    Recipe r_sink;
+    r_sink.name = "Sink";
+    r_sink.input_ports.push_back(RecipePort{10.0, "screw"});
+    r_sink.output_ports.push_back(RecipePort{1.0, "nothing"});
+    r_sink.time_seconds = 1.0;
+    testGameData.recipes["r_sink"] = r_sink;
+
+    graph = std::make_unique<FactoryGraph>(testGameData);
+
+    uint64_t n_source = graph->addNode("Source", "r_source");
+    uint64_t n_c1_a = graph->addNode("C1_A", "r_c1_a");
+    uint64_t n_c1_b = graph->addNode("C1_B", "r_c1_b");
+    uint64_t n_c2_a = graph->addNode("C2_A", "r_c2_a");
+    uint64_t n_c2_b = graph->addNode("C2_B", "r_c2_b");
+    uint64_t n_c3_a = graph->addNode("C3_A", "r_c3_a");
+    uint64_t n_c3_b = graph->addNode("C3_B", "r_c3_b");
+    uint64_t n_sink = graph->addNode("Sink", "r_sink");
+
+    // Cycle 1 internal edges
+    addConnection(getPort(n_c1_a, "iron_plate", false), getPort(n_c1_b, "iron_plate", true));
+    addConnection(getPort(n_c1_b, "wire", false), getPort(n_c1_a, "wire", true));
+
+    // Cycle 2 internal edges
+    addConnection(getPort(n_c2_a, "screw", false), getPort(n_c2_b, "screw", true));
+    addConnection(getPort(n_c2_b, "reinforced_plate", false), getPort(n_c2_a, "reinforced_plate", true));
+
+    // Cycle 3 internal edges
+    addConnection(getPort(n_c3_a, "copper_ingot", false), getPort(n_c3_b, "copper_ingot", true));
+    addConnection(getPort(n_c3_b, "wire", false), getPort(n_c3_a, "wire", true));
+
+    // Feed S -> C1
+    addConnection(getPort(n_source, "iron_ingot", false), getPort(n_c1_a, "iron_ingot", true));
+
+    // Bypass 1: S -> C2
+    addConnection(getPort(n_source, "copper_ingot", false), getPort(n_c2_a, "copper_ingot", true));
+
+    // Feed C1 -> C2
+    addConnection(getPort(n_c1_b, "copper_ore", false), getPort(n_c2_a, "copper_ore", true));
+
+    // Feed C2 -> C3
+    addConnection(getPort(n_c2_b, "iron_ingot", false), getPort(n_c3_a, "iron_ingot", true));
+
+    // Bypass 2: C1 -> C3
+    addConnection(getPort(n_c1_b, "iron_ore", false), getPort(n_c3_a, "iron_ore", true));
+
+    // Feed C3 -> Sink
+    addConnection(getPort(n_c3_b, "screw", false), getPort(n_sink, "screw", true));
+
+    auto depths = solver->computeNodeDepths(*graph);
+    EXPECT_EQ(depths[n_source], 0);
+    EXPECT_EQ(depths[n_c1_a], 1);
+    EXPECT_EQ(depths[n_c1_b], 1);
+    EXPECT_EQ(depths[n_c2_a], 2);
+    EXPECT_EQ(depths[n_c2_b], 2);
+    EXPECT_EQ(depths[n_c3_a], 3);
+    EXPECT_EQ(depths[n_c3_b], 3);
+    EXPECT_EQ(depths[n_sink], 4);
+}
+
+
 #include <fstream>
 #include "core/data/GameDataManager.h"
 TEST(TMP_RealProject, Factory1) {
