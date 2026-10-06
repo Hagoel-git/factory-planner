@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <string>
 #include <utility>
+#include <cinttypes>
 
 #include "common/IdUtils.h"
 #include "common/CopyBuffer.h"
@@ -17,7 +18,7 @@
 namespace ed = ax::NodeEditor;
 
 FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::filesystem::path &projectFilePath, std::string title)
-    : m_editorName(std::move(title)), m_projectFilePath(projectFilePath), m_contextNodeId(0), m_contextPinId(0),
+    : m_editorName(std::move(title)), m_projectFilePath(projectFilePath), m_selectedPortId(static_cast<uint64_t>(-1)), m_contextNodeId(0), m_contextPinId(0),
       m_contextLinkId(0), m_undoRedoManager(SettingsManager::instance().getSettings().maxUndoHistory) {
     try {
         VLOG(1) << "Initializing FactoryNodeEditor for project: " << projectFilePath;
@@ -102,7 +103,6 @@ FactoryNodeEditor::~FactoryNodeEditor() {
 
     // Reset other state
     m_nodeQuadtree = nullptr;
-    m_selectedPortId = -1;
     m_contextNodeId = 0;
     m_contextPinId = 0;
     m_contextLinkId = 0;
@@ -285,7 +285,7 @@ void FactoryNodeEditor::paste(const CopyBuffer &copy_buffer, bool mapExternalCon
     }
     if (filteredBuffer.nodes.empty()) {
         if (skippedNodes > 0) {
-            NotificationManager::instance().addNotification("Paste Failed", "All" + std::to_string(skippedNodes) + " copied nodes contained invalid recipes/machines for this game version.", NotificationType::Warning);
+            NotificationManager::instance().addNotification("Paste Failed", "All " + std::to_string(skippedNodes) + " copied nodes contained invalid recipes/machines for this game version.", NotificationType::Warning);
         }
         return;
     }
@@ -575,6 +575,12 @@ void FactoryNodeEditor::drawNodes() {
 
     m_debugInfo.visibleNodes = static_cast<int>(nodesToRegister.size());
 
+    const auto& gameData = m_graph->getGameData();
+    std::string timeUnit = gameData.time_unit;
+    if (timeUnit == "seconds") timeUnit = "sec";
+    else if (timeUnit == "minutes") timeUnit = "min";
+    else if (timeUnit == "hours") timeUnit = "hour";
+
     std::string deferredTooltip;
     // Draw only visible nodes
     for (const auto& nodeData : nodesToRegister) {
@@ -628,7 +634,7 @@ void FactoryNodeEditor::drawNodes() {
                 Port *p = m_graph->getPort(port);
                 if (!p || p->resource_key == "nothing") continue;
 
-                Resource res = m_graph->getGameData().resources.at(p->resource_key);
+                const Resource& res = m_graph->getGameData().resources.at(p->resource_key);
                 ed::BeginPin(IdUtils::toPinId(p->id), ed::PinKind::Input);
                 if (m_graph->getConnectionsForPort(p->id).empty()) {
                     ImVec2 pos = ImGui::GetCursorScreenPos();
@@ -667,7 +673,7 @@ void FactoryNodeEditor::drawNodes() {
         } else {
             ImGui::Dummy(ImVec2(48, machine_h));
         }
-        const char* countText = ImGui::GetCurrentContext() ? "%.2f" : "%.2f";
+        const char* countText = "%.2f";
         char buf[32];
         snprintf(buf, sizeof(buf), countText, node->machine_count);
         float textWidth = ImGui::CalcTextSize(buf).x;
@@ -689,7 +695,7 @@ void FactoryNodeEditor::drawNodes() {
                 Port *p = m_graph->getPort(port);
                 if (!p || p->resource_key == "nothing") continue;
 
-                Resource res = m_graph->getGameData().resources.at(p->resource_key);
+                const Resource& res = m_graph->getGameData().resources.at(p->resource_key);
                 ed::BeginPin(IdUtils::toPinId(p->id), ed::PinKind::Output);
                 ImGui::Text("%.2f", p->rate); ImGui::SameLine();
                 bool has_excess = p->excess_rate > 1e-4;
@@ -712,7 +718,7 @@ void FactoryNodeEditor::drawNodes() {
                 if (ImGui::IsItemHovered()) {
                     if (has_excess) {
                         char ex_buf[128];
-                        snprintf(ex_buf, sizeof(ex_buf), "%s\nExcess: %.2f/min", res.name.c_str(), p->excess_rate);
+                        snprintf(ex_buf, sizeof(ex_buf), "%s\nExcess: %.2f/%s", res.name.c_str(), p->excess_rate, timeUnit.c_str());
                         deferredTooltip = ex_buf;
                     } else {
                         deferredTooltip = res.name;
@@ -862,7 +868,6 @@ void FactoryNodeEditor::handleUserInteractions() {
         }
 
         executeCommand(std::move(cmd));
-        std::cout << std::endl;
     }
     ed::EndDelete();
 
@@ -889,7 +894,7 @@ void FactoryNodeEditor::handleUserInteractions() {
                 auto cmd = std::make_unique<CompositeCommand>("Move Nodes Command", CommandFlags{false, true});
                 for (const auto &nodeId : selectedNodes) {
                     ImVec2 originalPosition = ed::GetNodePosition(nodeId) - (m_draggedNodeNewPos - m_draggedNodeOriginalPos);
-                    ImVec2 newPos = ed::GetNodePosition(nodeId);;
+                    ImVec2 newPos = ed::GetNodePosition(nodeId);
                     if (m_draggedNodeOriginalPos != m_draggedNodeNewPos) {
                         auto node = m_graph->getNode(IdUtils::fromNodeId(nodeId));
                         if (node) {
@@ -928,7 +933,7 @@ void FactoryNodeEditor::handleContextMenus() {
     if (ed::ShowBackgroundContextMenu()) {
         ed::Suspend();
         ImGui::OpenPopup("Create new node");
-        m_selectedPortId = -1;
+        m_selectedPortId = static_cast<uint64_t>(-1);
         ed::Resume();
         m_storedPopupPosition = ImGui::GetMousePosOnOpeningCurrentPopup();
     }
@@ -1093,7 +1098,7 @@ void FactoryNodeEditor::handlePopups() {
             if (showDebug) {
                 ImGui::Separator();
                 ImGui::TextDisabled("Debug Info");
-                ImGui::Text("Node ID: %lu", node->id);
+                ImGui::Text("Node ID: %" PRIu64, node->id);
                 ImGui::Text("Recipe Key: %s", node->selected_recipe_key.c_str());
                 ImGui::Text("Machine Key: %s", node->machine_key.c_str());
                 ImGui::Text("Machine Count: %.4f", node->machine_count);
@@ -1168,8 +1173,8 @@ void FactoryNodeEditor::handlePopups() {
             if (showDebug) {
                 ImGui::Separator();
                 ImGui::TextDisabled("Debug Info");
-                ImGui::Text("Port ID: %lu", port->id);
-                ImGui::Text("Node ID: %lu", port->node_id);
+                ImGui::Text("Port ID: %" PRIu64, port->id);
+                ImGui::Text("Node ID: %" PRIu64, port->node_id);
                 ImGui::Text("Constraint Val: %f", port->user_constraint);
             }
         }
@@ -1204,9 +1209,9 @@ void FactoryNodeEditor::handlePopups() {
             if (showDebug) {
                 ImGui::Separator();
                 ImGui::TextDisabled("Debug Info");
-                ImGui::Text("Link ID: %lu", connection->id);
-                ImGui::Text("From Port: %lu", connection->from_port);
-                ImGui::Text("To Port: %lu", connection->to_port);
+                ImGui::Text("Link ID: %" PRIu64, connection->id);
+                ImGui::Text("From Port: %" PRIu64, connection->from_port);
+                ImGui::Text("To Port: %" PRIu64, connection->to_port);
             }
         }
         ImGui::EndPopup();
@@ -1238,7 +1243,7 @@ void FactoryNodeEditor::handlePopups() {
 
             std::string portResourceKey;
             bool portIsInput = false;
-            bool hasContext = (m_selectedPortId != -1);
+            bool hasContext = (m_selectedPortId != static_cast<uint64_t>(-1));
             if (hasContext) {
                 auto p = m_graph->getPort(m_selectedPortId);
                 if (p) {
@@ -1319,7 +1324,7 @@ void FactoryNodeEditor::handlePopups() {
                 ImGui::TableNextColumn();
                 ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.5f, 0.5f));
                 if (ImGui::Selectable(recipe.name.c_str(), false, ImGuiSelectableFlags_SpanAllColumns)) {
-                    uint64_t fromPort = hasContext ? m_selectedPortId : -1;
+                    uint64_t fromPort = hasContext ? m_selectedPortId : static_cast<uint64_t>(-1);
                     ImVec2 nodePos = hasContext ? ed::ScreenToCanvas(m_storedPopupPosition) : ed::ScreenToCanvas(ImGui::GetMousePosOnOpeningCurrentPopup());
 
                     if (hasContext) {
@@ -1385,6 +1390,7 @@ void FactoryNodeEditor::handlePopups() {
                         }
                     }
                     executeCommand(std::make_unique<AddNodeCommand>(recipe.name, recipePair.first, fromPort, nodePos));
+                    m_selectedPortId = static_cast<uint64_t>(-1);
                     ImGui::CloseCurrentPopup();
                 }
                 ImGui::PopStyleVar();

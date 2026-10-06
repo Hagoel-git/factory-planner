@@ -1,6 +1,7 @@
 #include "NotificationManager.h"
 #include <algorithm>
 #include <cstdio>
+#include <cinttypes>
 
 NotificationManager& NotificationManager::instance() {
     static NotificationManager instance;
@@ -79,7 +80,7 @@ void NotificationManager::draw() {
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, ROUNDING);
         ImGui::PushStyleColor(ImGuiCol_WindowBg, winBgColor);
 
-        snprintf(windowIdBuffer, sizeof(windowIdBuffer), "##Notify%lu", n.id);
+        snprintf(windowIdBuffer, sizeof(windowIdBuffer), "##Notify%" PRIu64, n.id);
 
         ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration |
                                  ImGuiWindowFlags_AlwaysAutoResize |
