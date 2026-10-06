@@ -4,12 +4,15 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <filesystem>
+#include <cstdint>
+#include <string>
+
+#include <imgui.h>
 
 #include "core/graph/Node.h"
 #include "core/graph/Port.h"
 #include "core/graph/Connection.h"
 
-struct ImVec2;
 class FactoryNodeEditor;
 
 struct CopyBuffer {

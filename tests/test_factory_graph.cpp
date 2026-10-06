@@ -10,6 +10,8 @@
 #include "services/TextureManager.h"
 #include "common/FilesystemUtils.h"
 #include "common/StringUtils.h"
+#include "common/TextureUtils.h"
+#include "common/CopyBuffer.h"
 #include "services/NotificationManager.h"
 #include <fstream>
 #include <filesystem>
@@ -92,6 +94,33 @@ void SetUp() override {
         sink_plates.input_ports.push_back(RecipePort{1.0, "iron_plate"});
         sink_plates.output_ports.push_back(RecipePort{1.0, "nothing"});
         testGameData.recipes["sink_plates"] = sink_plates;
+
+        // Processor (Constructor - Wire)
+        Recipe make_wire;
+        make_wire.name = "Make Wire";
+        make_wire.produced_in_machines_keys.push_back("constructor");
+        make_wire.input_ports.push_back(RecipePort{15.0, "copper_ingot"});
+        make_wire.output_ports.push_back(RecipePort{30.0, "wire"});
+        testGameData.recipes["make_wire"] = make_wire;
+
+        // Multi-Input Multi-Output (Assembler)
+        Recipe multi_io;
+        multi_io.name = "Multi IO Recipe";
+        multi_io.produced_in_machines_keys.push_back("assembler");
+        multi_io.input_ports.push_back(RecipePort{30.0, "iron_plate"});
+        multi_io.input_ports.push_back(RecipePort{60.0, "screw"});
+        multi_io.input_ports.push_back(RecipePort{30.0, "wire"});
+        multi_io.output_ports.push_back(RecipePort{5.0, "reinforced_plate"});
+        multi_io.output_ports.push_back(RecipePort{15.0, "copper_ingot"});
+        testGameData.recipes["multi_io"] = multi_io;
+
+        // Consumer (Sink Reinforced)
+        Recipe sink_reinforced;
+        sink_reinforced.name = "Sink Reinforced";
+        sink_reinforced.produced_in_machines_keys.push_back("sink");
+        sink_reinforced.input_ports.push_back(RecipePort{1.0, "reinforced_plate"});
+        sink_reinforced.output_ports.push_back(RecipePort{1.0, "nothing"});
+        testGameData.recipes["sink_reinforced"] = sink_reinforced;
 
         // --- 4. Initialize Graph ---
         graph = std::make_unique<FactoryGraph>(testGameData);
@@ -565,6 +594,138 @@ TEST_F(FactoryGraphTest, RemoveNodeSwapAndPop) {
 
 TEST_F(FactoryGraphTest, RemoveNodeFailure) {
     EXPECT_FALSE(graph->removeNode(999));
+}
+
+TEST_F(FactoryGraphTest, RemoveNodeWithMultipleInputAndOutputPorts) {
+    // Regression test for Bug 1.20: Container Mutation During Iteration in removeNode.
+    // Ensure that removing a node with multiple inputs and multiple outputs
+    // cleanly removes all of its ports and connections without leaking or dangling references.
+    uint64_t multiNode = addNode("multi_io");
+    Node* multiNodePtr = graph->getNode(multiNode);
+    ASSERT_NE(multiNodePtr, nullptr);
+    ASSERT_EQ(multiNodePtr->input_ports.size(), 3);
+    ASSERT_EQ(multiNodePtr->output_ports.size(), 2);
+
+    std::vector<uint64_t> inPortIds = multiNodePtr->input_ports;
+    std::vector<uint64_t> outPortIds = multiNodePtr->output_ports;
+
+    // Upstream producers
+    uint64_t prod1 = addNode("make_plates");
+    uint64_t prod2 = addNode("make_screws");
+    uint64_t prod3 = addNode("make_wire");
+
+    // Downstream consumers
+    uint64_t cons1 = addNode("sink_reinforced");
+    uint64_t cons2 = addNode("make_wire");
+
+    // Connect producers to multiNode inputs
+    Port* outP1 = getPort(prod1, "iron_plate", false);
+    Port* outP2 = getPort(prod2, "screw", false);
+    Port* outP3 = getPort(prod3, "wire", false);
+    Port* inM1 = getPort(multiNode, "iron_plate", true);
+    Port* inM2 = getPort(multiNode, "screw", true);
+    Port* inM3 = getPort(multiNode, "wire", true);
+
+    ASSERT_NE(outP1, nullptr);
+    ASSERT_NE(outP2, nullptr);
+    ASSERT_NE(outP3, nullptr);
+    ASSERT_NE(inM1, nullptr);
+    ASSERT_NE(inM2, nullptr);
+    ASSERT_NE(inM3, nullptr);
+
+    uint64_t conn1 = graph->addConnection(outP1->id, inM1->id);
+    uint64_t conn2 = graph->addConnection(outP2->id, inM2->id);
+    uint64_t conn3 = graph->addConnection(outP3->id, inM3->id);
+
+    // Connect multiNode outputs to consumers
+    Port* outM1 = getPort(multiNode, "reinforced_plate", false);
+    Port* outM2 = getPort(multiNode, "copper_ingot", false);
+    Port* inC1 = getPort(cons1, "reinforced_plate", true);
+    Port* inC2 = getPort(cons2, "copper_ingot", true);
+
+    ASSERT_NE(outM1, nullptr);
+    ASSERT_NE(outM2, nullptr);
+    ASSERT_NE(inC1, nullptr);
+    ASSERT_NE(inC2, nullptr);
+
+    uint64_t conn4 = graph->addConnection(outM1->id, inC1->id);
+    uint64_t conn5 = graph->addConnection(outM2->id, inC2->id);
+
+    EXPECT_NE(conn1, (uint64_t)-1);
+    EXPECT_NE(conn2, (uint64_t)-1);
+    EXPECT_NE(conn3, (uint64_t)-1);
+    EXPECT_NE(conn4, (uint64_t)-1);
+    EXPECT_NE(conn5, (uint64_t)-1);
+
+    size_t totalNodesBefore = graph->getNodes().size();
+    size_t totalPortsBefore = graph->getPorts().size();
+    size_t totalConnsBefore = graph->getConnections().size();
+    ASSERT_EQ(totalConnsBefore, 5);
+
+    // Remove the multi-port node
+    ASSERT_TRUE(graph->removeNode(multiNode));
+
+    // Verify node is removed
+    EXPECT_EQ(graph->getNode(multiNode), nullptr);
+    EXPECT_EQ(graph->getNodes().size(), totalNodesBefore - 1);
+
+    // Verify all 5 ports of the multi-port node are removed
+    for (uint64_t pId : inPortIds) {
+        EXPECT_EQ(graph->getPort(pId), nullptr);
+    }
+    for (uint64_t pId : outPortIds) {
+        EXPECT_EQ(graph->getPort(pId), nullptr);
+    }
+    EXPECT_EQ(graph->getPorts().size(), totalPortsBefore - 5);
+
+    // Verify all 5 connections are removed
+    EXPECT_EQ(graph->getConnection(conn1), nullptr);
+    EXPECT_EQ(graph->getConnection(conn2), nullptr);
+    EXPECT_EQ(graph->getConnection(conn3), nullptr);
+    EXPECT_EQ(graph->getConnection(conn4), nullptr);
+    EXPECT_EQ(graph->getConnection(conn5), nullptr);
+    EXPECT_EQ(graph->getConnections().size(), 0);
+
+    // Verify neighbor nodes' ports have empty connection lists
+    EXPECT_TRUE(graph->getConnectionsForPort(outP1->id).empty());
+    EXPECT_TRUE(graph->getConnectionsForPort(outP2->id).empty());
+    EXPECT_TRUE(graph->getConnectionsForPort(outP3->id).empty());
+    EXPECT_TRUE(graph->getConnectionsForPort(inC1->id).empty());
+    EXPECT_TRUE(graph->getConnectionsForPort(inC2->id).empty());
+}
+
+TEST_F(FactoryGraphTest, RemoveNodeWithMultiPortAndFanOutConnections) {
+    // Verify removal of a multi-port node where an output port has multiple
+    // downstream connections (fan-out pattern).
+    uint64_t multiNode = addNode("multi_io");
+    Node* multiNodePtr = graph->getNode(multiNode);
+    ASSERT_NE(multiNodePtr, nullptr);
+
+    Port* outM1 = getPort(multiNode, "reinforced_plate", false);
+    ASSERT_NE(outM1, nullptr);
+
+    // Two downstream consumers of the same output port
+    uint64_t cons1 = addNode("sink_reinforced");
+    uint64_t cons2 = addNode("sink_reinforced");
+    Port* inC1 = getPort(cons1, "reinforced_plate", true);
+    Port* inC2 = getPort(cons2, "reinforced_plate", true);
+    ASSERT_NE(inC1, nullptr);
+    ASSERT_NE(inC2, nullptr);
+
+    uint64_t conn1 = graph->addConnection(outM1->id, inC1->id);
+    uint64_t conn2 = graph->addConnection(outM1->id, inC2->id);
+    EXPECT_NE(conn1, (uint64_t)-1);
+    EXPECT_NE(conn2, (uint64_t)-1);
+    EXPECT_EQ(graph->getConnectionsForPort(outM1->id).size(), 2);
+
+    // Remove multiNode
+    EXPECT_TRUE(graph->removeNode(multiNode));
+
+    // Verify all connections involving outM1 are removed
+    EXPECT_EQ(graph->getConnection(conn1), nullptr);
+    EXPECT_EQ(graph->getConnection(conn2), nullptr);
+    EXPECT_TRUE(graph->getConnectionsForPort(inC1->id).empty());
+    EXPECT_TRUE(graph->getConnectionsForPort(inC2->id).empty());
 }
 
 TEST_F(FactoryGraphTest, ClearGraph) {
@@ -1498,4 +1659,83 @@ TEST(NotificationManagerTest, AddNotificationFormatting) {
         nm.addNotification("Test Notification", "All 3 copied nodes contained invalid recipes.", NotificationType::Warning);
         nm.addNotification("Success", "Loaded successfully", NotificationType::Success);
     });
+}
+
+TEST(TextureUtilsTest, LoadFromFile_EdgeCases) {
+    unsigned int tex = 0;
+    int w = 0, h = 0;
+
+    // Null filename returns false
+    EXPECT_FALSE(TextureUtils::loadTextureFromFile(nullptr, &tex, &w, &h));
+
+    // Null out_texture returns false without crashing or leaking
+    EXPECT_FALSE(TextureUtils::loadTextureFromFile("non_existent.png", nullptr, &w, &h));
+
+    // Non-existent path returns false
+    EXPECT_FALSE(TextureUtils::loadTextureFromFile("/non/existent/path/image.png", &tex, &w, &h));
+
+    // Empty filename returns false
+    EXPECT_FALSE(TextureUtils::loadTextureFromFile("", &tex, &w, &h));
+}
+
+TEST(TextureUtilsTest, LoadFromMemory_EdgeCases) {
+    unsigned int tex = 0;
+    int w = 0, h = 0;
+
+    // Null data returns false
+    EXPECT_FALSE(TextureUtils::loadTextureFromMemory(nullptr, 100, &tex, &w, &h));
+
+    // Zero size returns false
+    const unsigned char dummy[4] = {0, 0, 0, 0};
+    EXPECT_FALSE(TextureUtils::loadTextureFromMemory(dummy, 0, &tex, &w, &h));
+
+    // Null out_texture returns false
+    EXPECT_FALSE(TextureUtils::loadTextureFromMemory(dummy, 4, nullptr, &w, &h));
+
+    // Corrupted/non-image data returns false
+    const char corruptData[] = "NotAnImageHeader";
+    EXPECT_FALSE(TextureUtils::loadTextureFromMemory(corruptData, sizeof(corruptData), &tex, &w, &h));
+}
+
+TEST(GraphPrimitivesTest, DefaultInitializers) {
+    // Audit Item 3.8: In-class default member initializers for Port, Node, Connection
+    Port p;
+    EXPECT_EQ(p.id, 0);
+    EXPECT_EQ(p.node_id, 0);
+    EXPECT_DOUBLE_EQ(p.rate, 0.0);
+    EXPECT_DOUBLE_EQ(p.user_constraint, -1.0);
+    EXPECT_DOUBLE_EQ(p.excess_rate, 0.0);
+    EXPECT_TRUE(p.resource_key.empty());
+
+    Node n;
+    EXPECT_EQ(n.id, 0);
+    EXPECT_DOUBLE_EQ(n.machine_count, 0.0);
+    EXPECT_DOUBLE_EQ(n.clock_speed, 100.0);
+    EXPECT_DOUBLE_EQ(n.production_multiplier, 100.0);
+    EXPECT_TRUE(n.name.empty());
+    EXPECT_TRUE(n.machine_key.empty());
+    EXPECT_TRUE(n.selected_recipe_key.empty());
+    EXPECT_TRUE(n.input_ports.empty());
+    EXPECT_TRUE(n.output_ports.empty());
+
+    Connection c;
+    EXPECT_EQ(c.id, 0);
+    EXPECT_EQ(c.from_port, 0);
+    EXPECT_EQ(c.to_port, 0);
+    EXPECT_DOUBLE_EQ(c.rate, 0.0);
+    EXPECT_TRUE(c.resource_key.empty());
+}
+
+TEST(GraphPrimitivesTest, HeaderSelfSufficiency) {
+    // Audit Item 3.9: Header self-sufficiency for CopyBuffer.h and Port.h
+    CopyBuffer buf;
+    EXPECT_TRUE(buf.isEmpty());
+    EXPECT_EQ(buf.sourceEditor, nullptr);
+    EXPECT_TRUE(buf.gameName.empty());
+    EXPECT_TRUE(buf.nodes.empty());
+    EXPECT_TRUE(buf.ports.empty());
+    EXPECT_TRUE(buf.connections.empty());
+    EXPECT_TRUE(buf.nodePositions.empty());
+    buf.clear();
+    EXPECT_TRUE(buf.isEmpty());
 }

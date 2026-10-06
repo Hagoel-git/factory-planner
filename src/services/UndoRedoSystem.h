@@ -78,9 +78,10 @@ private:
     std::vector<Port> ports_data;
     std::vector<Connection> connections_data;
     ImVec2 position;
+    bool executed;
 public:
     explicit RemoveNodeCommand(uint64_t id)
-        : id(id), nodeName(), nodeData(), position(0, 0) {
+        : id(id), nodeName(), nodeData(), position(0, 0), executed(false) {
     }
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
