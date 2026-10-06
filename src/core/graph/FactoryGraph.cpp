@@ -623,7 +623,6 @@ bool FactoryGraph::isValidConnection(uint64_t from_port, uint64_t to_port) {
         return false;
     }
     if (from_port_ptr->resource_key != to_port_ptr->resource_key) {
-        auto resource_names = m_gameData.resources;
         return false;
     }
     if (isInputPort(from_port_ptr->id) || !isInputPort(to_port_ptr->id)) {

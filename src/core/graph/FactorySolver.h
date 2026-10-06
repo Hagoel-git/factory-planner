@@ -74,6 +74,8 @@ public:
     /// How a user constraint on the given port is interpreted by the solver.
     static ConstraintKind classifyConstraint(const FactoryGraph &factory_graph, const Port &port);
 
+    std::unordered_map<uint64_t, int> computeNodeDepths(const FactoryGraph &factory_graph) const;
+
     double getLastSolveTime() const { return m_lastSolveTime; }
     std::string getLastSolverStatus() const { return m_lastSolverStatus; }
 private:
@@ -100,8 +102,6 @@ private:
     void addAllConstraints(const FactoryGraph &factory_graph);
     void addRecipeConstraints(const Node &node, const Recipe &recipe);
     void addConnectionConstraints(const FactoryGraph &factory_graph);
-    std::unordered_map<uint64_t, int> computeNodeDepths(const FactoryGraph &factory_graph) const;
-
 
     operations_research::MPSolver::ResultStatus solveLexicographic(const FactoryGraph &factory_graph);
     operations_research::MPSolver::ResultStatus solveStage(const Terms &terms, bool maximize, double &objective_value);
