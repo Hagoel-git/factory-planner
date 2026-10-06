@@ -135,7 +135,7 @@ private:
     ImVec2 m_windowSize;
     std::string m_editorName;
     std::filesystem::path m_projectFilePath;
-    uint64_t m_selectedPortId = 0;
+    uint64_t m_selectedPortId = static_cast<uint64_t>(-1);
 
     // Quadtree for spatial optimization
     std::unique_ptr<quadtree::Quadtree<NodeQuadtreeData, GetNodeBox>> m_nodeQuadtree;

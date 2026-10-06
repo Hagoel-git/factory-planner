@@ -62,6 +62,16 @@ This document holds the user-facing changelog that is also used in release notes
 - Optimized missing texture handling in `TextureManager` by caching missing texture IDs to eliminate continuous per-frame disk polling.
 - Cleaned up header hygiene by eliminating leaked global `using json` and `namespace ed` from `GameDataManager.h` and `ProjectIo.h`.
 - Changed `scanForGameData` header function from `static` to `inline` in `GameDataScanner.h` to prevent duplicate instances across translation units.
+- Fixed initial port context in `FactoryNodeEditor` incorrectly defaulting to `0` rather than unselected (`-1`), which erroneously scoped the recipe creation popup to port `0`.
+- Fixed undefined behavior and MSVC debug assertions on non-ASCII characters in `naturalLess` by casting characters to `unsigned char` before passing to `std::isdigit` and `std::tolower`.
+- Fixed hardcoded `/min` rate unit in output port excess rate tooltips by respecting the dataset's configured time unit.
+- Fixed missing space in paste failure notification message when copied nodes contain invalid recipes or machines.
+- Fixed platform-dependent 64-bit integer format specifiers (`%lu` instead of `PRIu64`) across `FactoryNodeEditor` debug overlays and `NotificationManager`.
+- Removed redundant ternary operator in `FactoryNodeEditor::drawNodes` machine count formatting.
+- Removed leftover debug newline output to standard console on node deletion.
+- Cleaned up redundant double semicolon in `FactoryNodeEditor` node movement logic.
+- Optimized canvas rendering performance by avoiding per-frame value copies of `Resource` objects during pin drawing in `FactoryNodeEditor`.
+- Optimized `StringUtils::slugify` performance by declaring regular expressions as `static const` to eliminate repeated regex compilation.
 
 ---
 

@@ -9,6 +9,8 @@
 #include "services/RecentFiles.h"
 #include "services/TextureManager.h"
 #include "common/FilesystemUtils.h"
+#include "common/StringUtils.h"
+#include "services/NotificationManager.h"
 #include <fstream>
 #include <filesystem>
 
@@ -1419,4 +1421,81 @@ TEST(GameDataEditorTest, VectorDeletionLoopDoesNotSkipElements) {
         std::vector<std::string> expectedRemaining = {"A", "B"};
         EXPECT_EQ(keys, expectedRemaining);
     }
+}
+
+TEST(StringUtilsTest, SlugifyBasic) {
+    EXPECT_EQ(slugify("Iron Plate"), "iron-plate");
+    EXPECT_EQ(slugify("Copper Wire"), "copper-wire");
+    EXPECT_EQ(slugify("Miner Mk.1"), "miner-mk-1");
+    EXPECT_EQ(slugify("Assembler 2"), "assembler-2");
+}
+
+TEST(StringUtilsTest, SlugifySpecialChars) {
+    EXPECT_EQ(slugify("C++ Engine"), "cplusplus-engine");
+    EXPECT_EQ(slugify("recipe:iron:ingot"), "recipe-iron-ingot");
+    EXPECT_EQ(slugify("100% Pure Water!"), "100-pure-water");
+    EXPECT_EQ(slugify("item @#$ with *&^ symbols"), "item-with-symbols");
+    EXPECT_EQ(slugify("multiple   spaces   and---hyphens"), "multiple-spaces-and-hyphens");
+}
+
+TEST(StringUtilsTest, SlugifyEdgeCases) {
+    EXPECT_EQ(slugify(""), "");
+    EXPECT_EQ(slugify("   "), "");
+    EXPECT_EQ(slugify("\t\n  \r"), "");
+    EXPECT_EQ(slugify("---leading-and-trailing---"), "leading-and-trailing");
+    EXPECT_EQ(slugify("++++"), "plusplusplusplus");
+    EXPECT_EQ(slugify("!@#$%^&*()"), "");
+}
+
+TEST(StringUtilsTest, NaturalLessNumbers) {
+    EXPECT_TRUE(naturalLess("file2", "file10"));
+    EXPECT_FALSE(naturalLess("file10", "file2"));
+    EXPECT_FALSE(naturalLess("file2", "file2"));
+    EXPECT_TRUE(naturalLess("item1", "item2"));
+    EXPECT_TRUE(naturalLess("test01", "test10"));
+    EXPECT_TRUE(naturalLess("node1_in", "node1_out"));
+    EXPECT_FALSE(naturalLess("node1_out", "node1_in"));
+}
+
+TEST(StringUtilsTest, NaturalLessCaseInsensitive) {
+    EXPECT_TRUE(naturalLess("FILE2", "file10"));
+    EXPECT_TRUE(naturalLess("file2", "FILE10"));
+    EXPECT_FALSE(naturalLess("abc", "ABC"));
+    EXPECT_FALSE(naturalLess("ABC", "abc"));
+    EXPECT_TRUE(naturalLess("abc", "ABD"));
+    EXPECT_TRUE(naturalLess("ABC", "abd"));
+}
+
+TEST(StringUtilsTest, NaturalLessPrefixAndBoundaries) {
+    EXPECT_TRUE(naturalLess("file", "file1"));
+    EXPECT_FALSE(naturalLess("file1", "file"));
+    EXPECT_TRUE(naturalLess("", "a"));
+    EXPECT_FALSE(naturalLess("a", ""));
+    EXPECT_FALSE(naturalLess("", ""));
+}
+
+TEST(StringUtilsTest, NaturalLessNonAsciiSafety) {
+    // Non-ASCII bytes (e.g. UTF-8 or values > 127) must not trigger UB or assertions
+    std::string s1 = "caf\xC3\xA9";
+    std::string s2 = "cafe";
+    EXPECT_NO_FATAL_FAILURE({
+        bool res1 = naturalLess(s1, s2);
+        bool res2 = naturalLess(s2, s1);
+        EXPECT_NE(res1, res2);
+    });
+
+    std::string highByte = "\xFF";
+    std::string asciiChar = "a";
+    EXPECT_NO_FATAL_FAILURE({
+        naturalLess(highByte, asciiChar);
+        naturalLess(asciiChar, highByte);
+    });
+}
+
+TEST(NotificationManagerTest, AddNotificationFormatting) {
+    NotificationManager& nm = NotificationManager::instance();
+    EXPECT_NO_FATAL_FAILURE({
+        nm.addNotification("Test Notification", "All 3 copied nodes contained invalid recipes.", NotificationType::Warning);
+        nm.addNotification("Success", "Loaded successfully", NotificationType::Success);
+    });
 }

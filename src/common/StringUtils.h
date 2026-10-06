@@ -29,30 +29,37 @@ inline void trim(std::string &s) {
  * @return The slugified string.
  */
 inline std::string slugify(std::string text) {
+    // Trim leading and trailing whitespace.
+    trim(text);
+
     if (text.empty()) {
         return text;
     }
+
     // Convert the entire string to lowercase.
     std::transform(text.begin(), text.end(), text.begin(),
                    [](unsigned char c){ return std::tolower(c); });
 
-    // Trim leading and trailing whitespace.
-    trim(text);
+    static const std::regex re_plus("\\+");
+    static const std::regex re_colon_dot("[:.]");
+    static const std::regex re_invalid("[^a-z0-9\\s:._-]");
+    static const std::regex re_hyphens("[\\s-]+");
+    static const std::regex re_trim("^-+|-+$");
 
     // Replace all instances of '+' with 'plus'.
-    text = std::regex_replace(text, std::regex("\\+"), "plus");
+    text = std::regex_replace(text, re_plus, "plus");
 
     // Replace all instances of ':' or '.' with '-'.
-    text = std::regex_replace(text, std::regex("[:.]"), "-");
+    text = std::regex_replace(text, re_colon_dot, "-");
 
     // Remove characters that are not letters, numbers, whitespace, or specific symbols.
-    text = std::regex_replace(text, std::regex("[^a-z0-9\\s:._-]"), "");
+    text = std::regex_replace(text, re_invalid, "");
 
     // Collapse consecutive whitespace characters and/or hyphens into a single hyphen.
-    text = std::regex_replace(text, std::regex("[\\s-]+"), "-");
+    text = std::regex_replace(text, re_hyphens, "-");
 
     // Remove any leading or trailing hyphens that might have been created.
-    text = std::regex_replace(text, std::regex("^-+|-+$"), "");
+    text = std::regex_replace(text, re_trim, "");
 
     return text;
 }
@@ -65,14 +72,14 @@ inline bool naturalLess(const std::string& a, const std::string& b) {
     size_t i = 0, j = 0;
     while (i < a.length() && j < b.length()) {
         // Check if both characters are digits
-        if (std::isdigit(a[i]) && std::isdigit(b[j])) {
+        if (std::isdigit(static_cast<unsigned char>(a[i])) && std::isdigit(static_cast<unsigned char>(b[j]))) {
             // Scan full numeric chunk in a
             size_t startI = i;
-            while (i < a.length() && std::isdigit(a[i])) i++;
+            while (i < a.length() && std::isdigit(static_cast<unsigned char>(a[i]))) i++;
 
             // Scan full numeric chunk in b
             size_t startJ = j;
-            while (j < b.length() && std::isdigit(b[j])) j++;
+            while (j < b.length() && std::isdigit(static_cast<unsigned char>(b[j]))) j++;
 
             // Compare numeric chunks
             size_t lenA = i - startI;
@@ -91,8 +98,8 @@ inline bool naturalLess(const std::string& a, const std::string& b) {
             // If numbers are identical, continue to next characters
         } else {
             // Case-insensitive character comparison
-            char cA = static_cast<char> (std::tolower(a[i]));
-            char cB = static_cast<char> (std::tolower(b[j]));
+            unsigned char cA = static_cast<unsigned char>(std::tolower(static_cast<unsigned char>(a[i])));
+            unsigned char cB = static_cast<unsigned char>(std::tolower(static_cast<unsigned char>(b[j])));
 
             if (cA != cB) {
                 return cA < cB;
