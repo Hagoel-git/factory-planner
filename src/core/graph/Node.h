@@ -3,11 +3,13 @@
 #include <string>
 #include <vector>
 #include <cstdint>
+#include <functional>
+#include <utility>
 
 struct Node {
     std::string name;
 
-    uint64_t id;
+    uint64_t id = 0;
     std::string machine_key;
     std::string selected_recipe_key;
 

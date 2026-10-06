@@ -6,15 +6,16 @@
 #include "imgui-node-editor/external/stb_image/stb_image.h"
 
 
-// Simple helper function to load an image into a OpenGL texture with common settings
-bool TextureUtils::loadTextureFromMemory(const void* data, size_t data_size, GLuint* out_texture, int* out_width, int* out_height)
+namespace {
+
+bool createGlTexture(unsigned char* image_data, int image_width, int image_height, GLuint* out_texture, int* out_width, int* out_height)
 {
-    // Load from file
-    int image_width = 0;
-    int image_height = 0;
-    unsigned char* image_data = stbi_load_from_memory((const unsigned char*)data, (int)data_size, &image_width, &image_height, NULL, 4);
-    if (image_data == NULL)
+    if (image_data == nullptr || out_texture == nullptr || image_width <= 0 || image_height <= 0) {
+        if (image_data != nullptr) {
+            stbi_image_free(image_data);
+        }
         return false;
+    }
 
     // Create a OpenGL texture identifier
     GLuint image_texture;
@@ -30,8 +31,7 @@ bool TextureUtils::loadTextureFromMemory(const void* data, size_t data_size, GLu
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, image_width, image_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image_data);
     stbi_image_free(image_data);
 
-    if (out_texture)
-        *out_texture = image_texture;
+    *out_texture = image_texture;
     if (out_width)
         *out_width = image_width;
     if (out_height)
@@ -40,27 +40,28 @@ bool TextureUtils::loadTextureFromMemory(const void* data, size_t data_size, GLu
     return true;
 }
 
-// Open and read a file, then forward to LoadTextureFromMemory()
+} // namespace
+
+// Simple helper function to load an image into a OpenGL texture with common settings
+bool TextureUtils::loadTextureFromMemory(const void* data, size_t data_size, GLuint* out_texture, int* out_width, int* out_height)
+{
+    if (data == nullptr || data_size == 0 || out_texture == nullptr)
+        return false;
+
+    int image_width = 0;
+    int image_height = 0;
+    unsigned char* image_data = stbi_load_from_memory((const unsigned char*)data, (int)data_size, &image_width, &image_height, NULL, 4);
+    return createGlTexture(image_data, image_width, image_height, out_texture, out_width, out_height);
+}
+
+// Open and load an image file directly using stbi_load
 bool TextureUtils::loadTextureFromFile(const char* file_name, GLuint* out_texture, int* out_width, int* out_height)
 {
-    FILE* f = fopen(file_name, "rb");
-    if (f == NULL)
+    if (file_name == nullptr || out_texture == nullptr)
         return false;
-    fseek(f, 0, SEEK_END);
-    size_t file_size = (size_t)ftell(f);
-    if (file_size == (size_t)-1 || file_size == 0) {
-        fclose(f);
-        return false;
-    }
-    fseek(f, 0, SEEK_SET);
-    void* file_data = IM_ALLOC(file_size);
-    if (file_data == NULL) {
-        fclose(f);
-        return false;
-    }
-    fread(file_data, 1, file_size, f);
-    fclose(f);
-    bool ret = loadTextureFromMemory(file_data, file_size, out_texture, out_width, out_height);
-    IM_FREE(file_data);
-    return ret;
+
+    int image_width = 0;
+    int image_height = 0;
+    unsigned char* image_data = stbi_load(file_name, &image_width, &image_height, NULL, 4);
+    return createGlTexture(image_data, image_width, image_height, out_texture, out_width, out_height);
 }

@@ -1,14 +1,15 @@
 #ifndef CONNECTION_H
 #define CONNECTION_H
+#include <cstdint>
+#include <functional>
 #include <string>
 #include <utility>
-#include <cstdint>
 
 struct Connection {
     double rate = 0.0;
-    uint64_t id;
-    uint64_t from_port; // Port number on the originating node
-    uint64_t to_port; // Port number on the destination node
+    uint64_t id = 0;
+    uint64_t from_port = 0; // Port number on the originating node
+    uint64_t to_port = 0; // Port number on the destination node
     std::string resource_key;
 
     Connection() = default;

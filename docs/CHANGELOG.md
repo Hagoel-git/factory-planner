@@ -72,6 +72,11 @@ This document holds the user-facing changelog that is also used in release notes
 - Cleaned up redundant double semicolon in `FactoryNodeEditor` node movement logic.
 - Optimized canvas rendering performance by avoiding per-frame value copies of `Resource` objects during pin drawing in `FactoryNodeEditor`.
 - Optimized `StringUtils::slugify` performance by declaring regular expressions as `static const` to eliminate repeated regex compilation.
+- Optimized `TextureUtils::loadTextureFromFile` by streaming directly via `stbi_load`, eliminating manual file reading and redundant memory allocations, and hardened texture loading against null pointers, zero/negative dimensions, and OpenGL resource leaks.
+- Fixed uninitialized primitive member fields in core graph primitives (`Port::id`, `Port::node_id`, `Node::id`, `Connection::id`, `Connection::from_port`, `Connection::to_port`) by adding in-class default member initializers.
+- Improved header self-sufficiency across `Port.h` and `CopyBuffer.h` by adding missing required `#include` statements (`<string>`, `<functional>`, `<cstddef>`, `<imgui.h>`).
+- Fixed state loss and ghost node corruption in `RemoveNodeCommand` by adding an execution guard and preserving snapshot memento data across repeated undo/redo cycles.
+- Expanded test suite coverage with comprehensive automated unit tests for concrete commands (`AddNodeCommand`, `RemoveNodeCommand`, `PasteCommand`, `AddConnectionCommand`, `RemoveConnectionCommand`) across single and multiple undo/redo cycles in `test_undo_redo_system.cpp`, multi-port node removal with fan-out connections in `test_factory_graph.cpp`, and core primitive default initializers and texture loading edge cases.
 
 ---
 
