@@ -9,6 +9,7 @@
 #include "nfd_glfw3.h"
 #include "app/Application.h"
 #include "services/SettingsManager.h"
+#include "common/FramePacer.h"
 
 #include "absl/log/log.h"
 #include "absl/log/initialize.h"
@@ -162,10 +163,17 @@ int main(int argc, char **argv) {
         glfwSwapInterval(1);
     }
 
-    // workaround for wayland
-    const double targetFrameRate = 60.0;
-    const double targetTime = 1.0f / targetFrameRate;
-    auto nextFrame = std::chrono::steady_clock::now();
+    // workaround for wayland: match native display refresh rate if available, defaulting to 60.0 FPS
+    double targetFps = 60.0;
+    GLFWmonitor* primaryMonitor = glfwGetPrimaryMonitor();
+    if (primaryMonitor) {
+        const GLFWvidmode* mode = glfwGetVideoMode(primaryMonitor);
+        if (mode && mode->refreshRate > 0) {
+            targetFps = static_cast<double>(mode->refreshRate);
+            LOG(INFO) << "Wayland primary monitor refresh rate detected: " << targetFps << " Hz";
+        }
+    }
+    common::FramePacer framePacer(targetFps);
 #endif
 
 
@@ -202,6 +210,11 @@ int main(int argc, char **argv) {
         Application app;
 
         double lastActivityTime = glfwGetTime();
+#if __linux__
+        if (is_wayland) {
+            framePacer.reset();
+        }
+#endif
         // Main loop
         while (!app.isQuitConfirmed()) {
             if (glfwWindowShouldClose(window)) {
@@ -211,7 +224,8 @@ int main(int argc, char **argv) {
             }
 
             double currentTime = glfwGetTime();
-            bool isIdle = (currentTime - lastActivityTime) > IDLE_THRESHOLD_SECONDS;
+            bool wasIdle = (currentTime - lastActivityTime) > IDLE_THRESHOLD_SECONDS;
+            bool isIdle = wasIdle;
 
             if (!isIdle) {
                 glfwPollEvents();
@@ -232,8 +246,8 @@ int main(int argc, char **argv) {
 
 #if __linux__
             // Wayland Fix: Reset timer if we just woke up from idle
-            if (is_wayland && isIdle) {
-                nextFrame = std::chrono::steady_clock::now();
+            if (is_wayland && wasIdle && !isIdle) {
+                framePacer.reset();
             }
 #endif
 
@@ -253,12 +267,10 @@ int main(int argc, char **argv) {
             // fix for Wayland: Application not responding with vsync enabled, so we use a manual frame rate control
             if (is_wayland) {
                 if (!isIdle) {
-                    nextFrame += std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-                        std::chrono::duration<double>(targetTime));
-                    std::this_thread::sleep_until(nextFrame);
+                    framePacer.pace();
                 } else {
                     std::this_thread::sleep_for(std::chrono::duration<double>(IDLE_POLL_TIMEOUT_SECONDS));
-                    nextFrame = std::chrono::steady_clock::now();
+                    framePacer.reset();
                 }
             }
 #endif

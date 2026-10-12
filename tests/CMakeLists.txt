@@ -7,6 +7,7 @@ add_executable(
         test_factory_graph.cpp
         test_factory_solver.cpp
         test_undo_redo_system.cpp
+        test_frame_pacer.cpp
 )
 
 target_link_libraries(

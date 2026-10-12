@@ -131,6 +131,7 @@ set(FACTORY_PLANNER_LIB_SRC
         src/services/TextureManager.cpp
         src/services/NotificationManager.cpp
         src/services/NotificationManager.h
+        src/common/FramePacer.h
 )
 
 add_library(factory_planner_lib STATIC ${FACTORY_PLANNER_LIB_SRC})
