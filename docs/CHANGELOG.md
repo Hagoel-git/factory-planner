@@ -77,6 +77,7 @@ This document holds the user-facing changelog that is also used in release notes
 - Improved header self-sufficiency across `Port.h` and `CopyBuffer.h` by adding missing required `#include` statements (`<string>`, `<functional>`, `<cstddef>`, `<imgui.h>`).
 - Fixed state loss and ghost node corruption in `RemoveNodeCommand` by adding an execution guard and preserving snapshot memento data across repeated undo/redo cycles.
 - Expanded test suite coverage with comprehensive automated unit tests for concrete commands (`AddNodeCommand`, `RemoveNodeCommand`, `PasteCommand`, `AddConnectionCommand`, `RemoveConnectionCommand`) across single and multiple undo/redo cycles in `test_undo_redo_system.cpp`, multi-port node removal with fan-out connections in `test_factory_graph.cpp`, and core primitive default initializers and texture loading edge cases.
+- Fixed Wayland frame pacer accumulator drift and 100% CPU spinning caused by frame pacing latency backlog, resolved the 40 FPS frame cap by properly checking frame deadlines after advancing the pacing target, added dynamic monitor refresh rate detection for high-refresh displays on Wayland, corrected the idle-to-active wakeup state transition check, and hardened `FramePacer` against non-finite or invalid FPS inputs.
 
 ---
 
