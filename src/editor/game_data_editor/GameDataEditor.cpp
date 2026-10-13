@@ -950,7 +950,7 @@ void GameDataEditor::drawMachineCreator() {
                 m_isDirty = true;
                 if (!m_draftMachine.iconPath.empty()) {
                     std::string err;
-                    m_gameDataManager.setResourceIcon(key, m_draftMachine.iconPath, err);
+                    m_gameDataManager.setMachineIcon(key, m_draftMachine.iconPath, err);
                 }
                 m_draftMachine.nameBuf[0] = '\0';
                 strncpy(m_draftMachine.speedBuf, "1.0", sizeof(m_draftMachine.speedBuf));
@@ -1314,9 +1314,10 @@ void GameDataEditor::drawRecipeGrid() {
             ImGui::PopStyleColor(3);
             ImGui::PopID();
         }
+
+        ImGui::PopStyleColor(2);
+        ImGui::EndTable();
     }
-    ImGui::PopStyleColor(2);
-    ImGui::EndTable();
 
     if (!keyToDelete.empty()) {
         std::string err;

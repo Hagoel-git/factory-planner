@@ -1313,6 +1313,38 @@ struct EditorContext
     DeleteItemsAction& GetItemDeleter() { return m_DeleteItemsAction; }
     ContextMenuAction& GetContextMenu() { return m_ContextMenuAction; }
     ShortcutAction& GetShortcut() { return m_ShortcutAction; }
+    NavigateAction& GetNavigateAction() { return m_NavigateAction; }
+    const NavigateAction& GetNavigateAction() const { return m_NavigateAction; }
+
+    ImGuiEx::Canvas& GetCanvas() { return m_Canvas; }
+    const ImGuiEx::Canvas& GetCanvas() const { return m_Canvas; }
+
+    ImVec2 GetMouseDragDelta(ImGuiMouseButton button, float lock_threshold = -1.0f) const
+    {
+        auto& io = ImGui::GetIO();
+        if (button < 0 || button >= IM_ARRAYSIZE(io.MouseDown))
+            return ImVec2(0.0f, 0.0f);
+
+        if (lock_threshold < 0.0f)
+            lock_threshold = io.MouseDragThreshold;
+
+        if (io.MouseDown[button] || io.MouseReleased[button])
+        {
+            if (io.MouseDragMaxDistanceSqr[button] >= lock_threshold * lock_threshold)
+            {
+                ImVec2 screenMouse = m_Canvas.GetScreenMousePos();
+                ImVec2 screenClick = m_Canvas.GetScreenMouseClickedPos(button);
+                if (ImGui::IsMousePosValid(&screenMouse) && ImGui::IsMousePosValid(&screenClick))
+                {
+                    float invScale = m_Canvas.View().InvScale;
+                    return ImVec2((screenMouse.x - screenClick.x) * invScale,
+                                  (screenMouse.y - screenClick.y) * invScale);
+                }
+            }
+        }
+
+        return ImVec2(0.0f, 0.0f);
+    }
 
     const ImGuiEx::CanvasView& GetView() const { return m_Canvas.View(); }
     const ImRect& GetViewRect() const { return m_Canvas.ViewRect(); }

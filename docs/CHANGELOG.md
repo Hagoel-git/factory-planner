@@ -18,6 +18,14 @@ This document holds the user-facing changelog that is also used in release notes
 - UI: Unconsumed byproducts now highlight their output port in orange and display the exact excess amount in tooltips and the right-click context menu.
 
 ### Fixed
+- Fixed application crash (assertion failure in Quadtree) when placing or dragging nodes far from the canvas origin or when node positions are uninitialized.
+- Fixed viewport drag freeze and view oscillation at extreme zoom-out caused by Dear ImGui local mouse coordinates breaching the internal -256,000 coordinate limit.
+- Fixed outer editor window scrollbars erroneously appearing and conflicting with canvas navigation during extreme zoom-out.
+- Fixed nodes disappearing and cancelling wire creation when dragging a new connection across the canvas.
+- Fixed connecting wires disappearing when crossing the visible viewport between two off-screen nodes.
+- Fixed ImGui style color stack underflow and table imbalance in Game Data Editor's recipe grid.
+- Fixed uninitialized `ImTextureID` member variables in Resource and Machine definitions.
+- Fixed typo in Game Data Editor machine creator calling `setResourceIcon` instead of `setMachineIcon`.
 - Fixed an issue where tabs with unsaved changes could not be closed using the 'X' button or middle-click.
 - Fixed context menu failing to open if the mouse moved slightly during a right-click, especially noticeable on high-DPI mice.
 - Fixed the port context menu incorrectly displaying the constraint of a previously right-clicked port instead of the current one.

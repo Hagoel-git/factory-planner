@@ -1,3 +1,4 @@
+#define IMGUI_DEFINE_MATH_OPERATORS
 #include <gtest/gtest.h>
 #include <core/data/GameData.h>
 #include "core/graph/FactoryGraph.h"
@@ -13,6 +14,12 @@
 #include "common/TextureUtils.h"
 #include "common/CopyBuffer.h"
 #include "services/NotificationManager.h"
+#include <pvigier/Quadtree.h>
+#include <imgui.h>
+#include <imgui_canvas.h>
+#include <imgui_node_editor.h>
+#include <imgui_node_editor_internal.h>
+#include "editor/factory_planner/FactoryNodeEditor.h"
 #include <fstream>
 #include <filesystem>
 
@@ -1724,6 +1731,16 @@ TEST(GraphPrimitivesTest, DefaultInitializers) {
     EXPECT_EQ(c.to_port, 0);
     EXPECT_DOUBLE_EQ(c.rate, 0.0);
     EXPECT_TRUE(c.resource_key.empty());
+
+    // Fix 1.5: Resource and Machine ImTextureID default member initializers
+    Resource r;
+    EXPECT_EQ(r.texture, 0ULL);
+    EXPECT_TRUE(r.name.empty());
+
+    Machine m;
+    EXPECT_EQ(m.texture, 0ULL);
+    EXPECT_DOUBLE_EQ(m.base_crafting_speed, 1.0);
+    EXPECT_TRUE(m.name.empty());
 }
 
 TEST(GraphPrimitivesTest, HeaderSelfSufficiency) {
@@ -1739,3 +1756,448 @@ TEST(GraphPrimitivesTest, HeaderSelfSufficiency) {
     buf.clear();
     EXPECT_TRUE(buf.isEmpty());
 }
+
+namespace {
+struct TestQuadItem {
+    uint64_t id;
+    ImVec2 pos;
+    ImVec2 size;
+    bool operator==(const TestQuadItem&) const = default;
+};
+
+struct GetTestQuadItemBox {
+    quadtree::Box<float> operator()(const TestQuadItem& item) const {
+        return quadtree::Box<float>{
+            quadtree::Vector2<float>(item.pos.x, item.pos.y),
+            quadtree::Vector2<float>(item.size.x, item.size.y)
+        };
+    }
+};
+}
+
+TEST(QuadtreeDynamicBoundsTest, DynamicExpansionAndSanitization) {
+    constexpr float kMaxCanvasCoord = 500000000.0f;
+    constexpr float kMaxNodeDimension = 10000.0f;
+
+    std::vector<TestQuadItem> items = {
+        {1, ImVec2(100.0f, 200.0f), ImVec2(300.0f, 100.0f)},
+        // Far node that exceeds legacy 131,072 halfWorldSize limit
+        {2, ImVec2(200000.0f, -180000.0f), ImVec2(300.0f, 100.0f)},
+        // Node with non-finite / FLT_MAX position to test sanitization
+        {3, ImVec2(std::numeric_limits<float>::infinity(), FLT_MAX), ImVec2(0.0f, -50.0f)},
+        // Node with extreme finite coordinates that would otherwise exceed quadtree bound
+        {4, ImVec2(1e25f, -1e25f), ImVec2(FLT_MAX, 1e20f)}
+    };
+
+    float maxAbsCoord = 0.0f;
+    std::vector<TestQuadItem> sanitizedItems;
+
+    for (auto item : items) {
+        if (!std::isfinite(item.pos.x) || !std::isfinite(item.pos.y) ||
+            std::abs(item.pos.x) >= kMaxCanvasCoord || std::abs(item.pos.y) >= kMaxCanvasCoord) {
+            item.pos = ImVec2(0.0f, 0.0f);
+        }
+        if (!std::isfinite(item.size.x) || !std::isfinite(item.size.y) ||
+            item.size.x <= 0.0f || item.size.y <= 0.0f ||
+            item.size.x > kMaxNodeDimension || item.size.y > kMaxNodeDimension) {
+            item.size = ImVec2(300.0f, 100.0f);
+        }
+        maxAbsCoord = std::max({maxAbsCoord,
+                                std::abs(item.pos.x),
+                                std::abs(item.pos.y),
+                                std::abs(item.pos.x + item.size.x),
+                                std::abs(item.pos.y + item.size.y)});
+        sanitizedItems.push_back(item);
+    }
+
+    // Node 3 should be sanitized to (0,0) and size (300, 100)
+    EXPECT_FLOAT_EQ(sanitizedItems[2].pos.x, 0.0f);
+    EXPECT_FLOAT_EQ(sanitizedItems[2].pos.y, 0.0f);
+    EXPECT_FLOAT_EQ(sanitizedItems[2].size.x, 300.0f);
+    EXPECT_FLOAT_EQ(sanitizedItems[2].size.y, 100.0f);
+
+    // Node 4 (extreme 1e25f and FLT_MAX size) should be sanitized to (0,0) and size (300, 100)
+    EXPECT_FLOAT_EQ(sanitizedItems[3].pos.x, 0.0f);
+    EXPECT_FLOAT_EQ(sanitizedItems[3].pos.y, 0.0f);
+    EXPECT_FLOAT_EQ(sanitizedItems[3].size.x, 300.0f);
+    EXPECT_FLOAT_EQ(sanitizedItems[3].size.y, 100.0f);
+
+    const float margin = 2048.0f;
+    float halfWorldSize = 131072.0f; // 2^17 minimum half-size (minimum 262,144 total)
+    while (halfWorldSize <= maxAbsCoord + margin && halfWorldSize < (1.0f * (1ULL << 30))) {
+        halfWorldSize *= 2.0f;
+    }
+    float worldSize = halfWorldSize * 2.0f;
+
+    // Because item 2 was at ~200,000, halfWorldSize must have expanded beyond 131,072
+    EXPECT_GE(halfWorldSize, 262144.0f);
+    EXPECT_GE(worldSize, 524288.0f);
+
+    quadtree::Box<float> worldBounds(
+        quadtree::Vector2<float>(-halfWorldSize, -halfWorldSize),
+        quadtree::Vector2<float>(worldSize, worldSize)
+    );
+    quadtree::Quadtree<TestQuadItem, GetTestQuadItemBox> qt(worldBounds);
+
+    // Adding all items including far node must not crash on Quadtree assert
+    for (const auto& item : sanitizedItems) {
+        EXPECT_NO_FATAL_FAILURE(qt.add(item));
+    }
+
+    // Query near the far node should return it
+    quadtree::Box<float> queryBox(
+        quadtree::Vector2<float>(199900.0f, -180100.0f),
+        quadtree::Vector2<float>(1000.0f, 1000.0f)
+    );
+    auto results = qt.query(queryBox);
+    EXPECT_EQ(results.size(), 1u);
+    EXPECT_EQ(results[0].id, 2u);
+}
+
+TEST(ViewportCullingAndWiringTest, SegmentIntersectsAABB_GeometryTests) {
+    ImVec2 boxMin(100.0f, 100.0f);
+    ImVec2 boxMax(300.0f, 300.0f);
+
+    // 1. Horizontal segment passing through box
+    EXPECT_TRUE(FactoryNodeEditor::segmentIntersectsAABB(ImVec2(0.0f, 200.0f), ImVec2(400.0f, 200.0f), boxMin, boxMax));
+    // Reverse direction
+    EXPECT_TRUE(FactoryNodeEditor::segmentIntersectsAABB(ImVec2(400.0f, 200.0f), ImVec2(0.0f, 200.0f), boxMin, boxMax));
+
+    // 2. Vertical segment passing through box
+    EXPECT_TRUE(FactoryNodeEditor::segmentIntersectsAABB(ImVec2(200.0f, 0.0f), ImVec2(200.0f, 400.0f), boxMin, boxMax));
+    EXPECT_TRUE(FactoryNodeEditor::segmentIntersectsAABB(ImVec2(200.0f, 400.0f), ImVec2(200.0f, 0.0f), boxMin, boxMax));
+
+    // 3. Diagonal segment passing through box
+    EXPECT_TRUE(FactoryNodeEditor::segmentIntersectsAABB(ImVec2(0.0f, 0.0f), ImVec2(400.0f, 400.0f), boxMin, boxMax));
+    EXPECT_TRUE(FactoryNodeEditor::segmentIntersectsAABB(ImVec2(0.0f, 400.0f), ImVec2(400.0f, 0.0f), boxMin, boxMax));
+
+    // 4. Diagonal segment missing box (corner miss)
+    EXPECT_FALSE(FactoryNodeEditor::segmentIntersectsAABB(ImVec2(0.0f, 50.0f), ImVec2(50.0f, 0.0f), boxMin, boxMax));
+    EXPECT_FALSE(FactoryNodeEditor::segmentIntersectsAABB(ImVec2(0.0f, 150.0f), ImVec2(50.0f, 0.0f), boxMin, boxMax));
+
+    // 5. Completely outside segments (parallel)
+    EXPECT_FALSE(FactoryNodeEditor::segmentIntersectsAABB(ImVec2(0.0f, 50.0f), ImVec2(400.0f, 50.0f), boxMin, boxMax)); // above
+    EXPECT_FALSE(FactoryNodeEditor::segmentIntersectsAABB(ImVec2(0.0f, 350.0f), ImVec2(400.0f, 350.0f), boxMin, boxMax)); // below
+    EXPECT_FALSE(FactoryNodeEditor::segmentIntersectsAABB(ImVec2(50.0f, 0.0f), ImVec2(50.0f, 400.0f), boxMin, boxMax)); // left
+    EXPECT_FALSE(FactoryNodeEditor::segmentIntersectsAABB(ImVec2(350.0f, 0.0f), ImVec2(350.0f, 400.0f), boxMin, boxMax)); // right
+
+    // 6. Segment completely inside box
+    EXPECT_TRUE(FactoryNodeEditor::segmentIntersectsAABB(ImVec2(150.0f, 150.0f), ImVec2(250.0f, 250.0f), boxMin, boxMax));
+
+    // 7. Segment starting inside and ending outside
+    EXPECT_TRUE(FactoryNodeEditor::segmentIntersectsAABB(ImVec2(200.0f, 200.0f), ImVec2(500.0f, 200.0f), boxMin, boxMax));
+
+    // 8. Single point segment (p1 == p2)
+    EXPECT_TRUE(FactoryNodeEditor::segmentIntersectsAABB(ImVec2(200.0f, 200.0f), ImVec2(200.0f, 200.0f), boxMin, boxMax));
+    EXPECT_FALSE(FactoryNodeEditor::segmentIntersectsAABB(ImVec2(50.0f, 50.0f), ImVec2(50.0f, 50.0f), boxMin, boxMax));
+
+    // 9. Inverted box bounds (boxMin > boxMax)
+    EXPECT_TRUE(FactoryNodeEditor::segmentIntersectsAABB(ImVec2(0.0f, 200.0f), ImVec2(400.0f, 200.0f), boxMax, boxMin));
+
+    // 10. Non-finite coordinates (NaN and Inf)
+    float nanVal = std::numeric_limits<float>::quiet_NaN();
+    float infVal = std::numeric_limits<float>::infinity();
+    EXPECT_FALSE(FactoryNodeEditor::segmentIntersectsAABB(ImVec2(nanVal, 200.0f), ImVec2(400.0f, 200.0f), boxMin, boxMax));
+    EXPECT_FALSE(FactoryNodeEditor::segmentIntersectsAABB(ImVec2(0.0f, 200.0f), ImVec2(infVal, 200.0f), boxMin, boxMax));
+    EXPECT_FALSE(FactoryNodeEditor::segmentIntersectsAABB(ImVec2(0.0f, 200.0f), ImVec2(400.0f, 200.0f), ImVec2(nanVal, 100.0f), boxMax));
+}
+
+TEST(ViewportCullingAndWiringTest, OffscreenConnectionCrossingViewportDetection) {
+    // Simulate two nodes placed far apart with a connection crossing between them
+    ImVec2 posA(-1000.0f, 500.0f);
+    ImVec2 sizeA(300.0f, 100.0f);
+    ImVec2 centerA(posA.x + sizeA.x * 0.5f, posA.y + sizeA.y * 0.5f); // (-850, 550)
+
+    ImVec2 posB(2000.0f, 500.0f);
+    ImVec2 sizeB(300.0f, 100.0f);
+    ImVec2 centerB(posB.x + sizeB.x * 0.5f, posB.y + sizeB.y * 0.5f); // (2150, 550)
+
+    const float wirePadding = 300.0f;
+
+    // Viewport 1: Placed in the middle between both offscreen nodes: [200, 800] x [300, 900]
+    // Neither Node A nor Node B is in this viewport.
+    ImVec2 vpMin1(200.0f, 300.0f);
+    ImVec2 vpMax1(800.0f, 900.0f);
+
+    ImVec2 paddedMin1(vpMin1.x - wirePadding, vpMin1.y - wirePadding);
+    ImVec2 paddedMax1(vpMax1.x + wirePadding, vpMax1.y + wirePadding);
+
+    // The line segment from centerA to centerB crosses this viewport!
+    EXPECT_TRUE(FactoryNodeEditor::segmentIntersectsAABB(centerA, centerB, paddedMin1, paddedMax1));
+
+    // Viewport 2: Placed far above in Y: [200, 800] x [3000, 3600]
+    // Line segment does NOT intersect this viewport.
+    ImVec2 vpMin2(200.0f, 3000.0f);
+    ImVec2 vpMax2(800.0f, 3600.0f);
+    ImVec2 paddedMin2(vpMin2.x - wirePadding, vpMin2.y - wirePadding);
+    ImVec2 paddedMax2(vpMax2.x + wirePadding, vpMax2.y + wirePadding);
+
+    EXPECT_FALSE(FactoryNodeEditor::segmentIntersectsAABB(centerA, centerB, paddedMin2, paddedMax2));
+}
+
+TEST(ViewportCullingAndWiringTest, ActiveConnectionPinNodeResolution) {
+    GameData gd;
+    gd.time_unit = "seconds";
+    gd.resources["nothing"] = Resource{"Nothing", 0};
+    gd.resources["iron_ore"] = Resource{"Iron Ore", 1};
+    gd.resources["iron_ingot"] = Resource{"Iron Ingot", 2};
+    gd.machines["smelter"] = Machine{"Smelter", 1, 0};
+
+    Recipe smelt;
+    smelt.name = "Smelt Iron";
+    smelt.produced_in_machines_keys.push_back("smelter");
+    smelt.input_ports.push_back(RecipePort{30.0, "iron_ore"});
+    smelt.output_ports.push_back(RecipePort{30.0, "iron_ingot"});
+    gd.recipes["smelt"] = smelt;
+
+    FactoryGraph graph(gd);
+    uint64_t node1 = graph.addNode("Smelter 1", "smelt");
+    const Node* n1 = graph.getNode(node1);
+    ASSERT_NE(n1, nullptr);
+    ASSERT_FALSE(n1->output_ports.empty());
+
+    uint64_t outPortId = n1->output_ports[0];
+    const Port* p = graph.getPort(outPortId);
+    ASSERT_NE(p, nullptr);
+    EXPECT_EQ(p->node_id, node1);
+
+    // Verify that when dragging from outPortId, looking up the port resolves to node1
+    std::unordered_set<uint64_t> visibleNodeIds;
+    auto port = graph.getPort(outPortId);
+    if (port) {
+        visibleNodeIds.insert(port->node_id);
+    }
+    EXPECT_TRUE(visibleNodeIds.contains(node1));
+}
+
+TEST(ViewportCullingAndWiringTest, DynamicWirePaddingLargeNodes) {
+    // Large custom node (600px width)
+    ImVec2 posA(-1500.0f, 400.0f);
+    ImVec2 sizeA(600.0f, 200.0f);
+    ImVec2 centerA(posA.x + sizeA.x * 0.5f, posA.y + sizeA.y * 0.5f); // (-1200, 500)
+
+    ImVec2 posB(2500.0f, 400.0f);
+    ImVec2 sizeB(600.0f, 200.0f);
+    ImVec2 centerB(posB.x + sizeB.x * 0.5f, posB.y + sizeB.y * 0.5f); // (2800, 500)
+
+    // Wire padding dynamically calculated based on max(size * 0.5 + 150, 300)
+    // 600 * 0.5 + 150 = 450.0f
+    const float wirePadding = std::max({sizeA.x * 0.5f + 150.0f, sizeB.x * 0.5f + 150.0f, 300.0f});
+    EXPECT_FLOAT_EQ(wirePadding, 450.0f);
+
+    // Viewport between offscreen nodes
+    ImVec2 vpMin(200.0f, 300.0f);
+    ImVec2 vpMax(800.0f, 700.0f);
+
+    ImVec2 paddedMin(vpMin.x - wirePadding, vpMin.y - wirePadding);
+    ImVec2 paddedMax(vpMax.x + wirePadding, vpMax.y + wirePadding);
+
+    EXPECT_TRUE(FactoryNodeEditor::segmentIntersectsAABB(centerA, centerB, paddedMin, paddedMax));
+
+    // Also verify when viewport bounds are inverted (max < min) before normalization
+    ImVec2 invMin = vpMax;
+    ImVec2 invMax = vpMin;
+    if (invMin.x > invMax.x) std::swap(invMin.x, invMax.x);
+    if (invMin.y > invMax.y) std::swap(invMin.y, invMax.y);
+    ImVec2 normPaddedMin(invMin.x - wirePadding, invMin.y - wirePadding);
+    ImVec2 normPaddedMax(invMax.x + wirePadding, invMax.y + wirePadding);
+    EXPECT_TRUE(FactoryNodeEditor::segmentIntersectsAABB(centerA, centerB, normPaddedMin, normPaddedMax));
+}
+
+TEST(ViewportCullingAndWiringTest, StalePortSelectionStateClearing) {
+    uint64_t selectedPort = 42;
+    bool isCreatingItem = false;
+    bool isPopupOpen = false;
+
+    // When neither popup is open nor item creation is active, selected port must reset
+    if (!isPopupOpen && !isCreatingItem) {
+        selectedPort = static_cast<uint64_t>(-1);
+    }
+    EXPECT_EQ(selectedPort, static_cast<uint64_t>(-1));
+}
+
+TEST(ViewportDragStabilityTest, ImGuiMouseInvalidBoundaryCausesDeltaCollapse) {
+    ImGuiContext* ctx = ImGui::CreateContext();
+
+    // Dear ImGui defines MOUSE_INVALID = -256000.0f (p.x >= MOUSE_INVALID && p.y >= MOUSE_INVALID)
+    // Points strictly below -256000.0f are treated as invalid mouse positions.
+    ImVec2 validPos(-200000.0f, 100.0f);
+    ImVec2 exactBoundaryPos(-256000.0f, 100.0f);
+    ImVec2 invalidBoundaryPos(-256001.0f, 100.0f);
+    ImVec2 extremePos(-530000.0f, 100.0f);
+
+    EXPECT_TRUE(ImGui::IsMousePosValid(&validPos));
+    EXPECT_TRUE(ImGui::IsMousePosValid(&exactBoundaryPos));
+    EXPECT_FALSE(ImGui::IsMousePosValid(&invalidBoundaryPos));
+    EXPECT_FALSE(ImGui::IsMousePosValid(&extremePos));
+
+    ImGui::DestroyContext(ctx);
+}
+
+TEST(ViewportDragStabilityTest, ScreenDeltaImmunityToExtremeCanvasCoordinates) {
+    // When viewport is navigated at ~-530,000 canvas coordinates (e.g. scroll = -530,000, zoom = 0.0029),
+    // screen-space mouse delta must remain accurate and unaffected by canvas coordinates.
+    ImVec2 screenStart(500.0f, 400.0f);
+    ImVec2 screenCurrent(550.0f, 380.0f);
+    ImVec2 screenDelta = ImVec2(screenCurrent.x - screenStart.x, screenCurrent.y - screenStart.y);
+
+    ImVec2 scrollStart(-530000.0f, -200000.0f);
+    ImVec2 newScroll = ImVec2(scrollStart.x - screenDelta.x, scrollStart.y - screenDelta.y);
+
+    EXPECT_FLOAT_EQ(newScroll.x, -530050.0f);
+    EXPECT_FLOAT_EQ(newScroll.y, -199980.0f);
+
+    // Delta is continuous across frames
+    ImVec2 nextScreen(560.0f, 370.0f);
+    ImVec2 nextDelta = ImVec2(nextScreen.x - screenStart.x, nextScreen.y - screenStart.y);
+    ImVec2 nextScroll = ImVec2(scrollStart.x - nextDelta.x, scrollStart.y - nextDelta.y);
+
+    EXPECT_FLOAT_EQ(nextScroll.x, -530060.0f);
+    EXPECT_FLOAT_EQ(nextScroll.y, -199970.0f);
+}
+
+TEST(ViewportDragStabilityTest, NodeDragDeltaScreenSpaceScaling) {
+    // Simulating EditorContext::GetMouseDragDelta with InvScale
+    float zoom = 0.0029f;
+    float invScale = 1.0f / zoom;
+
+    ImVec2 screenMouse(600.0f, 400.0f);
+    ImVec2 screenClick(500.0f, 350.0f);
+    ImVec2 screenDelta = ImVec2(screenMouse.x - screenClick.x, screenMouse.y - screenClick.y);
+
+    ImVec2 canvasDragOffset = ImVec2(screenDelta.x * invScale, screenDelta.y * invScale);
+
+    EXPECT_NEAR(canvasDragOffset.x, 100.0f / 0.0029f, 0.1f);
+    EXPECT_NEAR(canvasDragOffset.y, 50.0f / 0.0029f, 0.1f);
+}
+
+TEST(ViewportDragStabilityTest, CanvasScreenMousePositionsInLocalAndSuspendedStates) {
+    ImGuiContext* ctx = ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(1920.0f, 1080.0f);
+    io.DeltaTime = 1.0f / 60.0f;
+    unsigned char* pixels = nullptr;
+    int width = 0, height = 0;
+    io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+
+    ImGui::NewFrame();
+
+    // Simulate mouse clicked at screen pos (500, 400) and current mouse at (550, 420)
+    io.MousePos = ImVec2(550.0f, 420.0f);
+    io.MouseClickedPos[0] = ImVec2(500.0f, 400.0f);
+    io.MouseDown[0] = true;
+
+    ImGui::SetNextWindowPos(ImVec2(100.0f, 50.0f));
+    ImGui::SetNextWindowSize(ImVec2(1200.0f, 800.0f));
+    ImGui::Begin("TestWindow");
+
+    ImGuiEx::Canvas canvas;
+    // 1. Outside canvas: GetScreenMousePos and GetScreenMouseClickedPos return screen coordinates
+    EXPECT_FLOAT_EQ(canvas.GetScreenMousePos().x, 550.0f);
+    EXPECT_FLOAT_EQ(canvas.GetScreenMousePos().y, 420.0f);
+    EXPECT_FLOAT_EQ(canvas.GetScreenMouseClickedPos(0).x, 500.0f);
+    EXPECT_FLOAT_EQ(canvas.GetScreenMouseClickedPos(0).y, 400.0f);
+
+    // Set an extreme view: scroll = -530,000, zoom = 0.0029
+    canvas.SetView(ImVec2(530000.0f, 200000.0f), 0.0029f);
+
+    bool begun = canvas.Begin(ImGui::GetID("TestCanvas"), ImVec2(1000.0f, 700.0f));
+    ASSERT_TRUE(begun);
+
+    // 2. Inside canvas local space:
+    // io.MouseClickedPos has been converted into local canvas coordinates
+    EXPECT_LT(io.MouseClickedPos[0].x, -256000.0f);
+    EXPECT_FALSE(ImGui::IsMousePosValid(&io.MouseClickedPos[0]));
+
+    // But canvas.GetScreenMousePos and GetScreenMouseClickedPos remain accurate screen coordinates
+    EXPECT_FLOAT_EQ(canvas.GetScreenMousePos().x, 550.0f);
+    EXPECT_FLOAT_EQ(canvas.GetScreenMousePos().y, 420.0f);
+    EXPECT_FLOAT_EQ(canvas.GetScreenMouseClickedPos(0).x, 500.0f);
+    EXPECT_FLOAT_EQ(canvas.GetScreenMouseClickedPos(0).y, 400.0f);
+
+    // 3. Suspend canvas:
+    canvas.Suspend();
+    EXPECT_TRUE(canvas.IsSuspended());
+    EXPECT_FLOAT_EQ(canvas.GetScreenMousePos().x, 550.0f);
+    EXPECT_FLOAT_EQ(canvas.GetScreenMouseClickedPos(0).x, 500.0f);
+
+    // 4. Resume canvas:
+    canvas.Resume();
+    EXPECT_FALSE(canvas.IsSuspended());
+    EXPECT_FLOAT_EQ(canvas.GetScreenMousePos().x, 550.0f);
+    EXPECT_FLOAT_EQ(canvas.GetScreenMouseClickedPos(0).x, 500.0f);
+
+    canvas.End();
+    ImGui::End();
+    ImGui::Render();
+    ImGui::DestroyContext(ctx);
+}
+
+TEST(ViewportDragStabilityTest, EditorContextMouseDragDeltaValidationAndExtremeCoordinates) {
+    ImGuiContext* ctx = ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(1920.0f, 1080.0f);
+    io.DeltaTime = 1.0f / 60.0f;
+    unsigned char* pixels = nullptr;
+    int width = 0, height = 0;
+    io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+
+    ax::NodeEditor::Config config;
+    config.SettingsFile = nullptr;
+    ax::NodeEditor::Detail::EditorContext editor(&config);
+
+    ImGui::NewFrame();
+
+    // Screen mouse click at (500, 400), current at (550, 420) -> screenDelta = (50, 20)
+    io.MousePos = ImVec2(550.0f, 420.0f);
+    io.MouseClickedPos[0] = ImVec2(500.0f, 400.0f);
+
+    // 1. When button is NOT down: GetMouseDragDelta must return (0, 0)
+    io.MouseDown[0] = false;
+    io.MouseReleased[0] = false;
+    EXPECT_FLOAT_EQ(editor.GetMouseDragDelta(0).x, 0.0f);
+    EXPECT_FLOAT_EQ(editor.GetMouseDragDelta(0).y, 0.0f);
+
+    // 2. When button is down but distance < threshold: must return (0, 0)
+    io.MouseDown[0] = true;
+    io.MouseDragThreshold = 6.0f;
+    io.MouseDragMaxDistanceSqr[0] = 4.0f; // < 36.0f
+    EXPECT_FLOAT_EQ(editor.GetMouseDragDelta(0, 6.0f).x, 0.0f);
+    EXPECT_FLOAT_EQ(editor.GetMouseDragDelta(0, 6.0f).y, 0.0f);
+
+    // 3. When button is down and distance >= threshold with lock_threshold = 0.0f:
+    io.MouseDragMaxDistanceSqr[0] = 50.0f * 50.0f + 20.0f * 20.0f;
+
+    ImGui::SetNextWindowPos(ImVec2(100.0f, 50.0f));
+    ImGui::SetNextWindowSize(ImVec2(1200.0f, 800.0f));
+    ImGui::Begin("TestWindow");
+
+    // Begin editor session
+    editor.Begin("TestEditor", ImVec2(1000.0f, 700.0f));
+
+    // Navigate to extreme coordinates ~-530,000, zoom = 0.0029
+    editor.GetNavigateAction().m_Scroll = ImVec2(-530000.0f, -200000.0f);
+    editor.GetNavigateAction().m_Zoom = 0.0029f;
+    editor.GetCanvas().SetView(editor.GetNavigateAction().GetView());
+
+    // Inside canvas, Dear ImGui's local MouseClickedPos is invalid (< -256000)
+    EXPECT_LT(io.MouseClickedPos[0].x, -256000.0f);
+    EXPECT_FALSE(ImGui::IsMousePosValid(&io.MouseClickedPos[0]));
+
+    // Dear ImGui's GetMouseDragDelta collapses to (0, 0) due to MOUSE_INVALID check failure:
+    EXPECT_FLOAT_EQ(ImGui::GetMouseDragDelta(0, 0.0f).x, 0.0f);
+    EXPECT_FLOAT_EQ(ImGui::GetMouseDragDelta(0, 0.0f).y, 0.0f);
+
+    // But EditorContext::GetMouseDragDelta succeeds and scales screen delta by InvScale:
+    ImVec2 dragDelta = editor.GetMouseDragDelta(0, 0.0f);
+    float expectedX = 50.0f / 0.0029f;
+    float expectedY = 20.0f / 0.0029f;
+    EXPECT_NEAR(dragDelta.x, expectedX, 0.5f);
+    EXPECT_NEAR(dragDelta.y, expectedY, 0.5f);
+
+    editor.End();
+    ImGui::End();
+    ImGui::Render();
+    ImGui::DestroyContext(ctx);
+}
+

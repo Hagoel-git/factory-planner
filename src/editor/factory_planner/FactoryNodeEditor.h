@@ -96,6 +96,8 @@ public:
     const std::string& getName() const { return m_editorName; }
     const std::filesystem::path& getProjectFilePath() const { return m_projectFilePath; }
     void setName(const std::string& newName) { m_editorName = newName; }
+
+    static bool segmentIntersectsAABB(ImVec2 p1, ImVec2 p2, ImVec2 boxMin, ImVec2 boxMax);
 private:
     std::unique_ptr<FactoryGraph> m_graph;
     std::unique_ptr<FactorySolver> m_solver;
