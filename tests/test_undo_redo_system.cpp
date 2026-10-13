@@ -828,3 +828,51 @@ TEST_F(ConcreteCommandsTest, AddAndRemoveConnectionCommand_MultipleUndoRedoCycle
     }
 }
 
+TEST_F(ConcreteCommandsTest, PasteCommand_PreservesMachineClockMultiplier_UndoRedo) {
+    CopyBuffer buffer;
+    Node n;
+    n.id = 500;
+    n.name = "Plates Node";
+    n.selected_recipe_key = "make_plates";
+    n.machine_key = "constructor";
+    n.clock_speed = 175.0;
+    n.production_multiplier = 250.0;
+    buffer.nodes[500] = n;
+    buffer.nodePositions[500] = ImVec2(100.0f, 150.0f);
+
+    auto pasteCmd = std::make_unique<PasteCommand>(buffer, false);
+    manager->executeCommand(std::move(pasteCmd), *graph);
+
+    ASSERT_EQ(graph->getNodes().size(), 1);
+    const Node& pasted = graph->getNodes()[0];
+    EXPECT_EQ(pasted.machine_key, "constructor");
+    EXPECT_DOUBLE_EQ(pasted.clock_speed, 175.0);
+    EXPECT_DOUBLE_EQ(pasted.production_multiplier, 250.0);
+
+    // Undo
+    manager->undo(*graph);
+    EXPECT_TRUE(graph->getNodes().empty());
+
+    // Redo
+    manager->redo(*graph);
+    ASSERT_EQ(graph->getNodes().size(), 1);
+    const Node& redone = graph->getNodes()[0];
+    EXPECT_EQ(redone.machine_key, "constructor");
+    EXPECT_DOUBLE_EQ(redone.clock_speed, 175.0);
+    EXPECT_DOUBLE_EQ(redone.production_multiplier, 250.0);
+}
+
+TEST_F(ConcreteCommandsTest, PasteCommand_MissingNodePosition_DoesNotThrow) {
+    CopyBuffer buffer;
+    Node n;
+    n.id = 600;
+    n.name = "Plates Node";
+    n.selected_recipe_key = "make_plates";
+    buffer.nodes[600] = n;
+    // Notice: buffer.nodePositions intentionally omits ID 600
+
+    auto pasteCmd = std::make_unique<PasteCommand>(buffer, false);
+    EXPECT_NO_THROW(manager->executeCommand(std::move(pasteCmd), *graph));
+    ASSERT_EQ(graph->getNodes().size(), 1);
+}
+

@@ -240,7 +240,7 @@ bool ProjectIO::loadProject(const std::string &path, FactoryGraph &factoryGraph)
 
                             // Convert saved id -> engine id
                             ed::NodeId savedEdNodeId(rawId);
-                            int engineNodeId = IdUtils::fromNodeId(savedEdNodeId);
+                            uint64_t engineNodeId = IdUtils::fromNodeId(savedEdNodeId);
 
                             // Verify this node actually exists in our graph
                             if (!factoryGraph.getNode(engineNodeId)) {

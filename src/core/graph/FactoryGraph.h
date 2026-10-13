@@ -113,7 +113,7 @@ private:
 
         // Alias lookup
         auto it = aliasMap.find(prefix + key);
-        if (it != aliasMap.end()) return it->second;
+        if (it != aliasMap.end() && primaryMap.find(it->second) != primaryMap.end()) return it->second;
 
         LOG(ERROR) << "Unknown key: " << key << " (prefix: " << prefix << ")";
         return ""; // Empty string indicates failure

@@ -291,20 +291,26 @@ void FactoryNodeEditor::paste(const CopyBuffer &copy_buffer, bool mapExternalCon
     int skippedNodes = 0;
 
     for (const auto& [id, node] : copy_buffer.nodes) {
-        bool machineValid = gameData.machines.count(node.machine_key);
         bool recipeValid = gameData.recipes.count(node.selected_recipe_key);
 
         if (recipeValid) {
+            const Recipe& recipe = gameData.recipes.at(node.selected_recipe_key);
+            bool machineValid = !node.machine_key.empty() &&
+                                std::find(recipe.produced_in_machines_keys.begin(),
+                                          recipe.produced_in_machines_keys.end(),
+                                          node.machine_key) != recipe.produced_in_machines_keys.end();
+
             filteredBuffer.nodes[id] = node;
             if (!machineValid) {
-                const Recipe& recipe = gameData.recipes.at(node.selected_recipe_key);
                 if (!recipe.produced_in_machines_keys.empty()) {
                     filteredBuffer.nodes[id].machine_key = m_graph->resolvePreferredMachine(recipe.produced_in_machines_keys);
                 } else {
                     filteredBuffer.nodes[id].machine_key = "";
                 }
             }
-            filteredBuffer.nodePositions[id] = copy_buffer.nodePositions.at(id);
+            filteredBuffer.nodePositions[id] = copy_buffer.nodePositions.count(id)
+                                                   ? copy_buffer.nodePositions.at(id)
+                                                   : ImVec2(0.0f, 0.0f);
             validNodeIds.insert(id);
 
             for (const auto& [pid, port] : copy_buffer.ports) {
@@ -1270,7 +1276,8 @@ void FactoryNodeEditor::handlePopups() {
             float clockSpeedFlt = node->clock_speed;
 
             ImGui::SetNextItemWidth(200.0f);
-            if (ImGui::DragFloat("Clock speed (%)", &clockSpeedFlt, 1, 0, FLT_MAX, "%.2f")) {
+            if (ImGui::DragFloat("Clock speed (%)", &clockSpeedFlt, 1, 0.0f, 10000.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp)) {
+                clockSpeedFlt = std::clamp(clockSpeedFlt, 0.0f, 10000.0f);
                 node->clock_speed = static_cast<double>(clockSpeedFlt);
             }
 
@@ -1290,7 +1297,8 @@ void FactoryNodeEditor::handlePopups() {
             float prodMultFlt = node->production_multiplier;
 
             ImGui::SetNextItemWidth(200.0f);
-            if (ImGui::DragFloat("Production Multiplier (%)", &prodMultFlt, 1, 0, FLT_MAX, "%.2f")) {
+            if (ImGui::DragFloat("Production Multiplier (%)", &prodMultFlt, 1, 0.0f, 10000.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp)) {
+                prodMultFlt = std::clamp(prodMultFlt, 0.0f, 10000.0f);
                 node->production_multiplier = static_cast<double>(prodMultFlt);
             }
 
@@ -1357,7 +1365,7 @@ void FactoryNodeEditor::handlePopups() {
             if (ImGui::InputText("##rate", m_contextPinConstraintBuf, sizeof(m_contextPinConstraintBuf), ImGuiInputTextFlags_AutoSelectAll)) {
                 double v = strtod(m_contextPinConstraintBuf, nullptr);
                 if (m_contextPinConstraintBuf[0] == '\0') m_contextPinCurrentConstraint = -1.0;
-                else m_contextPinCurrentConstraint = (v < 0.0) ? 0.0 : v;
+                else m_contextPinCurrentConstraint = (!std::isfinite(v) || v < 0.0f) ? 0.0 : v;
 
                 // Only solve LIVE if graph is small
                 if (!hugeGraph) {

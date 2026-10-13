@@ -682,6 +682,154 @@ TEST_F(FactorySolverTest, ComputeNodeDepths_ComplexSCCCondensationWithBypasses) 
     EXPECT_EQ(depths[n_sink], 4);
 }
 
+TEST_F(FactorySolverTest, ZeroProductionMultiplierOrClockSpeed_ClampsToZeroAndNoConsumption) {
+    uint64_t n_miner = addNode("mine_ore");
+    uint64_t n_smelter = addNode("smelt_ingot");
+
+    Port* p_miner_out = getPort(n_miner, "iron_ore", false);
+    Port* p_smelter_in = getPort(n_smelter, "iron_ore", true);
+    Port* p_smelter_out = getPort(n_smelter, "iron_ingot", false);
+
+    addConnection(p_miner_out, p_smelter_in);
+
+    // Limit miner to 30
+    graph->setPortConstraint(p_miner_out->id, 30.0);
+    // Set smelter production_multiplier to 0
+    graph->setProductionMultiplier(n_smelter, 0.0);
+
+    FactorySolver::SolverResult result = solver->solve(*graph);
+    ASSERT_EQ(result.status, FactorySolver::SolverResultStatus::SUCCESS);
+
+    EXPECT_NEAR(p_smelter_in->rate, 0.0, 0.001);
+    EXPECT_NEAR(p_smelter_out->rate, 0.0, 0.001);
+    EXPECT_NEAR(graph->getNode(n_smelter)->machine_count, 0.0, 0.001);
+
+    // Now test clock speed 0
+    graph->setProductionMultiplier(n_smelter, 100.0);
+    graph->setNodeClockSpeed(n_smelter, 0.0);
+
+    result = solver->solve(*graph);
+    ASSERT_EQ(result.status, FactorySolver::SolverResultStatus::SUCCESS);
+
+    EXPECT_NEAR(p_smelter_in->rate, 0.0, 0.001);
+    EXPECT_NEAR(p_smelter_out->rate, 0.0, 0.001);
+    EXPECT_NEAR(graph->getNode(n_smelter)->machine_count, 0.0, 0.001);
+    // Test negative production multiplier
+    graph->setProductionMultiplier(n_smelter, -50.0);
+    graph->setNodeClockSpeed(n_smelter, 100.0);
+    result = solver->solve(*graph);
+    ASSERT_EQ(result.status, FactorySolver::SolverResultStatus::SUCCESS);
+    EXPECT_NEAR(p_smelter_in->rate, 0.0, 0.001);
+    EXPECT_NEAR(p_smelter_out->rate, 0.0, 0.001);
+    EXPECT_NEAR(graph->getNode(n_smelter)->machine_count, 0.0, 0.001);
+
+    // Test negative clock speed
+    graph->setProductionMultiplier(n_smelter, 100.0);
+    graph->setNodeClockSpeed(n_smelter, -25.0);
+    result = solver->solve(*graph);
+    ASSERT_EQ(result.status, FactorySolver::SolverResultStatus::SUCCESS);
+    EXPECT_NEAR(p_smelter_in->rate, 0.0, 0.001);
+    EXPECT_NEAR(p_smelter_out->rate, 0.0, 0.001);
+    EXPECT_NEAR(graph->getNode(n_smelter)->machine_count, 0.0, 0.001);
+}
+
+TEST_F(FactorySolverTest, Stage3WasteMinimization_PrefersDownstreamLinkOverExcess) {
+    uint64_t n_miner = addNode("mine_ore");
+    uint64_t n_smelter = addNode("smelt_ingot");
+    uint64_t n_sink = addNode("sink_ingot");
+
+    Port* p_miner_out = getPort(n_miner, "iron_ore", false);
+    Port* p_smelter_in = getPort(n_smelter, "iron_ore", true);
+    Port* p_smelter_out = getPort(n_smelter, "iron_ingot", false);
+    Port* p_sink_in = getPort(n_sink, "iron_ingot", true);
+
+    addConnection(p_miner_out, p_smelter_in);
+    addConnection(p_smelter_out, p_sink_in);
+
+    // Capacity constraint on miner output of 30.0
+    graph->setPortConstraint(p_miner_out->id, 30.0);
+
+    FactorySolver::SolverResult result = solver->solve(*graph);
+    ASSERT_EQ(result.status, FactorySolver::SolverResultStatus::SUCCESS);
+
+    EXPECT_NEAR(p_miner_out->rate, 30.0, 0.001);
+    EXPECT_NEAR(p_miner_out->excess_rate, 0.0, 0.001);
+    EXPECT_NEAR(p_smelter_in->rate, 30.0, 0.001);
+    EXPECT_NEAR(p_smelter_out->rate, 30.0, 0.001);
+    EXPECT_NEAR(p_sink_in->rate, 30.0, 0.001);
+}
+
+TEST_F(FactorySolverTest, Stage3WasteMinimization_ByproductRoutingPrefersDownstreamLinkOverExcess) {
+    Recipe split_recipe;
+    split_recipe.name = "Split Production";
+    split_recipe.produced_in_machines_keys.push_back("constructor");
+    split_recipe.input_ports.push_back(RecipePort{30.0, "iron_ingot"});
+    split_recipe.output_ports.push_back(RecipePort{20.0, "iron_plate"}); // output 0: main product
+    split_recipe.output_ports.push_back(RecipePort{10.0, "screw"});      // output 1: byproduct
+    split_recipe.time_seconds = 1.0;
+
+    Recipe sink_screw;
+    sink_screw.name = "Sink Screws";
+    sink_screw.produced_in_machines_keys.push_back("sink");
+    sink_screw.input_ports.push_back(RecipePort{1.0, "screw"});
+    sink_screw.output_ports.push_back(RecipePort{1.0, "nothing"});
+    sink_screw.time_seconds = 1.0;
+
+    GameData gd = testGameData;
+    gd.recipes["split_recipe"] = split_recipe;
+    gd.recipes["sink_screw"] = sink_screw;
+
+    FactoryGraph g(gd);
+    FactorySolver s;
+
+    uint64_t n_miner = g.addNode("Miner", "mine_ore");
+    uint64_t n_smelter = g.addNode("Smelter", "smelt_ingot");
+    uint64_t n_split = g.addNode("Splitter", "split_recipe");
+    uint64_t n_sink = g.addNode("Sink", "sink_screw");
+
+    auto getP = [&](uint64_t node_id, const std::string& res, bool is_in) -> Port* {
+        const Node* node = g.getNode(node_id);
+        const auto& p_ids = is_in ? node->input_ports : node->output_ports;
+        for (uint64_t pid : p_ids) {
+            Port* port = g.getPort(pid);
+            if (port && port->resource_key == res) return port;
+        }
+        return nullptr;
+    };
+
+    Port* p_miner_out = getP(n_miner, "iron_ore", false);
+    Port* p_smelter_in = getP(n_smelter, "iron_ore", true);
+    Port* p_smelter_out = getP(n_smelter, "iron_ingot", false);
+    Port* p_split_in = getP(n_split, "iron_ingot", true);
+    Port* p_split_plate = getP(n_split, "iron_plate", false);
+    Port* p_split_screw = getP(n_split, "screw", false);
+    Port* p_sink_in = getP(n_sink, "screw", true);
+
+    ASSERT_NE(p_miner_out, nullptr);
+    ASSERT_NE(p_smelter_in, nullptr);
+    ASSERT_NE(p_smelter_out, nullptr);
+    ASSERT_NE(p_split_in, nullptr);
+    ASSERT_NE(p_split_plate, nullptr);
+    ASSERT_NE(p_split_screw, nullptr);
+    ASSERT_NE(p_sink_in, nullptr);
+
+    g.addConnection(p_miner_out->id, p_smelter_in->id);
+    g.addConnection(p_smelter_out->id, p_split_in->id);
+    g.addConnection(p_split_screw->id, p_sink_in->id);
+
+    // Target constraint on main product: 20.0
+    g.setPortConstraint(p_split_plate->id, 20.0);
+
+    FactorySolver::SolverResult result = s.solve(g);
+    ASSERT_EQ(result.status, FactorySolver::SolverResultStatus::SUCCESS);
+
+    EXPECT_NEAR(p_split_plate->rate, 20.0, 0.001);
+    EXPECT_NEAR(p_split_screw->rate, 10.0, 0.001);
+    // Crucial: byproduct should be routed downstream into sink, NOT left as unconsumed excess
+    EXPECT_NEAR(p_split_screw->excess_rate, 0.0, 0.001);
+    EXPECT_NEAR(p_sink_in->rate, 10.0, 0.001);
+}
+
 
 #include <fstream>
 #include "core/data/GameDataManager.h"

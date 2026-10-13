@@ -13,6 +13,7 @@
 #include "common/StringUtils.h"
 #include "common/TextureUtils.h"
 #include "common/CopyBuffer.h"
+#include "common/IdUtils.h"
 #include "services/NotificationManager.h"
 #include <pvigier/Quadtree.h>
 #include <imgui.h>
@@ -1391,6 +1392,231 @@ TEST_F(FactoryGraphTest, ProjectIOLoadProjectErrorHandling) {
     EXPECT_FALSE(ProjectIO::loadProject(tempNotObject.string(), targetGraph));
     std::filesystem::remove(tempNotObject);
 }
+
+TEST(GameDataManagerTest, EditWithEmptySlugReturnsFalse) {
+    GameDataManager manager;
+    manager.createNew("TestGame", "seconds");
+    std::string err;
+    manager.addResource(Resource{"Iron Ore", 0});
+    manager.addMachine(Machine{"Miner", 1.0, 0});
+    Recipe r;
+    r.name = "Mining";
+    r.produced_in_machines_keys.push_back("miner");
+    r.output_ports.push_back(RecipePort{30.0, "iron-ore"});
+    manager.addRecipe(r);
+
+    // 1. Edit resource with empty name or non-slug name
+    EXPECT_FALSE(manager.editResource("iron-ore", Resource{"", 0}, err));
+    EXPECT_FALSE(err.empty());
+    err.clear();
+    EXPECT_FALSE(manager.editResource("iron-ore", Resource{"???", 0}, err));
+    EXPECT_FALSE(err.empty());
+
+    // 2. Edit machine with empty name or non-slug name
+    err.clear();
+    EXPECT_FALSE(manager.editMachine("miner", Machine{"", 1.0, 0}, err));
+    EXPECT_FALSE(err.empty());
+    err.clear();
+    EXPECT_FALSE(manager.editMachine("miner", Machine{"$$$", 1.0, 0}, err));
+    EXPECT_FALSE(err.empty());
+
+    // 3. Edit recipe with empty name or non-slug name
+    err.clear();
+    Recipe rEmpty = r;
+    rEmpty.name = "";
+    EXPECT_FALSE(manager.editRecipe("mining", rEmpty, err));
+    EXPECT_FALSE(err.empty());
+    err.clear();
+    rEmpty.name = "!!!";
+    EXPECT_FALSE(manager.editRecipe("mining", rEmpty, err));
+    EXPECT_FALSE(err.empty());
+}
+
+TEST(GameDataManagerTest, DeleteCleansUpDanglingAliases) {
+    GameDataManager manager;
+    manager.createNew("TestGame", "seconds");
+    manager.addResource(Resource{"Iron Ore", 0});
+    manager.addMachine(Machine{"Miner", 1.0, 0});
+    Recipe r;
+    r.name = "Mining";
+    r.produced_in_machines_keys.push_back("miner");
+    r.output_ports.push_back(RecipePort{30.0, "iron-ore"});
+    manager.addRecipe(r);
+
+    // Rename to register aliases
+    std::string err;
+    Recipe rRenamed = r;
+    rRenamed.name = "Mining Two";
+    EXPECT_TRUE(manager.editRecipe("mining", rRenamed, err)) << err;
+    EXPECT_EQ(manager.current().id_aliases.count("rec@mining"), 1);
+
+    EXPECT_TRUE(manager.editMachine("miner", Machine{"Miner Two", 1.0, 0}, err)) << err;
+    EXPECT_EQ(manager.current().id_aliases.count("mac@miner"), 1);
+
+    EXPECT_TRUE(manager.editResource("iron-ore", Resource{"Iron Ore Two", 0}, err)) << err;
+    EXPECT_EQ(manager.current().id_aliases.count("res@iron-ore"), 1);
+
+    // Delete recipe
+    EXPECT_TRUE(manager.deleteRecipe("mining-two", err)) << err;
+    EXPECT_EQ(manager.current().id_aliases.count("rec@mining"), 0);
+
+    // Delete machine
+    EXPECT_TRUE(manager.deleteMachine("miner-two", err)) << err;
+    EXPECT_EQ(manager.current().id_aliases.count("mac@miner"), 0);
+
+    // Delete resource
+    EXPECT_TRUE(manager.deleteResource("iron-ore-two", err)) << err;
+    EXPECT_EQ(manager.current().id_aliases.count("res@iron-ore"), 0);
+}
+
+TEST_F(FactoryGraphTest, DeserializeNode_SafelyResolvesMissingOrDanglingMachineKey) {
+    // Save game data with an alias pointing to a non-existent machine
+    GameData gd = testGameData;
+    gd.id_aliases["mac@ghost_machine"] = "deleted_machine"; // target doesn't exist!
+
+    FactoryGraph g(gd);
+    nlohmann::json nodeJson = {
+        {"id", 42},
+        {"name", "Make Plates"},
+        {"selected_recipe_key", "make_plates"},
+        {"machine", "ghost_machine"}, // should resolve through alias to deleted_machine, but since deleted, falls back to preferred
+        {"clock_speed", 100.0},
+        {"production_multiplier", 100.0},
+        {"input_ports", nlohmann::json::array()},
+        {"output_ports", nlohmann::json::array()}
+    };
+
+    nlohmann::json graphJson = {
+        {"nodes", nlohmann::json::array({nodeJson})},
+        {"connections", nlohmann::json::array()},
+        {"preferred_machines", nlohmann::json::array()}
+    };
+
+    EXPECT_NO_THROW(g.deserialize(graphJson, gd));
+    ASSERT_EQ(g.getNodes().size(), 1);
+    // Machine key should fall back to preferred machine ("constructor") instead of "deleted_machine"
+    EXPECT_EQ(g.getNodes()[0].machine_key, "constructor");
+}
+
+TEST_F(FactoryGraphTest, ProjectIOLoadProject_Supports64BitNodeIds) {
+    ImGuiContext* imguiCtx = ImGui::CreateContext();
+    ax::NodeEditor::Config cfg;
+    cfg.SettingsFile = nullptr;
+    auto* edCtx = ax::NodeEditor::CreateEditor(&cfg);
+    ax::NodeEditor::SetCurrentEditor(edCtx);
+
+    AppSettings origSettings = SettingsManager::instance().getSettings();
+    AppSettings testSettings = origSettings;
+    std::filesystem::path execDir = getExecutableDirectory().value_or(std::filesystem::current_path());
+    for (const auto& candidate : {
+             std::filesystem::current_path() / "build" / "bin" / "game_data",
+             std::filesystem::current_path() / "data" / "game_data",
+             execDir / "game_data",
+             execDir.parent_path() / "bin" / "game_data",
+             std::filesystem::path("/home/hagoel/Projects/factory-planner/build/bin/game_data")
+         }) {
+        if (!candidate.empty() && std::filesystem::exists(candidate)) {
+            testSettings.gameDataPath = candidate;
+            break;
+        }
+    }
+    SettingsManager::instance().setSettings(testSettings);
+
+    uint64_t largeNodeId = 0x100000005ULL; // > INT32_MAX
+    ed::NodeId savedEdNodeId = IdUtils::toNodeId(largeNodeId);
+    uintptr_t rawId = reinterpret_cast<uintptr_t>(savedEdNodeId.AsPointer());
+
+    nlohmann::json projectJson = {
+        {"graph_data", {
+            {"game_data_uuid", "3ddf1c4b-e2a5-4e84-8421-666955381c23"},
+            {"nodes", {{
+                {"id", largeNodeId},
+                {"name", "Iron Ingot"},
+                {"selected_recipe_key", "iron-ingot"},
+                {"machine", "smelter"},
+                {"clock_speed", 100.0},
+                {"production_multiplier", 100.0},
+                {"input_ports", nlohmann::json::array()},
+                {"output_ports", nlohmann::json::array()}
+            }}},
+            {"connections", nlohmann::json::array()},
+            {"preferred_machines", nlohmann::json::array()},
+            {"next_node_id", largeNodeId + 1}
+        }},
+        {"editor_settings", {
+            {"nodes", {
+                {"node:" + std::to_string(rawId), {
+                    {"location", {{"x", 123.0f}, {"y", 456.0f}}}
+                }}
+            }}
+        }}
+    };
+
+    std::filesystem::path tempProject = std::filesystem::temp_directory_path() / "test_64bit_id.fpp";
+    std::ofstream ofs(tempProject);
+    ofs << projectJson.dump();
+    ofs.close();
+
+    FactoryGraph g(testGameData);
+    bool loadOk = ProjectIO::loadProject(tempProject.string(), g);
+    EXPECT_TRUE(loadOk);
+    if (loadOk) {
+        ASSERT_EQ(g.getNodes().size(), 1);
+        EXPECT_EQ(g.getNodes()[0].id, largeNodeId);
+        EXPECT_NE(g.getNode(largeNodeId), nullptr);
+        ImVec2 pos = ax::NodeEditor::GetNodePosition(savedEdNodeId);
+        EXPECT_FLOAT_EQ(pos.x, 123.0f);
+        EXPECT_FLOAT_EQ(pos.y, 456.0f);
+    }
+
+    std::filesystem::remove(tempProject);
+    SettingsManager::instance().setSettings(origSettings);
+    ax::NodeEditor::SetCurrentEditor(nullptr);
+    ax::NodeEditor::DestroyEditor(edCtx);
+    ImGui::DestroyContext(imguiCtx);
+}
+
+TEST_F(FactoryGraphTest, FactoryNodeEditor_Paste_MissingPositionDoesNotThrowAndResolvesInvalidMachine) {
+    ImGuiContext* imguiCtx = ImGui::CreateContext();
+
+    FactoryNodeEditor editor(testGameData, "", "Test Editor");
+
+    CopyBuffer buffer;
+    Node n;
+    n.id = 999;
+    n.name = "Make Plates";
+    n.selected_recipe_key = "make_plates";
+    // Deliberately set machine to a machine not in recipe's produced_in_machines_keys
+    n.machine_key = "smelter"; // "make_plates" is produced in "constructor", not "smelter"
+    n.clock_speed = 125.0;
+    n.production_multiplier = 150.0;
+    buffer.nodes[999] = n;
+    // Deliberately omit ID 999 from buffer.nodePositions to test Fix 1.21
+
+    EXPECT_NO_THROW(editor.paste(buffer));
+
+    ImGui::DestroyContext(imguiCtx);
+}
+
+TEST(PinRateSanitizationTest, HandlesNonFiniteAndNegative) {
+    auto sanitizeRate = [](const char* buf) -> double {
+        double v = strtod(buf, nullptr);
+        if (buf[0] == '\0') return -1.0;
+        return (!std::isfinite(v) || v < 0.0f) ? 0.0 : v;
+    };
+
+    EXPECT_DOUBLE_EQ(sanitizeRate(""), -1.0);
+    EXPECT_DOUBLE_EQ(sanitizeRate("100"), 100.0);
+    EXPECT_DOUBLE_EQ(sanitizeRate("45.5"), 45.5);
+    EXPECT_DOUBLE_EQ(sanitizeRate("0"), 0.0);
+    EXPECT_DOUBLE_EQ(sanitizeRate("-10"), 0.0);
+    EXPECT_DOUBLE_EQ(sanitizeRate("-0.01"), 0.0);
+    EXPECT_DOUBLE_EQ(sanitizeRate("nan"), 0.0);
+    EXPECT_DOUBLE_EQ(sanitizeRate("inf"), 0.0);
+    EXPECT_DOUBLE_EQ(sanitizeRate("-inf"), 0.0);
+    EXPECT_DOUBLE_EQ(sanitizeRate("infinity"), 0.0);
+}
+
 
 TEST(SettingsManagerTest, LoadSettingsWithIntegerAndFloatFontSize) {
     auto configDir = getExecutableDirectory().value_or(std::filesystem::current_path());

@@ -429,7 +429,10 @@ void FactoryGraph::deserializeNode(const nlohmann::json& node_json, const GameDa
 
     // Assign Machine Strategy
     if (!recipe.produced_in_machines_keys.empty()) {
-        node.machine_key = machKey.empty() ? resolvePreferredMachine(recipe.produced_in_machines_keys) : machKey;
+        bool machValid = !machKey.empty() && std::find(recipe.produced_in_machines_keys.begin(),
+                                                       recipe.produced_in_machines_keys.end(),
+                                                       machKey) != recipe.produced_in_machines_keys.end();
+        node.machine_key = machValid ? machKey : resolvePreferredMachine(recipe.produced_in_machines_keys);
     } else {
         LOG(WARNING) << "Recipe '" << recipeKey << "' has no associated machines.";
         node.machine_key = "";
