@@ -9,6 +9,9 @@
 #include <string>
 #include <utility>
 #include <cinttypes>
+#include <cmath>
+#include <cfloat>
+#include <algorithm>
 
 #include "common/IdUtils.h"
 #include "common/CopyBuffer.h"
@@ -16,6 +19,11 @@
 #include "services/ProjectIo.h"
 #include "services/SettingsManager.h"
 namespace ed = ax::NodeEditor;
+
+namespace {
+constexpr float kMaxCanvasCoord = 500000000.0f;
+constexpr float kMaxNodeDimension = 10000.0f;
+}
 
 FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::filesystem::path &projectFilePath, std::string title)
     : m_editorName(std::move(title)), m_projectFilePath(projectFilePath), m_selectedPortId(static_cast<uint64_t>(-1)), m_contextNodeId(0), m_contextPinId(0),
@@ -59,15 +67,8 @@ FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::files
             ProjectIO::loadProject(projectFilePath.string(), *m_graph);
         }
 
-        // Initialize quadtree with large world bounds to handle extreme zoom levels
-        float worldSize = 262144.0f; // 2^18, very large world
-        float halfWorldSize = worldSize * 0.5f;
-
-        quadtree::Box<float> worldBounds(
-            quadtree::Vector2<float>(-halfWorldSize, -halfWorldSize),
-            quadtree::Vector2<float>(worldSize, worldSize)
-        );
-        m_nodeQuadtree = std::make_unique<quadtree::Quadtree<NodeQuadtreeData, GetNodeBox> >(worldBounds);
+        // Initialize quadtree dynamically based on graph nodes or default minimum size
+        rebuildQuadtree();
 
         FactorySolver::SolverResult result = m_solver->solve(*m_graph);
         m_debugInfo.lastTotalSolveDurationMs = result.total_solve_time_ms;
@@ -112,6 +113,7 @@ FactoryNodeEditor::~FactoryNodeEditor() {
 
 void FactoryNodeEditor::draw() {
     if (!m_context) return;
+
     m_isFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 
     if (std::chrono::steady_clock::now() > m_nextAutosaveTime && SettingsManager::instance().getSettings().autoSaveEnabled) {
@@ -128,10 +130,37 @@ void FactoryNodeEditor::draw() {
     // Begin the node editor canvas
     m_windowPos = ImGui::GetWindowPos();
     m_windowSize = ImGui::GetWindowSize();
+
     ed::Begin(m_editorName.c_str());
 
+    // Check if any node is placed or dragged outside current quadtree bounds
+    if (!m_quadtreeNeedsRebuild && m_nodeQuadtree) {
+        auto bounds = m_nodeQuadtree->getBox();
+        for (const auto &node : m_graph->getNodes()) {
+            ed::NodeId nodeId = IdUtils::toNodeId(node.id);
+            ImVec2 nodePos = ed::GetNodePosition(nodeId);
+            if (!std::isfinite(nodePos.x) || !std::isfinite(nodePos.y) ||
+                std::abs(nodePos.x) >= kMaxCanvasCoord || std::abs(nodePos.y) >= kMaxCanvasCoord) {
+                m_quadtreeNeedsRebuild = true;
+                break;
+            }
+            ImVec2 nodeSize = ed::GetNodeSize(nodeId);
+            if (!std::isfinite(nodeSize.x) || !std::isfinite(nodeSize.y) ||
+                nodeSize.x <= 0.0f || nodeSize.y <= 0.0f ||
+                nodeSize.x > kMaxNodeDimension || nodeSize.y > kMaxNodeDimension) {
+                nodeSize = ImVec2(300.0f, 100.0f);
+            }
+            quadtree::Box<float> nodeBox(quadtree::Vector2<float>(nodePos.x, nodePos.y),
+                                         quadtree::Vector2<float>(nodeSize.x, nodeSize.y));
+            if (!bounds.contains(nodeBox)) {
+                m_quadtreeNeedsRebuild = true;
+                break;
+            }
+        }
+    }
+
     // Rebuild quadtree if needed
-    if (m_quadtreeNeedsRebuild) {
+    if (m_quadtreeNeedsRebuild || !m_nodeQuadtree) {
         rebuildQuadtree();
         m_quadtreeNeedsRebuild = false;
     }
@@ -191,7 +220,12 @@ void FactoryNodeEditor::copy(CopyBuffer &copy_buffer) {
         if (!node) continue; // Skip invalid nodes
 
         copy_buffer.nodes[nodeIdInt] = *node; // Copy node
-        copy_buffer.nodePositions[nodeIdInt] = ed::GetNodePosition(nodeId); // Store position
+        ImVec2 pos = ed::GetNodePosition(nodeId);
+        if (!std::isfinite(pos.x) || !std::isfinite(pos.y) ||
+            std::abs(pos.x) >= kMaxCanvasCoord || std::abs(pos.y) >= kMaxCanvasCoord) {
+            pos = ImVec2(0.0f, 0.0f);
+        }
+        copy_buffer.nodePositions[nodeIdInt] = pos; // Store position
 
         for (const auto &portId : node->input_ports) {
             auto port = m_graph->getPort(portId);
@@ -346,11 +380,17 @@ void FactoryNodeEditor::fitView(bool force) {
         for (const auto& node : allNodes) {
             ed::NodeId nodeId = IdUtils::toNodeId(node.id);
             ImVec2 nodePos = ed::GetNodePosition(nodeId);
+            if (!std::isfinite(nodePos.x) || !std::isfinite(nodePos.y) ||
+                std::abs(nodePos.x) >= kMaxCanvasCoord || std::abs(nodePos.y) >= kMaxCanvasCoord) {
+                continue;
+            }
             ImVec2 nodeSize = ed::GetNodeSize(nodeId);
 
             // A node that has never been drawn will have a size of (0,0).
             // We'll use a default fallback size to ensure it's included in the bounds.
-            if (nodeSize.x <= 0.0f || nodeSize.y <= 0.0f) {
+            if (!std::isfinite(nodeSize.x) || !std::isfinite(nodeSize.y) ||
+                nodeSize.x <= 0.0f || nodeSize.y <= 0.0f ||
+                nodeSize.x > kMaxNodeDimension || nodeSize.y > kMaxNodeDimension) {
                 nodeSize = ImVec2(300.0f, 100.0f); // A reasonable default estimate.
             }
 
@@ -364,14 +404,16 @@ void FactoryNodeEditor::fitView(bool force) {
             }
         }
 
-        // Add some padding so nodes aren't right at the edge of the view
-        const float padding = 100.0f;
-        contentBounds.Min.x -= padding;
-        contentBounds.Min.y -= padding;
-        contentBounds.Max.x += padding;
-        contentBounds.Max.y += padding;
+        if (!isFirstNode) {
+            // Add some padding so nodes aren't right at the edge of the view
+            const float padding = 100.0f;
+            contentBounds.Min.x -= padding;
+            contentBounds.Min.y -= padding;
+            contentBounds.Max.x += padding;
+            contentBounds.Max.y += padding;
 
-        ed::NavigateTo(contentBounds);
+            ed::NavigateTo(contentBounds);
+        }
     } else {
         ed::NavigateToContent();
     }
@@ -474,10 +516,40 @@ void FactoryNodeEditor::updateDebugInfo() {
 }
 
 void FactoryNodeEditor::rebuildQuadtree() {
-    // Use very large world bounds to handle any zoom level
-    // This ensures the quadtree can handle extreme zoom levels
-    float worldSize = 262144.0f; // 2^18, very large world
-    float halfWorldSize = worldSize * 0.5f;
+    float maxAbsCoord = 0.0f;
+
+    std::vector<NodeQuadtreeData> items;
+    items.reserve(m_graph->getNodes().size());
+
+    // Add all nodes to quadtree with finite coordinate checks
+    for (const auto &node : m_graph->getNodes()) {
+        ed::NodeId nodeId = IdUtils::toNodeId(node.id);
+        ImVec2 nodePos = ed::GetNodePosition(nodeId);
+        if (!std::isfinite(nodePos.x) || !std::isfinite(nodePos.y) ||
+            std::abs(nodePos.x) >= kMaxCanvasCoord || std::abs(nodePos.y) >= kMaxCanvasCoord) {
+            nodePos = ImVec2(0.0f, 0.0f);
+            ed::SetNodePosition(nodeId, nodePos);
+        }
+        ImVec2 nodeSize = ed::GetNodeSize(nodeId);
+        if (!std::isfinite(nodeSize.x) || !std::isfinite(nodeSize.y) ||
+            nodeSize.x <= 0.0f || nodeSize.y <= 0.0f ||
+            nodeSize.x > kMaxNodeDimension || nodeSize.y > kMaxNodeDimension) {
+            nodeSize = ImVec2(300.0f, 100.0f); // Default size if not provided
+        }
+        maxAbsCoord = std::max({maxAbsCoord,
+                                std::abs(nodePos.x),
+                                std::abs(nodePos.y),
+                                std::abs(nodePos.x + nodeSize.x),
+                                std::abs(nodePos.y + nodeSize.y)});
+        items.emplace_back(node.id, nodePos, nodeSize);
+    }
+
+    const float margin = 2048.0f;
+    float halfWorldSize = 131072.0f; // 2^17 minimum half-size (minimum 262,144 units total)
+    while (halfWorldSize <= maxAbsCoord + margin && halfWorldSize < (1.0f * (1ULL << 30))) {
+        halfWorldSize *= 2.0f;
+    }
+    float worldSize = halfWorldSize * 2.0f;
 
     quadtree::Box<float> worldBounds(
         quadtree::Vector2<float>(-halfWorldSize, -halfWorldSize),
@@ -485,15 +557,8 @@ void FactoryNodeEditor::rebuildQuadtree() {
     );
     m_nodeQuadtree = std::make_unique<quadtree::Quadtree<NodeQuadtreeData, GetNodeBox>>(worldBounds);
 
-    // Add all nodes to quadtree
-    for (const auto &node : m_graph->getNodes()) {
-        ed::NodeId nodeId = IdUtils::toNodeId(node.id);
-        ImVec2 nodePos = ed::GetNodePosition(nodeId);
-        ImVec2 nodeSize = ed::GetNodeSize(nodeId);
-        if (nodeSize.x <= 0 || nodeSize.y <= 0) {
-            nodeSize = ImVec2(300.0f, 100.0f); // Default size if not provided
-        }
-        m_nodeQuadtree->add(NodeQuadtreeData(node.id, nodePos, nodeSize));
+    for (const auto &item : items) {
+        m_nodeQuadtree->add(item);
     }
 }
 
@@ -502,30 +567,97 @@ std::vector<NodeQuadtreeData> FactoryNodeEditor::getVisibleNodes(const ImVec2& v
         return {};
     }
 
-    // Add some padding to the view to catch nodes that are partially visible
-    float padding = 100.0;
-
-    quadtree::Box<float> viewBox(
-        quadtree::Vector2<float>(viewMin.x - padding, viewMin.y - padding),
-        quadtree::Vector2<float>((viewMax.x - viewMin.x) + 2.0f * padding, (viewMax.y - viewMin.y) + 2.0f * padding)
-    );
-
-    // Check if view box intersects with quadtree bounds before querying
-    auto quadtreeBounds = m_nodeQuadtree->getBox();
-    if (!viewBox.intersects(quadtreeBounds)) {
-        return {}; // No intersection, return empty result
+    if (!std::isfinite(viewMin.x) || !std::isfinite(viewMin.y) ||
+        !std::isfinite(viewMax.x) || !std::isfinite(viewMax.y)) {
+        return {};
     }
 
+    // Add some padding to the view to catch nodes that are partially visible
+    const float padding = 100.0f;
+    const auto qtBox = m_nodeQuadtree->getBox();
+
+    // Clamp the query box to the quadtree bounds to avoid floating-point overflow on extreme zooms
+    float minX = std::max(viewMin.x - padding, qtBox.left);
+    float minY = std::max(viewMin.y - padding, qtBox.top);
+    float maxX = std::min(viewMax.x + padding, qtBox.getRight());
+    float maxY = std::min(viewMax.y + padding, qtBox.getBottom());
+
+    if (maxX <= minX || maxY <= minY) {
+        return {};
+    }
+
+    quadtree::Box<float> viewBox(minX, minY, maxX - minX, maxY - minY);
     return m_nodeQuadtree->query(viewBox);
 }
 
-void FactoryNodeEditor::drawNodes() {
-    // Get the visible screen area and convert it to canvas coordinates
+bool FactoryNodeEditor::segmentIntersectsAABB(ImVec2 p1, ImVec2 p2, ImVec2 boxMin, ImVec2 boxMax) {
+    if (!std::isfinite(p1.x) || !std::isfinite(p1.y) ||
+        !std::isfinite(p2.x) || !std::isfinite(p2.y) ||
+        !std::isfinite(boxMin.x) || !std::isfinite(boxMin.y) ||
+        !std::isfinite(boxMax.x) || !std::isfinite(boxMax.y)) {
+        return false;
+    }
 
-    ImVec2 viewMin = m_windowPos;
-    ImVec2 viewMax = viewMin + m_windowSize;
-    ImVec2 canvasMin = ed::ScreenToCanvas(viewMin);
-    ImVec2 canvasMax = ed::ScreenToCanvas(viewMax);
+    if (boxMin.x > boxMax.x) std::swap(boxMin.x, boxMax.x);
+    if (boxMin.y > boxMax.y) std::swap(boxMin.y, boxMax.y);
+
+    float dx = p2.x - p1.x;
+    float dy = p2.y - p1.y;
+
+    float tMin = 0.0f;
+    float tMax = 1.0f;
+
+    // X axis slab
+    if (std::abs(dx) < 1e-7f) {
+        if (p1.x < boxMin.x || p1.x > boxMax.x) {
+            return false;
+        }
+    } else {
+        float invDx = 1.0f / dx;
+        float t1 = (boxMin.x - p1.x) * invDx;
+        float t2 = (boxMax.x - p1.x) * invDx;
+        if (t1 > t2) std::swap(t1, t2);
+        tMin = std::max(tMin, t1);
+        tMax = std::min(tMax, t2);
+        if (tMin > tMax) return false;
+    }
+
+    // Y axis slab
+    if (std::abs(dy) < 1e-7f) {
+        if (p1.y < boxMin.y || p1.y > boxMax.y) {
+            return false;
+        }
+    } else {
+        float invDy = 1.0f / dy;
+        float t1 = (boxMin.y - p1.y) * invDy;
+        float t2 = (boxMax.y - p1.y) * invDy;
+        if (t1 > t2) std::swap(t1, t2);
+        tMin = std::max(tMin, t1);
+        tMax = std::min(tMax, t2);
+        if (tMin > tMax) return false;
+    }
+
+    return true;
+}
+
+void FactoryNodeEditor::drawNodes() {
+    auto* detailContext = reinterpret_cast<ax::NodeEditor::Detail::EditorContext*>(m_context);
+
+    ImVec2 screenMin = m_windowPos;
+    ImVec2 screenMax = m_windowPos + m_windowSize;
+    ImVec2 s2cMin = ed::ScreenToCanvas(screenMin);
+    ImVec2 s2cMax = ed::ScreenToCanvas(screenMax);
+
+    // Get the visible canvas area directly from node editor context if available
+    ImVec2 canvasMin = s2cMin;
+    ImVec2 canvasMax = s2cMax;
+    if (detailContext) {
+        ImRect vr = detailContext->GetViewRect();
+        canvasMin = vr.Min;
+        canvasMax = vr.Max;
+    }
+    if (canvasMin.x > canvasMax.x) std::swap(canvasMin.x, canvasMax.x);
+    if (canvasMin.y > canvasMax.y) std::swap(canvasMin.y, canvasMax.y);
 
     // Get visible nodes from quadtree
     auto visibleNodes = getVisibleNodes(canvasMin, canvasMax);
@@ -535,9 +667,46 @@ void FactoryNodeEditor::drawNodes() {
     visibleNodeIds.reserve(visibleNodes.size());
     for (const auto &nd : visibleNodes) visibleNodeIds.insert(nd.nodeId);
 
+    // Keep dragged node and selected nodes visible so they don't disappear mid-drag
+    if (m_draggingNodes) {
+        if (m_draggedNodeId != ed::NodeId::Invalid) {
+            visibleNodeIds.insert(IdUtils::fromNodeId(m_draggedNodeId));
+        }
+        std::vector<ed::NodeId> selectedNodes(ed::GetSelectedObjectCount());
+        int selCount = ed::GetSelectedNodes(selectedNodes.data(), static_cast<int>(selectedNodes.size()));
+        for (int i = 0; i < selCount; ++i) {
+            if (selectedNodes[i] != ed::NodeId::Invalid) {
+                visibleNodeIds.insert(IdUtils::fromNodeId(selectedNodes[i]));
+            }
+        }
+    }
+
+    // Keep node hosting the active connection creation pin visible so connection drag isn't aborted
+    if (detailContext) {
+        auto& itemCreator = detailContext->GetItemCreator();
+        if (itemCreator.m_IsActive) {
+            ax::NodeEditor::Detail::Pin* activePin = itemCreator.m_DraggedPin ? itemCreator.m_DraggedPin : itemCreator.m_LinkStart;
+            if (activePin) {
+                if (activePin->m_Node) {
+                    visibleNodeIds.insert(IdUtils::fromNodeId(activePin->m_Node->m_ID));
+                }
+                auto port = m_graph->getPort(IdUtils::fromPinId(activePin->m_ID));
+                if (port) {
+                    visibleNodeIds.insert(port->node_id);
+                }
+            }
+        }
+    }
+    if (m_selectedPortId != static_cast<uint64_t>(-1)) {
+        auto port = m_graph->getPort(m_selectedPortId);
+        if (port) {
+            visibleNodeIds.insert(port->node_id);
+        }
+    }
+
     std::unordered_set<uint64_t> nodesToRegister = visibleNodeIds;
 
-    // Iterate only through the visible nodes
+    // Iterate only through the visible nodes to register their connection partners
     for (uint64_t nodeId : visibleNodeIds) {
         auto node = m_graph->getNode(nodeId);
         if (!node) continue;
@@ -570,6 +739,53 @@ void FactoryNodeEditor::drawNodes() {
                     }
                 }
             }
+        }
+    }
+
+    // For any connections crossing the viewport where neither node is on screen,
+    // ensure both endpoints are registered so the wire is rendered by imgui-node-editor
+    for (const auto& conn : m_graph->getConnections()) {
+        auto fromPort = m_graph->getPort(conn.from_port);
+        auto toPort = m_graph->getPort(conn.to_port);
+        if (!fromPort || !toPort) continue;
+
+        uint64_t nodeAId = fromPort->node_id;
+        uint64_t nodeBId = toPort->node_id;
+
+        if (nodesToRegister.contains(nodeAId) && nodesToRegister.contains(nodeBId)) {
+            continue;
+        }
+
+        ed::NodeId edA = IdUtils::toNodeId(nodeAId);
+        ed::NodeId edB = IdUtils::toNodeId(nodeBId);
+
+        ImVec2 posA = ed::GetNodePosition(edA);
+        ImVec2 posB = ed::GetNodePosition(edB);
+
+        if (!std::isfinite(posA.x) || !std::isfinite(posA.y) ||
+            !std::isfinite(posB.x) || !std::isfinite(posB.y)) {
+            continue;
+        }
+
+        ImVec2 sizeA = ed::GetNodeSize(edA);
+        if (!std::isfinite(sizeA.x) || !std::isfinite(sizeA.y) || sizeA.x <= 0.0f || sizeA.y <= 0.0f) {
+            sizeA = ImVec2(300.0f, 100.0f);
+        }
+        ImVec2 sizeB = ed::GetNodeSize(edB);
+        if (!std::isfinite(sizeB.x) || !std::isfinite(sizeB.y) || sizeB.x <= 0.0f || sizeB.y <= 0.0f) {
+            sizeB = ImVec2(300.0f, 100.0f);
+        }
+
+        ImVec2 centerA(posA.x + sizeA.x * 0.5f, posA.y + sizeA.y * 0.5f);
+        ImVec2 centerB(posB.x + sizeB.x * 0.5f, posB.y + sizeB.y * 0.5f);
+
+        const float wirePadding = std::max({sizeA.x * 0.5f + 150.0f, sizeB.x * 0.5f + 150.0f, 300.0f});
+        ImVec2 paddedBoxMin(canvasMin.x - wirePadding, canvasMin.y - wirePadding);
+        ImVec2 paddedBoxMax(canvasMax.x + wirePadding, canvasMax.y + wirePadding);
+
+        if (segmentIntersectsAABB(centerA, centerB, paddedBoxMin, paddedBoxMax)) {
+            nodesToRegister.insert(nodeAId);
+            nodesToRegister.insert(nodeBId);
         }
     }
 
@@ -1429,6 +1645,16 @@ void FactoryNodeEditor::handlePopups() {
         }
         ImGui::PopStyleVar();
         ImGui::EndPopup();
+    } else {
+        auto* detailContext = reinterpret_cast<ax::NodeEditor::Detail::EditorContext*>(m_context);
+        bool isCreatingItem = false;
+        if (detailContext && detailContext->GetItemCreator().m_IsActive) {
+            isCreatingItem = true;
+        }
+        if (!isCreatingItem) {
+            m_selectedPortId = static_cast<uint64_t>(-1);
+        }
     }
     ed::Resume();
 }
+

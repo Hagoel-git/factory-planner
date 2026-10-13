@@ -3377,12 +3377,17 @@ ed::EditorAction::AcceptResult ed::NavigateAction::Accept(const Control& control
     if (m_IsActive)
         return False;
 
-    if (Editor->CanAcceptUserInput() /*&& !ImGui::IsAnyItemActive()*/ && ImGui::IsMouseDragging(Editor->GetConfig().NavigateButtonIndex, 0.0f))
+    int navBtn = Editor->GetConfig().NavigateButtonIndex;
+    if (Editor->CanAcceptUserInput() /*&& !ImGui::IsAnyItemActive()*/ && ImGui::IsMouseDragging(navBtn, 0.0f))
     {
         m_IsActive    = true;
         m_ScrollStart = m_Scroll;
-        m_ScrollDelta = ImGui::GetMouseDragDelta(Editor->GetConfig().NavigateButtonIndex);
-        m_Scroll      = m_ScrollStart - m_ScrollDelta * m_Zoom;
+        ImVec2 screenMouse = m_Canvas.GetScreenMousePos();
+        ImVec2 screenClick = m_Canvas.GetScreenMouseClickedPos(navBtn);
+        ImVec2 screenDelta = (ImGui::IsMousePosValid(&screenMouse) && ImGui::IsMousePosValid(&screenClick))
+            ? (screenMouse - screenClick) : ImVec2(0.0f, 0.0f);
+        m_ScrollDelta = screenDelta * (m_Zoom != 0.0f ? (1.0f / m_Zoom) : 1.0f);
+        m_Scroll      = m_ScrollStart - screenDelta;
     }
 
     auto& io = ImGui::GetIO();
@@ -3463,10 +3468,15 @@ bool ed::NavigateAction::Process(const Control& control)
     if (!m_IsActive)
         return false;
 
-    if (ImGui::IsMouseDragging(Editor->GetConfig().NavigateButtonIndex, 0.0f))
+    int navBtn = Editor->GetConfig().NavigateButtonIndex;
+    if (ImGui::IsMouseDragging(navBtn, 0.0f))
     {
-        m_ScrollDelta = ImGui::GetMouseDragDelta(Editor->GetConfig().NavigateButtonIndex);
-        m_Scroll      = m_ScrollStart - m_ScrollDelta * m_Zoom;
+        ImVec2 screenMouse = m_Canvas.GetScreenMousePos();
+        ImVec2 screenClick = m_Canvas.GetScreenMouseClickedPos(navBtn);
+        ImVec2 screenDelta = (ImGui::IsMousePosValid(&screenMouse) && ImGui::IsMousePosValid(&screenClick))
+            ? (screenMouse - screenClick) : ImVec2(0.0f, 0.0f);
+        m_ScrollDelta = screenDelta * (m_Zoom != 0.0f ? (1.0f / m_Zoom) : 1.0f);
+        m_Scroll      = m_ScrollStart - screenDelta;
         m_VisibleRect = GetViewRect();
 //         if (IsActive && Animation.IsPlaying())
 //             Animation.Target = Animation.Target - ScrollDelta * Animation.TargetZoom;
@@ -3831,7 +3841,7 @@ bool ed::SizeAction::Process(const Control& control)
 
     if (control.ActiveNode == m_SizedNode)
     {
-        const auto dragOffset = (control.ActiveNode == m_SizedNode) ? ImGui::GetMouseDragDelta(0, 0.0f) : m_LastDragOffset;
+        const auto dragOffset = (control.ActiveNode == m_SizedNode) ? Editor->GetMouseDragDelta(0, 0.0f) : m_LastDragOffset;
         m_LastDragOffset = dragOffset;
 
         if (m_MinimumSize.x == 0.0f && m_LastSize.x != m_SizedNode->m_Bounds.GetWidth())
@@ -4023,7 +4033,7 @@ bool ed::DragAction::Process(const Control& control)
 
     if (control.ActiveObject == m_DraggedObject)
     {
-        auto dragOffset = ImGui::GetMouseDragDelta(Editor->GetConfig().DragButtonIndex, 0.0f);
+        auto dragOffset = Editor->GetMouseDragDelta(Editor->GetConfig().DragButtonIndex, 0.0f);
 
         auto draggedOrigin  = m_DraggedObject->DragStartLocation();
         auto alignPivot     = ImVec2(0, 0);

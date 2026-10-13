@@ -10,14 +10,14 @@ using ImTextureID = unsigned long long; // Placeholder for ImTextureID type from
 
 struct Resource {
     std::string name;
-    ImTextureID texture;
+    ImTextureID texture = 0;
 };
 
 
 struct Machine {
     std::string name;
     double base_crafting_speed = 1.0; // linear crafting speed multiplier. Default 1.0 means recipe time is used as-is.
-    ImTextureID texture;
+    ImTextureID texture = 0;
 };
 
 

@@ -1,4 +1,4 @@
-﻿// Canvas widget - view over infinite virtual space.
+// Canvas widget - view over infinite virtual space.
 //
 // Canvas allows you to draw your widgets anywhere over infinite space and provide
 // view over it with support for panning and scaling.
@@ -197,6 +197,17 @@ struct Canvas
     //
     // See: Suspend()/Resume()
     bool IsSuspended() const { return m_SuspendCounter > 0; }
+
+    ImVec2 GetScreenMousePos() const
+    {
+        return (m_InBeginEnd && m_SuspendCounter == 0) ? m_MousePosBackup : ImGui::GetIO().MousePos;
+    }
+    ImVec2 GetScreenMouseClickedPos(int button) const
+    {
+        if (button >= 0 && button < IM_ARRAYSIZE(m_MouseClickedPosBackup))
+            return (m_InBeginEnd && m_SuspendCounter == 0) ? m_MouseClickedPosBackup[button] : ImGui::GetIO().MouseClickedPos[button];
+        return ImVec2(0.0f, 0.0f);
+    }
 
 private:
 # define IMGUI_EX_CANVAS_DEFERED() 0
