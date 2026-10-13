@@ -255,6 +255,11 @@ bool GameDataManager::editResource(const std::string& current_key, const Resourc
     }
 
     std::string new_key = slugify(r.name);
+    if (new_key.empty() || new_key == "nothing") {
+        LOG(WARNING) << "Invalid or reserved resource name: " << r.name;
+        outError = "Invalid or reserved name.";
+        return false;
+    }
 
     if (new_key != current_key) {
         if (m_data.id_aliases.count(PREFIX_RES + new_key)) {
@@ -309,6 +314,9 @@ bool GameDataManager::deleteResource(const std::string& key_name, std::string &o
         return false;
     }
     m_data.resources.erase(key_name);
+    std::erase_if(m_data.id_aliases, [&](const auto &pair) {
+        return pair.first == PREFIX_RES + key_name || (pair.first.rfind(PREFIX_RES, 0) == 0 && pair.second == key_name);
+    });
     VLOG(2) << "Resource deleted successfully: " << key_name;
     return true;
 }
@@ -355,9 +363,9 @@ bool GameDataManager::editMachine(const std::string& current_key, const Machine 
         return false;
     }
     std::string new_key = slugify(m.name);
-    if (new_key == "nothing") {
-        LOG(WARNING) << "Cannot rename machine to reserved name 'nothing'.";
-        outError = "Cannot rename machine to reserved name 'nothing'.";
+    if (new_key.empty() || new_key == "nothing") {
+        LOG(WARNING) << "Cannot rename machine to empty or reserved name 'nothing'.";
+        outError = "Invalid or reserved name.";
         return false;
     }
     if (new_key != current_key) {
@@ -402,6 +410,9 @@ bool GameDataManager::deleteMachine(const std::string& key_name, std::string &ou
         return false;
     }
     m_data.machines.erase(key_name);
+    std::erase_if(m_data.id_aliases, [&](const auto &pair) {
+        return pair.first == PREFIX_MAC + key_name || (pair.first.rfind(PREFIX_MAC, 0) == 0 && pair.second == key_name);
+    });
     VLOG(2) << "Machine deleted successfully: " << key_name;
     return true;
 }
@@ -455,9 +466,9 @@ bool GameDataManager::editRecipe(const std::string& current_key, const Recipe &r
         return false;
     }
     std::string new_key = slugify(r.name);
-    if (new_key == "nothing") {
-        LOG(WARNING) << "Cannot rename recipe to reserved name 'nothing'.";
-        outError = "Cannot rename recipe to reserved name 'nothing'.";
+    if (new_key.empty() || new_key == "nothing") {
+        LOG(WARNING) << "Cannot rename recipe to empty or reserved name 'nothing'.";
+        outError = "Invalid or reserved name.";
         return false;
     }
 
@@ -498,6 +509,9 @@ bool GameDataManager::deleteRecipe(const std::string& key_name, std::string &out
         return false;
     }
     m_data.recipes.erase(key_name);
+    std::erase_if(m_data.id_aliases, [&](const auto &pair) {
+        return pair.first == PREFIX_REC + key_name || (pair.first.rfind(PREFIX_REC, 0) == 0 && pair.second == key_name);
+    });
     VLOG(2) << "Recipe deleted successfully: " << key_name;
     return true;
 }

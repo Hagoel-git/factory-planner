@@ -13,6 +13,8 @@ namespace {
     using operations_research::MPSolver;
     using operations_research::MPVariable;
 
+    // Weight of unconsumed excess in the waste stage.
+    constexpr double kExcessWasteWeight = 1.0;
     // Weight of plain port flow relative to unconsumed excess in the waste stage.
     constexpr double kFlowWasteWeight = 1e-3;
     // Values with a smaller magnitude are reported as exactly zero.
@@ -281,6 +283,26 @@ void FactorySolver::addAllConstraints(const FactoryGraph &factory_graph) {
 }
 
 void FactorySolver::addRecipeConstraints(const Node &node, const Recipe &recipe) {
+    if (node.production_multiplier <= 0.0 || node.clock_speed <= 0.0) {
+        for (auto pid : node.input_ports) {
+            auto it = m_portVariables.find(pid);
+            if (it != m_portVariables.end()) {
+                auto* c = m_solver->MakeRowConstraint(0.0, 0.0);
+                c->SetCoefficient(it->second, 1.0);
+                m_constraints.push_back(c);
+            }
+        }
+        for (auto pid : node.output_ports) {
+            auto it = m_portVariables.find(pid);
+            if (it != m_portVariables.end()) {
+                auto* c = m_solver->MakeRowConstraint(0.0, 0.0);
+                c->SetCoefficient(it->second, 1.0);
+                m_constraints.push_back(c);
+            }
+        }
+        return;
+    }
+
     if (!recipe.output_ports.empty() && recipe.output_ports[0].amount > 0.0 && !node.output_ports.empty()) {
         auto out0_it = m_portVariables.find(node.output_ports[0]);
         if (out0_it != m_portVariables.end()) {
@@ -714,6 +736,11 @@ operations_research::MPSolver::ResultStatus FactorySolver::solveLexicographic(co
 
     // 3. Stage 3: Waste Clean-up & Fair Splitting
     Terms waste_terms;
+    std::map<uint64_t, operations_research::MPVariable*> ordered_excess(m_excessVariables.begin(), m_excessVariables.end());
+    for (const auto &[id, excess_var]: ordered_excess) {
+        waste_terms.emplace_back(excess_var, kExcessWasteWeight);
+    }
+
     std::map<uint64_t, operations_research::MPVariable*> ordered_ports(m_portVariables.begin(), m_portVariables.end());
     for (const auto &[id, var]: ordered_ports) {
         waste_terms.emplace_back(var, kFlowWasteWeight);
@@ -828,7 +855,7 @@ void FactorySolver::updateFactoryGraph(FactoryGraph &factory_graph) const {
         const Recipe &recipe = recipe_it->second;
         const Machine &machine = machine_it->second;
 
-        if (node.clock_speed <= 0.0 || recipe.time_seconds <= 0.0) {
+        if (node.clock_speed <= 0.0 || recipe.time_seconds <= 0.0 || node.production_multiplier <= 0.0) {
             node.machine_count = 0.0;
             continue;
         }

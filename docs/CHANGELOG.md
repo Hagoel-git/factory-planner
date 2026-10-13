@@ -18,6 +18,13 @@ This document holds the user-facing changelog that is also used in release notes
 - UI: Unconsumed byproducts now highlight their output port in orange and display the exact excess amount in tooltips and the right-click context menu.
 
 ### Fixed
+- Fixed pasted nodes silently resetting machine selection, clock speed, and production multiplier to default values.
+- Fixed solver Stage 3 waste minimization inadvertently preferring unconsumed output excess over routing flow to downstream links.
+- Fixed solver allowing machines configured with 0% clock speed or 0% production multiplier to consume free input resources, and clamped production multiplier inputs to [0.0%, 10000.0%].
+- Fixed Game Data Manager allowing resources, machines, or recipes to be renamed to empty slugs.
+- Fixed pin flow rate limit input in node editor accepting non-finite (NaN/Inf) or negative values.
+- Fixed 64-bit node ID truncation during project load and cleaned up dangling aliases when deleting renamed resources, machines, or recipes.
+- Fixed crash (std::out_of_range) in node editor when pasting clipboard nodes lacking position entries.
 - Fixed application crash (assertion failure in Quadtree) when placing or dragging nodes far from the canvas origin or when node positions are uninitialized.
 - Fixed viewport drag freeze and view oscillation at extreme zoom-out caused by Dear ImGui local mouse coordinates breaching the internal -256,000 coordinate limit.
 - Fixed outer editor window scrollbars erroneously appearing and conflicting with canvas navigation during extreme zoom-out.

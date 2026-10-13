@@ -266,6 +266,12 @@ void PasteCommand::execute(FactoryGraph &graph) {
 
             auto newNodePtr = graph.getNode(newId);
             if (newNodePtr) {
+                if (!node.machine_key.empty()) {
+                    graph.changeMachine(newId, node.machine_key);
+                }
+                graph.setNodeClockSpeed(newId, node.clock_speed);
+                graph.setProductionMultiplier(newId, node.production_multiplier);
+
                 pastedNodes.push_back(*newNodePtr);
                 pastedNodePositions[newId] = newPos;
 
