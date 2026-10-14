@@ -40,6 +40,32 @@ void SettingsEditor::drawLeftPanel() {
 
 
 void SettingsEditor::drawRightPanel() {
+    if (m_folderDialog && m_folderDialog->isReady.load()) {
+        std::string res;
+        std::string target;
+        {
+            std::lock_guard<std::mutex> lock(m_folderDialog->mutex);
+            res = m_folderDialog->resultPath;
+            target = m_folderDialog->target;
+            m_folderDialog->resultPath.clear();
+            m_folderDialog->target.clear();
+            m_folderDialog->isReady = false;
+        }
+        if (!res.empty()) {
+            if (target == "DEFAULT_PROJECT") {
+                std::strncpy(m_bufDefaultProjectPath.data(), res.c_str(), m_bufDefaultProjectPath.size() - 1);
+                m_bufDefaultProjectPath[m_bufDefaultProjectPath.size() - 1] = '\0';
+                m_editSettings.defaultProjectPath = res;
+                m_isDirty = true;
+            } else if (target == "GAME_DATA") {
+                std::strncpy(m_bufGameDataPath.data(), res.c_str(), m_bufGameDataPath.size() - 1);
+                m_bufGameDataPath[m_bufGameDataPath.size() - 1] = '\0';
+                m_editSettings.gameDataPath = res;
+                m_isDirty = true;
+            }
+        }
+    }
+
     ImGui::BeginChild("RightPanel", ImVec2(0, -40), false);
 
     if (m_selCategory == "General") {
@@ -60,17 +86,26 @@ void SettingsEditor::drawRightPanel() {
         ImGui::PopItemWidth();
         ImGui::SameLine();
         if (ImGui::Button("Browse...", ImVec2(buttonWidth, 0))) {
-            std::thread([this]() {
-                nfdu8char_t *outPath = nullptr;
-                nfdpickfolderu8args_t args = {0};
-                args.defaultPath = m_bufDefaultProjectPath.data();
-                nfdresult_t result = NFD_PickFolderU8_With(&outPath, &args);
-                if (result == NFD_OKAY && outPath) {
-                    std::strncpy(m_bufDefaultProjectPath.data(), outPath, m_bufDefaultProjectPath.size() - 1);
-                    m_bufDefaultProjectPath[m_bufDefaultProjectPath.size() - 1] = '\0';
-                    NFD_FreePathU8(outPath);
-                }
-            }).detach();
+            if (!m_folderDialog->isRunning.load()) {
+                m_folderDialog->isRunning = true;
+                std::string defaultPath = m_bufDefaultProjectPath.data();
+                auto dialog = m_folderDialog;
+                std::string target = "DEFAULT_PROJECT";
+                std::thread([dialog, defaultPath, target]() {
+                    nfdu8char_t *outPath = nullptr;
+                    nfdpickfolderu8args_t args = {0};
+                    args.defaultPath = defaultPath.empty() ? nullptr : defaultPath.c_str();
+                    nfdresult_t result = NFD_PickFolderU8_With(&outPath, &args);
+                    if (result == NFD_OKAY && outPath) {
+                        std::lock_guard<std::mutex> lock(dialog->mutex);
+                        dialog->target = target;
+                        dialog->resultPath = outPath;
+                        dialog->isReady = true;
+                        NFD_FreePathU8(outPath);
+                    }
+                    dialog->isRunning = false;
+                }).detach();
+            }
         }
         // update settings from buffer if user typed
         std::string newDefaultPath = std::string(m_bufDefaultProjectPath.data());
@@ -90,17 +125,26 @@ void SettingsEditor::drawRightPanel() {
         ImGui::PopItemWidth();
         ImGui::SameLine();
         if (ImGui::Button("Browse...", ImVec2(buttonWidth, 0))) {
-            std::thread([this]() {
-                nfdu8char_t *outPath = nullptr;
-                nfdpickfolderu8args_t args = {0};
-                args.defaultPath = m_bufGameDataPath.data();
-                nfdresult_t result = NFD_PickFolderU8_With(&outPath, &args);
-                if (result == NFD_OKAY && outPath) {
-                    std::strncpy(m_bufGameDataPath.data(), outPath, m_bufGameDataPath.size() - 1);
-                    m_bufGameDataPath[m_bufGameDataPath.size() - 1] = '\0';
-                    NFD_FreePathU8(outPath);
-                }
-            }).detach();
+            if (!m_folderDialog->isRunning.load()) {
+                m_folderDialog->isRunning = true;
+                std::string defaultPath = m_bufGameDataPath.data();
+                auto dialog = m_folderDialog;
+                std::string target = "GAME_DATA";
+                std::thread([dialog, defaultPath, target]() {
+                    nfdu8char_t *outPath = nullptr;
+                    nfdpickfolderu8args_t args = {0};
+                    args.defaultPath = defaultPath.empty() ? nullptr : defaultPath.c_str();
+                    nfdresult_t result = NFD_PickFolderU8_With(&outPath, &args);
+                    if (result == NFD_OKAY && outPath) {
+                        std::lock_guard<std::mutex> lock(dialog->mutex);
+                        dialog->target = target;
+                        dialog->resultPath = outPath;
+                        dialog->isReady = true;
+                        NFD_FreePathU8(outPath);
+                    }
+                    dialog->isRunning = false;
+                }).detach();
+            }
         }
         std::string newGameDataPath = std::string(m_bufGameDataPath.data());
         if (newGameDataPath != m_editSettings.gameDataPath.string()) {

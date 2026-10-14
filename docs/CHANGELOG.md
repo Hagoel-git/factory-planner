@@ -16,8 +16,16 @@ This document holds the user-facing changelog that is also used in release notes
 - Massively improved solver performance on large graphs by optimizing the Target Water-Filling algorithm (from $O(N^2)$ to $O(1)$ solves per iteration).
 - Fixed "Waste Compression" in the solver where byproducts were unnecessarily processed into denser items (pulling in extra raw resources) to numerically minimize excess item counts. Excess now stops at the earliest possible unconstrained port.
 - UI: Unconsumed byproducts now highlight their output port in orange and display the exact excess amount in tooltips and the right-click context menu.
+- Enabled docking layout persistence across application restarts, saving window layouts to `docking_layout.ini`.
+- Added a "Reset Window Layout" option under the `View` and `Window` menus to restore default docking and clear awkward window splits.
+- Disambiguated open tabs sharing the same project name by appending their parent folder name in the tab header (e.g. `Project (dirA)`).
 
 ### Fixed
+- Fixed duplicate project name validation blocking opening or creating identically named project files located in different directories by comparing canonical filesystem paths.
+- Fixed window ID collisions in Dear ImGui for tabs sharing identical project names by unique path-based window ID hashing.
+- Fixed closing dock window groups ('X' button on docked tab group) only closing a single tab instead of all docked tabs in that window.
+- Fixed potential data races and UI thread corruption from background native file dialog threads in `SettingsEditor` and `GameDataEditor`.
+- Fixed cancelling icon file dialog wiping existing draft resource or machine icons.
 - Fixed pasted nodes silently resetting machine selection, clock speed, and production multiplier to default values.
 - Fixed solver Stage 3 waste minimization inadvertently preferring unconsumed output excess over routing flow to downstream links.
 - Fixed solver allowing machines configured with 0% clock speed or 0% production multiplier to consume free input resources, and clamped production multiplier inputs to [0.0%, 10000.0%].

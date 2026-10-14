@@ -83,6 +83,7 @@ public:
     bool isFocused() const { return m_isFocused; }
 
     bool isDirty() const { return m_isDirty; }
+    void setDirty(bool dirty) { m_isDirty = dirty; }
 
     void undo();
     void redo();
