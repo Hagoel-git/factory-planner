@@ -79,6 +79,37 @@ void GameDataEditor::refreshPackageList() {
 void GameDataEditor::draw() {
     if (!m_isOpen) return;
 
+    if (m_iconDialog && m_iconDialog->isReady.load()) {
+        std::string res;
+        std::string target;
+        {
+            std::lock_guard<std::mutex> lock(m_iconDialog->mutex);
+            res = m_iconDialog->resultPath;
+            target = m_iconDialog->targetKey;
+            m_iconDialog->resultPath.clear();
+            m_iconDialog->targetKey.clear();
+            m_iconDialog->isReady = false;
+        }
+        if (!res.empty()) {
+            if (target == "DRAFT_RESOURCE") {
+                m_draftResource.iconPath = res;
+            } else if (target == "DRAFT_MACHINE") {
+                m_draftMachine.iconPath = res;
+            } else {
+                std::string err;
+                if (m_gameDataManager.current().resources.count(target)) {
+                    if (!m_gameDataManager.setResourceIcon(target, res, err)) {
+                        NotificationManager::instance().addNotification("Icon Error", err, NotificationType::Error);
+                    }
+                } else if (m_gameDataManager.current().machines.count(target)) {
+                    if (!m_gameDataManager.setMachineIcon(target, res, err)) {
+                        NotificationManager::instance().addNotification("Icon Error", err, NotificationType::Error);
+                    }
+                }
+            }
+        }
+    }
+
     ImGui::SetNextWindowSize(ImVec2(1280, 720), ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Game Data Manager", &m_isOpen)) {
 
@@ -621,12 +652,11 @@ void GameDataEditor::drawResourceCreator() {
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1,1,1,0.2f));
 
     if (ImGui::ImageButton("##icon", icon, ImVec2(fontSize, fontSize))) {
-        if (!m_iconDialog.isRunning) {
-            m_iconDialog.targetKey = "DRAFT_RESOURCE";
-            m_iconDialog.resultPath.clear();
-            m_iconDialog.isRunning = true;
-
-            std::thread([this]() {
+        if (!m_iconDialog->isRunning.load()) {
+            m_iconDialog->isRunning = true;
+            auto dialog = m_iconDialog;
+            std::string target = "DRAFT_RESOURCE";
+            std::thread([dialog, target]() {
                 nfdu8char_t *outPath = nullptr;
                 nfdu8filteritem_t filters[1] = { { "Images", "png,jpg,jpeg" } };
                 nfdopendialogu8args_t args = {0};
@@ -636,11 +666,13 @@ void GameDataEditor::drawResourceCreator() {
                 nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
 
                 if (result == NFD_OKAY && outPath) {
-                    m_iconDialog.resultPath = outPath;
+                    std::lock_guard<std::mutex> lock(dialog->mutex);
+                    dialog->targetKey = target;
+                    dialog->resultPath = outPath;
+                    dialog->isReady = true;
                     NFD_FreePathU8(outPath);
                 }
-                m_iconDialog.isReady = true;
-                m_iconDialog.isRunning = false;
+                dialog->isRunning = false;
             }).detach();
         }
     }
@@ -650,11 +682,6 @@ void GameDataEditor::drawResourceCreator() {
         ImGui::SetTooltip("Click to set icon");
     }
 
-    if (m_iconDialog.isReady && m_iconDialog.targetKey == "DRAFT_RESOURCE") {
-        m_draftResource.iconPath = m_iconDialog.resultPath;
-        m_iconDialog.isReady = false;
-        m_iconDialog.isRunning = false;
-    }
     ImGui::PopStyleColor(3);
 
     ImGui::SameLine();
@@ -703,18 +730,6 @@ void GameDataEditor::drawResourceCreator() {
 }
 
 void GameDataEditor::drawResourceGrid() {
-    if (m_iconDialog.isReady) {
-        if (!m_iconDialog.resultPath.empty()) {
-            std::string err;
-            if (!m_gameDataManager.setResourceIcon(m_iconDialog.targetKey, m_iconDialog.resultPath, err)) {
-                NotificationManager::instance().addNotification("Icon Error", err, NotificationType::Error);
-            }
-        }
-        m_iconDialog.resultPath.clear();
-        m_iconDialog.targetKey.clear();
-        m_iconDialog.isReady = false;
-        m_iconDialog.isRunning = false;
-    }
     auto filteredItems = filterMap(m_gameDataManager.current().resources, m_searchBuffer);
     auto fontSize = ImGui::GetFontSize();
 
@@ -750,12 +765,11 @@ void GameDataEditor::drawResourceGrid() {
                 ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1,1,1,0.2f));
 
                 if (ImGui::ImageButton("##icon", (ImTextureID)(uintptr_t)item->texture, ImVec2(fontSize, fontSize))) {
-                    if (!m_iconDialog.isRunning) {
-                        m_iconDialog.targetKey = key;
-                        m_iconDialog.resultPath.clear();
-                        m_iconDialog.isRunning = true;
-
-                        std::thread([this, key]() {
+                    if (!m_iconDialog->isRunning.load()) {
+                        m_iconDialog->isRunning = true;
+                        auto dialog = m_iconDialog;
+                        std::string target = key;
+                        std::thread([dialog, target]() {
                             nfdu8char_t *outPath = nullptr;
                             nfdu8filteritem_t filters[1] = { { "Images", "png,jpg,jpeg" } };
                             nfdopendialogu8args_t args = {0};
@@ -765,11 +779,13 @@ void GameDataEditor::drawResourceGrid() {
                             nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
 
                             if (result == NFD_OKAY && outPath) {
-                                m_iconDialog.resultPath = outPath;
+                                std::lock_guard<std::mutex> lock(dialog->mutex);
+                                dialog->targetKey = target;
+                                dialog->resultPath = outPath;
+                                dialog->isReady = true;
                                 NFD_FreePathU8(outPath);
                             }
-                            m_iconDialog.isReady = true;
-                            m_iconDialog.isRunning = false;
+                            dialog->isRunning = false;
                         }).detach();
                     }
                 }
@@ -862,12 +878,11 @@ void GameDataEditor::drawMachineCreator() {
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1,1,1,0.2f));
 
     if (ImGui::ImageButton("##icon", icon, ImVec2(fontSize, fontSize))) {
-        if (!m_iconDialog.isRunning) {
-            m_iconDialog.targetKey = "DRAFT_MACHINE";
-            m_iconDialog.resultPath.clear();
-            m_iconDialog.isRunning = true;
-
-            std::thread([this]() {
+        if (!m_iconDialog->isRunning.load()) {
+            m_iconDialog->isRunning = true;
+            auto dialog = m_iconDialog;
+            std::string target = "DRAFT_MACHINE";
+            std::thread([dialog, target]() {
                 nfdu8char_t *outPath = nullptr;
                 nfdu8filteritem_t filters[1] = { { "Images", "png,jpg,jpeg" } };
                 nfdopendialogu8args_t args = {0};
@@ -877,11 +892,13 @@ void GameDataEditor::drawMachineCreator() {
                 nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
 
                 if (result == NFD_OKAY && outPath) {
-                    m_iconDialog.resultPath = outPath;
+                    std::lock_guard<std::mutex> lock(dialog->mutex);
+                    dialog->targetKey = target;
+                    dialog->resultPath = outPath;
+                    dialog->isReady = true;
                     NFD_FreePathU8(outPath);
                 }
-                m_iconDialog.isReady = true;
-                m_iconDialog.isRunning = false;
+                dialog->isRunning = false;
             }).detach();
         }
     }
@@ -891,11 +908,6 @@ void GameDataEditor::drawMachineCreator() {
         ImGui::SetTooltip("Click to set icon");
     }
 
-    if (m_iconDialog.isReady && m_iconDialog.targetKey == "DRAFT_MACHINE") {
-        m_draftMachine.iconPath = m_iconDialog.resultPath;
-        m_iconDialog.isReady = false;
-        m_iconDialog.isRunning = false;
-    }
     ImGui::PopStyleColor(3);
 
     ImGui::SameLine();
@@ -961,18 +973,6 @@ void GameDataEditor::drawMachineCreator() {
 }
 
 void GameDataEditor::drawMachineGrid() {
-    if (m_iconDialog.isReady) {
-        if (!m_iconDialog.resultPath.empty()) {
-            std::string err;
-            if (!m_gameDataManager.setMachineIcon(m_iconDialog.targetKey, m_iconDialog.resultPath, err)) {
-                NotificationManager::instance().addNotification("Icon Error", err, NotificationType::Error);
-            }
-        }
-        m_iconDialog.resultPath.clear();
-        m_iconDialog.targetKey.clear();
-        m_iconDialog.isReady = false;
-        m_iconDialog.isRunning = false;
-    }
     auto filteredItems = filterMap(m_gameDataManager.current().machines, m_searchBuffer);
     auto fontSize = ImGui::GetFontSize();
 
@@ -1009,12 +1009,11 @@ void GameDataEditor::drawMachineGrid() {
                 ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1,1,1,0.2f));
 
                 if (ImGui::ImageButton("##icon", (ImTextureID)(uintptr_t)item->texture, ImVec2(fontSize, fontSize))) {
-                    if (!m_iconDialog.isRunning) {
-                        m_iconDialog.targetKey = key;
-                        m_iconDialog.resultPath.clear();
-                        m_iconDialog.isRunning = true;
-
-                        std::thread([this, key]() {
+                    if (!m_iconDialog->isRunning.load()) {
+                        m_iconDialog->isRunning = true;
+                        auto dialog = m_iconDialog;
+                        std::string target = key;
+                        std::thread([dialog, target]() {
                             nfdu8char_t *outPath = nullptr;
                             nfdu8filteritem_t filters[1] = { { "Images", "png,jpg,jpeg" } };
                             nfdopendialogu8args_t args = {0};
@@ -1024,11 +1023,13 @@ void GameDataEditor::drawMachineGrid() {
                             nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
 
                             if (result == NFD_OKAY && outPath) {
-                                m_iconDialog.resultPath = outPath;
+                                std::lock_guard<std::mutex> lock(dialog->mutex);
+                                dialog->targetKey = target;
+                                dialog->resultPath = outPath;
+                                dialog->isReady = true;
                                 NFD_FreePathU8(outPath);
                             }
-                            m_iconDialog.isReady = true;
-                            m_iconDialog.isRunning = false;
+                            dialog->isRunning = false;
                         }).detach();
                     }
                 }

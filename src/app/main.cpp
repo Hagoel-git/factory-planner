@@ -193,7 +193,8 @@ int main(int argc, char **argv) {
     (void) io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    io.IniFilename = nullptr;
+    static const std::string iniFilePath = (getExecutableDirectory().value_or(std::filesystem::current_path()) / "docking_layout.ini").string();
+    io.IniFilename = iniFilePath.c_str();
     io.LogFilename = nullptr;
 
     // Setup Dear ImGui style

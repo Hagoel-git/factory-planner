@@ -1,0 +1,355 @@
+#include <gtest/gtest.h>
+#include "app/Application.h"
+#include "editor/factory_planner/FactoryNodeEditor.h"
+#include "editor/settings_editor/SettingsEditor.h"
+#include "editor/game_data_editor/GameDataEditor.h"
+#include "core/data/GameDataManager.h"
+#include "services/SettingsManager.h"
+#include "common/FilesystemUtils.h"
+#include <imgui.h>
+#include <imgui_internal.h>
+#include <filesystem>
+#include <fstream>
+#include <thread>
+#include <vector>
+
+namespace fs = std::filesystem;
+
+class ApplicationLifecycleTest : public ::testing::Test {
+protected:
+    fs::path tempRoot;
+    fs::path dirA;
+    fs::path dirB;
+    ImGuiContext* m_imguiContext = nullptr;
+
+    void SetUp() override {
+        // Setup temporary directory structure
+        tempRoot = fs::temp_directory_path() / ("fp_batch3_test_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count()));
+        dirA = tempRoot / "dirA";
+        dirB = tempRoot / "dirB";
+        fs::create_directories(dirA);
+        fs::create_directories(dirB);
+
+        // Ensure ImGui context is available
+        m_imguiContext = ImGui::CreateContext();
+        ImGui::SetCurrentContext(m_imguiContext);
+        ImGuiIO& io = ImGui::GetIO();
+        io.DisplaySize = ImVec2(1920, 1080);
+        io.DeltaTime = 1.0f / 60.0f;
+        unsigned char* pixels = nullptr;
+        int width = 0, height = 0;
+        io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+
+        // Prevent session restoration from previous runs
+        AppSettings s = SettingsManager::instance().getSettings();
+        s.restorePreviousSession = false;
+        SettingsManager::instance().setSettings(s);
+    }
+
+    void TearDown() override {
+        if (m_imguiContext) {
+            ImGui::DestroyContext(m_imguiContext);
+            m_imguiContext = nullptr;
+        }
+        std::error_code ec;
+        fs::remove_all(tempRoot, ec);
+    }
+};
+
+// -----------------------------------------------------------------------------
+// User Issue 1 Tests: Canonical path matching & title disambiguation
+// -----------------------------------------------------------------------------
+
+TEST_F(ApplicationLifecycleTest, ValidateNewEditor_AllowsSameStemInDifferentDirectories) {
+    Application app;
+
+    fs::path fileA = dirA / "project.fpp";
+    fs::path fileB = dirB / "project.fpp";
+
+    // Create fileA
+    app.createNewEditor("", fileA, "project", false);
+    ASSERT_EQ(app.getEditorCount(), 1);
+
+    // Opening fileB with the identical stem name ("project") in a different folder MUST be allowed
+    bool canOpenB = app.validateNewEditor("project", fileB);
+    EXPECT_TRUE(canOpenB);
+
+    // Actually create fileB
+    app.createNewEditor("", fileB, "project", false);
+    EXPECT_EQ(app.getEditorCount(), 2);
+}
+
+TEST_F(ApplicationLifecycleTest, ValidateNewEditor_RejectsDuplicateCanonicalPath) {
+    Application app;
+
+    fs::path fileA = dirA / "project.fpp";
+    app.createNewEditor("", fileA, "project", false);
+    ASSERT_EQ(app.getEditorCount(), 1);
+
+    // Attempting to open the exact same file path again MUST be rejected
+    bool canOpenSame = app.validateNewEditor("project", fileA);
+    EXPECT_FALSE(canOpenSame);
+
+    // Even with a different name argument, the same path must be rejected
+    bool canOpenSameDifferentName = app.validateNewEditor("different_name", fileA);
+    EXPECT_FALSE(canOpenSameDifferentName);
+}
+
+TEST_F(ApplicationLifecycleTest, ValidateNewEditor_RejectsInvalidLocation) {
+    Application app;
+
+    // Empty path
+    EXPECT_FALSE(app.validateNewEditor("test", ""));
+
+    // Path in a nonexistent parent folder
+    fs::path nonExistent = tempRoot / "does_not_exist_xyz" / "test.fpp";
+    EXPECT_FALSE(app.validateNewEditor("test", nonExistent));
+}
+
+TEST_F(ApplicationLifecycleTest, CloseEditorByName_MatchesCanonicalPathAndDisambiguates) {
+    Application app;
+
+    fs::path fileA = dirA / "common.fpp";
+    fs::path fileB = dirB / "common.fpp";
+
+    app.createNewEditor("", fileA, "common", false);
+    app.createNewEditor("", fileB, "common", false);
+    ASSERT_EQ(app.getEditorCount(), 2);
+
+    // Close specifically fileA by passing its path
+    app.closeEditorByName(fileA.string());
+    EXPECT_EQ(app.getEditorCount(), 1);
+
+    // Remaining editor should be fileB
+    auto* remaining = app.getEditor(0);
+    ASSERT_NE(remaining, nullptr);
+    EXPECT_EQ(fs::weakly_canonical(remaining->getProjectFilePath()), fs::weakly_canonical(fileB));
+
+    // Fallback: close by stem name
+    app.closeEditorByName("common");
+    EXPECT_EQ(app.getEditorCount(), 0);
+}
+
+TEST_F(ApplicationLifecycleTest, TabTitleDisambiguation_IncludesParentFolderWhenStemsMatch) {
+    Application app;
+
+    fs::path fileA = dirA / "factory.fpp";
+    fs::path fileB = dirB / "factory.fpp";
+    fs::path fileC = dirA / "unique.fpp";
+
+    app.createNewEditor("", fileA, "factory", false);
+    app.createNewEditor("", fileB, "factory", false);
+    app.createNewEditor("", fileC, "unique", false);
+    ASSERT_EQ(app.getEditorCount(), 3);
+
+    // Test real Application::getTabTitle
+    EXPECT_EQ(app.getTabTitle(0), "factory (dirA)");
+    EXPECT_EQ(app.getTabTitle(1), "factory (dirB)");
+    EXPECT_EQ(app.getTabTitle(2), "unique");
+}
+
+TEST_F(ApplicationLifecycleTest, EmptyProjectPath_WindowIdCollisionAvoidance) {
+    Application app;
+
+    // Validate that creating an editor with a valid location does not collide with empty paths
+    fs::path fileA = dirA / "project.fpp";
+    EXPECT_TRUE(app.validateNewEditor("project", fileA));
+
+    app.createNewEditor("", fileA, "project", false);
+    ASSERT_EQ(app.getEditorCount(), 1);
+
+    // Verify empty path is rejected by validation
+    EXPECT_FALSE(app.validateNewEditor("empty", ""));
+}
+
+// -----------------------------------------------------------------------------
+// User Issue 3 Tests: Docking persistence & Reset Window Layout
+// -----------------------------------------------------------------------------
+
+TEST_F(ApplicationLifecycleTest, ResetWindowLayout_ClearsLayoutFileAndRequestsReset) {
+    Application app;
+
+    fs::path iniPath = getExecutableDirectory().value_or(fs::current_path()) / "docking_layout.ini";
+    std::string iniStr = iniPath.string();
+    ImGui::GetIO().IniFilename = iniStr.c_str();
+
+    // Create a mock docking_layout.ini
+    {
+        std::ofstream out(iniPath);
+        out << "[Window][DockSpace]\nPos=0,0\nSize=1920,1080\n";
+    }
+    ASSERT_TRUE(fs::exists(iniPath));
+
+    // Execute reset layout
+    app.resetWindowLayout();
+
+    // Verify reset was requested and the file on disk was cleared/deleted
+    EXPECT_TRUE(app.isResetLayoutRequested());
+    EXPECT_FALSE(fs::exists(iniPath));
+}
+
+// -----------------------------------------------------------------------------
+// User Issue 4 Tests: Multi-tab close handling (group 'X')
+// -----------------------------------------------------------------------------
+
+TEST_F(ApplicationLifecycleTest, MultiTabClose_ClosesCleanTabsDirectly) {
+    Application app;
+
+    fs::path file1 = dirA / "clean1.fpp";
+    fs::path file2 = dirA / "clean2.fpp";
+    app.createNewEditor("", file1, "clean1", false);
+    app.createNewEditor("", file2, "clean2", false);
+    ASSERT_EQ(app.getEditorCount(), 2);
+
+    ASSERT_FALSE(app.getEditor(0)->isDirty());
+    ASSERT_FALSE(app.getEditor(1)->isDirty());
+
+    // Execute handleCloseEditors for all clean tabs
+    app.handleCloseEditors({0, 1});
+
+    EXPECT_EQ(app.getEditorCount(), 0);
+    EXPECT_FALSE(app.isUnsavedChangesDialogOpen());
+}
+
+TEST_F(ApplicationLifecycleTest, MultiTabClose_QueuesDirtyTabsForConfirmation) {
+    Application app;
+
+    fs::path fileClean = dirA / "clean.fpp";
+    fs::path fileDirty = dirA / "dirty.fpp";
+    app.createNewEditor("", fileClean, "clean", false);
+    app.createNewEditor("", fileDirty, "dirty", false);
+    ASSERT_EQ(app.getEditorCount(), 2);
+
+    app.getEditor(1)->setDirty(true);
+    ASSERT_FALSE(app.getEditor(0)->isDirty());
+    ASSERT_TRUE(app.getEditor(1)->isDirty());
+
+    // Execute handleCloseEditors: clean tab closes immediately, dirty tab prompts
+    app.handleCloseEditors({0, 1});
+
+    // Clean editor is closed, dirty editor remains and unsaved changes dialog is open
+    EXPECT_EQ(app.getEditorCount(), 1);
+    EXPECT_EQ(app.getEditor(0)->getName(), "dirty");
+    EXPECT_TRUE(app.isUnsavedChangesDialogOpen());
+    ASSERT_EQ(app.getEditorsToClose().size(), 1);
+    EXPECT_EQ(app.getEditorsToClose()[0]->getName(), "dirty");
+}
+
+TEST_F(ApplicationLifecycleTest, MultiTabClose_UnsortedIndicesHandledSafely) {
+    Application app;
+
+    fs::path file1 = dirA / "clean1.fpp";
+    fs::path file2 = dirA / "clean2.fpp";
+    fs::path file3 = dirA / "dirty.fpp";
+    app.createNewEditor("", file1, "clean1", false);
+    app.createNewEditor("", file2, "clean2", false);
+    app.createNewEditor("", file3, "dirty", false);
+    ASSERT_EQ(app.getEditorCount(), 3);
+
+    app.getEditor(2)->setDirty(true);
+
+    // Pass indices in reverse/unsorted order: {2, 0, 1}
+    app.handleCloseEditors({2, 0, 1});
+
+    EXPECT_EQ(app.getEditorCount(), 1);
+    EXPECT_EQ(app.getEditor(0)->getName(), "dirty");
+    EXPECT_TRUE(app.isUnsavedChangesDialogOpen());
+    ASSERT_EQ(app.getEditorsToClose().size(), 1);
+    EXPECT_EQ(app.getEditorsToClose()[0]->getName(), "dirty");
+}
+
+// -----------------------------------------------------------------------------
+// Fix 1.10 Tests: Native File Dialog Thread Safety in Settings & GameData Editor
+// -----------------------------------------------------------------------------
+
+TEST_F(ApplicationLifecycleTest, SettingsEditor_FolderDialogTransferAndConcurrencyGuard) {
+    SettingsEditor settingsEditor;
+
+    EXPECT_FALSE(settingsEditor.isFolderDialogRunning());
+
+    // Simulate folder dialog completion on a worker thread
+    std::string testPath = (dirA / "custom_projects").string();
+    std::thread worker([&settingsEditor, testPath]() {
+        settingsEditor.simulateFolderDialogResult("DEFAULT_PROJECT", testPath);
+    });
+    worker.join();
+
+    // Verify that the background thread updated the dialog state safely
+    EXPECT_FALSE(settingsEditor.isFolderDialogRunning());
+
+    // Simulate a frame render to consume the result safely on the main thread
+    ImGui::NewFrame();
+    settingsEditor.setOpen(true);
+    settingsEditor.draw();
+    ImGui::EndFrame();
+
+    EXPECT_EQ(settingsEditor.getDefaultProjectPathBuffer(), testPath);
+}
+
+TEST_F(ApplicationLifecycleTest, GameDataEditor_IconDialogCancellationDoesNotWipeDraft) {
+    GameDataManager manager;
+    GameDataEditor gde(manager);
+
+    EXPECT_FALSE(gde.isIconDialogRunning());
+
+    gde.setDraftResourceIconPath("preset_icon.png");
+
+    // Simulate worker thread cancelling dialog (returns empty string)
+    std::thread worker([&gde]() {
+        gde.simulateIconDialogResult("DRAFT_RESOURCE", "");
+    });
+    worker.join();
+
+    ImGui::NewFrame();
+    gde.setOpen(true);
+    gde.draw();
+    ImGui::EndFrame();
+
+    // Verify draft icon was NOT wiped by cancellation
+    EXPECT_EQ(gde.getDraftResourceIconPath(), "preset_icon.png");
+    EXPECT_FALSE(gde.isIconDialogRunning());
+}
+
+TEST_F(ApplicationLifecycleTest, GameDataEditor_IconDialogThreadSafetyConcurrent) {
+    GameDataManager manager;
+    GameDataEditor gde(manager);
+
+    // Verify multiple sequential/concurrent state updates don't crash or corrupt
+    std::vector<std::thread> threads;
+    for (int i = 0; i < 5; ++i) {
+        threads.emplace_back([&gde, i]() {
+            gde.simulateIconDialogResult("DRAFT_RESOURCE", "/path/icon_" + std::to_string(i) + ".png");
+        });
+    }
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    ImGui::NewFrame();
+    gde.setOpen(true);
+    gde.draw();
+    ImGui::EndFrame();
+
+    EXPECT_FALSE(gde.isIconDialogRunning());
+}
+
+TEST_F(ApplicationLifecycleTest, GameDataEditor_MachineIconDialogDoesNotGetConsumedByResourceTab) {
+    GameDataManager manager;
+    GameDataEditor gde(manager);
+
+    // Target a machine draft icon
+    std::thread worker([&gde]() {
+        gde.simulateIconDialogResult("DRAFT_MACHINE", "/path/test_machine.png");
+    });
+    worker.join();
+
+    // Render frame
+    ImGui::NewFrame();
+    gde.setOpen(true);
+    gde.draw();
+    ImGui::EndFrame();
+
+    // Machine draft icon should be updated, resource draft icon untouched
+    EXPECT_EQ(gde.getDraftMachineIconPath(), "/path/test_machine.png");
+    EXPECT_TRUE(gde.getDraftResourceIconPath().empty());
+}

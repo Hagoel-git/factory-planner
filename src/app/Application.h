@@ -41,6 +41,19 @@ public:
     void requestQuit();
 
     bool isQuitConfirmed() const { return m_quitConfirmed;}
+
+    void resetWindowLayout();
+    bool validateNewEditor(const std::string& name, const std::filesystem::path& location);
+    void createNewEditor(const std::filesystem::path &gameDataFilePath, const std::filesystem::path &location, const std::string &name, bool addToRecent = true);
+    void closeEditor(int index);
+    void closeEditorByName(const std::string &name);
+    void handleCloseEditors(const std::vector<int>& editorsToClose);
+    std::string getTabTitle(size_t index) const;
+    size_t getEditorCount() const { return m_editors.size(); }
+    FactoryNodeEditor* getEditor(size_t index) const { return (index < m_editors.size()) ? m_editors[index].get() : nullptr; }
+    std::vector<FactoryNodeEditor*> getEditorsToClose() const { return m_editorsToClose; }
+    bool isUnsavedChangesDialogOpen() const { return m_showUnsavedChangesDialog; }
+    bool isResetLayoutRequested() const { return m_resetLayoutRequested; }
 private:
     std::vector<std::unique_ptr<FactoryNodeEditor>> m_editors;
     std::vector<std::filesystem::path> m_closedEditorHistory;
@@ -61,7 +74,8 @@ private:
     std::vector<FactoryNodeEditor*> m_editorsToClose;
     FactoryNodeEditor* m_currentEditorToClose = nullptr;
 
-    bool m_dockInitialized = false;
+    bool m_resetLayoutRequested = false;
+    bool m_dockResetThisFrame = false;
     int m_activeEditor = -1; // No active editor initially
     int m_focusRequested = -1; // No focus request initially
 
@@ -95,9 +109,7 @@ private:
     void saveSession();
     void reopenLastClosedEditor();
 
-    bool validateNewEditor(const std::string& name, const std::filesystem::path& location);
     std::optional<GameData> loadGameDataForNewEditor(const std::filesystem::path& path);
-    void createNewEditor(const std::filesystem::path &gameDataFilePath, const std::filesystem::path &location, const std::string &name, bool addToRecent = true);
 
     bool saveActiveEditor();
     bool saveActiveEditorAs(const std::string &newFilePath, SaveAsMode mode);
@@ -117,10 +129,6 @@ private:
     void fitViewActiveEditor();
 
     void closeActiveEditor();
-
-    void closeEditor(int index);
-
-    void closeEditorByName(const std::string &name);
 
     // Utility
     std::string generateDefaultEditorName();

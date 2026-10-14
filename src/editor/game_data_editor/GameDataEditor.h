@@ -5,6 +5,9 @@
 #include "core/data/GameDataScanner.h"
 #include <string>
 #include <vector>
+#include <mutex>
+#include <atomic>
+#include <memory>
 
 enum class GameDataTab {
     General,
@@ -26,6 +29,27 @@ public:
     bool isFocused() const { return m_isFocused; }
     void save();
 
+    struct IconDialogState {
+        std::mutex mutex;
+        std::atomic<bool> isRunning{false}; // Is the dialog currently open?
+        std::atomic<bool> isReady{false};   // Did the user pick a file?
+        std::string resultPath;              // The path selected
+        std::string targetKey;               // Which resource are we editing?
+    };
+
+    bool isIconDialogRunning() const { return m_iconDialog ? m_iconDialog->isRunning.load() : false; }
+    void simulateIconDialogResult(const std::string& targetKey, const std::string& path) {
+        if (!m_iconDialog) return;
+        std::lock_guard<std::mutex> lock(m_iconDialog->mutex);
+        m_iconDialog->targetKey = targetKey;
+        m_iconDialog->resultPath = path;
+        m_iconDialog->isReady = true;
+    }
+    const std::string& getDraftResourceIconPath() const { return m_draftResource.iconPath; }
+    void setDraftResourceIconPath(const std::string& path) { m_draftResource.iconPath = path; }
+    const std::string& getDraftMachineIconPath() const { return m_draftMachine.iconPath; }
+    void setDraftMachineIconPath(const std::string& path) { m_draftMachine.iconPath = path; }
+
 private:
     GameDataManager& m_gameDataManager;
     bool m_isOpen = false;
@@ -45,12 +69,7 @@ private:
     bool m_requestNewFilePopup = false;
     bool m_requestDeletePopup = false;
 
-    struct IconDialogState {
-        std::atomic<bool> isRunning = false; // Is the dialog currently open?
-        std::atomic<bool> isReady = false;   // Did the user pick a file?
-        std::string resultPath;              // The path selected
-        std::string targetKey;               // Which resource are we editing?
-    } m_iconDialog;
+    std::shared_ptr<IconDialogState> m_iconDialog = std::make_shared<IconDialogState>();
 
     struct TokenPopupState {
         bool isOpen = false;
