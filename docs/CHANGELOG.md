@@ -48,7 +48,7 @@ This document holds the user-facing changelog that is also used in release notes
 - Fixed ImGui style color stack underflow and table imbalance in Game Data Editor's recipe grid.
 - Fixed uninitialized `ImTextureID` member variables in Resource and Machine definitions.
 - Fixed typo in Game Data Editor machine creator calling `setResourceIcon` instead of `setMachineIcon`.
-- Fixed an issue where tabs with unsaved changes could not be closed using the 'X' button or middle-click.
+- Fixed an issue where tabs with unsaved changes failed to close from tab 'X', middle mouse click, or the dock node right-corner close button due to window focus stealing dismissing the unsaved changes modal dialog immediately upon appearance.
 - Fixed context menu failing to open if the mouse moved slightly during a right-click, especially noticeable on high-DPI mice.
 - Fixed the port context menu incorrectly displaying the constraint of a previously right-clicked port instead of the current one.
 - Fixed the text input field in the port context menu failing to consistently auto-focus when opened for quick editing.

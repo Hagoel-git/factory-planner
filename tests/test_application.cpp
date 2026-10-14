@@ -520,3 +520,96 @@ TEST_F(ApplicationLifecycleTest, DebugInfo_PopulatesLastSolverStatus) {
     EXPECT_EQ(debugInfo.lastSolverStatus, "SUCCESS");
 }
 
+TEST_F(ApplicationLifecycleTest, DirtyTabClose_UnsavedChangesModalPersistsAcrossFrames) {
+    Application app;
+    fs::path fileDirty = dirA / "dirty.fpp";
+    app.createNewEditor("", fileDirty, "dirty", false);
+    ASSERT_EQ(app.getEditorCount(), 1);
+    app.getEditor(0)->setDirty(true);
+
+    // Initial render frame
+    ImGui::NewFrame();
+    app.draw();
+    ImGui::EndFrame();
+
+    // Trigger tab close for tab 0
+    app.handleCloseEditors({0});
+
+    // Frame 1 after close request: modal should open
+    ImGui::NewFrame();
+    app.draw();
+    int stackSize1 = ImGui::GetCurrentContext()->OpenPopupStack.Size;
+    ImGui::EndFrame();
+
+    // Frame 2: modal should STILL be open
+    ImGui::NewFrame();
+    app.draw();
+    int stackSize2 = ImGui::GetCurrentContext()->OpenPopupStack.Size;
+    bool isOpenAny = ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup);
+    ImGui::EndFrame();
+
+    EXPECT_EQ(stackSize1, 1);
+    EXPECT_EQ(stackSize2, 1);
+    EXPECT_TRUE(isOpenAny);
+    EXPECT_TRUE(app.isUnsavedChangesDialogOpen());
+}
+
+TEST_F(ApplicationLifecycleTest, DirtyTabClose_RequestCloseEditor_ModalPersistsAcrossFrames) {
+    Application app;
+    fs::path fileDirty = dirA / "dirty_ctrl_w.fpp";
+    app.createNewEditor("", fileDirty, "dirty_ctrl_w", false);
+    ASSERT_EQ(app.getEditorCount(), 1);
+    app.getEditor(0)->setDirty(true);
+
+    // Initial frame
+    ImGui::NewFrame();
+    app.draw();
+    ImGui::EndFrame();
+
+    // Trigger close via requestCloseEditor (equivalent to Ctrl+W / Close Active)
+    app.closeEditorByName("dirty_ctrl_w");
+
+    // Frame 1: Modal should open
+    ImGui::NewFrame();
+    app.draw();
+    EXPECT_TRUE(app.isUnsavedChangesDialogOpen());
+    ImGui::EndFrame();
+
+    // Frame 2: Modal must remain open and not be dismissed by SetNextWindowFocus
+    ImGui::NewFrame();
+    app.draw();
+    EXPECT_TRUE(app.isUnsavedChangesDialogOpen());
+    EXPECT_TRUE(ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup));
+    ImGui::EndFrame();
+}
+
+TEST_F(ApplicationLifecycleTest, DirtyTabClose_MultipleDirtyTabs_QueueAdvancesSmoothly) {
+    Application app;
+    fs::path fileDirty1 = dirA / "dirty1.fpp";
+    fs::path fileDirty2 = dirA / "dirty2.fpp";
+    app.createNewEditor("", fileDirty1, "dirty1", false);
+    app.createNewEditor("", fileDirty2, "dirty2", false);
+    ASSERT_EQ(app.getEditorCount(), 2);
+
+    app.getEditor(0)->setDirty(true);
+    app.getEditor(1)->setDirty(true);
+
+    // Trigger close for both dirty tabs (group 'X' or Close All)
+    app.handleCloseEditors({0, 1});
+    EXPECT_EQ(app.getEditorsToClose().size(), 2);
+    EXPECT_TRUE(app.isUnsavedChangesDialogOpen());
+
+    // Frame 1
+    ImGui::NewFrame();
+    app.draw();
+    EXPECT_TRUE(app.isUnsavedChangesDialogOpen());
+    EXPECT_EQ(app.getEditorsToClose().front()->getName(), "dirty1");
+    ImGui::EndFrame();
+
+    // Simulate user handling first editor (e.g. Discard or Save)
+    app.closeEditor(0);
+    // Queue should now have dirty2 as the front editor
+    ASSERT_EQ(app.getEditorCount(), 1);
+    EXPECT_EQ(app.getEditor(0)->getName(), "dirty2");
+}
+

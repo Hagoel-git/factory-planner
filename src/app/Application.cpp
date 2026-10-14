@@ -156,7 +156,7 @@ void Application::draw() {
             ImGuiCond dockCond = m_dockResetThisFrame ? ImGuiCond_Always : ImGuiCond_FirstUseEver;
             ImGui::SetNextWindowDockID(dockspace_id, dockCond);
 
-            if (m_focusRequested == i) {
+            if (m_focusRequested == i && !m_showUnsavedChangesDialog && !ImGui::IsPopupOpen("Unsaved Changes", ImGuiPopupFlags_AnyPopupId)) {
                 ImGui::SetNextWindowFocus();
             }
 
@@ -164,6 +164,9 @@ void Application::draw() {
             ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(640, 480));
             bool is_open = true;
             ImGuiWindowFlags editorWindowFlags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
+            if (editor->isDirty()) {
+                editorWindowFlags |= ImGuiWindowFlags_UnsavedDocument;
+            }
             
             std::string displayName = getTabTitle(i);
             std::string windowTitle = displayName;
@@ -222,8 +225,7 @@ void Application::draw() {
     }
 
     if (m_showUnsavedChangesDialog) {
-        ImGui::OpenPopup("Unsaved Changes");
-        m_showUnsavedChangesDialog = false; // Reset after drawing
+        ImGui::OpenPopup("Unsaved Changes", ImGuiPopupFlags_NoReopen);
     }
 
     center = ImGui::GetMainViewport()->GetCenter();
@@ -267,7 +269,9 @@ void Application::draw() {
                 }
 
                 processUnsavedChangesQueue();
-                ImGui::CloseCurrentPopup();
+                if (m_editorsToClose.empty()) {
+                    ImGui::CloseCurrentPopup();
+                }
             }
         }
 
@@ -291,7 +295,9 @@ void Application::draw() {
             }
 
             processUnsavedChangesQueue();
-            ImGui::CloseCurrentPopup();
+            if (m_editorsToClose.empty()) {
+                ImGui::CloseCurrentPopup();
+            }
         }
 
         ImGui::SameLine();
@@ -522,27 +528,9 @@ void Application::drawMenuBar() {
             }
             if (ImGui::MenuItem("Close All", nullptr, false, hasOpenProjects)) {
                 VLOG(1) << "Menu: Close All Selected.";
-                for (int i = static_cast<int>(m_editors.size()) - 1; i >= 0; --i) {
-                    if (m_editors[i] && !m_editors[i]->isDirty()) {
-                        closeEditor(i);
-                    }
-                }
-                if (!m_editors.empty()) {
-                    m_editorsToClose.clear();
-                    for (const auto& editor : m_editors) {
-                        if (editor) {
-                            m_editorsToClose.push_back(editor.get());
-                        }
-                    }
-                    if (!m_editorsToClose.empty()) {
-                        m_isQuitting = false;
-                        m_applyToAllEditors = false;
-                        m_showUnsavedChangesDialog = true;
-                        m_currentEditorToClose = m_editorsToClose.front();
-                        int idx = getEditorIndex(m_currentEditorToClose);
-                        if (idx != -1) m_focusRequested = idx;
-                    }
-                }
+                std::vector<int> allIndices(m_editors.size());
+                std::iota(allIndices.begin(), allIndices.end(), 0);
+                handleCloseEditors(allIndices);
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Game Data Manager")) {
@@ -1215,7 +1203,6 @@ void Application::requestCloseEditor(int index) {
         m_applyToAllEditors = false;
         m_showUnsavedChangesDialog = true;
         m_currentEditorToClose = editor;
-        m_focusRequested = index;
     } else {
         closeEditor(index);
     }
@@ -1237,9 +1224,6 @@ void Application::requestQuit() {
         m_applyToAllEditors = false;
         m_showUnsavedChangesDialog = true;
         m_currentEditorToClose = m_editorsToClose.front();
-        // Focus the editor so the user sees what they are saving
-        int idx = getEditorIndex(m_currentEditorToClose);
-        if (idx != -1) m_focusRequested = idx;
     }
 }
 
@@ -1259,10 +1243,6 @@ void Application::processUnsavedChangesQueue() {
         // Move to next
         m_currentEditorToClose = m_editorsToClose.front();
         m_showUnsavedChangesDialog = true;
-
-        // Focus the next one
-        int idx = getEditorIndex(m_currentEditorToClose);
-        if (idx != -1) m_focusRequested = idx;
     }
 }
 
@@ -1621,8 +1601,7 @@ void Application::handleCloseEditors(const std::vector<int>& editorsToClose) {
         m_applyToAllEditors = false;
         m_showUnsavedChangesDialog = true;
         m_currentEditorToClose = m_editorsToClose.front();
-        int idx = getEditorIndex(m_currentEditorToClose);
-        if (idx != -1) m_focusRequested = idx;
+        // Do not request window focus here: focusing a background window closes open modal popups!
     }
 }
 
