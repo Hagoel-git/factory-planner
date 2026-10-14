@@ -133,11 +133,9 @@ private:
     char m_contextPinConstraintBuf[64] = {0}; // Buffer for pin constraint input
     double m_contextPinOriginalConstraint = 0.0;
     double m_contextPinCurrentConstraint = 0.0;
-    bool m_contextPinConstraintChanged = false;
     bool m_isContextMenuInitialized = false;
 
     char m_recipeSearchBuffer[128] = "";
-    bool m_useGenerate = false;
 
     bool m_showFitViewConfirmation = false;
 

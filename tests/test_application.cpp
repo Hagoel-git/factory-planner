@@ -507,3 +507,16 @@ TEST_F(ApplicationLifecycleTest, FramePacing_IconifiedWindowSuppressesAnimationA
     wasIdle = common::FramePacer::shouldBeIdle(isIconified, app.hasActiveAnimations(), currentTime, lastActivityTime, IDLE_THRESHOLD_SECONDS);
     EXPECT_TRUE(wasIdle);
 }
+
+TEST_F(ApplicationLifecycleTest, DebugInfo_PopulatesLastSolverStatus) {
+    Application app;
+    app.createNewEditor("", dirA / "debug_info_test.fpp", "debug_info_test", false);
+    auto* editor = app.getEditor(0);
+    ASSERT_NE(editor, nullptr);
+
+    const auto& debugInfo = editor->getDebugInfo();
+    // Verify lastSolverStatus is non-empty and correctly populated from the solver
+    EXPECT_FALSE(debugInfo.lastSolverStatus.empty());
+    EXPECT_EQ(debugInfo.lastSolverStatus, "SUCCESS");
+}
+

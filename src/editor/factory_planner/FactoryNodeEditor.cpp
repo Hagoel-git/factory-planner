@@ -76,6 +76,7 @@ FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::files
         m_debugInfo.lastSolverDurationMs = result.solve_time_ms;
         m_debugInfo.lastUpdateFactoryDurationMs = result.update_factory_time_ms;
         m_debugInfo.lastSolverResult = result.status;
+        m_debugInfo.lastSolverStatus = m_solver->getLastSolverStatus();
 
         m_quadtreeNeedsRebuild = true;
         LOG(INFO) << "FactoryNodeEditor initialized successfully for project: " << projectFilePath;
@@ -449,6 +450,7 @@ void FactoryNodeEditor::undo() {
         m_debugInfo.lastSolverDurationMs = result.solve_time_ms;
         m_debugInfo.lastUpdateFactoryDurationMs = result.update_factory_time_ms;
         m_debugInfo.lastSolverResult = result.status;
+        m_debugInfo.lastSolverStatus = m_solver->getLastSolverStatus();
     }
     m_quadtreeNeedsRebuild = flags.needsRebuild;
 }
@@ -472,6 +474,7 @@ void FactoryNodeEditor::redo() {
         m_debugInfo.lastSolverDurationMs = result.solve_time_ms;
         m_debugInfo.lastUpdateFactoryDurationMs = result.update_factory_time_ms;
         m_debugInfo.lastSolverResult = result.status;
+        m_debugInfo.lastSolverStatus = m_solver->getLastSolverStatus();
     }
     m_quadtreeNeedsRebuild = flags.needsRebuild;
 }
@@ -495,6 +498,7 @@ void FactoryNodeEditor::executeCommand(std::unique_ptr<Command> command) {
         m_debugInfo.lastSolverDurationMs = result.solve_time_ms;
         m_debugInfo.lastUpdateFactoryDurationMs = result.update_factory_time_ms;
         m_debugInfo.lastSolverResult = result.status;
+        m_debugInfo.lastSolverStatus = m_solver->getLastSolverStatus();
     }
     m_quadtreeNeedsRebuild = flags.needsRebuild;
 }
@@ -1453,9 +1457,6 @@ void FactoryNodeEditor::handlePopups() {
         }
         ImGui::SetNextItemWidth(-1);
         ImGui::InputTextWithHint("##search", "Search Recipe...", m_recipeSearchBuffer, sizeof(m_recipeSearchBuffer));
-
-        // ImGui::Checkbox("Generate", &m_useGenerate);
-        // if (ImGui::IsItemHovered()) ImGui::SetTooltip("Toggle to use generate functionality");
 
         ImGui::Separator();
 

@@ -13,12 +13,6 @@
 class FactoryNodeEditor;
 enum class SaveAsMode;
 
-enum class CloseFlow {
-    Idle,
-    ClosingTab,
-    Quitting
-};
-
 struct DialogState {
     std::mutex mutex; // Protects the result string
     std::string resultPath;
@@ -61,7 +55,6 @@ private:
     GameDataManager m_gameDataManager;
     GameDataEditor m_gameDataEditor;
     SettingsEditor m_settingsEditor;
-    std::string m_gameDataManagerError;
     std::string m_currentTheme;
     bool m_currentShowGrid = false;
     int m_currentNavButtonIndex = -1;

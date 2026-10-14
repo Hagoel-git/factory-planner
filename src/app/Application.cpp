@@ -3,7 +3,6 @@
 #include <fstream>
 #include <thread>
 #include <atomic>
-#include <iostream>
 #include <set>
 
 #include <GLFW/glfw3.h>
@@ -367,7 +366,7 @@ void Application::drawDebugWindow() {
     ImGui::Text("FPS: %.2f (%.2gms)", io.Framerate, io.Framerate ? 1000.0f / io.Framerate : 0.0f);
     ImGui::Text("Number of open editors: %zu", m_editors.size());
     ImGui::Text("Active editor index: %d", m_activeEditor);
-    ImGui::Text("Copy buffer size: Nodes: %d, Ports: %d, Connections: % d", m_copyBuffer.nodes.size(), m_copyBuffer.ports.size(), m_copyBuffer.connections.size());
+    ImGui::Text("Copy buffer size: Nodes: %zu, Ports: %zu, Connections: %zu", m_copyBuffer.nodes.size(), m_copyBuffer.ports.size(), m_copyBuffer.connections.size());
 
     ImGui::SeparatorText("Editor Specific");
     if (m_activeEditor != -1 && m_activeEditor < static_cast<int>(m_editors.size()) && m_editors[m_activeEditor]) {
