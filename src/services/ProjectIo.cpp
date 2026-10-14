@@ -27,15 +27,19 @@ bool ProjectIO::saveProject(const std::string &path, const FactoryGraph &factory
             ed::SetCurrentEditor(nullptr);
 
             // Parse editor settings as JSON (with error handling)
-            try {
-                projectData["editor_settings"] = json::parse(editorSettings);
-            } catch (const json::parse_error& e) {
-                LOG(ERROR) << "Failed to parse editor settings: " << e.what();
-                // Continue without editor settings rather than failing completely
-                NotificationManager::instance().addNotification(
-                    "Warning Saving Project",
-                    "Failed to parse editor settings, saving project without them.",
-                    NotificationType::Warning);
+            if (!editorSettings.empty()) {
+                try {
+                    projectData["editor_settings"] = json::parse(editorSettings);
+                } catch (const json::parse_error& e) {
+                    LOG(ERROR) << "Failed to parse editor settings: " << e.what();
+                    // Continue without editor settings rather than failing completely
+                    NotificationManager::instance().addNotification(
+                        "Warning Saving Project",
+                        "Failed to parse editor settings, saving project without them.",
+                        NotificationType::Warning);
+                    projectData["editor_settings"] = json::object();
+                }
+            } else {
                 projectData["editor_settings"] = json::object();
             }
             VLOG(2) << "Editor settings serialized.";

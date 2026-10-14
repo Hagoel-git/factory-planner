@@ -5,6 +5,7 @@
 #include "pvigier/Quadtree.h"
 #include "core/graph/FactorySolver.h"
 #include "core/graph/FactoryGraph.h"
+#include <GLFW/glfw3.h>
 
 struct CopyBuffer;
 namespace ed = ax::NodeEditor;
@@ -80,6 +81,15 @@ public:
 
     void fitView(bool force = false);
 
+    bool hasActiveAnimations() const {
+        double now = glfwGetTime();
+        return now < m_flowAnimationUntil || now < m_navigationAnimationUntil;
+    }
+    double getFlowAnimationUntil() const { return m_flowAnimationUntil; }
+    double getNavigationAnimationUntil() const { return m_navigationAnimationUntil; }
+    void setFlowAnimationUntil(double until) { m_flowAnimationUntil = until; }
+    void setNavigationAnimationUntil(double until) { m_navigationAnimationUntil = until; }
+
     bool isFocused() const { return m_isFocused; }
 
     bool isDirty() const { return m_isDirty; }
@@ -139,6 +149,8 @@ private:
     std::string m_editorName;
     std::filesystem::path m_projectFilePath;
     uint64_t m_selectedPortId = static_cast<uint64_t>(-1);
+    double m_flowAnimationUntil = 0.0;
+    double m_navigationAnimationUntil = 0.0;
 
     // Quadtree for spatial optimization
     std::unique_ptr<quadtree::Quadtree<NodeQuadtreeData, GetNodeBox>> m_nodeQuadtree;

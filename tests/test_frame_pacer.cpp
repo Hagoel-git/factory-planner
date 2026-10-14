@@ -354,3 +354,44 @@ TEST_F(FramePacerTest, LivePaceExecutionWithSteadyClock) {
     EXPECT_LE(elapsed, 60ms);
 }
 
+TEST_F(FramePacerTest, WaylandIdlePacing_DoesNotDoubleSleepWhenTimeoutElapsed) {
+    constexpr double IDLE_POLL_TIMEOUT_SECONDS = 0.1;
+
+    // Case 1: glfwWaitEventsTimeout waited the full timeout (100ms) or slightly exceeded it
+    EXPECT_DOUBLE_EQ(common::FramePacer::calculateRemainingIdleSleep(0.1005, IDLE_POLL_TIMEOUT_SECONDS), 0.0);
+    EXPECT_DOUBLE_EQ(common::FramePacer::calculateRemainingIdleSleep(0.1000, IDLE_POLL_TIMEOUT_SECONDS), 0.0);
+
+    // Case 2: glfwWaitEventsTimeout woke up early after 20ms
+    EXPECT_NEAR(common::FramePacer::calculateRemainingIdleSleep(0.020, IDLE_POLL_TIMEOUT_SECONDS), 0.080, 1e-9);
+
+    // Case 3: Zero or negative frame elapsed (monotonic clock drift or instantaneous return)
+    EXPECT_DOUBLE_EQ(common::FramePacer::calculateRemainingIdleSleep(0.0, IDLE_POLL_TIMEOUT_SECONDS), IDLE_POLL_TIMEOUT_SECONDS);
+    EXPECT_DOUBLE_EQ(common::FramePacer::calculateRemainingIdleSleep(-0.005, IDLE_POLL_TIMEOUT_SECONDS), IDLE_POLL_TIMEOUT_SECONDS);
+
+    // Case 4: Default parameter timeout is 0.1s
+    EXPECT_NEAR(common::FramePacer::calculateRemainingIdleSleep(0.040), 0.060, 1e-9);
+    EXPECT_DOUBLE_EQ(common::FramePacer::calculateRemainingIdleSleep(0.120), 0.0);
+}
+
+TEST_F(FramePacerTest, FramePacing_ShouldBeIdle_DecisionLogic) {
+    constexpr double IDLE_THRESHOLD = 0.5;
+
+    // 1. Minimized (iconified) windows are ALWAYS idle regardless of animations or interaction
+    EXPECT_TRUE(common::FramePacer::shouldBeIdle(/*isIconified=*/true, /*hasAnimations=*/true, 10.0, 9.9, IDLE_THRESHOLD));
+    EXPECT_TRUE(common::FramePacer::shouldBeIdle(/*isIconified=*/true, /*hasAnimations=*/false, 10.0, 9.9, IDLE_THRESHOLD));
+    EXPECT_TRUE(common::FramePacer::shouldBeIdle(/*isIconified=*/true, /*hasAnimations=*/true, 10.0, 5.0, IDLE_THRESHOLD));
+
+    // 2. Active animations keep un-minimized windows awake (not idle) even after long inactivity
+    EXPECT_FALSE(common::FramePacer::shouldBeIdle(/*isIconified=*/false, /*hasAnimations=*/true, 100.0, 10.0, IDLE_THRESHOLD));
+    EXPECT_FALSE(common::FramePacer::shouldBeIdle(/*isIconified=*/false, /*hasAnimations=*/true, 100.0, 100.0, IDLE_THRESHOLD));
+
+    // 3. Un-minimized windows without animations depend strictly on user inactivity threshold
+    // Recent interaction (delta <= 0.5s) -> keeps awake (not idle)
+    EXPECT_FALSE(common::FramePacer::shouldBeIdle(/*isIconified=*/false, /*hasAnimations=*/false, 10.4, 10.0, IDLE_THRESHOLD));
+    EXPECT_FALSE(common::FramePacer::shouldBeIdle(/*isIconified=*/false, /*hasAnimations=*/false, 10.5, 10.0, IDLE_THRESHOLD));
+
+    // Inactivity exceeded threshold (delta > 0.5s) -> transitions immediately to idle
+    EXPECT_TRUE(common::FramePacer::shouldBeIdle(/*isIconified=*/false, /*hasAnimations=*/false, 10.51, 10.0, IDLE_THRESHOLD));
+    EXPECT_TRUE(common::FramePacer::shouldBeIdle(/*isIconified=*/false, /*hasAnimations=*/false, 20.0, 10.0, IDLE_THRESHOLD));
+}
+

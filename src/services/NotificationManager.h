@@ -34,6 +34,10 @@ public:
 
     void draw();
 
+    bool hasActiveNotifications() const { return !m_notifications.empty(); }
+    void clearNotifications() { m_notifications.clear(); }
+    const std::vector<Notification>& getNotifications() const { return m_notifications; }
+
 private:
     NotificationManager() = default;
     ~NotificationManager() = default;

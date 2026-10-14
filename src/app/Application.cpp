@@ -1711,3 +1711,15 @@ std::string Application::generateDefaultEditorName() {
 
     return prefix + std::to_string(nextNumber);
 }
+
+bool Application::hasActiveAnimations() const {
+    if (NotificationManager::instance().hasActiveNotifications()) {
+        return true;
+    }
+    for (const auto& editor : m_editors) {
+        if (editor && editor->hasActiveAnimations()) {
+            return true;
+        }
+    }
+    return false;
+}
