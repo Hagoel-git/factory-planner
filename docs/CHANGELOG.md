@@ -21,6 +21,10 @@ This document holds the user-facing changelog that is also used in release notes
 - Disambiguated open tabs sharing the same project name by appending their parent folder name in the tab header (e.g. `Project (dirA)`).
 
 ### Fixed
+- Fixed frame rate throttling to 10 FPS (or 5 FPS on Wayland) during flow animations ("Z"), fit view navigation ("F"), and toast notification fades by tracking active animation timers and maintaining 60 FPS until animations complete.
+- Fixed double-sleep frame pacing bug on Linux Wayland where `glfwWaitEventsTimeout(0.1)` and `std::this_thread::sleep_for(0.1s)` compounded to throttle idle frame rates down to 5 FPS.
+- Improved idle power saving by immediately sleeping minimized (`GLFW_ICONIFIED`) windows and dropping back to idle mode the instant animations conclude.
+- Fixed spurious "Warning Saving Project: Failed to parse editor settings" notification when saving newly created project files before their initial render frame.
 - Fixed duplicate project name validation blocking opening or creating identically named project files located in different directories by comparing canonical filesystem paths.
 - Fixed window ID collisions in Dear ImGui for tabs sharing identical project names by unique path-based window ID hashing.
 - Fixed closing dock window groups ('X' button on docked tab group) only closing a single tab instead of all docked tabs in that window.

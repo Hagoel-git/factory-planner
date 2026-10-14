@@ -224,8 +224,10 @@ int main(int argc, char **argv) {
                 if (app.isQuitConfirmed()) break;
             }
 
+            bool isIconified = (glfwGetWindowAttrib(window, GLFW_ICONIFIED) != 0);
             double currentTime = glfwGetTime();
-            bool wasIdle = (currentTime - lastActivityTime) > IDLE_THRESHOLD_SECONDS;
+            bool hasAnimations = !isIconified && app.hasActiveAnimations();
+            bool wasIdle = common::FramePacer::shouldBeIdle(isIconified, hasAnimations, currentTime, lastActivityTime, IDLE_THRESHOLD_SECONDS);
             bool isIdle = wasIdle;
 
             if (!isIdle) {
@@ -240,8 +242,16 @@ int main(int argc, char **argv) {
             ImGui::NewFrame();
 
             // Update Idle Status if interaction detected
-            if (checkUserInteraction()) {
+            if (!isIconified && checkUserInteraction()) {
                 lastActivityTime = glfwGetTime();
+                isIdle = false;
+            }
+
+            // Draw the application
+            app.draw();
+
+            // Keep awake if animations are running (flow animation, fit view, toast notifications)
+            if (!isIconified && app.hasActiveAnimations()) {
                 isIdle = false;
             }
 
@@ -251,9 +261,6 @@ int main(int argc, char **argv) {
                 framePacer.reset();
             }
 #endif
-
-            // Draw the application
-            app.draw();
 
             // Rendering
             ImGui::Render();
@@ -270,7 +277,11 @@ int main(int argc, char **argv) {
                 if (!isIdle) {
                     framePacer.pace();
                 } else {
-                    std::this_thread::sleep_for(std::chrono::duration<double>(IDLE_POLL_TIMEOUT_SECONDS));
+                    double frameElapsed = glfwGetTime() - currentTime;
+                    double remainingSleep = common::FramePacer::calculateRemainingIdleSleep(frameElapsed, IDLE_POLL_TIMEOUT_SECONDS);
+                    if (remainingSleep > 0.0) {
+                        std::this_thread::sleep_for(std::chrono::duration<double>(remainingSleep));
+                    }
                     framePacer.reset();
                 }
             }

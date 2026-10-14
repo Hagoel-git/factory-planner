@@ -54,6 +54,7 @@ public:
     std::vector<FactoryNodeEditor*> getEditorsToClose() const { return m_editorsToClose; }
     bool isUnsavedChangesDialogOpen() const { return m_showUnsavedChangesDialog; }
     bool isResetLayoutRequested() const { return m_resetLayoutRequested; }
+    bool hasActiveAnimations() const;
 private:
     std::vector<std::unique_ptr<FactoryNodeEditor>> m_editors;
     std::vector<std::filesystem::path> m_closedEditorHistory;

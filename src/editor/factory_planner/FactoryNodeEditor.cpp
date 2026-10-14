@@ -366,6 +366,8 @@ void FactoryNodeEditor::selectAll() {
 }
 
 void FactoryNodeEditor::showFlow() {
+    ed::SetCurrentEditor(m_context);
+    m_flowAnimationUntil = glfwGetTime() + static_cast<double>(ed::GetStyle().FlowDuration);
     for (const auto& connection : m_graph->getConnections()) {
         ed::Flow(IdUtils::toLinkId(connection.id)); // Show flow for all connections
     }
@@ -378,6 +380,9 @@ void FactoryNodeEditor::fitView(bool force) {
         m_showFitViewConfirmation = true;
         return;
     }
+
+    ed::SetCurrentEditor(m_context);
+    m_navigationAnimationUntil = glfwGetTime() + static_cast<double>(ed::GetStyle().ScrollDuration);
 
     if (!allNodes.empty()) {
         ImRect contentBounds;

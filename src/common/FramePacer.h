@@ -85,6 +85,43 @@ public:
         });
     }
 
+    /**
+     * @brief Determines whether the application should enter or remain in power-saving idle mode.
+     *
+     * @param isIconified True if window is minimized.
+     * @param hasAnimations True if animations/notifications are actively running.
+     * @param currentTime Current timestamp in seconds.
+     * @param lastActivityTime Last user interaction timestamp in seconds.
+     * @param idleThreshold Seconds of inactivity before transitioning to idle (default: 0.5s).
+     * @return True if application is idle, false if active rendering is needed.
+     */
+    static bool shouldBeIdle(bool isIconified, bool hasAnimations,
+                             double currentTime, double lastActivityTime,
+                             double idleThreshold = 0.5) {
+        if (isIconified) {
+            return true;
+        }
+        if (hasAnimations) {
+            return false;
+        }
+        return (currentTime - lastActivityTime) > idleThreshold;
+    }
+
+    /**
+     * @brief Calculates remaining sleep duration for an idle frame given the elapsed time
+     * and idle poll timeout, preventing double-sleep while ensuring the idle rate doesn't exceed 10 FPS.
+     *
+     * @param frameElapsed Seconds elapsed during event waiting and rendering in the current idle frame.
+     * @param idleTimeout Target idle frame duration / wait timeout in seconds (default: 0.1s / 10 FPS).
+     * @return Remaining seconds to sleep (0.0 if already elapsed >= idleTimeout).
+     */
+    static double calculateRemainingIdleSleep(double frameElapsed, double idleTimeout = 0.1) {
+        if (frameElapsed < idleTimeout) {
+            return (frameElapsed > 0.0) ? (idleTimeout - frameElapsed) : idleTimeout;
+        }
+        return 0.0;
+    }
+
 private:
     static std::chrono::steady_clock::duration calculateDuration(double fps) {
         return std::chrono::duration_cast<std::chrono::steady_clock::duration>(

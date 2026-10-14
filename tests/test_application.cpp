@@ -6,8 +6,11 @@
 #include "core/data/GameDataManager.h"
 #include "services/SettingsManager.h"
 #include "common/FilesystemUtils.h"
+#include "common/FramePacer.h"
 #include <imgui.h>
 #include <imgui_internal.h>
+#include "services/NotificationManager.h"
+#include <GLFW/glfw3.h>
 #include <filesystem>
 #include <fstream>
 #include <thread>
@@ -21,6 +24,17 @@ protected:
     fs::path dirA;
     fs::path dirB;
     ImGuiContext* m_imguiContext = nullptr;
+
+    static void SetUpTestSuite() {
+#if defined(GLFW_PLATFORM) && defined(GLFW_PLATFORM_NULL)
+        glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_NULL);
+#endif
+        glfwInit();
+    }
+
+    static void TearDownTestSuite() {
+        glfwTerminate();
+    }
 
     void SetUp() override {
         // Setup temporary directory structure
@@ -44,9 +58,12 @@ protected:
         AppSettings s = SettingsManager::instance().getSettings();
         s.restorePreviousSession = false;
         SettingsManager::instance().setSettings(s);
+
+        NotificationManager::instance().clearNotifications();
     }
 
     void TearDown() override {
+        NotificationManager::instance().clearNotifications();
         if (m_imguiContext) {
             ImGui::DestroyContext(m_imguiContext);
             m_imguiContext = nullptr;
@@ -352,4 +369,141 @@ TEST_F(ApplicationLifecycleTest, GameDataEditor_MachineIconDialogDoesNotGetConsu
     // Machine draft icon should be updated, resource draft icon untouched
     EXPECT_EQ(gde.getDraftMachineIconPath(), "/path/test_machine.png");
     EXPECT_TRUE(gde.getDraftResourceIconPath().empty());
+}
+
+// -----------------------------------------------------------------------------
+// User Issue 2 Tests: Frame Pacing & Animation Polish (Batch 4)
+// -----------------------------------------------------------------------------
+
+TEST_F(ApplicationLifecycleTest, NotificationManager_HasActiveNotifications) {
+    NotificationManager& nm = NotificationManager::instance();
+    nm.clearNotifications();
+    EXPECT_FALSE(nm.hasActiveNotifications());
+
+    nm.addNotification("Test Title", "Test Message", NotificationType::Info, 5.0f);
+    EXPECT_TRUE(nm.hasActiveNotifications());
+
+    nm.clearNotifications();
+    EXPECT_FALSE(nm.hasActiveNotifications());
+}
+
+TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_HasActiveAnimations_FlowAndNavigation) {
+    GameData gameData;
+    fs::path testFile = dirA / "anim_test.fpp";
+    FactoryNodeEditor editor(gameData, testFile, "anim_test");
+
+    // Initially no animations
+    EXPECT_FALSE(editor.hasActiveAnimations());
+
+    // showFlow() activates flow animation
+    editor.showFlow();
+    EXPECT_TRUE(editor.hasActiveAnimations());
+    EXPECT_GT(editor.getFlowAnimationUntil(), glfwGetTime());
+
+    // Clear flow animation deadline
+    editor.setFlowAnimationUntil(glfwGetTime() - 1.0);
+    EXPECT_FALSE(editor.hasActiveAnimations());
+
+    // fitView() activates navigation animation
+    editor.fitView();
+    EXPECT_TRUE(editor.hasActiveAnimations());
+    EXPECT_GT(editor.getNavigationAnimationUntil(), glfwGetTime());
+
+    // Expiring navigation animation returns false
+    editor.setNavigationAnimationUntil(glfwGetTime() - 1.0);
+    EXPECT_FALSE(editor.hasActiveAnimations());
+
+    // Both timers can be evaluated independently
+    editor.setFlowAnimationUntil(glfwGetTime() + 10.0);
+    editor.setNavigationAnimationUntil(glfwGetTime() - 1.0);
+    EXPECT_TRUE(editor.hasActiveAnimations());
+
+    editor.setFlowAnimationUntil(glfwGetTime() - 1.0);
+    editor.setNavigationAnimationUntil(glfwGetTime() + 10.0);
+    EXPECT_TRUE(editor.hasActiveAnimations());
+
+    editor.setNavigationAnimationUntil(glfwGetTime() - 1.0);
+    EXPECT_FALSE(editor.hasActiveAnimations());
+}
+
+TEST_F(ApplicationLifecycleTest, Application_HasActiveAnimations_AggregatesNotificationsAndEditors) {
+    Application app;
+    NotificationManager& nm = NotificationManager::instance();
+    nm.clearNotifications();
+
+    // No notifications and no editors -> false
+    EXPECT_FALSE(app.hasActiveAnimations());
+
+    // Notification active -> true
+    nm.addNotification("Saved", "Project saved", NotificationType::Success);
+    EXPECT_TRUE(app.hasActiveAnimations());
+
+    // Notification cleared -> false
+    nm.clearNotifications();
+    EXPECT_FALSE(app.hasActiveAnimations());
+
+    // Create an editor (which automatically saves and posts a "Project Saved" notification)
+    fs::path fileA = dirA / "project_a.fpp";
+    app.createNewEditor("", fileA, "project_a", false);
+    ASSERT_EQ(app.getEditorCount(), 1);
+    EXPECT_TRUE(app.hasActiveAnimations()); // Active due to save toast
+    nm.clearNotifications();
+    EXPECT_FALSE(app.hasActiveAnimations());
+
+    // Start animation on editor 0
+    auto* editor0 = app.getEditor(0);
+    ASSERT_NE(editor0, nullptr);
+    editor0->showFlow();
+    EXPECT_TRUE(app.hasActiveAnimations());
+
+    // Expire editor 0 animation -> false
+    editor0->setFlowAnimationUntil(glfwGetTime() - 1.0);
+    EXPECT_FALSE(app.hasActiveAnimations());
+
+    // Create second editor
+    fs::path fileB = dirB / "project_b.fpp";
+    app.createNewEditor("", fileB, "project_b", false);
+    ASSERT_EQ(app.getEditorCount(), 2);
+    EXPECT_TRUE(app.hasActiveAnimations()); // Active due to save toast on project_b
+    nm.clearNotifications();
+    EXPECT_FALSE(app.hasActiveAnimations());
+
+    auto* editor1 = app.getEditor(1);
+    ASSERT_NE(editor1, nullptr);
+    editor1->fitView();
+    EXPECT_TRUE(app.hasActiveAnimations());
+
+    // Both editors active simultaneously
+    editor0->setFlowAnimationUntil(glfwGetTime() + 10.0);
+    EXPECT_TRUE(app.hasActiveAnimations());
+
+    // Editor 1 expires, but Editor 0 still active -> true
+    editor1->setNavigationAnimationUntil(glfwGetTime() - 1.0);
+    EXPECT_TRUE(app.hasActiveAnimations());
+
+    // Editor 0 expires -> false
+    editor0->setFlowAnimationUntil(glfwGetTime() - 1.0);
+    EXPECT_FALSE(app.hasActiveAnimations());
+}
+
+TEST_F(ApplicationLifecycleTest, FramePacing_IconifiedWindowSuppressesAnimationAwakeState) {
+    Application app;
+    NotificationManager& nm = NotificationManager::instance();
+    nm.clearNotifications();
+    nm.addNotification("Alert", "Something happened", NotificationType::Warning);
+    ASSERT_TRUE(app.hasActiveAnimations());
+
+    constexpr double IDLE_THRESHOLD_SECONDS = 0.5;
+    double currentTime = 100.0;
+    double lastActivityTime = 90.0; // 10s ago
+
+    // Normal un-minimized window: animation keeps awake (not idle)
+    bool isIconified = false;
+    bool wasIdle = common::FramePacer::shouldBeIdle(isIconified, app.hasActiveAnimations(), currentTime, lastActivityTime, IDLE_THRESHOLD_SECONDS);
+    EXPECT_FALSE(wasIdle);
+
+    // Minimized (iconified) window: animation does NOT keep awake (forced idle)
+    isIconified = true;
+    wasIdle = common::FramePacer::shouldBeIdle(isIconified, app.hasActiveAnimations(), currentTime, lastActivityTime, IDLE_THRESHOLD_SECONDS);
+    EXPECT_TRUE(wasIdle);
 }
