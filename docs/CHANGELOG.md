@@ -21,6 +21,9 @@ This document holds the user-facing changelog that is also used in release notes
 - Disambiguated open tabs sharing the same project name by appending their parent folder name in the tab header (e.g. `Project (dirA)`).
 
 ### Fixed
+- Fixed layout distortion and misaligned chip wrapping in Game Data Editor recipe inputs/outputs when recipes have empty/blank ports.
+- Fixed Debug Window displaying a blank "Last solver status:" and fixed 64-bit `printf` format specifier mismatch for copy buffer size.
+- Pruned dead state, unused member variables, and dangling `<iostream>` headers across the codebase.
 - Fixed frame rate throttling to 10 FPS (or 5 FPS on Wayland) during flow animations ("Z"), fit view navigation ("F"), and toast notification fades by tracking active animation timers and maintaining 60 FPS until animations complete.
 - Fixed double-sleep frame pacing bug on Linux Wayland where `glfwWaitEventsTimeout(0.1)` and `std::this_thread::sleep_for(0.1s)` compounded to throttle idle frame rates down to 5 FPS.
 - Improved idle power saving by immediately sleeping minimized (`GLFW_ICONIFIED`) windows and dropping back to idle mode the instant animations conclude.

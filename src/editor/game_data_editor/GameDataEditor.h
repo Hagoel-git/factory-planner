@@ -72,9 +72,7 @@ private:
     std::shared_ptr<IconDialogState> m_iconDialog = std::make_shared<IconDialogState>();
 
     struct TokenPopupState {
-        bool isOpen = false;
         std::vector<RecipePort>* targetVector = nullptr;
-        bool isInput = false;
         char searchBuf[128] = "";
     } m_tokenPopupState;
 
@@ -104,7 +102,7 @@ private:
     void drawDeleteFileConfirmation();
     void drawPackageBrowser();
     void drawEditorWorkspace();
-    bool drawTokenList(const char* str_id, std::vector<RecipePort>& ports, bool isInput);
+    bool drawTokenList(const char* str_id, std::vector<RecipePort>& ports);
     bool drawMachineList(const char* str_id, std::vector<std::string>& machineKeys);
 
     void drawTopMenuBar();

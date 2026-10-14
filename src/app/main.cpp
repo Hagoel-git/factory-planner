@@ -181,10 +181,6 @@ int main(int argc, char **argv) {
         LOG(FATAL) << "Failed to initialize Native File Dialog";
         return 1;
     }
-    // Prepare args (zero-init)
-    nfdopendialogu8args_t args = {nullptr};
-    // parentWindow will be filled by this helper
-    NFD_GetNativeWindowFromGLFWWindow(window, &args.parentWindow);
 
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();

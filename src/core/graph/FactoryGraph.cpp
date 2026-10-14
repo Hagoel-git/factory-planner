@@ -1,7 +1,6 @@
 #include "FactoryGraph.h"
 #include "core/data/GameDataManager.h"
 
-#include <iostream>
 #include <unordered_set>
 #include <utility>
 #include <cstdint>
@@ -567,14 +566,6 @@ bool FactoryGraph::setNodeRecipe(uint64_t node_id, const std::string& recipe_key
     }
 
     VLOG(3) << "Set recipe '" << recipe_key << "' for node ID: " << node_id;
-
-    // if (recipe.input_ports.size() == 1 && recipe.input_ports.at(0).resource_key == "nothing") {
-    //     //node->type = NodeType::PRODUCER;
-    // } else if (recipe.output_ports.size() == 1 && recipe.output_ports.at(0).resource_key == "nothing") {
-    //     //node->type = NodeType::CONSUMER;
-    // } else {
-    //     //node->type = NodeType::PROCESSOR;
-    // }
     return true;
 }
 

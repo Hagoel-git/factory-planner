@@ -3,7 +3,6 @@
 #include "imgui_internal.h"
 #include "services/NotificationManager.h"
 #include "services/SettingsManager.h"
-#include <iostream>
 #include <map>
 #include <set>
 #include <cstring>
@@ -1173,14 +1172,14 @@ void GameDataEditor::drawRecipeCreator() {
     ImGui::TextDisabled("Inputs:   ");
     ImGui::SameLine();
 
-    drawTokenList("##draft_inputs", m_draftRecipe.inputs, true);
+    drawTokenList("##draft_inputs", m_draftRecipe.inputs);
 
     ImGui::Spacing();
     ImGui::AlignTextToFramePadding();
     ImGui::TextDisabled("Outputs:  ");
     ImGui::SameLine();
 
-    drawTokenList("##draft_outputs", m_draftRecipe.outputs, true);
+    drawTokenList("##draft_outputs", m_draftRecipe.outputs);
 
     ImGui::Spacing();
     ImGui::AlignTextToFramePadding();
@@ -1259,7 +1258,7 @@ void GameDataEditor::drawRecipeGrid() {
 
             // Column 3: Inputs
             ImGui::TableNextColumn();
-            if (drawTokenList("##in", item->input_ports, true)) {
+            if (drawTokenList("##in", item->input_ports)) {
                 std::string err;
                 Recipe temp = *item;
                 if (m_gameDataManager.editRecipe(key, temp, err)) {
@@ -1269,7 +1268,7 @@ void GameDataEditor::drawRecipeGrid() {
 
             // Column 4: Outputs
             ImGui::TableNextColumn();
-            if (drawTokenList("##out", item->output_ports, false)) {
+            if (drawTokenList("##out", item->output_ports)) {
                 std::string err;
                 Recipe temp = *item;
                 if (m_gameDataManager.editRecipe(key, temp, err)) {
@@ -1330,7 +1329,7 @@ void GameDataEditor::drawRecipeGrid() {
     }
 }
 
-bool GameDataEditor::drawTokenList(const char* str_id, std::vector<RecipePort>& ports, bool isInput) {
+bool GameDataEditor::drawTokenList(const char* str_id, std::vector<RecipePort>& ports) {
     bool changed = false;
     ImGui::PushID(str_id);
 
@@ -1353,6 +1352,8 @@ bool GameDataEditor::drawTokenList(const char* str_id, std::vector<RecipePort>& 
         chipBgColor = ImVec4(0.8f, 0.85f, 0.9f, 1.0f);
         chipHoverColor = ImVec4(0.7f, 0.75f, 0.85f, 1.0f);
     }
+
+    bool drewAnyChip = false;
 
     for (int i = 0; i < ports.size(); ++i) {
         ImGui::PushID(i);
@@ -1380,7 +1381,7 @@ bool GameDataEditor::drawTokenList(const char* str_id, std::vector<RecipePort>& 
         float xBtnWidth = ImGui::GetFrameHeight();
         float totalChipWidth = bodyWidth + xBtnWidth;
 
-        if (i > 0) {
+        if (drewAnyChip) {
             float lastItemEndScreenX = ImGui::GetItemRectMax().x;
             float nextItemEndScreenX = lastItemEndScreenX + style.ItemSpacing.x + totalChipWidth;
 
@@ -1540,6 +1541,8 @@ bool GameDataEditor::drawTokenList(const char* str_id, std::vector<RecipePort>& 
             ImGui::EndPopup();
         }
 
+        drewAnyChip = true;
+
         ImGui::PopID();
     }
 
@@ -1547,7 +1550,7 @@ bool GameDataEditor::drawTokenList(const char* str_id, std::vector<RecipePort>& 
     float addBtnWidth = 24.0f;
     float frameHeight = ImGui::GetFrameHeight();
 
-    if (!ports.empty() && (lastItemEndScreenX + style.ItemSpacing.x + addBtnWidth < limitScreenX)) {
+    if (drewAnyChip && (lastItemEndScreenX + style.ItemSpacing.x + addBtnWidth < limitScreenX)) {
         ImGui::SameLine();
     }
 
@@ -1576,7 +1579,6 @@ bool GameDataEditor::drawTokenList(const char* str_id, std::vector<RecipePort>& 
                 const std::string& key = firstPair.first;
                 if (m_tokenPopupState.targetVector) {
                     m_tokenPopupState.targetVector->push_back({1.0, key});
-                    m_tokenPopupState.isInput = isInput;
                     changed = true;
                 }
                 ImGui::CloseCurrentPopup();
@@ -1593,7 +1595,6 @@ bool GameDataEditor::drawTokenList(const char* str_id, std::vector<RecipePort>& 
                 if (ImGui::Selectable(std::string("##" + key).c_str(), is_selected, ImGuiSelectableFlags_None)) {
                     if (m_tokenPopupState.targetVector) {
                         m_tokenPopupState.targetVector->push_back({1.0, key});
-                        m_tokenPopupState.isInput = isInput;
                         changed = true;
                     }
                     ImGui::CloseCurrentPopup();
@@ -1641,6 +1642,8 @@ bool GameDataEditor::drawMachineList(const char* str_id, std::vector<std::string
         chipHoverColor = ImVec4(0.7f, 0.75f, 0.85f, 1.0f);
     }
 
+    bool drewAnyChip = false;
+
     for (int i = 0; i < machineKeys.size(); ++i) {
         ImGui::PushID(i);
 
@@ -1664,7 +1667,7 @@ bool GameDataEditor::drawMachineList(const char* str_id, std::vector<std::string
         float xBtnWidth = ImGui::GetFrameHeight();
         float totalChipWidth = bodyWidth + xBtnWidth;
 
-        if (i > 0) {
+        if (drewAnyChip) {
             float lastItemEndScreenX = ImGui::GetItemRectMax().x;
             float nextItemEndScreenX = lastItemEndScreenX + style.ItemSpacing.x + totalChipWidth;
             if (nextItemEndScreenX < limitScreenX) {
@@ -1747,6 +1750,8 @@ bool GameDataEditor::drawMachineList(const char* str_id, std::vector<std::string
         float xTextY = cursorPos.y + (frameHeight - xTextSize.y) * 0.5f;
         drawList->AddText(ImVec2(xTextX, xTextY), ImGui::GetColorU32(ImGuiCol_Text), "x");
 
+        drewAnyChip = true;
+
         if (clickedX) {
             machineKeys.erase(machineKeys.begin() + i);
             changed = true;
@@ -1761,7 +1766,7 @@ bool GameDataEditor::drawMachineList(const char* str_id, std::vector<std::string
     float addBtnWidth = 24.0f;
     float frameHeight = ImGui::GetFrameHeight();
 
-    if (!machineKeys.empty() && (lastItemEndScreenX + style.ItemSpacing.x + addBtnWidth < limitScreenX)) {
+    if (drewAnyChip && (lastItemEndScreenX + style.ItemSpacing.x + addBtnWidth < limitScreenX)) {
         ImGui::SameLine();
     }
 

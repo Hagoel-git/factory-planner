@@ -16,7 +16,6 @@ struct Port {
     uint64_t id = 0;
     uint64_t node_id = 0;
     std::string resource_key; // ID of the resource associated with this port
-    //bool isInput;
 
     Port() = default;
 

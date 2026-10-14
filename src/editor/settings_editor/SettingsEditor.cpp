@@ -4,7 +4,6 @@
 #include "nfd.h"
 
 #include <cstring>
-#include <iostream>
 #include <thread>
 
 void SettingsEditor::draw() {
