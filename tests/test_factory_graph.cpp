@@ -1368,8 +1368,10 @@ TEST_F(FactoryGraphTest, ProjectIOSaveHeadlessDoesNotCrash) {
     EXPECT_NO_THROW(ifs >> j);
     EXPECT_TRUE(j.contains("graph_data"));
     EXPECT_TRUE(j.contains("editor_settings"));
+    ifs.close();
 
-    std::filesystem::remove(tempProject);
+    std::error_code ec;
+    std::filesystem::remove(tempProject, ec);
 }
 
 TEST_F(FactoryGraphTest, ProjectIOLoadProjectErrorHandling) {
@@ -1509,10 +1511,13 @@ TEST_F(FactoryGraphTest, ProjectIOLoadProject_Supports64BitNodeIds) {
     AppSettings testSettings = origSettings;
     std::filesystem::path execDir = getExecutableDirectory().value_or(std::filesystem::current_path());
     for (const auto& candidate : {
+             std::filesystem::current_path() / "bin" / "game_data",
              std::filesystem::current_path() / "build" / "bin" / "game_data",
              std::filesystem::current_path() / "data" / "game_data",
+             std::filesystem::current_path().parent_path() / "data" / "game_data",
              execDir / "game_data",
-             execDir.parent_path() / "bin" / "game_data"
+             execDir.parent_path() / "bin" / "game_data",
+             execDir.parent_path().parent_path() / "bin" / "game_data"
          }) {
         if (!candidate.empty() && std::filesystem::exists(candidate)) {
             testSettings.gameDataPath = candidate;
@@ -1568,7 +1573,8 @@ TEST_F(FactoryGraphTest, ProjectIOLoadProject_Supports64BitNodeIds) {
         EXPECT_FLOAT_EQ(pos.y, 456.0f);
     }
 
-    std::filesystem::remove(tempProject);
+    std::error_code ec;
+    std::filesystem::remove(tempProject, ec);
     SettingsManager::instance().setSettings(origSettings);
     ax::NodeEditor::SetCurrentEditor(nullptr);
     ax::NodeEditor::DestroyEditor(edCtx);
