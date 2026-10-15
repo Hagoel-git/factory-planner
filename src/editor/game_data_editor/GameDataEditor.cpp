@@ -200,6 +200,7 @@ void GameDataEditor::drawNewFileDialog() {
         }
 
         if (createRequested) {
+            errorMessage.clear();
             std::string gameNameStr(gameNameBuffer);
             std::string filenameStr(fileNameBuffer);
             gameNameStr = slugify(gameNameStr);
@@ -246,17 +247,21 @@ void GameDataEditor::drawNewFileDialog() {
                     }
                 }
             }
+            if (!errorMessage.empty()) {
+                NotificationManager::instance().addNotification("Error", errorMessage, NotificationType::Error);
+            }
         }
 
         ImGui::SameLine();
 
         if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+            errorMessage.clear();
             ImGui::CloseCurrentPopup();
         }
 
         if (!errorMessage.empty()) {
             ImGui::Spacing();
-            NotificationManager::instance().addNotification("Error", errorMessage, NotificationType::Error);
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", errorMessage.c_str());
         }
 
         ImGui::EndPopup();

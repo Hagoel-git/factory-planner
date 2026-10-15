@@ -249,29 +249,9 @@ void Application::draw() {
         }
 
         if (ImGui::Button("Save", ImVec2(120, 0))) {
-            bool saveSuccess = m_currentEditorToClose && m_currentEditorToClose->save();
-
-            if (saveSuccess) {
-                if (!m_isQuitting) {
-                    int idx = getEditorIndex(m_currentEditorToClose);
-                    if (idx != -1) closeEditor(idx);
-                }
-                if (m_applyToAllEditors) {
-                    for (auto* otherEditor : m_editorsToClose) {
-                        if (otherEditor == m_currentEditorToClose) continue; // Skip the one we just handled
-                        auto* ed = otherEditor;
-                        if (ed->save() && !m_isQuitting) {
-                            int edIdx = getEditorIndex(ed);
-                            if (edIdx != -1) closeEditor(edIdx);
-                        }
-                    }
-                    m_editorsToClose.clear(); // All handled
-                }
-
-                processUnsavedChangesQueue();
-                if (m_editorsToClose.empty()) {
-                    ImGui::CloseCurrentPopup();
-                }
+            handleUnsavedChangesSave();
+            if (m_editorsToClose.empty() || !m_showUnsavedChangesDialog) {
+                ImGui::CloseCurrentPopup();
             }
         }
 
@@ -590,11 +570,6 @@ void Application::drawMenuBar() {
             if (ImGui::MenuItem("Fit View", "F", false, hasOpenProjects)) {
                 VLOG(1) << "Menu: Fit View selected.";
                 fitViewActiveEditor();
-            }
-            ImGui::Separator();
-            if (ImGui::MenuItem("Reset Window Layout")) {
-                VLOG(1) << "Menu: Reset Window Layout selected.";
-                resetWindowLayout();
             }
             ImGui::EndMenu();
         }
@@ -1227,6 +1202,54 @@ void Application::requestQuit() {
     }
 }
 
+void Application::handleUnsavedChangesSave() {
+    if (m_currentEditorToClose && m_currentEditorToClose->getProjectFilePath().empty()) {
+        int idx = getEditorIndex(m_currentEditorToClose);
+        if (idx != -1) {
+            m_activeEditor = idx;
+            m_focusRequested = idx;
+        }
+        m_showSaveDialog = true;
+        m_showUnsavedChangesDialog = false;
+        m_editorsToClose.clear();
+        m_isQuitting = false;
+        m_currentEditorToClose = nullptr;
+    } else {
+        bool saveSuccess = m_currentEditorToClose && m_currentEditorToClose->save();
+
+        if (saveSuccess) {
+            if (!m_isQuitting) {
+                int idx = getEditorIndex(m_currentEditorToClose);
+                if (idx != -1) closeEditor(idx);
+            }
+            if (m_applyToAllEditors) {
+                std::vector<FactoryNodeEditor*> failedEditors;
+                for (auto* otherEditor : m_editorsToClose) {
+                    if (otherEditor == m_currentEditorToClose) continue;
+                    if (!otherEditor->getProjectFilePath().empty() && otherEditor->save()) {
+                        if (!m_isQuitting) {
+                            int edIdx = getEditorIndex(otherEditor);
+                            if (edIdx != -1) closeEditor(edIdx);
+                        }
+                    } else {
+                        failedEditors.push_back(otherEditor);
+                    }
+                }
+                if (!failedEditors.empty()) {
+                    m_isQuitting = false;
+                    m_applyToAllEditors = false;
+                }
+                m_editorsToClose = std::move(failedEditors);
+            }
+
+            processUnsavedChangesQueue();
+        } else {
+            m_isQuitting = false;
+            m_applyToAllEditors = false;
+        }
+    }
+}
+
 void Application::processUnsavedChangesQueue() {
     if (!m_editorsToClose.empty() && m_editorsToClose.front() == m_currentEditorToClose) {
         m_editorsToClose.erase(m_editorsToClose.begin());
@@ -1364,6 +1387,9 @@ void Application::createNewEditor(const std::filesystem::path &gameDataFilePath,
     LOG(INFO) << "Creating new editor '" << name << "'";
 
     auto newEditor = std::make_unique<FactoryNodeEditor>(std::move(*gameData), location, name);
+    if (!newEditor->isLoadedSuccessfully()) {
+        return;
+    }
 
     if (!std::filesystem::exists(location) && location.has_filename()) {
         newEditor->save();
@@ -1389,9 +1415,14 @@ bool Application::saveActiveEditor() {
 
     auto &editor = m_editors[m_activeEditor];
     if (editor) {
-        editor->save();
-        RecentFiles::instance().addFile(editor->getProjectFilePath());
-        return true;
+        if (editor->getProjectFilePath().empty()) {
+            m_showSaveDialog = true;
+            return false;
+        }
+        if (editor->save()) {
+            RecentFiles::instance().addFile(editor->getProjectFilePath());
+            return true;
+        }
     }
     return false;
 }

@@ -51,6 +51,7 @@ public:
     void setDraftMachineIconPath(const std::string& path) { m_draftMachine.iconPath = path; }
 
 private:
+    friend class ApplicationLifecycleTest;
     GameDataManager& m_gameDataManager;
     bool m_isOpen = false;
     bool m_isFocused = false;

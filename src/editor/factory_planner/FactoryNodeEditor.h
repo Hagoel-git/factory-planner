@@ -97,6 +97,7 @@ public:
 
     void undo();
     void redo();
+    void executeCommand(std::unique_ptr<Command> command);
     bool canUndo() const { return m_undoRedoManager.canUndo(); }
     bool canRedo() const { return m_undoRedoManager.canRedo(); }
 
@@ -107,6 +108,12 @@ public:
     const std::string& getName() const { return m_editorName; }
     const std::filesystem::path& getProjectFilePath() const { return m_projectFilePath; }
     void setName(const std::string& newName) { m_editorName = newName; }
+    bool isLoadedSuccessfully() const { return m_loadedSuccessfully; }
+    bool getQuadtreeNeedsRebuild() const { return m_quadtreeNeedsRebuild; }
+    FactoryGraph* getGraph() { return m_graph.get(); }
+    const FactoryGraph* getGraph() const { return m_graph.get(); }
+    std::chrono::time_point<std::chrono::steady_clock> getNextAutosaveTime() const { return m_nextAutosaveTime; }
+    void setNextAutosaveTime(std::chrono::time_point<std::chrono::steady_clock> t) { m_nextAutosaveTime = t; }
 
     static bool segmentIntersectsAABB(ImVec2 p1, ImVec2 p2, ImVec2 boxMin, ImVec2 boxMax);
 private:
@@ -117,6 +124,7 @@ private:
 
     DebugInfo m_debugInfo;
 
+    bool m_loadedSuccessfully = true;
     bool m_isDirty = false;
     bool m_isFocused = false;
     bool m_wasDragging = false;
@@ -153,8 +161,6 @@ private:
     // Quadtree for spatial optimization
     std::unique_ptr<quadtree::Quadtree<NodeQuadtreeData, GetNodeBox>> m_nodeQuadtree;
     bool m_quadtreeNeedsRebuild = true;
-
-    void executeCommand(std::unique_ptr<Command> command);
 
     void updateDebugInfo();
 

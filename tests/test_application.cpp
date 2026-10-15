@@ -5,6 +5,7 @@
 #include "editor/game_data_editor/GameDataEditor.h"
 #include "core/data/GameDataManager.h"
 #include "services/SettingsManager.h"
+#include "services/RecentFiles.h"
 #include "common/FilesystemUtils.h"
 #include "common/FramePacer.h"
 #include <imgui.h>
@@ -70,6 +71,35 @@ protected:
         }
         std::error_code ec;
         fs::remove_all(tempRoot, ec);
+    }
+
+    void addEditorDirectly(Application& app, std::unique_ptr<FactoryNodeEditor> editor) {
+        app.m_editors.push_back(std::move(editor));
+        app.m_activeEditor = static_cast<int>(app.m_editors.size()) - 1;
+    }
+
+    void queueEditorsToClose(Application& app, const std::vector<FactoryNodeEditor*>& editors, bool applyToAll, bool isQuitting) {
+        app.m_editorsToClose = editors;
+        if (!editors.empty()) {
+            app.m_currentEditorToClose = editors.front();
+        } else {
+            app.m_currentEditorToClose = nullptr;
+        }
+        app.m_applyToAllEditors = applyToAll;
+        app.m_isQuitting = isQuitting;
+        app.m_showUnsavedChangesDialog = true;
+    }
+
+    bool getIsQuitting(const Application& app) const { return app.m_isQuitting; }
+    bool getApplyToAll(const Application& app) const { return app.m_applyToAllEditors; }
+    FactoryNodeEditor* getCurrentEditorToClose(const Application& app) const { return app.m_currentEditorToClose; }
+
+    void triggerUnsavedChangesSave(Application& app) {
+        app.handleUnsavedChangesSave();
+    }
+
+    void requestGameDataNewFilePopup(GameDataEditor& gde) {
+        gde.m_requestNewFilePopup = true;
     }
 };
 
@@ -612,4 +642,274 @@ TEST_F(ApplicationLifecycleTest, DirtyTabClose_MultipleDirtyTabs_QueueAdvancesSm
     ASSERT_EQ(app.getEditorCount(), 1);
     EXPECT_EQ(app.getEditor(0)->getName(), "dirty2");
 }
+
+TEST_F(ApplicationLifecycleTest, Issue1_16_CorruptedProjectFile_AbortsLoadAndDoesNotClobberDisk) {
+    Application app;
+    fs::path corruptedFile = dirA / "bad.fpp";
+    std::string badContent = "{ invalid_json: true, trailing ";
+    {
+        std::ofstream out(corruptedFile);
+        out << badContent;
+    }
+
+    // Try to open corrupted project file in Application
+    app.createNewEditor("", corruptedFile, "bad", false);
+
+    // Tab creation must be aborted
+    EXPECT_EQ(app.getEditorCount(), 0);
+
+    // File on disk must NOT be overwritten or corrupted with empty graph
+    std::ifstream in(corruptedFile);
+    std::string currentContent((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    EXPECT_EQ(currentContent, badContent);
+
+    // Also verify direct FactoryNodeEditor refuses to save when load failed
+    GameDataManager gdm;
+    FactoryNodeEditor directEditor(gdm.current(), corruptedFile, "bad");
+    EXPECT_FALSE(directEditor.isLoadedSuccessfully());
+    EXPECT_FALSE(directEditor.save());
+    EXPECT_FALSE(directEditor.saveAs(corruptedFile.string(), SaveAsMode::SwitchToNewFile));
+
+    // Still not clobbered
+    std::ifstream in2(corruptedFile);
+    std::string contentAfterSave((std::istreambuf_iterator<char>(in2)), std::istreambuf_iterator<char>());
+    EXPECT_EQ(contentAfterSave, badContent);
+}
+
+TEST_F(ApplicationLifecycleTest, Issue1_9_1_20_SaveActiveEditor_EmptyPathOpensSaveDialog) {
+    Application app;
+    GameDataManager gdm;
+    addEditorDirectly(app, std::make_unique<FactoryNodeEditor>(gdm.current(), "", "Untitled"));
+
+    EXPECT_FALSE(app.isSaveDialogOpen());
+
+    // Attempt to save active untitled editor (Ctrl+S behavior)
+    bool saved = app.saveActiveEditor();
+
+    // Must return false and trigger save dialog
+    EXPECT_FALSE(saved);
+    EXPECT_TRUE(app.isSaveDialogOpen());
+
+    // Verify empty path was NOT added to RecentFiles
+    const auto& recents = RecentFiles::instance().getFiles();
+    for (const auto& f : recents) {
+        EXPECT_FALSE(f.empty());
+    }
+}
+
+TEST_F(ApplicationLifecycleTest, Issue1_9_1_20_SaveActiveEditor_ValidPathSavesSuccessfully) {
+    Application app;
+    fs::path validFile = dirA / "valid.fpp";
+    app.createNewEditor("", validFile, "valid", false);
+    ASSERT_EQ(app.getEditorCount(), 1);
+
+    app.getEditor(0)->setDirty(true);
+    EXPECT_TRUE(app.getEditor(0)->isDirty());
+
+    bool saved = app.saveActiveEditor();
+    EXPECT_TRUE(saved);
+    EXPECT_FALSE(app.getEditor(0)->isDirty());
+    EXPECT_FALSE(app.isSaveDialogOpen());
+}
+
+class DummyNoRebuildCommand : public Command {
+public:
+    void execute(FactoryGraph&) override {}
+    void undo(FactoryGraph&) override {}
+    CommandFlags getFlags() const override { return CommandFlags{false, false}; }
+    std::string getDescription() const override { return "Dummy"; }
+};
+
+TEST_F(ApplicationLifecycleTest, Issue1_12_QuadtreeRebuildFlag_PreservedAcrossCommands) {
+    GameDataManager gdm;
+    fs::path testFile = dirA / "quad_test.fpp";
+    FactoryNodeEditor editor(gdm.current(), testFile, "quad_test");
+
+    // Initially quadtree needs rebuild is true after constructor
+    EXPECT_TRUE(editor.getQuadtreeNeedsRebuild());
+
+    // Executing a command that does NOT require rebuild (needsRebuild = false)
+    // should NOT reset m_quadtreeNeedsRebuild to false
+    editor.executeCommand(std::make_unique<DummyNoRebuildCommand>());
+    EXPECT_TRUE(editor.getQuadtreeNeedsRebuild());
+
+    // Undo should also preserve m_quadtreeNeedsRebuild
+    editor.undo();
+    EXPECT_TRUE(editor.getQuadtreeNeedsRebuild());
+
+    // Redo should also preserve m_quadtreeNeedsRebuild
+    editor.redo();
+    EXPECT_TRUE(editor.getQuadtreeNeedsRebuild());
+}
+
+TEST_F(ApplicationLifecycleTest, Issue1_10_Autosave_OnlyDirtyWithValidPathAndClampedSettings) {
+    AppSettings s = SettingsManager::instance().getSettings();
+    s.autoSaveIntervalMinutes = -10;
+    SettingsManager::instance().setSettings(s);
+    EXPECT_GE(SettingsManager::instance().getSettings().autoSaveIntervalMinutes, 1);
+
+    s.autoSaveIntervalMinutes = 0;
+    SettingsManager::instance().setSettings(s);
+    EXPECT_GE(SettingsManager::instance().getSettings().autoSaveIntervalMinutes, 1);
+
+    s.autoSaveIntervalMinutes = 100;
+    SettingsManager::instance().setSettings(s);
+    EXPECT_LE(SettingsManager::instance().getSettings().autoSaveIntervalMinutes, 60);
+
+    // Setup for editor autosave tests
+    s.autoSaveEnabled = true;
+    s.autoSaveIntervalMinutes = 5;
+    SettingsManager::instance().setSettings(s);
+
+    GameDataManager gdm;
+
+    // 1. Clean editor with valid path -> does NOT save when timer expired
+    fs::path cleanFile = dirA / "autosave_clean.fpp";
+    FactoryNodeEditor editorClean(gdm.current(), cleanFile, "autosave_clean");
+    editorClean.setDirty(false);
+    editorClean.setNextAutosaveTime(std::chrono::steady_clock::now() - std::chrono::seconds(10));
+    ImGui::NewFrame();
+    editorClean.draw();
+    ImGui::EndFrame();
+    EXPECT_FALSE(fs::exists(cleanFile));
+    EXPECT_GT(editorClean.getNextAutosaveTime(), std::chrono::steady_clock::now());
+
+    // 2. Dirty editor with empty path -> does NOT save to disk
+    FactoryNodeEditor editorEmptyPath(gdm.current(), "", "autosave_empty");
+    editorEmptyPath.setDirty(true);
+    editorEmptyPath.setNextAutosaveTime(std::chrono::steady_clock::now() - std::chrono::seconds(10));
+    ImGui::NewFrame();
+    editorEmptyPath.draw();
+    ImGui::EndFrame();
+    EXPECT_TRUE(editorEmptyPath.isDirty());
+    EXPECT_GT(editorEmptyPath.getNextAutosaveTime(), std::chrono::steady_clock::now());
+
+    // 3. Dirty editor with valid path -> DOES save to disk, clears dirty flag, advances timer
+    fs::path dirtyFile = dirA / "autosave_dirty.fpp";
+    FactoryNodeEditor editorDirty(gdm.current(), dirtyFile, "autosave_dirty");
+    editorDirty.setDirty(true);
+    editorDirty.setNextAutosaveTime(std::chrono::steady_clock::now() - std::chrono::seconds(10));
+    ImGui::NewFrame();
+    editorDirty.draw();
+    ImGui::EndFrame();
+    EXPECT_TRUE(fs::exists(dirtyFile));
+    EXPECT_FALSE(editorDirty.isDirty());
+    EXPECT_GT(editorDirty.getNextAutosaveTime(), std::chrono::steady_clock::now());
+}
+
+TEST_F(ApplicationLifecycleTest, Issue1_15_UnsavedChanges_ApplyToAll_SaveFailureRetainsFailingTabs) {
+    Application app;
+    fs::path fileGood = dirA / "good.fpp";
+    app.createNewEditor("", fileGood, "good", false);
+
+    GameDataManager gdm;
+    // Push an untitled tab that cannot be saved to disk
+    addEditorDirectly(app, std::make_unique<FactoryNodeEditor>(gdm.current(), "", "UntitledBad"));
+    ASSERT_EQ(app.getEditorCount(), 2);
+
+    app.getEditor(0)->setDirty(true);
+    app.getEditor(1)->setDirty(true);
+
+    queueEditorsToClose(app, {app.getEditor(0), app.getEditor(1)}, true, true);
+
+    // Trigger Save: editor 0 succeeds, editor 1 has empty path and fails save
+    triggerUnsavedChangesSave(app);
+
+    // Quitting was aborted to protect user data
+    EXPECT_FALSE(getIsQuitting(app));
+    EXPECT_FALSE(getApplyToAll(app));
+    // Failing editor was retained in m_editorsToClose and is now the current editor to close
+    ASSERT_EQ(app.getEditorsToClose().size(), 1);
+    EXPECT_EQ(getCurrentEditorToClose(app), app.getEditor(1)); // Note: good was not closed yet because isQuitting was true
+    EXPECT_TRUE(app.isUnsavedChangesDialogOpen());
+}
+
+TEST_F(ApplicationLifecycleTest, Issue1_17_UnsavedChanges_EmptyPathEditor_TriggersSaveAsDialog) {
+    Application app;
+    GameDataManager gdm;
+    addEditorDirectly(app, std::make_unique<FactoryNodeEditor>(gdm.current(), "", "UntitledEmpty"));
+    app.getEditor(0)->setDirty(true);
+
+    queueEditorsToClose(app, {app.getEditor(0)}, false, true);
+
+    // Trigger Save on untitled project:
+    triggerUnsavedChangesSave(app);
+
+    // Modal is closed, save dialog is triggered, quitting is paused
+    EXPECT_TRUE(app.isSaveDialogOpen());
+    EXPECT_FALSE(app.isUnsavedChangesDialogOpen());
+    EXPECT_FALSE(getIsQuitting(app));
+    EXPECT_TRUE(app.getEditorsToClose().empty());
+}
+
+TEST_F(ApplicationLifecycleTest, Issue1_1_PinRendering_UnknownResourceDoesNotThrow) {
+    GameData gd;
+    gd.gameName = "TestGame";
+    gd.time_unit = "seconds";
+    gd.resources["nothing"] = Resource{"Nothing", 0};
+    gd.resources["iron_ore"] = Resource{"Iron Ore", 1};
+    gd.machines["miner"] = Machine{"Miner", 1, 0};
+    Recipe recipe;
+    recipe.name = "Mine Iron";
+    recipe.produced_in_machines_keys = {"miner"};
+    recipe.input_ports.push_back(RecipePort{1.0, "nothing"});
+    recipe.output_ports.push_back(RecipePort{30.0, "iron_ore"});
+    gd.recipes["mine_iron"] = recipe;
+
+    fs::path testFile = dirA / "unknown_res.fpp";
+    auto editor = std::make_unique<FactoryNodeEditor>(std::move(gd), testFile, "unknown_res");
+    FactoryGraph* graph = editor->getGraph();
+    ASSERT_NE(graph, nullptr);
+
+    uint64_t nodeId = graph->addNode("Test Node", "mine_iron");
+    ASSERT_NE(graph->getNode(nodeId), nullptr);
+
+    Node* node = graph->getNode(nodeId);
+    ASSERT_NE(node, nullptr);
+    ASSERT_FALSE(node->input_ports.empty());
+
+    Port* inputPort = graph->getPort(node->input_ports[0]);
+    ASSERT_NE(inputPort, nullptr);
+    inputPort->resource_key = "completely_unknown_nonexistent_resource";
+
+    if (!node->output_ports.empty()) {
+        Port* outputPort = graph->getPort(node->output_ports[0]);
+        if (outputPort) {
+            outputPort->resource_key = "another_unknown_nonexistent_resource";
+        }
+    }
+
+    ImGui::NewFrame();
+    EXPECT_NO_THROW({
+        editor->draw();
+    });
+    ImGui::EndFrame();
+}
+
+TEST_F(ApplicationLifecycleTest, Issue1_6_GameDataEditor_NoSpamOnFailedCreation) {
+    GameDataManager manager;
+    GameDataEditor gde(manager);
+    gde.setOpen(true);
+    requestGameDataNewFilePopup(gde);
+
+    NotificationManager& nm = NotificationManager::instance();
+    nm.clearNotifications();
+
+    // Render frame 1 to open the popup
+    ImGui::NewFrame();
+    gde.draw();
+    ImGui::EndFrame();
+
+    // Now simulate 10 consecutive frames where the modal popup is open
+    // Since createRequested was not triggered this frame, no toasts should be added at 60 FPS
+    size_t initialCount = nm.getNotifications().size();
+    for (int frame = 0; frame < 10; ++frame) {
+        ImGui::NewFrame();
+        gde.draw();
+        ImGui::EndFrame();
+    }
+    size_t afterCount = nm.getNotifications().size();
+    EXPECT_EQ(initialCount, afterCount);
+}
+
 
