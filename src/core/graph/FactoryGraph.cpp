@@ -595,7 +595,11 @@ bool FactoryGraph::changeMachine(uint64_t node_id, const std::string &machine_ke
         return false;
     }
 
-    Recipe recipe = m_gameData.recipes.at(node->selected_recipe_key);
+    auto recIt = m_gameData.recipes.find(node->selected_recipe_key);
+    if (recIt == m_gameData.recipes.end()) {
+        return false;
+    }
+    const Recipe &recipe = recIt->second;
     auto it = std::find(recipe.produced_in_machines_keys.begin(), recipe.produced_in_machines_keys.end(), machine_key);
     if (it == recipe.produced_in_machines_keys.end()) {
         return false;

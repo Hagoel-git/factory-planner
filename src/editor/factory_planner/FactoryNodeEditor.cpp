@@ -34,7 +34,7 @@ FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::files
         m_solver = std::make_unique<FactorySolver>();
 
         m_nextAutosaveTime = std::chrono::steady_clock::now() +
-                           std::chrono::minutes(SettingsManager::instance().getSettings().autoSaveIntervalMinutes);
+                           std::chrono::minutes(std::max(1, SettingsManager::instance().getSettings().autoSaveIntervalMinutes));
 
         ed::Config cfg = ed::Config();
         cfg.DisableInternalFitView = true;
@@ -64,7 +64,9 @@ FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::files
         ed_style.FlowDuration = 6.0f;
 
         if (std::filesystem::exists(projectFilePath)) {
-            ProjectIO::loadProject(projectFilePath.string(), *m_graph);
+            if (!ProjectIO::loadProject(projectFilePath.string(), *m_graph)) {
+                m_loadedSuccessfully = false;
+            }
         }
 
         // Initialize quadtree dynamically based on graph nodes or default minimum size
@@ -79,8 +81,13 @@ FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::files
         m_debugInfo.lastSolverStatus = m_solver->getLastSolverStatus();
 
         m_quadtreeNeedsRebuild = true;
-        LOG(INFO) << "FactoryNodeEditor initialized successfully for project: " << projectFilePath;
+        if (m_loadedSuccessfully) {
+            LOG(INFO) << "FactoryNodeEditor initialized successfully for project: " << projectFilePath;
+        } else {
+            LOG(WARNING) << "FactoryNodeEditor failed to load project: " << projectFilePath;
+        }
     } catch (const std::exception &e) {
+        m_loadedSuccessfully = false;
         LOG(ERROR) << "Exception initializing FactoryNodeEditor: " << e.what();
         NotificationManager::instance().addNotification(
             "Error Initializing Editor",
@@ -118,10 +125,12 @@ void FactoryNodeEditor::draw() {
     m_isFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 
     if (std::chrono::steady_clock::now() > m_nextAutosaveTime && SettingsManager::instance().getSettings().autoSaveEnabled) {
-        LOG(INFO) << "Auto-saved project: " << m_projectFilePath;
-        save();
+        if (m_isDirty && !m_projectFilePath.empty()) {
+            LOG(INFO) << "Auto-saved project: " << m_projectFilePath;
+            save();
+        }
         m_nextAutosaveTime = std::chrono::steady_clock::now() +
-                           std::chrono::minutes(SettingsManager::instance().getSettings().autoSaveIntervalMinutes);
+                           std::chrono::minutes(std::max(1, SettingsManager::instance().getSettings().autoSaveIntervalMinutes));
     }
 
     ed::SetCurrentEditor(m_context);
@@ -180,6 +189,10 @@ void FactoryNodeEditor::draw() {
 }
 
 bool FactoryNodeEditor::save() {
+    if (!m_loadedSuccessfully || m_projectFilePath.empty()) {
+        LOG(WARNING) << "Save refused: editor was not loaded successfully or path is empty: " << m_projectFilePath;
+        return false;
+    }
     if (ProjectIO::saveProject(m_projectFilePath.string(), *m_graph, this->m_context)) {
         m_isDirty = false;
         return true;
@@ -188,18 +201,22 @@ bool FactoryNodeEditor::save() {
 }
 
 bool FactoryNodeEditor::saveAs(const std::string &newFilePath, SaveAsMode mode) {
+    if (!m_loadedSuccessfully && newFilePath == m_projectFilePath.string()) {
+        LOG(WARNING) << "SaveAs refused: cannot overwrite corrupted project file: " << newFilePath;
+        return false;
+    }
     if (ProjectIO::saveProject(newFilePath, *m_graph, this->m_context)) {
         if (mode == SaveAsMode::SwitchToNewFile) {
             m_projectFilePath = newFilePath;
             m_editorName = std::filesystem::path(newFilePath).stem().string();
             m_isDirty = false;
+            m_loadedSuccessfully = true;
         }
         LOG(INFO) << "Project saved as: " << newFilePath;
         return true;
     }
     LOG(ERROR) << "Failed to save project as: " << newFilePath;
     return false;
-
 }
 
 void FactoryNodeEditor::copy(CopyBuffer &copy_buffer) {
@@ -452,7 +469,7 @@ void FactoryNodeEditor::undo() {
         m_debugInfo.lastSolverResult = result.status;
         m_debugInfo.lastSolverStatus = m_solver->getLastSolverStatus();
     }
-    m_quadtreeNeedsRebuild = flags.needsRebuild;
+    m_quadtreeNeedsRebuild |= flags.needsRebuild;
 }
 
 void FactoryNodeEditor::redo() {
@@ -476,7 +493,7 @@ void FactoryNodeEditor::redo() {
         m_debugInfo.lastSolverResult = result.status;
         m_debugInfo.lastSolverStatus = m_solver->getLastSolverStatus();
     }
-    m_quadtreeNeedsRebuild = flags.needsRebuild;
+    m_quadtreeNeedsRebuild |= flags.needsRebuild;
 }
 
 
@@ -500,7 +517,7 @@ void FactoryNodeEditor::executeCommand(std::unique_ptr<Command> command) {
         m_debugInfo.lastSolverResult = result.status;
         m_debugInfo.lastSolverStatus = m_solver->getLastSolverStatus();
     }
-    m_quadtreeNeedsRebuild = flags.needsRebuild;
+    m_quadtreeNeedsRebuild |= flags.needsRebuild;
 }
 
 void FactoryNodeEditor::updateDebugInfo() {
@@ -831,15 +848,16 @@ void FactoryNodeEditor::drawNodes() {
         float port_line_h = std::max(port_img_h, font_h);  // effective per-pin height
         float spacing_y = style.ItemSpacing.y;             // vertical spacing between items
 
-        // Count only visible ports (skip resource_key == "nothing")
+        // Count only visible ports (skip resource_key == "nothing" or unknown resources)
+        const auto& resources = m_graph->getGameData().resources;
         int visible_inputs = 0, visible_outputs = 0;
         for (uint64_t portId : node->input_ports) {
             Port *p = m_graph->getPort(portId);
-            if (p && p->resource_key != "nothing") ++visible_inputs;
+            if (p && p->resource_key != "nothing" && resources.find(p->resource_key) != resources.end()) ++visible_inputs;
         }
         for (uint64_t portId : node->output_ports) {
             Port *p = m_graph->getPort(portId);
-            if (p && p->resource_key != "nothing") ++visible_outputs;
+            if (p && p->resource_key != "nothing" && resources.find(p->resource_key) != resources.end()) ++visible_outputs;
         }
 
         // Heights of each column
@@ -865,7 +883,9 @@ void FactoryNodeEditor::drawNodes() {
                 Port *p = m_graph->getPort(port);
                 if (!p || p->resource_key == "nothing") continue;
 
-                const Resource& res = m_graph->getGameData().resources.at(p->resource_key);
+                auto resIt = resources.find(p->resource_key);
+                if (resIt == resources.end()) continue;
+                const Resource& res = resIt->second;
                 ed::BeginPin(IdUtils::toPinId(p->id), ed::PinKind::Input);
                 if (m_graph->getConnectionsForPort(p->id).empty()) {
                     ImVec2 pos = ImGui::GetCursorScreenPos();
@@ -926,7 +946,9 @@ void FactoryNodeEditor::drawNodes() {
                 Port *p = m_graph->getPort(port);
                 if (!p || p->resource_key == "nothing") continue;
 
-                const Resource& res = m_graph->getGameData().resources.at(p->resource_key);
+                auto resIt = resources.find(p->resource_key);
+                if (resIt == resources.end()) continue;
+                const Resource& res = resIt->second;
                 ed::BeginPin(IdUtils::toPinId(p->id), ed::PinKind::Output);
                 ImGui::Text("%.2f", p->rate); ImGui::SameLine();
                 bool has_excess = p->excess_rate > 1e-4;

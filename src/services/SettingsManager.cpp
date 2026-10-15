@@ -1,6 +1,7 @@
 #include "SettingsManager.h"
 
 #include <fstream>
+#include <algorithm>
 #include <absl/log/log.h>
 #include <nlohmann/json.hpp>
 
@@ -30,6 +31,7 @@ const AppSettings& SettingsManager::getSettings() const {
 
 void SettingsManager::setSettings(const AppSettings &settings) {
     m_settings = settings;
+    m_settings.autoSaveIntervalMinutes = std::clamp(m_settings.autoSaveIntervalMinutes, 1, 60);
 }
 
 SettingsManager::SettingsManager() = default;
@@ -86,7 +88,7 @@ void SettingsManager::loadAppSettings() {
             m_settings.autoSaveEnabled = j["autoSaveEnabled"].get<bool>();
         }
         if (j.contains("autoSaveIntervalMinutes") && j["autoSaveIntervalMinutes"].is_number_integer()) {
-            m_settings.autoSaveIntervalMinutes = j["autoSaveIntervalMinutes"].get<int>();
+            m_settings.autoSaveIntervalMinutes = std::clamp(j["autoSaveIntervalMinutes"].get<int>(), 1, 60);
         }
         if (j.contains("navigationButtonIndex") && j["navigationButtonIndex"].is_number_integer()) {
             m_settings.navigationButtonIndex = j["navigationButtonIndex"].get<int>();

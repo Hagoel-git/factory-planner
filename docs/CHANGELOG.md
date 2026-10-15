@@ -2,7 +2,7 @@
 
 This document holds the user-facing changelog that is also used in release notes.
 
-## Unreleased [WIP] - YYYY-MM-DD
+## v0.10 - 2026-Oct-16
 ### Changed
 - The "Open Recent" list is now updated when saving a file, ensuring the most recently active projects stay at the top.
 - Improved Recent Files reliability by saving the list immediately upon modification.
@@ -17,10 +17,20 @@ This document holds the user-facing changelog that is also used in release notes
 - Fixed "Waste Compression" in the solver where byproducts were unnecessarily processed into denser items (pulling in extra raw resources) to numerically minimize excess item counts. Excess now stops at the earliest possible unconstrained port.
 - UI: Unconsumed byproducts now highlight their output port in orange and display the exact excess amount in tooltips and the right-click context menu.
 - Enabled docking layout persistence across application restarts, saving window layouts to `docking_layout.ini`.
-- Added a "Reset Window Layout" option under the `View` and `Window` menus to restore default docking and clear awkward window splits.
+- Added a "Reset Window Layout" option under the `Window` menu to restore default docking and clear awkward window splits.
 - Disambiguated open tabs sharing the same project name by appending their parent folder name in the tab header (e.g. `Project (dirA)`).
+- Hardened autosave to only write dirty projects with valid filesystem paths, and bounded interval settings between 1 and 60 minutes.
+- Refined unsaved changes dialog to automatically redirect untitled or pathless tabs to the native Save As dialog.
 
 ### Fixed
+- Fixed silent project file clobbering when loading corrupted or invalid project files; `FactoryNodeEditor` now verifies project loading status and prevents autosave or manual save from overwriting the file on disk.
+- Fixed silent data loss when choosing "Apply to all remaining files" in the Unsaved Changes confirmation dialog: tabs that encounter save errors are preserved in the queue and application shutdown is safely aborted.
+- Fixed modal deadlock when attempting to save untitled or pathless projects from the Unsaved Changes confirmation dialog by seamlessly redirecting to the native Save As dialog.
+- Fixed `Application::saveActiveEditor()` silently failing on untitled projects without prompting, properly directing users to the Save As dialog.
+- Fixed application crash (`std::out_of_range`) in node canvas rendering when encountering deleted or unrecognized resource keys on ports by safely using iterator lookups.
+- Fixed application crash (`std::out_of_range`) and eliminated deep struct value copying in `FactoryGraph::changeMachine` when verifying recipe compatibility.
+- Fixed spatial culling desynchronization where pending quadtree rebuild flags were overwritten rather than bitwise preserved across undo, redo, and command execution cycles.
+- Fixed `GameDataEditor` new file dialog retaining stale error messages and dispatching duplicate error notifications upon successful file creation.
 - Fixed layout distortion and misaligned chip wrapping in Game Data Editor recipe inputs/outputs when recipes have empty/blank ports.
 - Fixed Debug Window displaying a blank "Last solver status:" and fixed 64-bit `printf` format specifier mismatch for copy buffer size.
 - Pruned dead state, unused member variables, and dangling `<iostream>` headers across the codebase.

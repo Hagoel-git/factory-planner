@@ -47,8 +47,13 @@ public:
     FactoryNodeEditor* getEditor(size_t index) const { return (index < m_editors.size()) ? m_editors[index].get() : nullptr; }
     std::vector<FactoryNodeEditor*> getEditorsToClose() const { return m_editorsToClose; }
     bool isUnsavedChangesDialogOpen() const { return m_showUnsavedChangesDialog; }
+    bool isSaveDialogOpen() const { return m_showSaveDialog; }
     bool isResetLayoutRequested() const { return m_resetLayoutRequested; }
     bool hasActiveAnimations() const;
+    bool saveActiveEditor();
+    void handleUnsavedChangesSave();
+
+    friend class ApplicationLifecycleTest;
 private:
     std::vector<std::unique_ptr<FactoryNodeEditor>> m_editors;
     std::vector<std::filesystem::path> m_closedEditorHistory;
@@ -105,7 +110,6 @@ private:
 
     std::optional<GameData> loadGameDataForNewEditor(const std::filesystem::path& path);
 
-    bool saveActiveEditor();
     bool saveActiveEditorAs(const std::string &newFilePath, SaveAsMode mode);
     void saveAll();
 

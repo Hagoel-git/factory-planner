@@ -2427,3 +2427,48 @@ TEST(ViewportDragStabilityTest, EditorContextMouseDragDeltaValidationAndExtremeC
     ImGui::DestroyContext(ctx);
 }
 
+TEST_F(FactoryGraphTest, ChangeMachine_SafeHandling) {
+    GameData gameData;
+    Machine machineA;
+    machineA.name = "Assembler 1";
+    gameData.machines["assembler_1"] = machineA;
+
+    Machine machineB;
+    machineB.name = "Assembler 2";
+    gameData.machines["assembler_2"] = machineB;
+
+    Recipe ironPlateRecipe;
+    ironPlateRecipe.name = "Iron Plate";
+    ironPlateRecipe.produced_in_machines_keys = {"assembler_1"};
+    gameData.recipes["iron_plate"] = ironPlateRecipe;
+
+    FactoryGraph graph(gameData);
+    uint64_t nodeId = graph.addNode("Iron Plate Node", "iron_plate");
+    ASSERT_NE(graph.getNode(nodeId), nullptr);
+
+    // 1. Valid machine from recipe's produced_in_machines_keys
+    EXPECT_TRUE(graph.changeMachine(nodeId, "assembler_1"));
+    const Node* node = graph.getNode(nodeId);
+    ASSERT_NE(node, nullptr);
+    EXPECT_EQ(node->machine_key, "assembler_1");
+
+    // 2. Machine not supported by this recipe
+    EXPECT_FALSE(graph.changeMachine(nodeId, "assembler_2"));
+    EXPECT_EQ(node->machine_key, "assembler_1"); // Remains unchanged
+
+    // 3. Machine does not exist at all
+    EXPECT_FALSE(graph.changeMachine(nodeId, "non_existent_machine"));
+    EXPECT_EQ(node->machine_key, "assembler_1");
+
+    // 4. Non-existent node ID
+    EXPECT_FALSE(graph.changeMachine(999999, "assembler_1"));
+
+    // 5. Node has corrupted / unknown recipe key -> does NOT throw std::out_of_range
+    Node* mutableNode = graph.getNode(nodeId);
+    ASSERT_NE(mutableNode, nullptr);
+    mutableNode->selected_recipe_key = "corrupted_missing_recipe";
+    EXPECT_NO_THROW({
+        EXPECT_FALSE(graph.changeMachine(nodeId, "assembler_1"));
+    });
+}
+
