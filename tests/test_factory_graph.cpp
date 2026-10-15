@@ -706,25 +706,25 @@ TEST_F(FactoryGraphTest, RemoveNodeWithMultiPortAndFanOutConnections) {
     // Verify removal of a multi-port node where an output port has multiple
     // downstream connections (fan-out pattern).
     uint64_t multiNode = addNode("multi_io");
-    Node* multiNodePtr = graph->getNode(multiNode);
-    ASSERT_NE(multiNodePtr, nullptr);
-
-    Port* outM1 = getPort(multiNode, "reinforced_plate", false);
-    ASSERT_NE(outM1, nullptr);
-
-    // Two downstream consumers of the same output port
     uint64_t cons1 = addNode("sink_reinforced");
     uint64_t cons2 = addNode("sink_reinforced");
+
+    Port* outM1 = getPort(multiNode, "reinforced_plate", false);
     Port* inC1 = getPort(cons1, "reinforced_plate", true);
     Port* inC2 = getPort(cons2, "reinforced_plate", true);
+    ASSERT_NE(outM1, nullptr);
     ASSERT_NE(inC1, nullptr);
     ASSERT_NE(inC2, nullptr);
 
-    uint64_t conn1 = graph->addConnection(outM1->id, inC1->id);
-    uint64_t conn2 = graph->addConnection(outM1->id, inC2->id);
+    uint64_t outM1Id = outM1->id;
+    uint64_t inC1Id = inC1->id;
+    uint64_t inC2Id = inC2->id;
+
+    uint64_t conn1 = graph->addConnection(outM1Id, inC1Id);
+    uint64_t conn2 = graph->addConnection(outM1Id, inC2Id);
     EXPECT_NE(conn1, (uint64_t)-1);
     EXPECT_NE(conn2, (uint64_t)-1);
-    EXPECT_EQ(graph->getConnectionsForPort(outM1->id).size(), 2);
+    EXPECT_EQ(graph->getConnectionsForPort(outM1Id).size(), 2);
 
     // Remove multiNode
     EXPECT_TRUE(graph->removeNode(multiNode));
@@ -732,8 +732,8 @@ TEST_F(FactoryGraphTest, RemoveNodeWithMultiPortAndFanOutConnections) {
     // Verify all connections involving outM1 are removed
     EXPECT_EQ(graph->getConnection(conn1), nullptr);
     EXPECT_EQ(graph->getConnection(conn2), nullptr);
-    EXPECT_TRUE(graph->getConnectionsForPort(inC1->id).empty());
-    EXPECT_TRUE(graph->getConnectionsForPort(inC2->id).empty());
+    EXPECT_TRUE(graph->getConnectionsForPort(inC1Id).empty());
+    EXPECT_TRUE(graph->getConnectionsForPort(inC2Id).empty());
 }
 
 TEST_F(FactoryGraphTest, ClearGraph) {
