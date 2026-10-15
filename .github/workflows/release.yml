@@ -15,7 +15,7 @@ env:
 
 jobs:
   build-windows:
-    runs-on: windows-latest
+    runs-on: windows-2022
     steps:
       - name: Checkout repository and submodules
         uses: actions/checkout@v4
@@ -39,6 +39,7 @@ jobs:
       - name: Configure CMake
         run: >
           cmake -B build
+          -G "Visual Studio 17 2022" -A x64
           -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_PREFIX_PATH="${{ github.workspace }}/external/or-tools"
           -Dortools_DIR="${{ github.workspace }}/external/or-tools/lib/cmake/ortools"
