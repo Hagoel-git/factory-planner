@@ -27,9 +27,4 @@ if(WIN32)
     )
 endif()
 
-add_custom_command(TARGET run_tests POST_BUILD
-        COMMAND $<TARGET_FILE:run_tests>
-        COMMENT "Running Unit Tests..."
-)
-
-gtest_discover_tests(run_tests)
+gtest_discover_tests(run_tests DISCOVERY_MODE PRE_TEST)
