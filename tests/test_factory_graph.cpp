@@ -1512,8 +1512,7 @@ TEST_F(FactoryGraphTest, ProjectIOLoadProject_Supports64BitNodeIds) {
              std::filesystem::current_path() / "build" / "bin" / "game_data",
              std::filesystem::current_path() / "data" / "game_data",
              execDir / "game_data",
-             execDir.parent_path() / "bin" / "game_data",
-             std::filesystem::path("/home/hagoel/Projects/factory-planner/build/bin/game_data")
+             execDir.parent_path() / "bin" / "game_data"
          }) {
         if (!candidate.empty() && std::filesystem::exists(candidate)) {
             testSettings.gameDataPath = candidate;

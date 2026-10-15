@@ -45,13 +45,15 @@ jobs:
           -Dortools_DIR="${{ github.workspace }}/external/or-tools/lib/cmake/ortools"
 
       - name: Build Release
-        run: cmake --build build --config Release --parallel
+        run: |
+          cmake --build build --config Release --target factory_planner --parallel
+          cmake --build build --config Release --target factory_planner_tests --parallel
 
       - name: Run Unit Tests
         working-directory: build
         shell: pwsh
         run: |
-          $env:PATH = "${env:GITHUB_WORKSPACE}\external\or-tools\bin;$env:PATH"
+          $env:PATH = "${env:GITHUB_WORKSPACE}\external\or-tools\bin;${env:GITHUB_WORKSPACE}\build\tests\Release;$env:PATH"
           ctest -C Release --output-on-failure
 
       - name: Package Windows Zip
