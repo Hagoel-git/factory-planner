@@ -1,0 +1,146 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  ORTOOLS_MINOR: "9.15"
+  ORTOOLS_FULL: "9.15.6755"
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup CMake 3.30+
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: '3.30.x'
+
+      - name: Download prebuilt OR-Tools v9.15 (VS2022 x64)
+        shell: pwsh
+        run: |
+          $url = "https://github.com/google/or-tools/releases/download/v${env:ORTOOLS_MINOR}/or-tools_x64_VisualStudio2022_cpp_v${env:ORTOOLS_FULL}.zip"
+          curl.exe -fL "$url" -o ortools.zip
+          Expand-Archive -Path ortools.zip -DestinationPath ortools_extracted
+          $innerDir = Get-ChildItem -Path ortools_extracted -Directory | Select-Object -First 1
+          Move-Item -Path $innerDir.FullName -Destination "${env:GITHUB_WORKSPACE}/external/or-tools"
+
+      - name: Configure CMake
+        run: >
+          cmake -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_PREFIX_PATH="${{ github.workspace }}/external/or-tools"
+          -Dortools_DIR="${{ github.workspace }}/external/or-tools/lib/cmake/ortools"
+
+      - name: Build Release
+        run: cmake --build build --config Release --parallel
+
+      - name: Run Unit Tests
+        working-directory: build
+        shell: pwsh
+        run: |
+          $env:PATH = "${env:GITHUB_WORKSPACE}\external\or-tools\bin;$env:PATH"
+          ctest -C Release --output-on-failure
+
+      - name: Package Windows Zip
+        shell: pwsh
+        run: |
+          Remove-Item -Path "build/bin/*.log", "build/bin/*.ini", "build/bin/*.json", "build/bin/*.md" -ErrorAction SilentlyContinue
+          $version = "${{ github.ref_name }}"
+          Compress-Archive -Path "build/bin/*" -DestinationPath "factory-planner-${version}-win64.zip"
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: factory-planner-*-win64.zip
+
+  build-linux:
+    runs-on: ubuntu-24.04
+    env:
+      LD_LIBRARY_PATH: ${{ github.workspace }}/external/or-tools/lib
+    steps:
+      - name: Checkout repository and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup CMake 3.30+
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: '3.30.x'
+
+      - name: Install Linux Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential pkg-config xvfb \
+            libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+            libwayland-dev libxkbcommon-dev wayland-protocols extra-cmake-modules \
+            libdbus-1-dev libre2-dev
+
+      - name: Download prebuilt OR-Tools v9.15 (Ubuntu 24.04 amd64)
+        run: |
+          URL="https://github.com/google/or-tools/releases/download/v${ORTOOLS_MINOR}/or-tools_amd64_ubuntu-24.04_cpp_v${ORTOOLS_FULL}.tar.gz"
+          curl -fL "$URL" -o ortools.tar.gz
+          mkdir -p external/or-tools
+          tar -xzf ortools.tar.gz -C external/or-tools --strip-components=1
+
+      - name: Configure CMake
+        run: >
+          cmake -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_PREFIX_PATH="${{ github.workspace }}/external/or-tools"
+          -Dortools_DIR="${{ github.workspace }}/external/or-tools/lib/cmake/ortools"
+          -DCMAKE_INSTALL_RPATH="\$ORIGIN/lib"
+          -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON
+
+      - name: Build Release
+        run: cmake --build build --config Release --parallel
+
+      - name: Run Unit Tests
+        working-directory: build
+        run: xvfb-run --auto-servernum ctest -C Release --output-on-failure
+
+      - name: Package Linux Tarball
+        run: |
+          rm -f build/bin/*.log build/bin/*.ini build/bin/*.json build/bin/*.md
+          mkdir -p build/bin/lib
+          cp -P external/or-tools/lib/lib*.so* build/bin/lib/ || true
+          tar -czvf "factory-planner-${GITHUB_REF_NAME}-linux-x64.tar.gz" -C build/bin .
+
+      - name: Upload Linux Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-release
+          path: factory-planner-*-linux-x64.tar.gz
+
+  publish-release:
+    needs: [build-windows, build-linux]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
