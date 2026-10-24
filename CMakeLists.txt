@@ -108,6 +108,8 @@ set(FACTORY_PLANNER_LIB_SRC
 
         src/editor/factory_planner/FactoryNodeEditor.h
         src/editor/factory_planner/FactoryNodeEditor.cpp
+        src/editor/game_data_editor/GameDataEditor.h
+        src/editor/game_data_editor/GameDataEditor.cpp
 
         src/services/ProjectIo.cpp
         src/services/ProjectIo.h
@@ -185,14 +187,6 @@ set_target_properties(factory_planner PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY_RELEASE "${_BinDir}"
         VS_DEBUGGER_WORKING_DIRECTORY "${_BinDir}"
 )
-
-if (UNIX AND NOT APPLE)
-    set_target_properties(factory_planner PROPERTIES
-            BUILD_WITH_INSTALL_RPATH OFF
-            BUILD_RPATH "${CMAKE_SOURCE_DIR}/external/or-tools/lib"
-            INSTALL_RPATH "$ORIGIN/lib"
-    )
-endif()
 
 # Install rules (optional)
 install(TARGETS factory_planner RUNTIME DESTINATION bin)

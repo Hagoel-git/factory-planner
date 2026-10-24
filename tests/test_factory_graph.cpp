@@ -1395,6 +1395,82 @@ TEST_F(FactoryGraphTest, ProjectIOLoadProjectErrorHandling) {
     std::filesystem::remove(tempNotObject);
 }
 
+TEST(GameDataManagerTest, EditWithEmptySlugReturnsFalse) {
+    GameDataManager manager;
+    manager.createNew("TestGame", "seconds");
+    std::string err;
+    manager.addResource(Resource{"Iron Ore", 0});
+    manager.addMachine(Machine{"Miner", 1.0, 0});
+    Recipe r;
+    r.name = "Mining";
+    r.produced_in_machines_keys.push_back("miner");
+    r.output_ports.push_back(RecipePort{30.0, "iron-ore"});
+    manager.addRecipe(r);
+
+    // 1. Edit resource with empty name or non-slug name
+    EXPECT_FALSE(manager.editResource("iron-ore", Resource{"", 0}, err));
+    EXPECT_FALSE(err.empty());
+    err.clear();
+    EXPECT_FALSE(manager.editResource("iron-ore", Resource{"???", 0}, err));
+    EXPECT_FALSE(err.empty());
+
+    // 2. Edit machine with empty name or non-slug name
+    err.clear();
+    EXPECT_FALSE(manager.editMachine("miner", Machine{"", 1.0, 0}, err));
+    EXPECT_FALSE(err.empty());
+    err.clear();
+    EXPECT_FALSE(manager.editMachine("miner", Machine{"$$$", 1.0, 0}, err));
+    EXPECT_FALSE(err.empty());
+
+    // 3. Edit recipe with empty name or non-slug name
+    err.clear();
+    Recipe rEmpty = r;
+    rEmpty.name = "";
+    EXPECT_FALSE(manager.editRecipe("mining", rEmpty, err));
+    EXPECT_FALSE(err.empty());
+    err.clear();
+    rEmpty.name = "!!!";
+    EXPECT_FALSE(manager.editRecipe("mining", rEmpty, err));
+    EXPECT_FALSE(err.empty());
+}
+
+TEST(GameDataManagerTest, DeleteCleansUpDanglingAliases) {
+    GameDataManager manager;
+    manager.createNew("TestGame", "seconds");
+    manager.addResource(Resource{"Iron Ore", 0});
+    manager.addMachine(Machine{"Miner", 1.0, 0});
+    Recipe r;
+    r.name = "Mining";
+    r.produced_in_machines_keys.push_back("miner");
+    r.output_ports.push_back(RecipePort{30.0, "iron-ore"});
+    manager.addRecipe(r);
+
+    // Rename to register aliases
+    std::string err;
+    Recipe rRenamed = r;
+    rRenamed.name = "Mining Two";
+    EXPECT_TRUE(manager.editRecipe("mining", rRenamed, err)) << err;
+    EXPECT_EQ(manager.current().id_aliases.count("rec@mining"), 1);
+
+    EXPECT_TRUE(manager.editMachine("miner", Machine{"Miner Two", 1.0, 0}, err)) << err;
+    EXPECT_EQ(manager.current().id_aliases.count("mac@miner"), 1);
+
+    EXPECT_TRUE(manager.editResource("iron-ore", Resource{"Iron Ore Two", 0}, err)) << err;
+    EXPECT_EQ(manager.current().id_aliases.count("res@iron-ore"), 1);
+
+    // Delete recipe
+    EXPECT_TRUE(manager.deleteRecipe("mining-two", err)) << err;
+    EXPECT_EQ(manager.current().id_aliases.count("rec@mining"), 0);
+
+    // Delete machine
+    EXPECT_TRUE(manager.deleteMachine("miner-two", err)) << err;
+    EXPECT_EQ(manager.current().id_aliases.count("mac@miner"), 0);
+
+    // Delete resource
+    EXPECT_TRUE(manager.deleteResource("iron-ore-two", err)) << err;
+    EXPECT_EQ(manager.current().id_aliases.count("res@iron-ore"), 0);
+}
+
 TEST_F(FactoryGraphTest, DeserializeNode_SafelyResolvesMissingOrDanglingMachineKey) {
     // Save game data with an alias pointing to a non-existent machine
     GameData gd = testGameData;
@@ -1682,6 +1758,68 @@ TEST(TextureManagerTest, CacheMissingTexturePreventsRepeatedDiskLookups) {
 TEST(GameDataScannerTest, ScanNonExistentDirectoryReturnsEmpty) {
     auto pkgs = scanForGameData("/non/existent/path/for/scanner");
     EXPECT_TRUE(pkgs.empty());
+}
+
+TEST(GameDataEditorTest, VectorDeletionLoopDoesNotSkipElements) {
+    // 1. Delete middle element
+    {
+        std::vector<std::string> keys = {"machine_A", "machine_B", "machine_C", "machine_D"};
+        std::vector<std::string> visited;
+
+        for (int i = 0; i < (int)keys.size(); ++i) {
+            visited.push_back(keys[i]);
+            if (keys[i] == "machine_B") {
+                keys.erase(keys.begin() + i);
+                --i;
+                continue;
+            }
+        }
+
+        std::vector<std::string> expectedVisited = {"machine_A", "machine_B", "machine_C", "machine_D"};
+        EXPECT_EQ(visited, expectedVisited);
+        std::vector<std::string> expectedRemaining = {"machine_A", "machine_C", "machine_D"};
+        EXPECT_EQ(keys, expectedRemaining);
+    }
+
+    // 2. Delete first element
+    {
+        std::vector<std::string> keys = {"first", "second", "third"};
+        std::vector<std::string> visited;
+
+        for (int i = 0; i < (int)keys.size(); ++i) {
+            visited.push_back(keys[i]);
+            if (keys[i] == "first") {
+                keys.erase(keys.begin() + i);
+                --i;
+                continue;
+            }
+        }
+
+        std::vector<std::string> expectedVisited = {"first", "second", "third"};
+        EXPECT_EQ(visited, expectedVisited);
+        std::vector<std::string> expectedRemaining = {"second", "third"};
+        EXPECT_EQ(keys, expectedRemaining);
+    }
+
+    // 3. Delete consecutive elements
+    {
+        std::vector<std::string> keys = {"A", "delete_1", "delete_2", "B"};
+        std::vector<std::string> visited;
+
+        for (int i = 0; i < (int)keys.size(); ++i) {
+            visited.push_back(keys[i]);
+            if (keys[i].rfind("delete_", 0) == 0) {
+                keys.erase(keys.begin() + i);
+                --i;
+                continue;
+            }
+        }
+
+        std::vector<std::string> expectedVisited = {"A", "delete_1", "delete_2", "B"};
+        EXPECT_EQ(visited, expectedVisited);
+        std::vector<std::string> expectedRemaining = {"A", "B"};
+        EXPECT_EQ(keys, expectedRemaining);
+    }
 }
 
 TEST(StringUtilsTest, SlugifyBasic) {
