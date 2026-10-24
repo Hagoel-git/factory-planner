@@ -120,7 +120,6 @@ The codebase is organized into modules under `src/`:
 
 ### `src/editor/` (User Interface & Canvas)
 - `src/editor/factory_planner/FactoryNodeEditor.h` / `FactoryNodeEditor.cpp`: The node canvas for editing production lines (rendering, wiring, interactions, quadtree culling).
-- `src/editor/game_data_editor/GameDataEditor.h` / `GameDataEditor.cpp`: In-app game data editor (scheduled for removal in Roadmap Step 1).
 - `src/editor/settings_editor/SettingsEditor.h` / `SettingsEditor.cpp`: Settings window for theme, font, grid, and autosave interval.
 
 ### `src/services/` (Cross-Cutting Application Services)

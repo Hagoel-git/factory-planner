@@ -2,6 +2,11 @@
 
 This document holds the user-facing changelog that is also used in release notes.
 
+## Unreleased
+
+### Removed
+- Removed the in-app Game Data Editor and the "Game Data Manager" menu entry.
+
 ## v0.10 - 2026-Oct-16
 ### Changed
 - The "Open Recent" list is now updated when saving a file, ensuring the most recently active projects stay at the top.
