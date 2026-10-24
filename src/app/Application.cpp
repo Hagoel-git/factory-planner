@@ -10,6 +10,7 @@
 #include "nativefiledialog-extended/src/include/nfd.h"
 
 #include "editor/factory_planner/FactoryNodeEditor.h"
+#include "core/data/GameDataManager.h"
 #include "core/data/GameDataScanner.h"
 #include "services/NotificationManager.h"
 #include "services/SettingsManager.h"
@@ -17,7 +18,7 @@
 #include "services/SessionManager.h"
 #include "services/TextureManager.h"
 
-Application::Application() : m_gameDataEditor(m_gameDataManager) {
+Application::Application() {
     VLOG(2) << "Application starting up.";
     SettingsManager::instance().load();
     RecentFiles::instance().load();
@@ -146,8 +147,6 @@ void Application::draw() {
         m_dockResetThisFrame = true;
     }
     ImGui::DockSpace(dockspace_id, ImVec2(0, 0), ImGuiDockNodeFlags_PassthruCentralNode);
-
-    m_gameDataEditor.draw();
 
     std::vector<int> editorsToClose;
     for (int i = 0; i < static_cast<int>(m_editors.size()); ++i) {
@@ -513,10 +512,6 @@ void Application::drawMenuBar() {
                 handleCloseEditors(allIndices);
             }
             ImGui::Separator();
-            if (ImGui::MenuItem("Game Data Manager")) {
-                VLOG(1) << "Menu: Open Game Data Manager selected.";
-                m_gameDataEditor.setOpen(true);
-            }
             if (ImGui::MenuItem("Settings")) {
                 VLOG(1) << "Menu: Settings selected.";
                 m_settingsEditor.setOpen(true);
