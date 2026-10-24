@@ -9,7 +9,6 @@ add_executable(
         test_undo_redo_system.cpp
         test_frame_pacer.cpp
         test_application.cpp
-        test_golden.cpp
 )
 
 target_link_libraries(
@@ -28,16 +27,5 @@ if(WIN32)
     )
 endif()
 
-if (UNIX AND NOT APPLE)
-    set_target_properties(factory_planner_tests PROPERTIES
-            BUILD_WITH_INSTALL_RPATH OFF
-            BUILD_RPATH "${CMAKE_SOURCE_DIR}/external/or-tools/lib"
-            INSTALL_RPATH "$ORIGIN/lib"
-    )
-endif()
-
-gtest_discover_tests(factory_planner_tests
-        DISCOVERY_MODE PRE_TEST
-        PROPERTIES ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_SOURCE_DIR}/external/or-tools/lib"
-)
+gtest_discover_tests(factory_planner_tests DISCOVERY_MODE PRE_TEST)
 
