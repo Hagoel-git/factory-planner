@@ -27,5 +27,16 @@ if(WIN32)
     )
 endif()
 
-gtest_discover_tests(factory_planner_tests DISCOVERY_MODE PRE_TEST)
+if (UNIX AND NOT APPLE)
+    set_target_properties(factory_planner_tests PROPERTIES
+            BUILD_WITH_INSTALL_RPATH OFF
+            BUILD_RPATH "${CMAKE_SOURCE_DIR}/external/or-tools/lib"
+            INSTALL_RPATH "$ORIGIN/lib"
+    )
+endif()
+
+gtest_discover_tests(factory_planner_tests
+        DISCOVERY_MODE PRE_TEST
+        PROPERTIES ENVIRONMENT "LD_LIBRARY_PATH=${CMAKE_SOURCE_DIR}/external/or-tools/lib"
+)
 
