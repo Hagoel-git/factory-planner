@@ -15,18 +15,18 @@ struct Port;
 struct Recipe;
 
 /**
- * Models the factory graph as a Linear Program and solves it.
+ * Models the factory graph as a Linear Program and solves it via Google OR-Tools (GLOP).
  *
- * Constraint semantics (see docs/solver_redesign_spec.md):
- *  - LIMIT  (capacity): 0 <= rate <= value. Used for raw producers (recipes consuming only "nothing").
- *  - TARGET (demand):   rate + deficit - overshoot = value. Used for every other constrained port.
+ * Constraint semantics on ports with user_constraint >= 0 (all enforce rate <= value):
+ *  - LIMIT:  Hard capacity ceiling (input ports, and outputs of raw producers / nodes without inputs).
+ *  - TARGET: Demand goal, additionally satisfied as fully and fairly as possible via max-min water-filling.
  *
- * The objective is lexicographic; each stage is solved to optimality and then locked in before the next:
- *  1. Minimize total target deficit (meet demands).
- *  2. Minimize target overshoot (only exceed a target when unavoidable, e.g. multi-output recipes).
- *  3. Maximize leaf throughput (reachable from constrained ports).
- *  4. Minimize waste (unconsumed output excess, then unnecessary flow).
- *  5. Balance splits/merges (min over ports of max-branch minus min-branch flow).
+ * Solved lexicographically in 3 phases (earlier phases are locked before later ones run):
+ *  1. Iterative water-filling to maximize the saturation of active TARGETs.
+ *  2. Leaf throughput maximization per node depth (deepest first).
+ *  3. Terminal solve minimizing waste (unconsumed excess, then flow) and balancing branch splits.
+ *
+ * See docs/solver.md for the full formulation.
  */
 class FactorySolver {
 public:
