@@ -1,11 +1,5 @@
 {
   "cmake.generator": "Ninja",
-  "cmake.environment": {
-    "LD_LIBRARY_PATH": "${workspaceFolder}/external/or-tools/lib"
-  },
-  "cmake.ctest.environment": {
-    "LD_LIBRARY_PATH": "${workspaceFolder}/external/or-tools/lib"
-  },
   "cmake.configureArgs": [
     "-DCMAKE_PREFIX_PATH=${workspaceFolder}/external/or-tools",
     "-Dortools_DIR=${workspaceFolder}/external/or-tools/lib/cmake/ortools",

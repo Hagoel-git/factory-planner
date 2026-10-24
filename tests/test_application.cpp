@@ -2,6 +2,7 @@
 #include "app/Application.h"
 #include "editor/factory_planner/FactoryNodeEditor.h"
 #include "editor/settings_editor/SettingsEditor.h"
+#include "editor/game_data_editor/GameDataEditor.h"
 #include "core/data/GameDataManager.h"
 #include "services/SettingsManager.h"
 #include "services/RecentFiles.h"
@@ -95,6 +96,10 @@ protected:
 
     void triggerUnsavedChangesSave(Application& app) {
         app.handleUnsavedChangesSave();
+    }
+
+    void requestGameDataNewFilePopup(GameDataEditor& gde) {
+        gde.m_requestNewFilePopup = true;
     }
 };
 
@@ -326,6 +331,74 @@ TEST_F(ApplicationLifecycleTest, SettingsEditor_FolderDialogTransferAndConcurren
     ImGui::EndFrame();
 
     EXPECT_EQ(settingsEditor.getDefaultProjectPathBuffer(), testPath);
+}
+
+TEST_F(ApplicationLifecycleTest, GameDataEditor_IconDialogCancellationDoesNotWipeDraft) {
+    GameDataManager manager;
+    GameDataEditor gde(manager);
+
+    EXPECT_FALSE(gde.isIconDialogRunning());
+
+    gde.setDraftResourceIconPath("preset_icon.png");
+
+    // Simulate worker thread cancelling dialog (returns empty string)
+    std::thread worker([&gde]() {
+        gde.simulateIconDialogResult("DRAFT_RESOURCE", "");
+    });
+    worker.join();
+
+    ImGui::NewFrame();
+    gde.setOpen(true);
+    gde.draw();
+    ImGui::EndFrame();
+
+    // Verify draft icon was NOT wiped by cancellation
+    EXPECT_EQ(gde.getDraftResourceIconPath(), "preset_icon.png");
+    EXPECT_FALSE(gde.isIconDialogRunning());
+}
+
+TEST_F(ApplicationLifecycleTest, GameDataEditor_IconDialogThreadSafetyConcurrent) {
+    GameDataManager manager;
+    GameDataEditor gde(manager);
+
+    // Verify multiple sequential/concurrent state updates don't crash or corrupt
+    std::vector<std::thread> threads;
+    for (int i = 0; i < 5; ++i) {
+        threads.emplace_back([&gde, i]() {
+            gde.simulateIconDialogResult("DRAFT_RESOURCE", "/path/icon_" + std::to_string(i) + ".png");
+        });
+    }
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    ImGui::NewFrame();
+    gde.setOpen(true);
+    gde.draw();
+    ImGui::EndFrame();
+
+    EXPECT_FALSE(gde.isIconDialogRunning());
+}
+
+TEST_F(ApplicationLifecycleTest, GameDataEditor_MachineIconDialogDoesNotGetConsumedByResourceTab) {
+    GameDataManager manager;
+    GameDataEditor gde(manager);
+
+    // Target a machine draft icon
+    std::thread worker([&gde]() {
+        gde.simulateIconDialogResult("DRAFT_MACHINE", "/path/test_machine.png");
+    });
+    worker.join();
+
+    // Render frame
+    ImGui::NewFrame();
+    gde.setOpen(true);
+    gde.draw();
+    ImGui::EndFrame();
+
+    // Machine draft icon should be updated, resource draft icon untouched
+    EXPECT_EQ(gde.getDraftMachineIconPath(), "/path/test_machine.png");
+    EXPECT_TRUE(gde.getDraftResourceIconPath().empty());
 }
 
 // -----------------------------------------------------------------------------
@@ -811,6 +884,32 @@ TEST_F(ApplicationLifecycleTest, Issue1_1_PinRendering_UnknownResourceDoesNotThr
         editor->draw();
     });
     ImGui::EndFrame();
+}
+
+TEST_F(ApplicationLifecycleTest, Issue1_6_GameDataEditor_NoSpamOnFailedCreation) {
+    GameDataManager manager;
+    GameDataEditor gde(manager);
+    gde.setOpen(true);
+    requestGameDataNewFilePopup(gde);
+
+    NotificationManager& nm = NotificationManager::instance();
+    nm.clearNotifications();
+
+    // Render frame 1 to open the popup
+    ImGui::NewFrame();
+    gde.draw();
+    ImGui::EndFrame();
+
+    // Now simulate 10 consecutive frames where the modal popup is open
+    // Since createRequested was not triggered this frame, no toasts should be added at 60 FPS
+    size_t initialCount = nm.getNotifications().size();
+    for (int frame = 0; frame < 10; ++frame) {
+        ImGui::NewFrame();
+        gde.draw();
+        ImGui::EndFrame();
+    }
+    size_t afterCount = nm.getNotifications().size();
+    EXPECT_EQ(initialCount, afterCount);
 }
 
 
