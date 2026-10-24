@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  push:
+    branches: [ "dev", "main" ]
+  pull_request:
+    branches: [ "dev", "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+env:
+  ORTOOLS_MINOR: "9.15"
+  ORTOOLS_FULL: "9.15.6755"
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup CMake 3.30+
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: '3.30.x'
+
+      - name: Download prebuilt OR-Tools v9.15 (VS2022 x64)
+        shell: pwsh
+        run: |
+          $url = "https://github.com/google/or-tools/releases/download/v${env:ORTOOLS_MINOR}/or-tools_x64_VisualStudio2022_cpp_v${env:ORTOOLS_FULL}.zip"
+          curl.exe -fL "$url" -o ortools.zip
+          Expand-Archive -Path ortools.zip -DestinationPath ortools_extracted
+          $innerDir = Get-ChildItem -Path ortools_extracted -Directory | Select-Object -First 1
+          Move-Item -Path $innerDir.FullName -Destination "${env:GITHUB_WORKSPACE}/external/or-tools"
+
+      - name: Configure CMake
+        run: >
+          cmake -B build
+          -G "Visual Studio 17 2022" -A x64
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_PREFIX_PATH="${{ github.workspace }}/external/or-tools"
+          -Dortools_DIR="${{ github.workspace }}/external/or-tools/lib/cmake/ortools"
+
+      - name: Build Release
+        run: |
+          cmake --build build --config Release --target factory_planner --parallel
+          cmake --build build --config Release --target factory_planner_tests --parallel
+
+      - name: Run Unit Tests
+        working-directory: build
+        shell: pwsh
+        run: |
+          $env:PATH = "${env:GITHUB_WORKSPACE}\external\or-tools\bin;${env:GITHUB_WORKSPACE}\build\tests\Release;$env:PATH"
+          ctest -C Release --output-on-failure
+
+  build-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      LD_LIBRARY_PATH: ${{ github.workspace }}/external/or-tools/lib
+    steps:
+      - name: Checkout repository and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup CMake 3.30+
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: '3.30.x'
+
+      - name: Install Linux Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential pkg-config xvfb \
+            libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+            libwayland-dev libxkbcommon-dev wayland-protocols extra-cmake-modules \
+            libdbus-1-dev libre2-dev
+
+      - name: Download prebuilt OR-Tools v9.15 (Ubuntu 24.04 amd64)
+        run: |
+          URL="https://github.com/google/or-tools/releases/download/v${ORTOOLS_MINOR}/or-tools_amd64_ubuntu-24.04_cpp_v${ORTOOLS_FULL}.tar.gz"
+          curl -fL "$URL" -o ortools.tar.gz
+          mkdir -p external/or-tools
+          tar -xzf ortools.tar.gz -C external/or-tools --strip-components=1
+
+      - name: Configure CMake
+        run: >
+          cmake -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_PREFIX_PATH="${{ github.workspace }}/external/or-tools"
+          -Dortools_DIR="${{ github.workspace }}/external/or-tools/lib/cmake/ortools"
+          -DCMAKE_INSTALL_RPATH="\$ORIGIN/lib"
+          -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON
+
+      - name: Build Release
+        run: cmake --build build --config Release --parallel
+
+      - name: Run Unit Tests
+        working-directory: build
+        run: xvfb-run --auto-servernum ctest -C Release --output-on-failure
