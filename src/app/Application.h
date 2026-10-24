@@ -6,8 +6,8 @@
 #include <mutex>
 #include <string>
 #include "common/CopyBuffer.h"
-#include "editor/game_data_editor/GameDataEditor.h"
-#include "core/data/GameDataManager.h"
+#include "core/data/GameData.h"
+#include "core/data/GameDataScanner.h"
 #include "editor/settings_editor/SettingsEditor.h"
 
 class FactoryNodeEditor;
@@ -57,8 +57,6 @@ public:
 private:
     std::vector<std::unique_ptr<FactoryNodeEditor>> m_editors;
     std::vector<std::filesystem::path> m_closedEditorHistory;
-    GameDataManager m_gameDataManager;
-    GameDataEditor m_gameDataEditor;
     SettingsEditor m_settingsEditor;
     std::string m_currentTheme;
     bool m_currentShowGrid = false;
