@@ -121,7 +121,7 @@ Scope: `src/core/graph/*`, `src/services/UndoRedoSystem.*`
    - **What goes wrong:** `loadAppSettings()` deserializes `windowWidth` and `windowHeight` from `app_settings.json` without verifying that they are positive integers. If the settings file is corrupted or modified to contain `0` or negative values (e.g. from an aborted display configuration or manual edit), `main.cpp:140` passes them directly to `glfwCreateWindow(initWidth, initHeight, ...)`. GLFW requires width and height to be strictly greater than 0; passing non-positive values causes `glfwCreateWindow` to fail and return `nullptr`. `main.cpp:142` then calls `LOG(FATAL) << "Failed to create GLFW window"`, terminating the application with `SIGABRT`. The application cannot start until `app_settings.json` is manually deleted or edited.
    - **Reproduction / failing test idea:** Write `{"windowWidth": 0, "windowHeight": 0}` into `app_settings.json` and run the application binary. Assert that `SettingsManager::loadAppSettings()` validates/clamps window dimensions to minimum safe values (e.g. at least 640x480).
    - **Confidence:** 100%
-   - **Status:** open
+   - **Status:** fixed
 
 6. **`SettingsManager::loadAppSettings()` permits negative `maxRecentFiles`, causing uncaught `std::length_error` crash on project open.**
    - **Severity:** crash
@@ -129,7 +129,7 @@ Scope: `src/core/graph/*`, `src/services/UndoRedoSystem.*`
    - **What goes wrong:** `loadAppSettings()` does not validate or clamp `maxRecentFiles`. If `app_settings.json` contains a negative number (e.g. `"maxRecentFiles": -1`), `m_settings.maxRecentFiles` stores `-1`. When any project is opened or created, `Application::createNewEditor` calls `RecentFiles::instance().addFile(location)`. In `RecentFiles::addFile`, `if (static_cast<int>(m_files.size()) > maxFiles)` evaluates to true, and `m_files.resize(maxFiles)` is executed. Passing a negative `int` converts to `size_t` (e.g. `18446744073709551615ULL`), throwing `std::length_error`. Neither `RecentFiles::addFile` nor `Application` wraps this in a `try/catch` block, causing an immediate crash when opening/creating any project.
    - **Reproduction / failing test idea:** Set `"maxRecentFiles": -1` in `app_settings.json` (or set via `AppSettings`), then call `RecentFiles::instance().addFile("test.fpp")`. The call throws uncaught `std::length_error`.
    - **Confidence:** 100%
-   - **Status:** open
+   - **Status:** fixed
 
 7. **`SettingsManager::loadAppSettings()` allows out-of-bounds `navigationButtonIndex`, triggering ImGui assert / out-of-bounds memory read.**
    - **Severity:** crash
@@ -137,7 +137,7 @@ Scope: `src/core/graph/*`, `src/services/UndoRedoSystem.*`
    - **What goes wrong:** `loadAppSettings()` does not validate `navigationButtonIndex` (`0 <= index < 5`, expected 1 or 2). If `app_settings.json` contains an invalid button index like `-1` or `10`, `FactoryNodeEditor` configures `cfg.NavigateButtonIndex = navigationButtonIndex`. When rendering the editor canvas, `imgui-node-editor` calls `ImGui::IsMouseDragging(navBtn, 0.0f)`. In `external/imgui/imgui.cpp:10461`, ImGui asserts `button >= 0 && button < IM_COUNTOF(g.IO.MouseDown)`. In Debug builds this aborts immediately via assertion; in Release builds it performs an out-of-bounds read on the `g.IO.MouseDown` array.
    - **Reproduction / failing test idea:** Put `"navigationButtonIndex": -1` into `app_settings.json` and open an editor tab. The canvas render triggers `IM_ASSERT(button >= 0 && button < 5)` in ImGui. Assert that `loadAppSettings()` clamps or resets `navigationButtonIndex` to a valid button (1 or 2).
    - **Confidence:** 100%
-   - **Status:** open
+   - **Status:** fixed
 
 8. **`ProjectIO::loadProject()` returns `true` on JSON files missing `"graph_data"`, leading to silent file overwrite by autosave.**
    - **Severity:** data loss
@@ -158,7 +158,7 @@ Scope: `src/core/graph/*`, `src/services/UndoRedoSystem.*`
      ```
      Currently `ProjectIO::loadProject()` returns `true`.
    - **Confidence:** 100%
-   - **Status:** open
+   - **Status:** fixed
 
 9. **`ProjectIO::saveProject()` does not flush stream buffer before checking `ofs.good()`, risking atomic replacement with truncated file on disk full.**
    - **Severity:** data loss
@@ -166,7 +166,7 @@ Scope: `src/core/graph/*`, `src/services/UndoRedoSystem.*`
    - **What goes wrong:** In `ProjectIO::saveProject()`, data is written via `ofs << jsonStr;`, immediately followed by `if (!ofs.good())`. Unlike `SessionManager.cpp:93`, `SettingsManager.cpp:151`, and `RecentFiles.cpp:101`, `ProjectIO::saveProject()` does not call `ofs.flush()` or `ofs.close()`. Any unwritten bytes remaining in `std::ofstream`'s user-space buffer are only flushed when `ofs` is destroyed at line 83. In C++, `<fstream>` destructors swallow flush/close errors and do not throw. Because `ofs.good()` passed prior to the flush, line 89 proceeds to `std::filesystem::rename(tmp, path, ec)`. The truncated/corrupted temporary file replaces the user's existing valid `.fpp` file, causing permanent data loss.
    - **Reproduction / failing test idea:** Verify that `ProjectIO::saveProject()` flushes and closes `ofs` and verifies stream state before executing `rename()`. A simulated write failure during buffer flush demonstrates that `rename()` is reached despite incomplete write.
    - **Confidence:** 95%
-   - **Status:** open
+   - **Status:** fixed
 
 10. **`SessionManager`, `SettingsManager`, and `RecentFiles` pass ANSI-encoded paths to `nlohmann::json`, throwing `json::type_error` on Windows for non-ASCII paths.**
     - **Severity:** data loss
@@ -188,7 +188,7 @@ Scope: `src/core/graph/*`, `src/services/UndoRedoSystem.*`
       }
       ```
     - **Confidence:** 95%
-    - **Status:** open
+    - **Status:** fixed
 
 11. **`ProjectIO` interface takes `const std::string &path` instead of `std::filesystem::path`, breaking Unicode path handling on Windows.**
     - **Severity:** wrong result
@@ -196,7 +196,7 @@ Scope: `src/core/graph/*`, `src/services/UndoRedoSystem.*`
     - **What goes wrong:** While `SessionManager`, `RecentFiles`, `SettingsManager`, and `FactoryNodeEditor` use `std::filesystem::path`, `ProjectIO::saveProject` and `loadProject` accept narrow `const std::string &path`. In `FactoryNodeEditor`, calls pass `m_projectFilePath.string()`. On Windows, `path.string()` converts paths to the current ANSI code page. If a project path contains characters not representable in the active ANSI code page (e.g. Asian or Cyrillic characters on a Western Windows locale, or emojis), `path.string()` replaces those characters with `?`. Inside `ProjectIO`, `std::ofstream ofs(tmp)` and `std::ifstream ifs(path)` attempt to open the corrupted path containing `?`, failing to save or load the project.
     - **Reproduction / failing test idea:** On Windows, create a directory with characters outside the current system code page (e.g. `фабрика` on a Western European locale) and attempt to save or load a project. `ProjectIO` fails with file open errors. Passing `std::filesystem::path` directly or using `u8path` / wide streams resolves the issue.
     - **Confidence:** 90%
-    - **Status:** open
+    - **Status:** fixed
 
 12. **`ProjectIO::saveProject()` leaves an orphaned `.tmp` file on disk if an exception occurs during serialization.**
     - **Severity:** minor
@@ -204,7 +204,7 @@ Scope: `src/core/graph/*`, `src/services/UndoRedoSystem.*`
     - **What goes wrong:** In `ProjectIO::saveProject()`, `std::ofstream ofs(tmp, std::ios::binary)` creates the file `<path>.tmp` at line 60. At line 70, `projectData.dump(2)` is invoked. If `dump(2)` throws `json::type_error` (e.g. if any node name contains invalid UTF-8 bytes) or `std::bad_alloc`, control jumps to `catch (const std::exception& e)` at line 107. Unlike `SessionManager.cpp:111`, `SettingsManager.cpp:171`, and `RecentFiles.cpp:119`, which all call `std::filesystem::remove(tmp, ec)` in their `catch` handlers, `ProjectIO::saveProject()` has no cleanup in its `catch` block. The 0-byte temporary file remains permanently on disk. In addition, lines 80 and 97 call `std::filesystem::remove(tmp)` without `std::error_code`, which can throw `std::filesystem_error` and mask the original error.
     - **Reproduction / failing test idea:** Trigger a JSON serialization error or bad alloc after `tmp` has been opened at line 60. Verify that `saveProject()` returns `false` and that `<path>.tmp` still exists on disk.
     - **Confidence:** 95%
-    - **Status:** open
+    - **Status:** won't fix
 
 13. **`ProjectIO::saveProject()` fails when saving to a new or non-existent directory.**
     - **Severity:** minor
@@ -234,7 +234,7 @@ Scope: `src/core/graph/*`, `src/services/UndoRedoSystem.*`
       3. Change current path (`std::filesystem::current_path(temp_dir)`).
       4. Inspect `RecentFiles::instance().getFiles()[0]`: points to `<temp_dir>/project.fpp` instead of the original project file.
     - **Confidence:** 90%
-    - **Status:** open
+    - **Status:** won't fix
 
 
 ## Lens 4: Solver correctness and edge cases (`src/core/graph/FactorySolver.*`)

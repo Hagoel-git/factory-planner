@@ -108,7 +108,7 @@ private:
 
     std::optional<GameData> loadGameDataForNewEditor(const std::filesystem::path& path);
 
-    bool saveActiveEditorAs(const std::string &newFilePath, SaveAsMode mode);
+    bool saveActiveEditorAs(const std::filesystem::path &newFilePath, SaveAsMode mode);
     void saveAll();
 
     void copyActiveEditor();
