@@ -829,3 +829,117 @@ TEST_F(FactorySolverTest, Stage3WasteMinimization_ByproductRoutingPrefersDownstr
     EXPECT_NEAR(p_split_screw->excess_rate, 0.0, 0.001);
     EXPECT_NEAR(p_sink_in->rate, 10.0, 0.001);
 }
+
+TEST_F(FactorySolverTest, Phase1WaterFilling_CompetingTargetsSharingCapacityNotFalselyBottlenecked) {
+    // Finding #16 reproduction test:
+    // 3-target factory:
+    // - Target 3: separate chain with 20 coal/s supply, 100 demand (bottlenecks globally at S = 0.20).
+    // - Target 1: recipe 1 ore -> 1 item, target 100 items/s.
+    // - Target 2: recipe 2 ore -> 1 item, target 100 items/s.
+    // - Targets 1 and 2 share a common raw source producing 90 ore/s.
+    // When solved, Target 3 must be locked at 20 items/s.
+    // Under fair max-min water-filling, the remaining 30 surplus ore must be split proportionally
+    // between Target 1 and Target 2, achieving S = 0.30 (Target 1 = 30.0 items/s, Target 2 = 30.0 items/s).
+
+    Recipe r_coal_source;
+    r_coal_source.name = "Mine Coal";
+    r_coal_source.produced_in_machines_keys.push_back("miner");
+    r_coal_source.input_ports.push_back(RecipePort{1.0, "nothing"});
+    r_coal_source.output_ports.push_back(RecipePort{20.0, "coal"});
+    r_coal_source.time_seconds = 1.0;
+
+    Recipe r_coal_consumer;
+    r_coal_consumer.name = "Process Coal";
+    r_coal_consumer.produced_in_machines_keys.push_back("constructor");
+    r_coal_consumer.input_ports.push_back(RecipePort{1.0, "coal"});
+    r_coal_consumer.output_ports.push_back(RecipePort{1.0, "coal_item"});
+    r_coal_consumer.time_seconds = 1.0;
+
+    Recipe r_ore_source;
+    r_ore_source.name = "Mine Raw Ore";
+    r_ore_source.produced_in_machines_keys.push_back("miner");
+    r_ore_source.input_ports.push_back(RecipePort{1.0, "nothing"});
+    r_ore_source.output_ports.push_back(RecipePort{90.0, "ore"});
+    r_ore_source.time_seconds = 1.0;
+
+    Recipe r_target1;
+    r_target1.name = "Make Item 1";
+    r_target1.produced_in_machines_keys.push_back("constructor");
+    r_target1.input_ports.push_back(RecipePort{1.0, "ore"});
+    r_target1.output_ports.push_back(RecipePort{1.0, "item1"});
+    r_target1.time_seconds = 1.0;
+
+    Recipe r_target2;
+    r_target2.name = "Make Item 2";
+    r_target2.produced_in_machines_keys.push_back("constructor");
+    r_target2.input_ports.push_back(RecipePort{2.0, "ore"});
+    r_target2.output_ports.push_back(RecipePort{1.0, "item2"});
+    r_target2.time_seconds = 1.0;
+
+    GameData gd = testGameData;
+    gd.recipes["mine_coal"] = r_coal_source;
+    gd.recipes["process_coal"] = r_coal_consumer;
+    gd.recipes["mine_ore_90"] = r_ore_source;
+    gd.recipes["make_item1"] = r_target1;
+    gd.recipes["make_item2"] = r_target2;
+
+    FactoryGraph g(gd);
+    FactorySolver s;
+
+    // Target 3 chain
+    uint64_t n_coal_mine = g.addNode("Mine Coal", "mine_coal");
+    uint64_t n_coal_proc = g.addNode("Process Coal", "process_coal");
+
+    // Targets 1 and 2 shared ore chain
+    uint64_t n_ore_mine = g.addNode("Mine Ore", "mine_ore_90");
+    uint64_t n_t1 = g.addNode("Make Item 1", "make_item1");
+    uint64_t n_t2 = g.addNode("Make Item 2", "make_item2");
+
+    auto getPortId = [&](uint64_t node_id, const std::string& res, bool is_in) -> uint64_t {
+        const Node* node = g.getNode(node_id);
+        if (!node) return 0;
+        const auto& p_ids = is_in ? node->input_ports : node->output_ports;
+        for (uint64_t pid : p_ids) {
+            const Port* p = g.getPort(pid);
+            if (p && p->resource_key == res) return pid;
+        }
+        return 0;
+    };
+
+    uint64_t p_coal_mine_out = getPortId(n_coal_mine, "coal", false);
+    uint64_t p_coal_proc_in = getPortId(n_coal_proc, "coal", true);
+    uint64_t p_coal_proc_out = getPortId(n_coal_proc, "coal_item", false);
+
+    ASSERT_NE(p_coal_mine_out, 0);
+    ASSERT_NE(p_coal_proc_in, 0);
+    ASSERT_NE(p_coal_proc_out, 0);
+
+    g.addConnection(p_coal_mine_out, p_coal_proc_in);
+    g.setPortConstraint(p_coal_mine_out, 20.0); // 20 coal/s supply limit
+    g.setPortConstraint(p_coal_proc_out, 100.0); // 100 demand (Target 3)
+
+    uint64_t p_ore_mine_out = getPortId(n_ore_mine, "ore", false);
+    uint64_t p_t1_in = getPortId(n_t1, "ore", true);
+    uint64_t p_t1_out = getPortId(n_t1, "item1", false);
+    uint64_t p_t2_in = getPortId(n_t2, "ore", true);
+    uint64_t p_t2_out = getPortId(n_t2, "item2", false);
+
+    ASSERT_NE(p_ore_mine_out, 0);
+    ASSERT_NE(p_t1_in, 0);
+    ASSERT_NE(p_t1_out, 0);
+    ASSERT_NE(p_t2_in, 0);
+    ASSERT_NE(p_t2_out, 0);
+
+    g.addConnection(p_ore_mine_out, p_t1_in);
+    g.addConnection(p_ore_mine_out, p_t2_in);
+    g.setPortConstraint(p_ore_mine_out, 90.0); // 90 ore/s supply limit
+    g.setPortConstraint(p_t1_out, 100.0);      // 100 demand (Target 1)
+    g.setPortConstraint(p_t2_out, 100.0);      // 100 demand (Target 2)
+
+    FactorySolver::SolverResult result = s.solve(g);
+    ASSERT_EQ(result.status, FactorySolver::SolverResultStatus::SUCCESS);
+
+    EXPECT_NEAR(g.getPort(p_coal_proc_out)->rate, 20.0, 0.001);
+    EXPECT_NEAR(g.getPort(p_t1_out)->rate, 30.0, 0.001);
+    EXPECT_NEAR(g.getPort(p_t2_out)->rate, 30.0, 0.001);
+}

@@ -652,8 +652,12 @@ operations_research::MPSolver::ResultStatus FactorySolver::solveLexicographic(co
                 break;
             }
             
-            // OPTIMIZATION: Instead of N test solves, we do 1 solve maximizing sum(R_i)
-            // to instantly reveal which targets are strictly bottlenecked.
+            // Hybrid Filter:
+            // 1. Optimistic fast filter: maximize sum(R_i) with S clamped to s_val.
+            //    Targets that grow beyond target * s_val + 1e-6 have proven headroom.
+            // 2. Suspect verification: for targets that did NOT grow in the sum solve,
+            //    run an individual solve maximizing that target. If it still cannot grow,
+            //    it is a genuine bottleneck; if it grows, it was merely starved in the sum solve.
             double old_lb = S->lb();
             double old_ub = S->ub();
             S->SetLB(s_val);
@@ -670,6 +674,7 @@ operations_research::MPSolver::ResultStatus FactorySolver::solveLexicographic(co
             m_solver->Solve();
             
             std::vector<uint64_t> next_active;
+            std::vector<uint64_t> suspects;
             for (uint64_t port_id : active_targets) {
                 const Port *port = factory_graph.getPort(port_id);
                 if (!port) continue;
@@ -679,12 +684,40 @@ operations_research::MPSolver::ResultStatus FactorySolver::solveLexicographic(co
                 double target = port->user_constraint;
                 double r_val = var_it->second->solution_value();
                 
-                // If it couldn't grow beyond the S constraint, it's a bottleneck
-                if (r_val <= target * s_val + 1e-6) {
+                if (r_val > target * s_val + 1e-6) {
+                    next_active.push_back(port_id);
+                } else {
+                    suspects.push_back(port_id);
+                }
+            }
+
+            for (uint64_t port_id : suspects) {
+                const Port *port = factory_graph.getPort(port_id);
+                if (!port) continue;
+                auto var_it = m_portVariables.find(port_id);
+                if (var_it == m_portVariables.end()) continue;
+
+                double target = port->user_constraint;
+                auto* R_i = var_it->second;
+
+                // Individual test solve maximizing this single target
+                obj->Clear();
+                obj->SetCoefficient(R_i, 1.0);
+                obj->SetOptimizationDirection(true);
+
+                bool can_grow = false;
+                if (m_solver->Solve() == operations_research::MPSolver::OPTIMAL) {
+                    double test_r_val = R_i->solution_value();
+                    if (test_r_val > target * s_val + 1e-6) {
+                        can_grow = true;
+                    }
+                }
+
+                if (!can_grow) {
+                    // Genuine bottleneck: lock it and decouple from S
                     double locked_val = target * s_val;
-                    auto* R_i = var_it->second;
                     R_i->SetLB(std::max(R_i->lb(), locked_val - lockTolerance(locked_val)));
-                    
+
                     auto c_it = s_constraints.find(port_id);
                     if (c_it != s_constraints.end()) {
                         auto* c = c_it->second;
@@ -693,9 +726,11 @@ operations_research::MPSolver::ResultStatus FactorySolver::solveLexicographic(co
                         c->SetCoefficient(S, 0.0);
                     }
                 } else {
+                    // It was only starved by GLOP in the sum solve: keep in next_active
                     next_active.push_back(port_id);
                 }
             }
+
             S->SetLB(old_lb);
             S->SetUB(old_ub);
             if (next_active.size() == active_targets.size()) break;
