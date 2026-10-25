@@ -267,7 +267,7 @@ Scope: `src/core/graph/*`, `src/services/UndoRedoSystem.*`
       ```
       Currently, when `result.status != SUCCESS`, `node->machine_count` retains its previous value (e.g. 1.0).
     - **Confidence:** 100%
-    - **Status:** open
+    - **Status:** fix
 
 16. **Phase 1 water-filling sum-maximization heuristic falsely classifies competing targets as bottlenecked, breaking fair max-min satisfaction.**
     - **Severity:** wrong result
@@ -313,7 +313,13 @@ Scope: `src/core/graph/*`, `src/services/UndoRedoSystem.*`
       }
       ```
     - **Confidence:** 100%
-    - **Status:** open
+    - **Status:** won't fix (false positive — verified by test: GLOP's primal feasibility tolerance absorbs sub-
+10
+−
+8
+10
+−8
+ differences, so INFEASIBLE never occurs).
 
 18. **`updateFactoryGraph` assumes multi-input recipe ingredient 0 has positive amount, setting `machine_count = 0.0` for catalyst or byproduct recipes.**
     - **Severity:** wrong result
@@ -355,7 +361,7 @@ Scope: `src/core/graph/*`, `src/services/UndoRedoSystem.*`
       }
       ```
     - **Confidence:** 95%
-    - **Status:** open
+    - **Status:** fix
 
 19. **`solveLexicographic` masks Phase 1 and Phase 2 solver failures, returning `SUCCESS` when terminal Phase 3 solves.**
     - **Severity:** wrong result
@@ -365,7 +371,7 @@ Scope: `src/core/graph/*`, `src/services/UndoRedoSystem.*`
     - **Reproduction / failing test idea:**
       If any solver numerical anomaly or constraint contradiction occurs during Phase 1, verify that `solveLexicographic` captures the failure status and returns it instead of allowing Phase 3 to overwrite the return status with `OPTIMAL`.
     - **Confidence:** 95%
-    - **Status:** open
+    - **Status:** fix
 
 20. **Unconnected output ports never register excess rate or excess waste in Phase 3.**
     - **Severity:** minor
@@ -388,7 +394,7 @@ Scope: `src/core/graph/*`, `src/services/UndoRedoSystem.*`
       }
       ```
     - **Confidence:** 95%
-    - **Status:** open
+    - **Status:** won't fix
 
 
 ## Lens 5: App shell: multiple windows and tabs, the close/save flow, autosave, state that leaks between frames (`src/app/*`)

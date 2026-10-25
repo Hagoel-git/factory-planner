@@ -943,3 +943,44 @@ TEST_F(FactorySolverTest, Phase1WaterFilling_CompetingTargetsSharingCapacityNotF
     EXPECT_NEAR(g.getPort(p_t1_out)->rate, 30.0, 0.001);
     EXPECT_NEAR(g.getPort(p_t2_out)->rate, 30.0, 0.001);
 }
+
+TEST_F(FactorySolverTest, Phase2LeafThroughput_SupplyLimitDoesNotPushUnwantedOverproductionWhenTargetExists) {
+    // Chain:
+    // - Miner outputs iron_ore, capped with LIMIT = 120.0
+    // - Smelter converts iron_ore -> iron_ingot (30:30, 1:1)
+    // - Constructor converts iron_ingot -> iron_plate (30:20, 3:2)
+    // - Constructor plate output has TARGET = 10.0
+    // Demand for 10.0 plates requires 15.0 iron_ingots and 15.0 iron_ore.
+    // The miner limit of 120.0 must NOT push through to overproduce plates or waste ore.
+
+    uint64_t n_miner = addNode("mine_ore");
+    uint64_t n_smelter = addNode("smelt_ingot");
+    uint64_t n_const = addNode("make_plates");
+
+    Port* p_miner_out = getPort(n_miner, "iron_ore", false);
+    Port* p_smelter_in = getPort(n_smelter, "iron_ore", true);
+    Port* p_smelter_out = getPort(n_smelter, "iron_ingot", false);
+    Port* p_const_in = getPort(n_const, "iron_ingot", true);
+    Port* p_const_out = getPort(n_const, "iron_plate", false);
+
+    ASSERT_NE(p_miner_out, nullptr);
+    ASSERT_NE(p_smelter_in, nullptr);
+    ASSERT_NE(p_smelter_out, nullptr);
+    ASSERT_NE(p_const_in, nullptr);
+    ASSERT_NE(p_const_out, nullptr);
+
+    addConnection(p_miner_out, p_smelter_in);
+    addConnection(p_smelter_out, p_const_in);
+
+    graph->setPortConstraint(p_miner_out->id, 120.0); // Raw source limit (capacity)
+    graph->setPortConstraint(p_const_out->id, 10.0);   // Target demand
+
+    FactorySolver::SolverResult result = solver->solve(*graph);
+    ASSERT_EQ(result.status, FactorySolver::SolverResultStatus::SUCCESS);
+
+    EXPECT_NEAR(p_const_out->rate, 10.0, 0.001);
+    EXPECT_NEAR(p_const_out->excess_rate, 0.0, 0.001);
+    EXPECT_NEAR(p_smelter_out->rate, 15.0, 0.001);
+    EXPECT_NEAR(p_miner_out->rate, 15.0, 0.001);
+    EXPECT_NEAR(p_miner_out->excess_rate, 0.0, 0.001);
+}

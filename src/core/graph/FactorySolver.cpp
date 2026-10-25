@@ -204,8 +204,16 @@ std::unordered_set<uint64_t> FactorySolver::findReachablePorts(const FactoryGrap
 
     // 1. Start from constrained ports
     const auto &ports = factory_graph.getPorts();
+    const bool has_active_targets = std::any_of(ports.begin(), ports.end(), [&](const Port &p) {
+        return p.user_constraint >= 0 && classifyConstraint(factory_graph, p) == ConstraintKind::TARGET;
+    });
+
     for (const auto &port: ports) {
         if (port.user_constraint >= 0) {
+            // When demand targets drive the factory, LIMITs are passive caps, NOT push drivers!
+            if (has_active_targets && classifyConstraint(factory_graph, port) == ConstraintKind::LIMIT) {
+                continue;
+            }
             to_visit.push(port.id);
             reachable.insert(port.id);
         }
