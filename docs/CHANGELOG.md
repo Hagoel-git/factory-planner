@@ -7,6 +7,9 @@ This document holds the user-facing changelog that is also used in release notes
 ### Fixed
 - Fixed crash when undo/redo commands (`AddNodeCommand`, `RemoveNodeCommand`, `MoveNodeCommand`, `PasteCommand`) execute in headless mode or without an active canvas editor context.
 - Fixed potential ID collisions and graph index corruption when restoring nodes by advancing next node and port ID counters in `FactoryGraph::restoreNode`.
+- Fixed pasted nodes dropping ports on redo when a recipe has more ports than the clipboard source node.
+- Fixed cut nodes remaining selected in the canvas, preventing subsequent delete operations from creating dummy undo entries.
+- Fixed toggling preferred machines in the node context menu not marking the project dirty.
 
 ### Removed
 - Removed the in-app Game Data Editor and the "Game Data Manager" menu entry.
