@@ -87,6 +87,13 @@ FactorySolver::SolverResult FactorySolver::solve(FactoryGraph &factory_graph) {
                     graph_conn->rate = 0; // Update the connection rate in the factory graph
                 }
             }
+            const auto &nodes = factory_graph.getNodes();
+            for (const auto &node: nodes) {
+                Node *graph_node = factory_graph.getNode(node.id);
+                if (graph_node) {
+                    graph_node->machine_count = 0.0;
+                }
+            }
             LOG(ERROR) << "Solver failed with status: " << m_lastSolverStatus;
         }
         t_end_update = absl::Now();
@@ -113,6 +120,25 @@ FactorySolver::SolverResult FactorySolver::solve(FactoryGraph &factory_graph) {
             "An error occurred during solving: " + std::string(e.what()),
             NotificationType::Error
         );
+        for (const auto &port: factory_graph.getPorts()) {
+            Port *graph_port = factory_graph.getPort(port.id);
+            if (graph_port) {
+                graph_port->rate = 0;
+                graph_port->excess_rate = 0;
+            }
+        }
+        for (const auto &conn: factory_graph.getConnections()) {
+            Connection *graph_conn = factory_graph.getConnection(conn.id);
+            if (graph_conn) {
+                graph_conn->rate = 0;
+            }
+        }
+        for (const auto &node: factory_graph.getNodes()) {
+            Node *graph_node = factory_graph.getNode(node.id);
+            if (graph_node) {
+                graph_node->machine_count = 0.0;
+            }
+        }
         return {
             SolverResultStatus::ERROR_,
             absl::ToDoubleMilliseconds(t_end_update - t_start),
@@ -645,7 +671,10 @@ operations_research::MPSolver::ResultStatus FactorySolver::solveLexicographic(co
             obj->SetCoefficient(S, 1.0);
             obj->SetOptimizationDirection(true);
             
-            if (m_solver->Solve() != operations_research::MPSolver::OPTIMAL) break;
+            const auto s_status = m_solver->Solve();
+            if (s_status != operations_research::MPSolver::OPTIMAL) {
+                return s_status;
+            }
             
             double s_val = S->solution_value();
             if (s_val >= 1.0 - kZeroEpsilon) {
@@ -679,7 +708,10 @@ operations_research::MPSolver::ResultStatus FactorySolver::solveLexicographic(co
                 }
             }
             obj->SetOptimizationDirection(true);
-            m_solver->Solve();
+            const auto sum_status = m_solver->Solve();
+            if (sum_status != operations_research::MPSolver::OPTIMAL) {
+                return sum_status;
+            }
             
             std::vector<uint64_t> next_active;
             std::vector<uint64_t> suspects;
@@ -714,11 +746,14 @@ operations_research::MPSolver::ResultStatus FactorySolver::solveLexicographic(co
                 obj->SetOptimizationDirection(true);
 
                 bool can_grow = false;
-                if (m_solver->Solve() == operations_research::MPSolver::OPTIMAL) {
+                const auto test_status = m_solver->Solve();
+                if (test_status == operations_research::MPSolver::OPTIMAL) {
                     double test_r_val = R_i->solution_value();
                     if (test_r_val > target * s_val + 1e-6) {
                         can_grow = true;
                     }
+                } else if (test_status != operations_research::MPSolver::FEASIBLE) {
+                    return test_status;
                 }
 
                 if (!can_grow) {
@@ -772,8 +807,11 @@ operations_research::MPSolver::ResultStatus FactorySolver::solveLexicographic(co
     
     for (const auto& kv : depth_terms) {
         double obj_val = 0.0;
-        if (solveStage(kv.second, true, obj_val) == operations_research::MPSolver::OPTIMAL) {
+        const auto stage_status = solveStage(kv.second, true, obj_val);
+        if (stage_status == operations_research::MPSolver::OPTIMAL) {
             lockStage(kv.second, true, obj_val);
+        } else {
+            return stage_status;
         }
     }
 
@@ -908,30 +946,50 @@ void FactorySolver::updateFactoryGraph(FactoryGraph &factory_graph) const {
         double clock_speed_multiplier = node.clock_speed / 100.0;
         double production_multiplier = node.production_multiplier / 100.0;
 
-        if (recipe.input_ports.size() == 1 && recipe.input_ports.at(0).resource_key == "nothing") {
-            if (!recipe.output_ports.empty() && !node.output_ports.empty()) {
-                double output_per_machine = (recipe.output_ports.at(0).amount * production_multiplier) / recipe.time_seconds * base_speed * time_unit * clock_speed_multiplier;
+        bool all_inputs_nothing = std::all_of(
+            recipe.input_ports.begin(),
+            recipe.input_ports.end(),
+            [](const RecipePort &p) { return p.resource_key == "nothing"; }
+        );
+
+        if (all_inputs_nothing) {
+            size_t output_count = std::min(recipe.output_ports.size(), node.output_ports.size());
+            for (size_t i = 0; i < output_count; ++i) {
+                if (recipe.output_ports[i].amount <= 0.0) continue;
+                double output_per_machine = (recipe.output_ports[i].amount * production_multiplier) / recipe.time_seconds * base_speed * time_unit * clock_speed_multiplier;
                 if (output_per_machine > 0.0) {
-                    const Port *port = factory_graph.getPort(node.output_ports.at(0));
+                    const Port *port = factory_graph.getPort(node.output_ports[i]);
                     if (port) {
                         machine_count = port->rate / output_per_machine;
+                        break;
                     }
                 }
             }
-        } else if (!recipe.input_ports.empty() && !node.input_ports.empty()) {
-            double input_per_machine = recipe.input_ports.at(0).amount / recipe.time_seconds * base_speed * time_unit * clock_speed_multiplier;
-            if (input_per_machine > 0.0) {
-                const Port *port = factory_graph.getPort(node.input_ports.at(0));
-                if (port) {
-                    machine_count = port->rate / input_per_machine;
+        } else {
+            size_t input_count = std::min(recipe.input_ports.size(), node.input_ports.size());
+            for (size_t i = 0; i < input_count; ++i) {
+                if (recipe.input_ports[i].resource_key == "nothing" || recipe.input_ports[i].amount <= 0.0) continue;
+                double input_per_machine = recipe.input_ports[i].amount / recipe.time_seconds * base_speed * time_unit * clock_speed_multiplier;
+                if (input_per_machine > 0.0) {
+                    const Port *port = factory_graph.getPort(node.input_ports[i]);
+                    if (port) {
+                        machine_count = port->rate / input_per_machine;
+                        break;
+                    }
                 }
             }
-        } else if (!recipe.output_ports.empty() && !node.output_ports.empty()) {
-            double output_per_machine = (recipe.output_ports.at(0).amount * production_multiplier) / recipe.time_seconds * base_speed * time_unit * clock_speed_multiplier;
-            if (output_per_machine > 0.0) {
-                const Port *port = factory_graph.getPort(node.output_ports.at(0));
-                if (port) {
-                    machine_count = port->rate / output_per_machine;
+            if (machine_count == 0.0) {
+                size_t output_count = std::min(recipe.output_ports.size(), node.output_ports.size());
+                for (size_t i = 0; i < output_count; ++i) {
+                    if (recipe.output_ports[i].amount <= 0.0) continue;
+                    double output_per_machine = (recipe.output_ports[i].amount * production_multiplier) / recipe.time_seconds * base_speed * time_unit * clock_speed_multiplier;
+                    if (output_per_machine > 0.0) {
+                        const Port *port = factory_graph.getPort(node.output_ports[i]);
+                        if (port) {
+                            machine_count = port->rate / output_per_machine;
+                            break;
+                        }
+                    }
                 }
             }
         }

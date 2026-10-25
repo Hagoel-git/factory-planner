@@ -136,17 +136,18 @@ When active targets exist:
 2. For each active target port $i$, add coupling constraint:
    $$R_i - S \cdot \text{target}_i \ge 0 \quad (R_i \ge S \cdot \text{target}_i)$$
 3. **Iterative Resolution Loop:**
-   - Maximize $S$. If status is not `OPTIMAL`, break loop.
+   - Maximize $S$. If status is not `OPTIMAL`, abort Phase 1 and return the non-optimal status.
    - If $s_{\text{val}} \ge 1.0 - \text{kZeroEpsilon}$ (where $\text{kZeroEpsilon} = 10^{-9}$):
      All active targets are fully satisfiable. For every active target $i$, set hard lower bound:
      $$\text{SetLB}(\max(0.0, \text{target}_i))$$
      Break loop.
    - If $s_{\text{val}} < 1.0 - \text{kZeroEpsilon}$ (bottleneck detected):
      1. Temporarily clamp $S$: $\text{SetLB}(s_{\text{val}})$, $\text{SetUB}(s_{\text{val}})$.
-     2. **Optimistic Fast Filter (Sum Solve):** Maximize total active target flow $\sum_{i \in \text{active\_targets}} R_i$.
+     2. **Optimistic Fast Filter (Sum Solve):** Maximize total active target flow $\sum_{i \in \text{active\_targets}} R_i$. If status is not `OPTIMAL`, abort Phase 1 and return the non-optimal status.
         - If $R_i > \text{target}_i \cdot s_{\text{val}} + 10^{-6}$, target $i$ has proven headroom; retain it directly in `next_active`.
         - Otherwise, target $i$ did not expand in the sum solve (possibly due to GLOP favoring another competing target on a degenerate facet); mark target $i$ as a suspect.
      3. **Suspect Verification (Individual Test Solves):** For each suspect target $i$, run an individual test solve maximizing $R_i$ while $S$ remains clamped to $s_{\text{val}}$:
+        - If the solve fails abnormally (status not `OPTIMAL` or `FEASIBLE`), return the non-optimal status.
         - If $R_i \le \text{target}_i \cdot s_{\text{val}} + 10^{-6}$: Target $i$ is a genuine bottleneck. Lock its lower bound:
           $$\text{SetLB}(\max(R_i.\text{lb}, \text{locked\_val} - \text{lockTolerance}(\text{locked\_val})))$$
           where $\text{locked\_val} = \text{target}_i \cdot s_{\text{val}}$.
@@ -174,6 +175,7 @@ Phase 2 maximizes production of unconsumed leaf outputs reachable from constrain
      1. Solve LP maximizing leaf throughput: $\max \sum_{p \in \text{leaves}(d)} R_p$.
      2. If `OPTIMAL`, lock the achieved value via `lockStage`:
         $$\sum_{p \in \text{leaves}(d)} R_p \ge \text{optimal} - \text{lockTolerance}(\text{optimal})$$
+        If status is not `OPTIMAL`, abort Phase 2 and return the failure status directly.
 
 ### Phase 3: Waste Minimization and Fair Branch Splitting
 
@@ -217,18 +219,20 @@ $M_n = 0.0$ if:
 
 ### 6.3 Formula by Recipe Branch
 
-1. **Raw Producers (`recipe.input_ports.size() == 1 && recipe.input_ports[0].resource_key == "nothing"`):**
-   Requires `!recipe.output_ports.empty() && !node.output_ports.empty()`.
-   $$\text{output\_per\_machine} = \frac{\text{recipe.output}[0].\text{amount} \cdot P}{\text{recipe.time\_seconds}} \cdot B \cdot U \cdot C$$
-   $$M_n = \frac{R_{\text{node.output}[0]}}{\text{output\_per\_machine}}$$
+1. **Raw Producers (`std::all_of` input ports are `"nothing"` or empty):**
+   Requires `!recipe.output_ports.empty() && !node.output_ports.empty()`. Finds the first output port with $\text{recipe.output}[i].\text{amount} > 0.0$:
+   $$\text{output\_per\_machine} = \frac{\text{recipe.output}[i].\text{amount} \cdot P}{\text{recipe.time\_seconds}} \cdot B \cdot U \cdot C$$
+   $$M_n = \frac{R_{\text{node.output}[i]}}{\text{output\_per\_machine}}$$
 
-2. **Standard Crafting Nodes (`!recipe.input_ports.empty() && !node.input_ports.empty()`):**
-   $$\text{input\_per\_machine} = \frac{\text{recipe.input}[0].\text{amount}}{\text{recipe.time\_seconds}} \cdot B \cdot U \cdot C$$
-   $$M_n = \frac{R_{\text{node.input}[0]}}{\text{input\_per\_machine}}$$
+2. **Standard Crafting Nodes:**
+   Finds the first input port that is not `"nothing"` and has $\text{recipe.input}[i].\text{amount} > 0.0$:
+   $$\text{input\_per\_machine} = \frac{\text{recipe.input}[i].\text{amount}}{\text{recipe.time\_seconds}} \cdot B \cdot U \cdot C$$
+   $$M_n = \frac{R_{\text{node.input}[i]}}{\text{input\_per\_machine}}$$
+   If no positive non-"nothing" input port exists (e.g. all inputs are non-consumed catalysts with amount 0.0), falls back to the first positive output port as in branch 3.
 
 3. **Output-Only Nodes (`!recipe.output_ports.empty() && !node.output_ports.empty()`):**
-   $$\text{output\_per\_machine} = \frac{\text{recipe.output}[0].\text{amount} \cdot P}{\text{recipe.time\_seconds}} \cdot B \cdot U \cdot C$$
-   $$M_n = \frac{R_{\text{node.output}[0]}}{\text{output\_per\_machine}}$$
+   $$\text{output\_per\_machine} = \frac{\text{recipe.output}[i].\text{amount} \cdot P}{\text{recipe.time\_seconds}} \cdot B \cdot U \cdot C$$
+   $$M_n = \frac{R_{\text{node.output}[i]}}{\text{output\_per\_machine}}$$
 
 If `output_per_machine` or `input_per_machine` $\le 0.0$, $M_n = 0.0$.
 
@@ -259,7 +263,7 @@ This prevents iteration order variations of `std::unordered_map` from affecting 
 If the solve fails (`result != SolverResultStatus::SUCCESS`):
 - All port `rate` and `excess_rate` in the graph are set to `0.0`.
 - All connection `rate` in the graph are set to `0.0`.
-- **`node.machine_count` is not reset** (nodes retain their pre-solve values).
+- All `node.machine_count` in the graph are reset to `0.0` (clearing stale values from previous solves).
 - An error is logged via Abseil: `LOG(ERROR) << "Solver failed with status: " << m_lastSolverStatus`.
 
 ### 8.3 Exception Handling

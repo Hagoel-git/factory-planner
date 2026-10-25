@@ -267,7 +267,7 @@ Scope: `src/core/graph/*`, `src/services/UndoRedoSystem.*`
       ```
       Currently, when `result.status != SUCCESS`, `node->machine_count` retains its previous value (e.g. 1.0).
     - **Confidence:** 100%
-    - **Status:** fix
+    - **Status:** fixed
 
 16. **Phase 1 water-filling sum-maximization heuristic falsely classifies competing targets as bottlenecked, breaking fair max-min satisfaction.**
     - **Severity:** wrong result
@@ -361,7 +361,7 @@ Scope: `src/core/graph/*`, `src/services/UndoRedoSystem.*`
       }
       ```
     - **Confidence:** 95%
-    - **Status:** fix
+    - **Status:** fixed
 
 19. **`solveLexicographic` masks Phase 1 and Phase 2 solver failures, returning `SUCCESS` when terminal Phase 3 solves.**
     - **Severity:** wrong result
@@ -371,7 +371,7 @@ Scope: `src/core/graph/*`, `src/services/UndoRedoSystem.*`
     - **Reproduction / failing test idea:**
       If any solver numerical anomaly or constraint contradiction occurs during Phase 1, verify that `solveLexicographic` captures the failure status and returns it instead of allowing Phase 3 to overwrite the return status with `OPTIMAL`.
     - **Confidence:** 95%
-    - **Status:** fix
+    - **Status:** fixed
 
 20. **Unconnected output ports never register excess rate or excess waste in Phase 3.**
     - **Severity:** minor
