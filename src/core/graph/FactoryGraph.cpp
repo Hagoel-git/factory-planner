@@ -17,10 +17,16 @@ uint64_t FactoryGraph::addNode(const std::string &name, std::string recipe_key) 
 }
 
 void FactoryGraph::restoreNode(const Node &node, const std::vector<Port> &ports) {
+    if (node.id >= m_nextNodeId) {
+        m_nextNodeId = node.id + 1;
+    }
     m_nodes.push_back(node);
     size_t index = m_nodes.size() - 1;
     addNodeToIndex(node.id, index);
     for (const auto& port : ports) {
+        if (port.id >= m_nextPortId) {
+            m_nextPortId = port.id + 1;
+        }
         this->m_ports.push_back(port);
         addPortToIndex(port.id, this->m_ports.size() - 1);
     }

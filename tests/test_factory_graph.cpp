@@ -819,6 +819,31 @@ TEST_F(FactoryGraphTest, RestoreNodeAndConnection) {
     EXPECT_EQ(graph->getConnectionsForPort(101).size(), 1);
 }
 
+TEST_F(FactoryGraphTest, RestoreNodeAdvancesNextIdsPreventingCollision) {
+    Node n("Restored Node", 0);
+    Port p(0, 0, "iron_ore");
+    n.output_ports.push_back(p.id);
+
+    graph->restoreNode(n, {p});
+
+    uint64_t newId = graph->addNode("New Miner", "mine_ore");
+    EXPECT_GT(newId, 0);
+    EXPECT_NE(graph->getNode(0), nullptr);
+    EXPECT_NE(graph->getNode(newId), nullptr);
+    EXPECT_EQ(graph->getNode(0)->name, "Restored Node");
+    EXPECT_EQ(graph->getNode(newId)->name, "New Miner");
+
+    Node n2("High ID Node", 500);
+    Port p2(501, 500, "iron_ore");
+    n2.output_ports.push_back(p2.id);
+    graph->restoreNode(n2, {p2});
+
+    uint64_t afterHighId = graph->addNode("Another Miner", "mine_ore");
+    EXPECT_GT(afterHighId, 500);
+    EXPECT_NE(graph->getNode(500), nullptr);
+    EXPECT_NE(graph->getNode(afterHighId), nullptr);
+}
+
 TEST_F(FactoryGraphTest, SerializeAndDeserialize) {
     // 1. Build a graph
     uint64_t n1 = addNode("mine_ore");

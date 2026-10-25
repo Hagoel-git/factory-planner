@@ -4,6 +4,10 @@ This document holds the user-facing changelog that is also used in release notes
 
 ## Unreleased
 
+### Fixed
+- Fixed crash when undo/redo commands (`AddNodeCommand`, `RemoveNodeCommand`, `MoveNodeCommand`, `PasteCommand`) execute in headless mode or without an active canvas editor context.
+- Fixed potential ID collisions and graph index corruption when restoring nodes by advancing next node and port ID counters in `FactoryGraph::restoreNode`.
+
 ### Removed
 - Removed the in-app Game Data Editor and the "Game Data Manager" menu entry.
 
