@@ -7,6 +7,7 @@
 #include "services/RecentFiles.h"
 #include "common/FilesystemUtils.h"
 #include "common/FramePacer.h"
+#include "common/IdUtils.h"
 #include <imgui.h>
 #include <imgui_internal.h>
 #include "services/NotificationManager.h"
@@ -813,4 +814,44 @@ TEST_F(ApplicationLifecycleTest, Issue1_1_PinRendering_UnknownResourceDoesNotThr
     ImGui::EndFrame();
 }
 
+TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_CutClearsSelection) {
+    GameData gd;
+    gd.gameName = "TestGame";
+    gd.machines["miner"] = Machine{"Miner", 1, 0};
+    Recipe mine_ore;
+    mine_ore.name = "Mine Iron Ore";
+    mine_ore.produced_in_machines_keys.push_back("miner");
+    mine_ore.output_ports.push_back(RecipePort{30.0, "iron_ore"});
+    gd.recipes["mine_ore"] = mine_ore;
+
+    FactoryNodeEditor editor(gd, "", "CutTest");
+    ax::NodeEditor::SetCurrentEditor(editor.getContext());
+
+    uint64_t nodeId = editor.getGraph()->addNode("Mine Iron Ore", "mine_ore");
+    ASSERT_NE(editor.getGraph()->getNode(nodeId), nullptr);
+
+    // Draw one frame so imgui-node-editor registers the node
+    ImGui::NewFrame();
+    editor.draw();
+    ImGui::EndFrame();
+
+    // Select the node in ax::NodeEditor
+    ax::NodeEditor::SetCurrentEditor(editor.getContext());
+    ax::NodeEditor::SelectNode(IdUtils::toNodeId(nodeId), false);
+    ASSERT_EQ(ax::NodeEditor::GetSelectedObjectCount(), 1);
+    ASSERT_TRUE(ax::NodeEditor::IsNodeSelected(IdUtils::toNodeId(nodeId)));
+
+    CopyBuffer copyBuffer;
+    editor.cut(copyBuffer);
+
+    // Node is cut to copyBuffer and removed from graph
+    EXPECT_FALSE(copyBuffer.isEmpty());
+    EXPECT_EQ(editor.getGraph()->getNode(nodeId), nullptr);
+
+    // Selection in ax::NodeEditor must be cleared
+    EXPECT_EQ(ax::NodeEditor::GetSelectedObjectCount(), 0);
+    EXPECT_FALSE(ax::NodeEditor::IsNodeSelected(IdUtils::toNodeId(nodeId)));
+
+    ax::NodeEditor::SetCurrentEditor(nullptr);
+}
 

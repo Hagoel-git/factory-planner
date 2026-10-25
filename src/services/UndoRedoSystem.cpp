@@ -320,7 +320,6 @@ void PasteCommand::execute(FactoryGraph &graph) {
                         if (oldPortIt != copy_buffer.ports.end()) {
                             newPort->user_constraint = oldPortIt->second.user_constraint;
                         }
-                        pastedPorts.insert({newNodeId, *newPort});
                     }
                 }
                 size_t outputCount = std::min(oldNode.output_ports.size(), newNode->output_ports.size());
@@ -335,6 +334,18 @@ void PasteCommand::execute(FactoryGraph &graph) {
                         if (oldPortIt != copy_buffer.ports.end()) {
                             newPort->user_constraint = oldPortIt->second.user_constraint;
                         }
+                    }
+                }
+
+                for (uint64_t newPortId : newNode->input_ports) {
+                    Port* newPort = graph.getPort(newPortId);
+                    if (newPort) {
+                        pastedPorts.insert({newNodeId, *newPort});
+                    }
+                }
+                for (uint64_t newPortId : newNode->output_ports) {
+                    Port* newPort = graph.getPort(newPortId);
+                    if (newPort) {
                         pastedPorts.insert({newNodeId, *newPort});
                     }
                 }

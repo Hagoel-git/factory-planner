@@ -862,6 +862,41 @@ TEST_F(ConcreteCommandsTest, PasteCommand_PreservesMachineClockMultiplier_UndoRe
     EXPECT_DOUBLE_EQ(redone.production_multiplier, 250.0);
 }
 
+TEST_F(ConcreteCommandsTest, PasteCommand_NodeWithMorePortsThanClipboard_RestoresAllPortsOnRedo) {
+    CopyBuffer buffer;
+    Node n;
+    n.id = 700;
+    n.name = "Plates Node";
+    n.selected_recipe_key = "make_plates"; // has 1 input port and 1 output port
+    // Clipboard node has 0 input and 0 output ports (fewer than the recipe has)
+    buffer.nodes[700] = n;
+    buffer.nodePositions[700] = ImVec2(100.0f, 150.0f);
+
+    auto pasteCmd = std::make_unique<PasteCommand>(buffer, false);
+    manager->executeCommand(std::move(pasteCmd), *graph);
+
+    ASSERT_EQ(graph->getNodes().size(), 1);
+    const Node& pasted = graph->getNodes()[0];
+    ASSERT_EQ(pasted.input_ports.size(), 1);
+    ASSERT_EQ(pasted.output_ports.size(), 1);
+    uint64_t inPortId = pasted.input_ports[0];
+    uint64_t outPortId = pasted.output_ports[0];
+    EXPECT_NE(graph->getPort(inPortId), nullptr);
+    EXPECT_NE(graph->getPort(outPortId), nullptr);
+
+    // Undo removes node and ports
+    manager->undo(*graph);
+    EXPECT_TRUE(graph->getNodes().empty());
+    EXPECT_TRUE(graph->getPorts().empty());
+
+    // Redo must restore all ports in graph->m_ports
+    manager->redo(*graph);
+    ASSERT_EQ(graph->getNodes().size(), 1);
+    EXPECT_EQ(graph->getPorts().size(), 2);
+    EXPECT_NE(graph->getPort(inPortId), nullptr);
+    EXPECT_NE(graph->getPort(outPortId), nullptr);
+}
+
 TEST_F(ConcreteCommandsTest, PasteCommand_MissingNodePosition_DoesNotThrow) {
     CopyBuffer buffer;
     Node n;

@@ -281,6 +281,7 @@ void FactoryNodeEditor::cut(CopyBuffer &copyBuffer) {
         cmd->addCommand(std::make_unique<RemoveNodeCommand>(nodeId));
     }
     executeCommand(std::move(cmd));
+    ed::ClearSelection();
     VLOG(1) << "Cut " << copyBuffer.nodes.size() << " nodes to clipboard. At " << m_editorName;
 }
 

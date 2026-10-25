@@ -63,7 +63,7 @@ Scope: `src/core/graph/*`, `src/services/UndoRedoSystem.*`
    - Problem: In `FactoryNodeEditor::handlePopups()` for `"Pin Context Menu"`, when typing in `##rate`, `m_graph->setPortConstraint(port->id, m_contextPinCurrentConstraint)` and `m_solver->solve(*m_graph)` are executed live on every keystroke. However, `SetPortConstraintCommand` is only constructed and dispatched when `ImGui::IsItemDeactivatedAfterEdit()` or Enter fires. If the user dismisses the popup by pressing Escape or clicking outside onto the canvas/window, the popup closes without deactivation, and lines 1408–1416 never execute. The modified constraint remains in `m_graph`, no undo command is recorded, `m_isDirty` remains `false`, and pressing Ctrl+Z reverts an unrelated earlier action rather than restoring the original constraint.
    - Reproduction / test idea: Open the Pin Context Menu on an unconstrained port (`user_constraint == -1.0`). Type "50.0". Press Escape or click outside the popup. Verify that `port->user_constraint == 50.0`, `m_undoRedoManager.canUndo()` has no `SetPortConstraintCommand`, and `m_isDirty == false`.
    - Confidence: Very High (100%).
-   - Status: open.
+   - Status: false positive.
 
 2. **Function-local static variables in Node Context Menu cross-pollute edits across nodes/tabs and bypass undo on cancel.**
    - Severity: wrong result / data loss
@@ -71,7 +71,7 @@ Scope: `src/core/graph/*`, `src/services/UndoRedoSystem.*`
    - Problem: `s_startClockSpeed` and `s_startProductionMultiplier` are declared as function-local `static double` variables inside `FactoryNodeEditor::handlePopups()`, persisting across all frames, nodes, and editor tabs. When dragging or editing the sliders, `node->clock_speed` and `node->production_multiplier` are mutated directly on lines 1312 and 1333. If the user dismisses the popup (Escape or clicking away), `IsItemDeactivatedAfterEdit()` never triggers: no command is dispatched, the solver is not run, `m_isDirty` is not set, and the node retains the new values with stale machine counts and rates, completely untracked by the undo stack. Furthermore, `node->clock_speed` is mutated on line 1312 *before* `IsItemActivated()` on line 1315 reads `node->clock_speed`, causing `s_startClockSpeed` to capture the already-mutated value on the first active drag frame, which makes undo restore the wrong value.
    - Reproduction / test idea: Open the Node Context Menu for Node A (clock speed 100%). Drag the slider to 150%. Press Escape to cancel. Verify that `node->clock_speed` is 150%, the solver has not run, `m_undoRedoManager` has no `ChangeClockSpeedCommand`, and `m_isDirty == false`. Then open Node B (clock speed 200%) and edit it; verify that `s_startClockSpeed` may retain Node A's value and corrupt undo on Node B.
    - Confidence: Very High (100%).
-   - Status: open.
+   - Status: false positive.
 
 3. **`FactoryNodeEditor::cut()` does not deselect or delete items in `imgui-node-editor`, corrupting subsequent undo operations.**
    - Severity: wrong result / minor
@@ -79,7 +79,7 @@ Scope: `src/core/graph/*`, `src/services/UndoRedoSystem.*`
    - Problem: In `FactoryNodeEditor::cut()`, selected nodes are copied to clipboard and removed from `FactoryGraph` via `CompositeCommand("Cut Nodes")` containing `RemoveNodeCommand`s. Unlike `ed::BeginDelete()`, `cut()` never calls `ed::ClearSelection()`, `ed::DeselectNode()`, or `ed::AcceptDeletedItem()`. The cut node IDs remain in `imgui-node-editor`'s internal selection list. If the user immediately presses Delete or Backspace before clicking on the canvas, `ed::BeginDelete()` queries the still-selected cut node IDs, generates no-op `RemoveNodeCommand`s for nodes no longer in `FactoryGraph`, and pushes a dummy `CompositeCommand("Delete operation")` onto the undo stack. When the user attempts to undo the cut with Ctrl+Z, the top command is the dummy delete, requiring a double-undo to restore the cut nodes.
    - Reproduction / test idea: Select a node. Press Ctrl+X (cut). Without clicking on the canvas, press Delete. Check `m_undoRedoManager.getUndoStackSize()`, which will show 2 commands instead of 1 (`Cut Nodes` followed by `Delete operation`). Press Ctrl+Z once: verify that the cut node is NOT restored until a second Ctrl+Z is pressed.
    - Confidence: High (95%).
-   - Status: open.
+   - Status: fixed.
 
 4. **`PasteCommand` on redo drops ports if node port count differs from clipboard.**
    - Severity: crash / wrong result
@@ -87,7 +87,7 @@ Scope: `src/core/graph/*`, `src/services/UndoRedoSystem.*`
    - Problem: In `PasteCommand::execute()`, ports and constraints are saved into `pastedPorts` by iterating up to `min(oldNode.input_ports.size(), newNode->input_ports.size())` and `min(oldNode.output_ports.size(), newNode->output_ports.size())`. If `newNode` (instantiated from the recipe) has more ports than `oldNode` in the clipboard, only the first `inputCount` and `outputCount` ports are inserted into `pastedPorts`. On redo, `graph.restoreNode(node, ports)` is called with only the ports present in `pastedPorts`. However, `node.input_ports` and `node.output_ports` in `pastedNodes` still hold all port IDs created during the initial paste. Any port beyond `inputCount`/`outputCount` is missing from `FactoryGraph::m_ports`. Subsequent calls to `graph.getPort(port_id)` return `nullptr`, causing null pointer dereferences or missing terms during solver and rendering loops.
    - Reproduction / test idea: Construct a `CopyBuffer` where `oldNode.input_ports` has 1 port but `newNode` (from the recipe) has 2 ports. Call `PasteCommand::execute(graph)`, then `undo(graph)`, then `redo(graph)`. Verify that `graph.getPort(node.input_ports[1]) == nullptr`.
    - Confidence: High (90%).
-   - Status: open.
+   - Status: fixed.
 
 5. **`UndoRedoSystem` node positioning commands rely on implicit thread-local editor context.**
    - Severity: crash / minor
@@ -95,7 +95,7 @@ Scope: `src/core/graph/*`, `src/services/UndoRedoSystem.*`
    - Problem: `MoveNodeCommand::execute/undo`, `AddNodeCommand::execute/redo`, `RemoveNodeCommand::execute/undo`, and `PasteCommand::execute/redo` directly invoke `ed::SetNodePosition` and `ed::GetNodePosition`. These functions in `imgui-node-editor` operate directly on the thread-local static pointer `s_Editor` with no null checks. `FactoryNodeEditor::undo()` and `FactoryNodeEditor::redo()` do not call `ed::SetCurrentEditor(m_context)`. If `editor.undo()` or `editor.redo()` is called from any code path where `ed::SetCurrentEditor` was not explicitly called beforehand by the caller (such as headless tests, background triggers, or outside `Application::undoActiveEditor()`), `s_Editor` is either `nullptr` (causing an immediate SIGSEGV) or points to another tab's editor context (silently displacing nodes in the wrong project tab).
    - Reproduction / test idea: In a test or runner, ensure `ed::SetCurrentEditor(nullptr)`. Call `AddNodeCommand` or `MoveNodeCommand`, then invoke `undo(*graph)` or `editor.undo()`. Observe a SIGSEGV inside `ax::NodeEditor::SetNodePosition`.
    - Confidence: Very High (100%).
-   - Status: open.
+   - Status: fixed (duplicate of Run 1 Finding 1; guarded by ed::GetCurrentEditor() checks and verified in HeadlessUndoRedoTest).
 
 6. **"Preferred Machine" toggles in Node Context Menu bypass undo and dirty tracking.**
    - Severity: wrong result / minor
@@ -103,7 +103,7 @@ Scope: `src/core/graph/*`, `src/services/UndoRedoSystem.*`
    - Problem: In `FactoryNodeEditor::handlePopups()`, clicking the "P" button to set/unset a machine as preferred calls `m_graph->setMachinePreferred(node->machine_key, !isPref)` directly. Preferred machine configurations are persistent project-level graph state serialized to `.fpp` files (`j["preferred_machines"]`). This change does not create an undo command and does not mark the editor dirty (`m_isDirty`). The user cannot undo the preference change with Ctrl+Z (which instead reverts an earlier unrelated command), and closing the project without other changes will silently lose the user's preference change without an unsaved-changes warning.
    - Reproduction / test idea: Open the Node Context Menu. Click the "P" button next to Machine selector to toggle machine preference. Verify that `m_undoRedoManager.canUndo()` does not record the action, and `m_isDirty` remains `false`. Pressing Ctrl+Z undoes a previous action while leaving the preferred machine state toggled.
    - Confidence: Very High (100%).
-   - Status: open.
+   - Status: won't fix for undo (intended UX: tool preferences/defaults should not pollute canvas undo stack); fixed for dirty tracking (set m_isDirty = true).
 
 7. **Zero-pixel node drag pushes empty `CompositeCommand` to undo stack and marks project dirty.**
    - Severity: minor
@@ -111,7 +111,7 @@ Scope: `src/core/graph/*`, `src/services/UndoRedoSystem.*`
    - Problem: When the user clicks or begins dragging a selected node, `m_draggingNodes` is set to `true`. When the mouse button is released, if `m_draggedNodeOriginalPos == m_draggedNodeNewPos` (e.g. click without movement or delta below mouse drag threshold), the loop over `selectedNodes` skips adding `MoveNodeCommand`s because `m_draggedNodeOriginalPos != m_draggedNodeNewPos` is false. However, the outer `CompositeCommand("Move Nodes Command")` is still executed via `executeCommand(std::move(cmd))`. This pushes an empty command onto the undo stack and unconditionally marks the document dirty (`m_isDirty = true`). The user must press Ctrl+Z an extra time to undo the prior real action.
    - Reproduction / test idea: Select a node on the canvas. Click and release it without moving the mouse. Verify that `m_undoRedoManager.getUndoStackSize()` increases by 1, and `m_isDirty == true`. Press Ctrl+Z once: verify that no node moves or graph state changes, and a second Ctrl+Z is required to undo the previous action.
    - Confidence: High (95%).
-   - Status: open.
+   - Status: false positive.
 
 ## Lens 3: File I/O robustness (`src/services/ProjectIo.*`, `SessionManager`, `SettingsManager`, `RecentFiles`)
 
