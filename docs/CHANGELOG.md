@@ -20,6 +20,9 @@ This document holds the user-facing changelog that is also used in release notes
 - Fixed toggling preferred machines in the node context menu not marking the project dirty.
 - Fixed false bottleneck classification in solver Phase 1 (Target Water-Filling) where competing targets sharing common upstream capacity were prematurely frozen at low throughput instead of receiving fair, proportional resource allocation.
 - Fixed passive supply capacity limits (e.g. miners, resource wells) aggressively pushing maximum throughput and producing unwanted downstream product excess when active demand targets exist in the factory.
+- Fixed nodes retaining stale, non-zero machine counts on the canvas after a failed solve.
+- Fixed machine counts evaluating to zero for multi-input recipes where the first ingredient has zero consumption (such as non-consumed catalysts or auxiliary slots).
+- Fixed solver masking Phase 1 and Phase 2 optimization failures (such as unbounded production cycles) and falsely reporting a successful solve.
 
 ### Removed
 - Removed the in-app Game Data Editor and the "Game Data Manager" menu entry.

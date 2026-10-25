@@ -984,3 +984,157 @@ TEST_F(FactorySolverTest, Phase2LeafThroughput_SupplyLimitDoesNotPushUnwantedOve
     EXPECT_NEAR(p_miner_out->rate, 15.0, 0.001);
     EXPECT_NEAR(p_miner_out->excess_rate, 0.0, 0.001);
 }
+
+TEST_F(FactorySolverTest, MultiInputRecipeWithZeroAmountIngredientDerivesMachineCount) {
+    Recipe cat_recipe;
+    cat_recipe.name = "Catalytic Smelting";
+    cat_recipe.produced_in_machines_keys.push_back("smelter");
+    cat_recipe.input_ports.push_back(RecipePort{0.0, "copper_ingot"}); // 0 amount catalyst
+    cat_recipe.input_ports.push_back(RecipePort{30.0, "iron_ore"});
+    cat_recipe.output_ports.push_back(RecipePort{30.0, "iron_ingot"});
+    cat_recipe.time_seconds = 1.0;
+    testGameData.recipes["cat_recipe"] = cat_recipe;
+
+    graph = std::make_unique<FactoryGraph>(testGameData);
+    uint64_t n_miner = addNode("mine_ore");
+    uint64_t n_cat = graph->addNode("Cat Smelter", "cat_recipe");
+    addConnection(getPort(n_miner, "iron_ore", false), getPort(n_cat, "iron_ore", true));
+    graph->setPortConstraint(getPort(n_cat, "iron_ingot", false)->id, 30.0);
+
+    auto result = solver->solve(*graph);
+    ASSERT_EQ(result.status, FactorySolver::SolverResultStatus::SUCCESS);
+    EXPECT_NEAR(graph->getNode(n_cat)->machine_count, 1.0, 0.001);
+}
+
+TEST_F(FactorySolverTest, MultiInputRecipeWithZeroAmountCatalystNothingDerivesMachineCount) {
+    Recipe cat_recipe;
+    cat_recipe.name = "Catalytic Smelting With Nothing";
+    cat_recipe.produced_in_machines_keys.push_back("smelter");
+    cat_recipe.input_ports.push_back(RecipePort{0.0, "nothing"});
+    cat_recipe.input_ports.push_back(RecipePort{30.0, "iron_ore"});
+    cat_recipe.output_ports.push_back(RecipePort{30.0, "iron_ingot"});
+    cat_recipe.time_seconds = 1.0;
+    testGameData.recipes["cat_recipe_nothing"] = cat_recipe;
+
+    graph = std::make_unique<FactoryGraph>(testGameData);
+    uint64_t n_miner = addNode("mine_ore");
+    uint64_t n_cat = graph->addNode("Cat Smelter Nothing", "cat_recipe_nothing");
+    addConnection(getPort(n_miner, "iron_ore", false), getPort(n_cat, "iron_ore", true));
+    graph->setPortConstraint(getPort(n_cat, "iron_ingot", false)->id, 30.0);
+
+    auto result = solver->solve(*graph);
+    ASSERT_EQ(result.status, FactorySolver::SolverResultStatus::SUCCESS);
+    EXPECT_NEAR(graph->getNode(n_cat)->machine_count, 1.0, 0.001);
+}
+
+TEST_F(FactorySolverTest, AllZeroAmountInputsFallBackToOutputForMachineCount) {
+    Recipe zero_in_recipe;
+    zero_in_recipe.name = "Zero Input Recipe";
+    zero_in_recipe.produced_in_machines_keys.push_back("smelter");
+    zero_in_recipe.input_ports.push_back(RecipePort{0.0, "copper_ingot"});
+    zero_in_recipe.output_ports.push_back(RecipePort{30.0, "iron_ingot"});
+    zero_in_recipe.time_seconds = 1.0;
+    testGameData.recipes["zero_in_recipe"] = zero_in_recipe;
+
+    graph = std::make_unique<FactoryGraph>(testGameData);
+    uint64_t n_node = graph->addNode("Zero In Smelter", "zero_in_recipe");
+    graph->setPortConstraint(getPort(n_node, "iron_ingot", false)->id, 30.0);
+
+    auto result = solver->solve(*graph);
+    ASSERT_EQ(result.status, FactorySolver::SolverResultStatus::SUCCESS);
+    EXPECT_NEAR(graph->getNode(n_node)->machine_count, 1.0, 0.001);
+}
+
+TEST_F(FactorySolverTest, UnboundedPhase2FailureNotMaskedByPhase3) {
+    Recipe amp_a;
+    amp_a.name = "Amp A";
+    amp_a.produced_in_machines_keys.push_back("smelter");
+    amp_a.input_ports.push_back(RecipePort{1.0, "iron_ore"});
+    amp_a.output_ports.push_back(RecipePort{2.0, "iron_ingot"});
+    amp_a.time_seconds = 1.0;
+    testGameData.recipes["amp_a"] = amp_a;
+
+    Recipe amp_b;
+    amp_b.name = "Amp B";
+    amp_b.produced_in_machines_keys.push_back("smelter");
+    amp_b.input_ports.push_back(RecipePort{1.0, "iron_ingot"});
+    amp_b.output_ports.push_back(RecipePort{2.0, "iron_ore"});
+    amp_b.output_ports.push_back(RecipePort{1.0, "screw"}); // unconstrained leaf output
+    amp_b.time_seconds = 1.0;
+    testGameData.recipes["amp_b"] = amp_b;
+
+    graph = std::make_unique<FactoryGraph>(testGameData);
+    uint64_t n_miner = addNode("mine_ore");
+    uint64_t n_a = graph->addNode("Amp Node A", "amp_a");
+    uint64_t n_b = graph->addNode("Amp Node B", "amp_b");
+
+    Port* p_miner_out = getPort(n_miner, "iron_ore", false);
+    Port* p_a_in = getPort(n_a, "iron_ore", true);
+    Port* p_a_out = getPort(n_a, "iron_ingot", false);
+    Port* p_b_in = getPort(n_b, "iron_ingot", true);
+    Port* p_b_out_ore = getPort(n_b, "iron_ore", false);
+    Port* p_b_out_screw = getPort(n_b, "screw", false);
+
+    addConnection(p_miner_out, p_a_in);
+    addConnection(p_a_out, p_b_in);
+    addConnection(p_b_out_ore, p_a_in);
+
+    // Limit miner capacity so reachability traverses into cycle in Phase 2
+    graph->setPortConstraint(p_miner_out->id, 10.0);
+
+    auto result = solver->solve(*graph);
+    // Before fix: Phase 2 failure was ignored and Phase 3 returned SUCCESS (masking the failure).
+    // After fix: Returns INFEASIBLE (dual infeasibility of unbounded cycle).
+    EXPECT_EQ(result.status, FactorySolver::SolverResultStatus::INFEASIBLE);
+}
+
+TEST_F(FactorySolverTest, StaleMachineCountsResetOnFailedSolve) {
+    Recipe amp_a;
+    amp_a.name = "Amp A";
+    amp_a.produced_in_machines_keys.push_back("smelter");
+    amp_a.input_ports.push_back(RecipePort{1.0, "iron_ore"});
+    amp_a.output_ports.push_back(RecipePort{2.0, "iron_ingot"});
+    amp_a.time_seconds = 1.0;
+    testGameData.recipes["amp_a"] = amp_a;
+
+    Recipe amp_b;
+    amp_b.name = "Amp B";
+    amp_b.produced_in_machines_keys.push_back("smelter");
+    amp_b.input_ports.push_back(RecipePort{1.0, "iron_ingot"});
+    amp_b.output_ports.push_back(RecipePort{2.0, "iron_ore"});
+    amp_b.output_ports.push_back(RecipePort{1.0, "screw"});
+    amp_b.time_seconds = 1.0;
+    testGameData.recipes["amp_b"] = amp_b;
+
+    graph = std::make_unique<FactoryGraph>(testGameData);
+    uint64_t n_miner = addNode("mine_ore");
+    uint64_t n_smelter = addNode("smelt_ingot");
+    Port* p_miner_out = getPort(n_miner, "iron_ore", false);
+    Port* p_smelter_in = getPort(n_smelter, "iron_ore", true);
+    Port* p_smelter_out = getPort(n_smelter, "iron_ingot", false);
+    addConnection(p_miner_out, p_smelter_in);
+    graph->setPortConstraint(p_miner_out->id, 30.0); // Capacity limit
+
+    auto result1 = solver->solve(*graph);
+    ASSERT_EQ(result1.status, FactorySolver::SolverResultStatus::SUCCESS);
+    ASSERT_NEAR(graph->getNode(n_smelter)->machine_count, 1.0, 0.001);
+    ASSERT_NEAR(graph->getNode(n_miner)->machine_count, 1.0, 0.001);
+
+    // Now introduce an unbounded cycle in the same graph to cause solver failure
+    uint64_t n_a = graph->addNode("Amp Node A", "amp_a");
+    uint64_t n_b = graph->addNode("Amp Node B", "amp_b");
+    Port* p_a_in = getPort(n_a, "iron_ore", true);
+    Port* p_a_out = getPort(n_a, "iron_ingot", false);
+    Port* p_b_in = getPort(n_b, "iron_ingot", true);
+    Port* p_b_out_ore = getPort(n_b, "iron_ore", false);
+
+    addConnection(p_miner_out, p_a_in);
+    addConnection(p_a_out, p_b_in);
+    addConnection(p_b_out_ore, p_a_in);
+
+    auto result2 = solver->solve(*graph);
+    EXPECT_NE(result2.status, FactorySolver::SolverResultStatus::SUCCESS);
+    // When solve fails (non-SUCCESS), machine counts of ALL nodes must be reset to 0.0.
+    EXPECT_DOUBLE_EQ(graph->getNode(n_smelter)->machine_count, 0.0);
+    EXPECT_DOUBLE_EQ(graph->getNode(n_miner)->machine_count, 0.0);
+}
