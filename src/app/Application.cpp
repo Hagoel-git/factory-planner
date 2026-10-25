@@ -18,6 +18,66 @@
 #include "services/SessionManager.h"
 #include "services/TextureManager.h"
 
+namespace {
+
+std::vector<std::string> getParentComponents(const std::filesystem::path& p) {
+    std::vector<std::string> comps;
+    std::filesystem::path cur = p.lexically_normal().parent_path();
+    while (cur.has_filename() && cur != cur.parent_path()) {
+        std::string fn = cur.filename().generic_string();
+        if (!fn.empty()) {
+            comps.push_back(fn);
+        }
+        cur = cur.parent_path();
+    }
+    return comps;
+}
+
+std::string getDisambiguatedPathSuffix(const std::filesystem::path& target,
+                                      const std::vector<std::filesystem::path>& collidingPaths) {
+    if (target.empty() || !target.has_parent_path()) {
+        return "";
+    }
+
+    auto targetComps = getParentComponents(target);
+    if (targetComps.empty()) {
+        return target.parent_path().filename().generic_string();
+    }
+
+    size_t maxDepthNeeded = 1;
+
+    for (const auto& other : collidingPaths) {
+        if (other.empty() || other == target) {
+            continue;
+        }
+        auto otherComps = getParentComponents(other);
+        size_t depth = 0;
+        while (depth < targetComps.size() && depth < otherComps.size()) {
+            if (targetComps[depth] != otherComps[depth]) {
+                break;
+            }
+            depth++;
+        }
+        size_t needed = depth + 1;
+        if (needed > maxDepthNeeded) {
+            maxDepthNeeded = needed;
+        }
+    }
+
+    maxDepthNeeded = std::min(maxDepthNeeded, targetComps.size());
+
+    std::string result;
+    for (size_t i = maxDepthNeeded; i > 0; --i) {
+        if (!result.empty()) {
+            result += "/";
+        }
+        result += targetComps[i - 1];
+    }
+    return result;
+}
+
+} // namespace
+
 Application::Application() {
     VLOG(2) << "Application starting up.";
     SettingsManager::instance().load();
@@ -437,9 +497,9 @@ void Application::drawMenuBar() {
                     ImGui::TextDisabled("No recent files");
                 } else {
                     // Detect duplicates to determine how to display them
-                    std::map<std::string, int> nameCounts;
+                    std::map<std::string, std::vector<std::filesystem::path>> stemPaths;
                     for (const auto &file : recentFiles) {
-                        nameCounts[file.stem().string()]++;
+                        stemPaths[file.stem().string()].push_back(file);
                     }
 
                     for (size_t i = 0; i < recentFiles.size(); ++i) {
@@ -447,8 +507,18 @@ void Application::drawMenuBar() {
                         std::string stem = file.stem().string();
                         std::string displayName = stem;
 
-                        if (nameCounts[stem] > 1) {
-                            displayName += " (" + file.parent_path().filename().string() + ")";
+                        const auto& others = stemPaths[stem];
+                        if (others.size() > 1) {
+                            std::vector<std::filesystem::path> colliding;
+                            for (const auto& other : others) {
+                                if (other != file) {
+                                    colliding.push_back(other);
+                                }
+                            }
+                            std::string suffix = getDisambiguatedPathSuffix(file, colliding);
+                            if (!suffix.empty()) {
+                                displayName += " (" + suffix + ")";
+                            }
                         }
 
                         bool exists = std::filesystem::exists(file);
@@ -1582,16 +1652,20 @@ std::string Application::getTabTitle(size_t index) const {
     std::string displayName = editor->getName();
 
     int count = 0;
-    for (const auto& other : m_editors) {
-        if (other && other->getName() == editor->getName()) {
+    std::vector<std::filesystem::path> collidingPaths;
+    for (size_t j = 0; j < m_editors.size(); ++j) {
+        if (m_editors[j] && m_editors[j]->getName() == editor->getName()) {
             count++;
+            if (j != index && !m_editors[j]->getProjectFilePath().empty()) {
+                collidingPaths.push_back(m_editors[j]->getProjectFilePath());
+            }
         }
     }
 
     if (count > 1 && !editor->getProjectFilePath().empty()) {
-        std::string parentName = editor->getProjectFilePath().parent_path().filename().string();
-        if (!parentName.empty()) {
-            displayName += " (" + parentName + ")";
+        std::string suffix = getDisambiguatedPathSuffix(editor->getProjectFilePath(), collidingPaths);
+        if (!suffix.empty()) {
+            displayName += " (" + suffix + ")";
         }
     }
 

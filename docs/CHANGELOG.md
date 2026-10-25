@@ -5,6 +5,7 @@ This document holds the user-facing changelog that is also used in release notes
 ## Unreleased
 
 ### Fixed
+- Improved tab and recent file disambiguation when multiple open projects share identical filenames and parent folder names by walking ancestor directory components up to the differing directory (e.g. `1 (instance1/projects/myproj)` vs `1 (instance2/projects/myproj)`).
 - Fixed crash on application startup when `app_settings.json` contains non-positive window dimensions by enforcing minimum safe dimensions (640x480).
 - Fixed crash (`std::length_error`) on project open when `maxRecentFiles` setting is negative.
 - Fixed potential assertion and memory errors from out-of-bounds `navigationButtonIndex` in settings by validating to supported mouse buttons (Right or Middle).
