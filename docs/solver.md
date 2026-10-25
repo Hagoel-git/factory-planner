@@ -161,7 +161,7 @@ When active targets exist:
 Phase 2 maximizes production of unconsumed leaf outputs reachable from constrained ports:
 
 1. **Reachability Analysis (`findReachablePorts`):**
-   Forward BFS starting from all ports with `user_constraint >= 0`. Traverses forward connection wires ($F_c$) and internal node connections (all input ports to all output ports).
+   Forward BFS starting from constrained ports with `user_constraint >= 0`. When active `TARGET` demand ports exist in the graph, `LIMIT` ports (capacity ceilings on raw extractors and inputs) are excluded from seeding reachability, ensuring passive supply limits do not actively push overproduction into unconstrained downstream leaves. If no active targets exist (pure supply push mode), all constrained ports seed reachability. Traverses forward connection wires ($F_c$) and internal node connections (all input ports to all output ports).
 2. **Reachable Leaf Selection (`buildThroughputTerms`):**
    - Output ports with no outgoing connections that are reachable from constrained ports, **including** constrained ones.
    - For consumer nodes without any output ports, their reachable input ports.

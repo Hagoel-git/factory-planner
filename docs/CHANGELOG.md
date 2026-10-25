@@ -19,6 +19,7 @@ This document holds the user-facing changelog that is also used in release notes
 - Fixed cut nodes remaining selected in the canvas, preventing subsequent delete operations from creating dummy undo entries.
 - Fixed toggling preferred machines in the node context menu not marking the project dirty.
 - Fixed false bottleneck classification in solver Phase 1 (Target Water-Filling) where competing targets sharing common upstream capacity were prematurely frozen at low throughput instead of receiving fair, proportional resource allocation.
+- Fixed passive supply capacity limits (e.g. miners, resource wells) aggressively pushing maximum throughput and producing unwanted downstream product excess when active demand targets exist in the factory.
 
 ### Removed
 - Removed the in-app Game Data Editor and the "Game Data Manager" menu entry.
