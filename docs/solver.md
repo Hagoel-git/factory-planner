@@ -143,16 +143,15 @@ When active targets exist:
      Break loop.
    - If $s_{\text{val}} < 1.0 - \text{kZeroEpsilon}$ (bottleneck detected):
      1. Temporarily clamp $S$: $\text{SetLB}(s_{\text{val}})$, $\text{SetUB}(s_{\text{val}})$.
-     2. Auxiliary LP solve: maximize total active target flow $\sum_{i \in \text{active\_targets}} R_i$.
-     3. For each target $i \in \text{active\_targets}$:
-        - If $R_i \le \text{target}_i \cdot s_{\text{val}} + 10^{-6}$:
-          Target $i$ cannot grow beyond its saturation allocation and is strictly bottlenecked.
-          Lock its lower bound:
+     2. **Optimistic Fast Filter (Sum Solve):** Maximize total active target flow $\sum_{i \in \text{active\_targets}} R_i$.
+        - If $R_i > \text{target}_i \cdot s_{\text{val}} + 10^{-6}$, target $i$ has proven headroom; retain it directly in `next_active`.
+        - Otherwise, target $i$ did not expand in the sum solve (possibly due to GLOP favoring another competing target on a degenerate facet); mark target $i$ as a suspect.
+     3. **Suspect Verification (Individual Test Solves):** For each suspect target $i$, run an individual test solve maximizing $R_i$ while $S$ remains clamped to $s_{\text{val}}$:
+        - If $R_i \le \text{target}_i \cdot s_{\text{val}} + 10^{-6}$: Target $i$ is a genuine bottleneck. Lock its lower bound:
           $$\text{SetLB}(\max(R_i.\text{lb}, \text{locked\_val} - \text{lockTolerance}(\text{locked\_val})))$$
           where $\text{locked\_val} = \text{target}_i \cdot s_{\text{val}}$.
           Decouple port $i$ from $S$ by resetting its coupling constraint bounds to $(-\infty, \infty)$ and clearing coefficients. Target $i$ is excluded from `next_active`.
-        - Else ($R_i > \text{target}_i \cdot s_{\text{val}} + 10^{-6}$):
-          Target $i$ has headroom to expand; retain it in `next_active`.
+        - Else ($R_i > \text{target}_i \cdot s_{\text{val}} + 10^{-6}$): Target $i$ was merely starved in the sum solve; retain it in `next_active`.
      4. Restore original bounds of $S$.
      5. **Loop Guard:** If $\text{next\_active.size}() == \text{active\_targets.size}()$, no target was bottlenecked; break loop to prevent cycling.
      6. Set $\text{active\_targets} = \text{next\_active}$ and repeat.

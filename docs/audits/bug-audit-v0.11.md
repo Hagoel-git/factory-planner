@@ -286,7 +286,7 @@ Scope: `src/core/graph/*`, `src/services/UndoRedoSystem.*`
       Target 1 is left alone in `next_active` and takes all remaining capacity in the next round ($R_1 = 50, R_2 = 20$).
       Under fair max-min water-filling, the 30 surplus ore should have been shared proportionally between Target 1 and Target 2, achieving $S = 0.30$ ($R_1 = 30, R_2 = 30$).
     - **Confidence:** 100%
-    - **Status:** open
+    - **Status:** fixed
 
 17. **Phase 1 full-saturation clamp forces hard lower bound without `lockTolerance`, causing solver `INFEASIBLE` failures on floating-point precision differences.**
     - **Severity:** wrong result
