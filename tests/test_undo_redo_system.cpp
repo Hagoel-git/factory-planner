@@ -876,3 +876,103 @@ TEST_F(ConcreteCommandsTest, PasteCommand_MissingNodePosition_DoesNotThrow) {
     ASSERT_EQ(graph->getNodes().size(), 1);
 }
 
+// ============================================================================
+// Headless Execution (No ax::NodeEditor Context) Tests - Bug Audit Run 1 Finding 1
+// ============================================================================
+
+class HeadlessUndoRedoTest : public ::testing::Test {
+protected:
+    GameData testGameData;
+    std::unique_ptr<FactoryGraph> graph;
+    std::unique_ptr<UndoRedoManager> manager;
+
+    void SetUp() override {
+        // Ensure no active ax::NodeEditor context exists
+        ax::NodeEditor::SetCurrentEditor(nullptr);
+
+        testGameData.gameName = "TestGame";
+        testGameData.time_unit = "seconds";
+
+        testGameData.resources["iron_ore"] = Resource{"Iron Ore", 1};
+        testGameData.resources["iron_ingot"] = Resource{"Iron Ingot", 2};
+        testGameData.resources["iron_plate"] = Resource{"Iron Plate", 3};
+
+        testGameData.machines["miner"] = Machine{"Miner", 1, 0};
+        testGameData.machines["smelter"] = Machine{"Smelter", 1, 1};
+        testGameData.machines["constructor"] = Machine{"Constructor", 1, 2};
+
+        Recipe mine_ore;
+        mine_ore.name = "Mine Iron Ore";
+        mine_ore.produced_in_machines_keys.push_back("miner");
+        mine_ore.output_ports.push_back(RecipePort{30.0, "iron_ore"});
+        testGameData.recipes["mine_ore"] = mine_ore;
+
+        Recipe smelt_ingot;
+        smelt_ingot.name = "Smelt Iron Ingot";
+        smelt_ingot.produced_in_machines_keys.push_back("smelter");
+        smelt_ingot.input_ports.push_back(RecipePort{30.0, "iron_ore"});
+        smelt_ingot.output_ports.push_back(RecipePort{30.0, "iron_ingot"});
+        testGameData.recipes["smelt_ingot"] = smelt_ingot;
+
+        graph = std::make_unique<FactoryGraph>(testGameData);
+        manager = std::make_unique<UndoRedoManager>(10);
+    }
+
+    void TearDown() override {
+        manager.reset();
+        graph.reset();
+        ax::NodeEditor::SetCurrentEditor(nullptr);
+    }
+};
+
+TEST_F(HeadlessUndoRedoTest, AddNodeCommand_WithoutEditorContext_DoesNotCrash) {
+    auto cmd = std::make_unique<AddNodeCommand>("Mine Iron Ore", "mine_ore", (uint64_t)-1, ImVec2(100.0f, 200.0f));
+    manager->executeCommand(std::move(cmd), *graph);
+    EXPECT_EQ(graph->getNodes().size(), 1);
+
+    manager->undo(*graph);
+    EXPECT_EQ(graph->getNodes().size(), 0);
+
+    manager->redo(*graph);
+    EXPECT_EQ(graph->getNodes().size(), 1);
+}
+
+TEST_F(HeadlessUndoRedoTest, RemoveNodeCommand_WithoutEditorContext_DoesNotCrash) {
+    uint64_t nodeId = graph->addNode("Mine Iron Ore", "mine_ore");
+    auto cmd = std::make_unique<RemoveNodeCommand>(nodeId);
+    manager->executeCommand(std::move(cmd), *graph);
+    EXPECT_EQ(graph->getNodes().size(), 0);
+
+    manager->undo(*graph);
+    EXPECT_EQ(graph->getNodes().size(), 1);
+}
+
+TEST_F(HeadlessUndoRedoTest, MoveNodeCommand_WithoutEditorContext_DoesNotCrash) {
+    uint64_t nodeId = graph->addNode("Mine Iron Ore", "mine_ore");
+    auto cmd = std::make_unique<MoveNodeCommand>(nodeId, ImVec2(0.0f, 0.0f), ImVec2(100.0f, 200.0f));
+    manager->executeCommand(std::move(cmd), *graph);
+    manager->undo(*graph);
+    manager->redo(*graph);
+}
+
+TEST_F(HeadlessUndoRedoTest, PasteCommand_WithoutEditorContext_DoesNotCrash) {
+    CopyBuffer buffer;
+    Node n;
+    n.id = 100;
+    n.name = "Mine Iron Ore";
+    n.selected_recipe_key = "mine_ore";
+    buffer.nodes[100] = n;
+    buffer.nodePositions[100] = ImVec2(50.0f, 50.0f);
+
+    auto cmd = std::make_unique<PasteCommand>(buffer, false);
+    manager->executeCommand(std::move(cmd), *graph);
+    EXPECT_EQ(graph->getNodes().size(), 1);
+
+    manager->undo(*graph);
+    EXPECT_EQ(graph->getNodes().size(), 0);
+
+    manager->redo(*graph);
+    EXPECT_EQ(graph->getNodes().size(), 1);
+}
+
+
