@@ -191,6 +191,42 @@ TEST_F(ApplicationLifecycleTest, TabTitleDisambiguation_IncludesParentFolderWhen
     EXPECT_EQ(app.getTabTitle(2), "unique");
 }
 
+TEST_F(ApplicationLifecycleTest, TabTitleDisambiguation_HandlesIdenticalParentFolderNames) {
+    Application app;
+
+    fs::path fileA = tempRoot / "instance1" / "projects" / "myproj" / "1.fpp";
+    fs::path fileB = tempRoot / "instance2" / "projects" / "myproj" / "1.fpp";
+    fs::create_directories(fileA.parent_path());
+    fs::create_directories(fileB.parent_path());
+
+    app.createNewEditor("", fileA, "1", false);
+    app.createNewEditor("", fileB, "1", false);
+    ASSERT_EQ(app.getEditorCount(), 2);
+
+    EXPECT_EQ(app.getTabTitle(0), "1 (instance1/projects/myproj)");
+    EXPECT_EQ(app.getTabTitle(1), "1 (instance2/projects/myproj)");
+}
+
+TEST_F(ApplicationLifecycleTest, TabTitleDisambiguation_MultipleCollisionsDifferentDepths) {
+    Application app;
+
+    fs::path fileA = tempRoot / "instance1" / "projects" / "myproj" / "1.fpp";
+    fs::path fileB = tempRoot / "instance2" / "projects" / "myproj" / "1.fpp";
+    fs::path fileC = tempRoot / "instance3" / "other" / "myproj" / "1.fpp";
+    fs::create_directories(fileA.parent_path());
+    fs::create_directories(fileB.parent_path());
+    fs::create_directories(fileC.parent_path());
+
+    app.createNewEditor("", fileA, "1", false);
+    app.createNewEditor("", fileB, "1", false);
+    app.createNewEditor("", fileC, "1", false);
+    ASSERT_EQ(app.getEditorCount(), 3);
+
+    EXPECT_EQ(app.getTabTitle(0), "1 (instance1/projects/myproj)");
+    EXPECT_EQ(app.getTabTitle(1), "1 (instance2/projects/myproj)");
+    EXPECT_EQ(app.getTabTitle(2), "1 (other/myproj)");
+}
+
 TEST_F(ApplicationLifecycleTest, EmptyProjectPath_WindowIdCollisionAvoidance) {
     Application app;
 
