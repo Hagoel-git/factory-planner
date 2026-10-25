@@ -1422,7 +1422,7 @@ bool Application::saveActiveEditor() {
     return false;
 }
 
-bool Application::saveActiveEditorAs(const std::string &newFilePath, SaveAsMode mode) {
+bool Application::saveActiveEditorAs(const std::filesystem::path &newFilePath, SaveAsMode mode) {
     if (m_activeEditor < 0 || static_cast<size_t>(m_activeEditor) >= m_editors.size()) {
         return false; // No active editor to save
     }

@@ -82,4 +82,68 @@ inline std::optional<std::filesystem::path> getExecutableDirectory() {
     return result_dir;
 }
 
+inline std::string pathToUtf8(const std::filesystem::path& p) {
+#ifdef _WIN32
+    auto u8 = p.u8string();
+    return std::string(reinterpret_cast<const char*>(u8.data()), u8.size());
+#else
+    const std::string& str = p.native();
+    // Validate UTF-8
+    bool validUtf8 = true;
+    size_t i = 0;
+    while (i < str.size()) {
+        unsigned char c = static_cast<unsigned char>(str[i]);
+        if (c <= 0x7F) {
+            i++;
+        } else if ((c & 0xE0) == 0xC0) {
+            if (i + 1 >= str.size() || (static_cast<unsigned char>(str[i+1]) & 0xC0) != 0x80) {
+                validUtf8 = false; break;
+            }
+            i += 2;
+        } else if ((c & 0xF0) == 0xE0) {
+            if (i + 2 >= str.size() || 
+                (static_cast<unsigned char>(str[i+1]) & 0xC0) != 0x80 ||
+                (static_cast<unsigned char>(str[i+2]) & 0xC0) != 0x80) {
+                validUtf8 = false; break;
+            }
+            i += 3;
+        } else if ((c & 0xF8) == 0xF0) {
+            if (i + 3 >= str.size() || 
+                (static_cast<unsigned char>(str[i+1]) & 0xC0) != 0x80 ||
+                (static_cast<unsigned char>(str[i+2]) & 0xC0) != 0x80 ||
+                (static_cast<unsigned char>(str[i+3]) & 0xC0) != 0x80) {
+                validUtf8 = false; break;
+            }
+            i += 4;
+        } else {
+            validUtf8 = false;
+            break;
+        }
+    }
+    if (validUtf8) {
+        return str;
+    }
+    // Convert non-UTF-8 bytes (e.g. ISO-8859-1 / CP1252 ANSI bytes 0x80-0xFF) to UTF-8
+    std::string utf8;
+    utf8.reserve(str.size() * 2);
+    for (unsigned char c : str) {
+        if (c <= 0x7F) {
+            utf8.push_back(static_cast<char>(c));
+        } else {
+            utf8.push_back(static_cast<char>(0xC0 | (c >> 6)));
+            utf8.push_back(static_cast<char>(0x80 | (c & 0x3F)));
+        }
+    }
+    return utf8;
+#endif
+}
+
+inline std::filesystem::path pathFromUtf8(std::string_view utf8Str) {
+#ifdef _WIN32
+    return std::filesystem::path(std::u8string_view(reinterpret_cast<const char8_t*>(utf8Str.data()), utf8Str.size()));
+#else
+    return std::filesystem::path(std::string(utf8Str));
+#endif
+}
+
 #endif //FILESYSTEMUTILS_H

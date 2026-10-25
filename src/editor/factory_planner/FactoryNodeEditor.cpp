@@ -64,7 +64,7 @@ FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::files
         ed_style.FlowDuration = 6.0f;
 
         if (std::filesystem::exists(projectFilePath)) {
-            if (!ProjectIO::loadProject(projectFilePath.string(), *m_graph)) {
+            if (!ProjectIO::loadProject(projectFilePath, *m_graph)) {
                 m_loadedSuccessfully = false;
             }
         }
@@ -193,22 +193,22 @@ bool FactoryNodeEditor::save() {
         LOG(WARNING) << "Save refused: editor was not loaded successfully or path is empty: " << m_projectFilePath;
         return false;
     }
-    if (ProjectIO::saveProject(m_projectFilePath.string(), *m_graph, this->m_context)) {
+    if (ProjectIO::saveProject(m_projectFilePath, *m_graph, this->m_context)) {
         m_isDirty = false;
         return true;
     }
     return false;
 }
 
-bool FactoryNodeEditor::saveAs(const std::string &newFilePath, SaveAsMode mode) {
-    if (!m_loadedSuccessfully && newFilePath == m_projectFilePath.string()) {
+bool FactoryNodeEditor::saveAs(const std::filesystem::path &newFilePath, SaveAsMode mode) {
+    if (!m_loadedSuccessfully && newFilePath == m_projectFilePath) {
         LOG(WARNING) << "SaveAs refused: cannot overwrite corrupted project file: " << newFilePath;
         return false;
     }
     if (ProjectIO::saveProject(newFilePath, *m_graph, this->m_context)) {
         if (mode == SaveAsMode::SwitchToNewFile) {
             m_projectFilePath = newFilePath;
-            m_editorName = std::filesystem::path(newFilePath).stem().string();
+            m_editorName = newFilePath.stem().string();
             m_isDirty = false;
             m_loadedSuccessfully = true;
         }

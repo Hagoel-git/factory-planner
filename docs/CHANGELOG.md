@@ -5,6 +5,13 @@ This document holds the user-facing changelog that is also used in release notes
 ## Unreleased
 
 ### Fixed
+- Fixed crash on application startup when `app_settings.json` contains non-positive window dimensions by enforcing minimum safe dimensions (640x480).
+- Fixed crash (`std::length_error`) on project open when `maxRecentFiles` setting is negative.
+- Fixed potential assertion and memory errors from out-of-bounds `navigationButtonIndex` in settings by validating to supported mouse buttons (Right or Middle).
+- Fixed silent project file overwrite by autosave when opening JSON files missing `"graph_data"`.
+- Fixed risk of project file truncation on full disk during save operations by flushing and closing output streams prior to atomic file replacement.
+- Fixed session, recent files, and settings persistence failures when file paths contain non-ASCII or Unicode characters.
+- Fixed project save and load failures on Windows when file paths contain Unicode characters outside the system ANSI code page.
 - Fixed crash when undo/redo commands (`AddNodeCommand`, `RemoveNodeCommand`, `MoveNodeCommand`, `PasteCommand`) execute in headless mode or without an active canvas editor context.
 - Fixed potential ID collisions and graph index corruption when restoring nodes by advancing next node and port ID counters in `FactoryGraph::restoreNode`.
 - Fixed pasted nodes dropping ports on redo when a recipe has more ports than the clipboard source node.

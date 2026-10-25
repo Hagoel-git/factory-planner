@@ -1420,6 +1420,63 @@ TEST_F(FactoryGraphTest, ProjectIOLoadProjectErrorHandling) {
     std::filesystem::remove(tempNotObject);
 }
 
+TEST_F(FactoryGraphTest, ProjectIOLoadProjectFailsWhenGraphDataMissing) {
+    std::filesystem::path tempPath = std::filesystem::temp_directory_path() / "test_no_graph_data.fpp";
+    std::ofstream ofs(tempPath);
+    ofs << "{\n  \"version\": 1,\n  \"editor_settings\": {}\n}\n";
+    ofs.close();
+
+    FactoryGraph targetGraph(testGameData);
+    EXPECT_FALSE(ProjectIO::loadProject(tempPath.string(), targetGraph));
+    std::filesystem::remove(tempPath);
+}
+
+TEST_F(FactoryGraphTest, ProjectIOSaveProjectFailsWhenDiskFull) {
+    if (!std::filesystem::exists("/dev/full")) {
+        GTEST_SKIP() << "/dev/full not available on this platform";
+    }
+
+    std::filesystem::path tempPath = std::filesystem::temp_directory_path() / "test_full_disk_proj.fpp";
+    std::filesystem::path tmpPath = tempPath.string() + ".tmp";
+
+    std::error_code ec;
+    std::filesystem::remove(tempPath, ec);
+    std::filesystem::remove(tmpPath, ec);
+
+    // Create tmpPath as symlink to /dev/full to simulate write/flush failure on full disk
+    std::filesystem::create_symlink("/dev/full", tmpPath, ec);
+    ASSERT_FALSE(ec);
+
+    FactoryGraph g(testGameData);
+    bool saveResult = ProjectIO::saveProject(tempPath.string(), g);
+
+    // With ofs.flush() and ofs.close() checked, saveProject must detect the write failure and return false!
+    EXPECT_FALSE(saveResult);
+
+    std::filesystem::remove(tempPath, ec);
+    std::filesystem::remove(tmpPath, ec);
+}
+
+TEST_F(FactoryGraphTest, ProjectIOSaveAndLoadWithUnicodeFilesystemPath) {
+    // Unicode path containing Cyrillic and umlaut characters
+    std::filesystem::path unicodePath = std::filesystem::temp_directory_path() / "test_unicode_фабрика_äöü.fpp";
+
+    std::error_code ec;
+    std::filesystem::remove(unicodePath, ec);
+
+    EXPECT_TRUE(ProjectIO::saveProject(unicodePath, *graph));
+    EXPECT_TRUE(std::filesystem::exists(unicodePath));
+
+    std::ifstream ifs(unicodePath);
+    ASSERT_TRUE(ifs.is_open());
+    nlohmann::json j;
+    EXPECT_NO_THROW(ifs >> j);
+    EXPECT_TRUE(j.contains("graph_data"));
+    ifs.close();
+
+    std::filesystem::remove(unicodePath, ec);
+}
+
 TEST_F(FactoryGraphTest, DeserializeNode_SafelyResolvesMissingOrDanglingMachineKey) {
     // Save game data with an alias pointing to a non-existent machine
     GameData gd = testGameData;
@@ -1632,6 +1689,119 @@ TEST(SettingsManagerTest, LoadSettingsWithIntegerAndFloatFontSize) {
     EXPECT_FLOAT_EQ(SettingsManager::instance().getSettings().fontSize, 19.5f);
 }
 
+TEST(SettingsManagerTest, LoadAppSettingsClampsNonPositiveWindowDimensions) {
+    auto configDir = getExecutableDirectory().value_or(std::filesystem::current_path());
+    auto settingsPath = configDir / "app_settings.json";
+    auto backupPath = configDir / "app_settings.json.bak_test";
+
+    AppSettings origSettings = SettingsManager::instance().getSettings();
+
+    std::error_code ec;
+    bool hadExisting = std::filesystem::exists(settingsPath, ec);
+    if (hadExisting) {
+        std::filesystem::rename(settingsPath, backupPath, ec);
+    }
+
+    struct Guard {
+        std::filesystem::path p, b;
+        bool had;
+        AppSettings s;
+        ~Guard() {
+            std::error_code cleanupEc;
+            std::filesystem::remove(p, cleanupEc);
+            if (had) {
+                std::filesystem::rename(b, p, cleanupEc);
+            }
+            SettingsManager::instance().setSettings(s);
+        }
+    } guard{settingsPath, backupPath, hadExisting, origSettings};
+
+    {
+        std::ofstream ofs(settingsPath);
+        ofs << "{\n  \"windowWidth\": 0,\n  \"windowHeight\": -100\n}\n";
+    }
+
+    SettingsManager::instance().load();
+    EXPECT_GE(SettingsManager::instance().getSettings().windowWidth, 640);
+    EXPECT_GE(SettingsManager::instance().getSettings().windowHeight, 480);
+}
+
+TEST(SettingsManagerTest, LoadAppSettingsClampsNegativeMaxRecentFiles) {
+    auto configDir = getExecutableDirectory().value_or(std::filesystem::current_path());
+    auto settingsPath = configDir / "app_settings.json";
+    auto backupPath = configDir / "app_settings.json.bak_test";
+
+    AppSettings origSettings = SettingsManager::instance().getSettings();
+
+    std::error_code ec;
+    bool hadExisting = std::filesystem::exists(settingsPath, ec);
+    if (hadExisting) {
+        std::filesystem::rename(settingsPath, backupPath, ec);
+    }
+
+    struct Guard {
+        std::filesystem::path p, b;
+        bool had;
+        AppSettings s;
+        ~Guard() {
+            std::error_code cleanupEc;
+            std::filesystem::remove(p, cleanupEc);
+            if (had) {
+                std::filesystem::rename(b, p, cleanupEc);
+            }
+            SettingsManager::instance().setSettings(s);
+        }
+    } guard{settingsPath, backupPath, hadExisting, origSettings};
+
+    {
+        std::ofstream ofs(settingsPath);
+        ofs << "{\n  \"maxRecentFiles\": -5\n}\n";
+    }
+
+    SettingsManager::instance().load();
+    EXPECT_GE(SettingsManager::instance().getSettings().maxRecentFiles, 0);
+
+    // Adding a file must not throw std::length_error
+    EXPECT_NO_THROW(RecentFiles::instance().addFile("test_file.fpp"));
+}
+
+TEST(SettingsManagerTest, LoadAppSettingsValidatesNavigationButtonIndex) {
+    auto configDir = getExecutableDirectory().value_or(std::filesystem::current_path());
+    auto settingsPath = configDir / "app_settings.json";
+    auto backupPath = configDir / "app_settings.json.bak_test";
+
+    AppSettings origSettings = SettingsManager::instance().getSettings();
+
+    std::error_code ec;
+    bool hadExisting = std::filesystem::exists(settingsPath, ec);
+    if (hadExisting) {
+        std::filesystem::rename(settingsPath, backupPath, ec);
+    }
+
+    struct Guard {
+        std::filesystem::path p, b;
+        bool had;
+        AppSettings s;
+        ~Guard() {
+            std::error_code cleanupEc;
+            std::filesystem::remove(p, cleanupEc);
+            if (had) {
+                std::filesystem::rename(b, p, cleanupEc);
+            }
+            SettingsManager::instance().setSettings(s);
+        }
+    } guard{settingsPath, backupPath, hadExisting, origSettings};
+
+    {
+        std::ofstream ofs(settingsPath);
+        ofs << "{\n  \"navigationButtonIndex\": -1\n}\n";
+    }
+
+    SettingsManager::instance().load();
+    int btn = SettingsManager::instance().getSettings().navigationButtonIndex;
+    EXPECT_TRUE(btn == 1 || btn == 2);
+}
+
 TEST(SessionManagerTest, AtomicSaveLeavesNoTempFile) {
     auto sessionPath = getExecutableDirectory().value_or(std::filesystem::current_path()) / "session.json";
     auto backupPath = sessionPath.string() + ".bak_test";
@@ -1663,6 +1833,49 @@ TEST(SessionManagerTest, AtomicSaveLeavesNoTempFile) {
     EXPECT_FALSE(std::filesystem::exists(sessionPath.string() + ".tmp"));
 }
 
+TEST(SessionManagerTest, NonAsciiPathDoesNotThrowInSave) {
+    auto sessionPath = getExecutableDirectory().value_or(std::filesystem::current_path()) / "session.json";
+    auto backupPath = sessionPath.string() + ".bak_test";
+
+    SessionState origState = SessionManager::instance().getSessionState();
+
+    std::error_code ec;
+    bool hadExisting = std::filesystem::exists(sessionPath, ec);
+    if (hadExisting) {
+        std::filesystem::rename(sessionPath, backupPath, ec);
+    }
+
+    struct Guard {
+        std::filesystem::path p, b;
+        bool had;
+        SessionState s;
+        ~Guard() {
+            std::error_code cleanupEc;
+            std::filesystem::remove(p, cleanupEc);
+            if (had) {
+                std::filesystem::rename(b, p, cleanupEc);
+            }
+            SessionManager::instance().setSessionState(s);
+        }
+    } guard{sessionPath, backupPath, hadExisting, origState};
+
+    SessionState state;
+    // Byte 0xE9 ('é' in CP1252) followed by ASCII is invalid UTF-8
+    state.openProjectPaths.push_back(std::filesystem::path(std::string("C:\\Users\\Ren\xE9\\project.fpp")));
+    state.activeProjectIndex = 0;
+    SessionManager::instance().setSessionState(state);
+
+    SessionManager::instance().save();
+
+    // The session file must be successfully saved
+    ASSERT_TRUE(std::filesystem::exists(sessionPath));
+
+    // And must be reloadable
+    SessionManager::instance().setSessionState({});
+    SessionManager::instance().load();
+    EXPECT_EQ(SessionManager::instance().getSessionState().openProjectPaths.size(), 1);
+}
+
 TEST(RecentFilesTest, AtomicSaveLeavesNoTempFile) {
     auto recentPath = getExecutableDirectory().value_or(std::filesystem::current_path()) / "recent.json";
     auto backupPath = recentPath.string() + ".bak_test";
@@ -1689,6 +1902,78 @@ TEST(RecentFilesTest, AtomicSaveLeavesNoTempFile) {
     RecentFiles::instance().save();
     EXPECT_TRUE(std::filesystem::exists(recentPath));
     EXPECT_FALSE(std::filesystem::exists(recentPath.string() + ".tmp"));
+}
+
+TEST(RecentFilesTest, NonAsciiPathDoesNotThrowInSave) {
+    auto recentPath = getExecutableDirectory().value_or(std::filesystem::current_path()) / "recent.json";
+    auto backupPath = recentPath.string() + ".bak_test";
+
+    std::error_code ec;
+    bool hadExisting = std::filesystem::exists(recentPath, ec);
+    if (hadExisting) {
+        std::filesystem::rename(recentPath, backupPath, ec);
+    }
+
+    struct Guard {
+        std::filesystem::path p, b;
+        bool had;
+        ~Guard() {
+            std::error_code cleanupEc;
+            std::filesystem::remove(p, cleanupEc);
+            if (had) {
+                std::filesystem::rename(b, p, cleanupEc);
+            }
+            RecentFiles::instance().load();
+        }
+    } guard{recentPath, backupPath, hadExisting};
+
+    RecentFiles::instance().addFile(std::filesystem::path(std::string("C:\\Users\\Ren\xE9\\project.fpp")));
+    ASSERT_TRUE(std::filesystem::exists(recentPath));
+
+    RecentFiles::instance().load();
+    ASSERT_FALSE(RecentFiles::instance().getFiles().empty());
+}
+
+TEST(SettingsManagerTest, NonAsciiPathDoesNotThrowInSave) {
+    auto configDir = getExecutableDirectory().value_or(std::filesystem::current_path());
+    auto settingsPath = configDir / "app_settings.json";
+    auto backupPath = configDir / "app_settings.json.bak_test";
+
+    AppSettings origSettings = SettingsManager::instance().getSettings();
+
+    std::error_code ec;
+    bool hadExisting = std::filesystem::exists(settingsPath, ec);
+    if (hadExisting) {
+        std::filesystem::rename(settingsPath, backupPath, ec);
+    }
+
+    struct Guard {
+        std::filesystem::path p, b;
+        bool had;
+        AppSettings s;
+        ~Guard() {
+            std::error_code cleanupEc;
+            std::filesystem::remove(p, cleanupEc);
+            if (had) {
+                std::filesystem::rename(b, p, cleanupEc);
+            }
+            SettingsManager::instance().setSettings(s);
+        }
+    } guard{settingsPath, backupPath, hadExisting, origSettings};
+
+    AppSettings s = SettingsManager::instance().getSettings();
+    s.defaultProjectPath = std::filesystem::path(std::string("C:\\Projects\\D\xE9" "p\xF4" "t"));
+    s.gameDataPath = std::filesystem::path(std::string("C:\\Games\\Donn\xE9" "es"));
+    SettingsManager::instance().setSettings(s);
+    SettingsManager::instance().save();
+
+    ASSERT_TRUE(std::filesystem::exists(settingsPath));
+
+    AppSettings emptySettings;
+    SettingsManager::instance().setSettings(emptySettings);
+    SettingsManager::instance().load();
+    EXPECT_FALSE(SettingsManager::instance().getSettings().defaultProjectPath.empty());
+    EXPECT_FALSE(SettingsManager::instance().getSettings().gameDataPath.empty());
 }
 
 TEST(TextureManagerTest, CacheMissingTexturePreventsRepeatedDiskLookups) {

@@ -69,7 +69,7 @@ public:
     void draw();
 
     bool save();
-    bool saveAs(const std::string& newFilePath, SaveAsMode mode = SaveAsMode::KeepCurrentFile);
+    bool saveAs(const std::filesystem::path& newFilePath, SaveAsMode mode = SaveAsMode::KeepCurrentFile);
 
     void cut(CopyBuffer &copyBuffer);
     void copy(CopyBuffer &copy_buffer);
