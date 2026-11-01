@@ -2,7 +2,7 @@
 
 This document holds the user-facing changelog that is also used in release notes.
 
-## Unreleased
+## v0.11-alpha 2026-Nov-1
 
 ### Added
 - Added explicit port constraint modes (`Auto`, `Limit`, `Target`, `Push`) in the port context menu, with canvas badges (`[L]`, `[T]`, `[P]`) for explicit overrides and red outlines/tooltips for under-satisfied bottlenecks.
@@ -40,7 +40,7 @@ This document holds the user-facing changelog that is also used in release notes
 ### Removed
 - Removed the in-app Game Data Editor and the "Game Data Manager" menu entry.
 
-## v0.10 - 2026-Oct-16
+## v0.10-alpha - 2026-Oct-16
 ### Changed
 - The "Open Recent" list is now updated when saving a file, ensuring the most recently active projects stay at the top.
 - Improved Recent Files reliability by saving the list immediately upon modification.
