@@ -187,15 +187,41 @@ private:
     uint64_t portId;
     double oldConstraint;
     double newConstraint;
+    bool hasModeChange = false;
+    ConstraintMode oldMode = ConstraintMode::AUTO;
+    ConstraintMode newMode = ConstraintMode::AUTO;
 public:
     SetPortConstraintCommand(uint64_t portId, double oldConstraint, double newConstraint)
         : portId(portId), oldConstraint(oldConstraint), newConstraint(newConstraint) {
+    }
+    SetPortConstraintCommand(uint64_t portId, double oldConstraint, double newConstraint,
+                             ConstraintMode oldMode, ConstraintMode newMode)
+        : portId(portId), oldConstraint(oldConstraint), newConstraint(newConstraint),
+          hasModeChange(true), oldMode(oldMode), newMode(newMode) {
     }
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
     CommandFlags getFlags() const override { return CommandFlags{true, false}; }
     std::string getDescription() const override {
         return "Set Port Constraint: Port ID " + std::to_string(portId) + " from " + std::to_string(oldConstraint) + " to " + std::to_string(newConstraint);
+    }
+};
+
+class SetPortConstraintModeCommand : public Command {
+private:
+    uint64_t portId;
+    ConstraintMode oldMode;
+    ConstraintMode newMode;
+public:
+    SetPortConstraintModeCommand(uint64_t portId, ConstraintMode oldMode, ConstraintMode newMode)
+        : portId(portId), oldMode(oldMode), newMode(newMode) {
+    }
+    void execute(FactoryGraph& graph) override;
+    void undo(FactoryGraph& graph) override;
+    CommandFlags getFlags() const override { return CommandFlags{true, false}; }
+    std::string getDescription() const override {
+        return "Set Port Constraint Mode: Port ID " + std::to_string(portId) + " from " +
+               constraintModeToString(oldMode) + " to " + constraintModeToString(newMode);
     }
 };
 

@@ -1,290 +1,153 @@
-# Factory Solver Implementation & Specification
+# Factory Solver
 
-This document describes the mathematical formulation and implementation of `FactorySolver` (`src/core/graph/FactorySolver.h`, `FactorySolver.cpp`).
+`FactorySolver` (`src/core/graph/FactorySolver.h`, `src/core/graph/FactorySolver.cpp`) computes the steady-state flow rates and machine counts of a factory graph by formulating each weakly connected component as a Linear Program (LP) and solving it with Google OR-Tools' **GLOP** simplex solver.
 
----
-
-## 1. Overview
-
-`FactorySolver` optimizes production lines modeled as directed graphs of machines, recipe transformations, connection wires, and user-defined constraints. It computes:
-- Flow rates for every port ($R_p$).
-- Flow rates across every connection wire ($F_c$).
-- Unconsumed byproduct excess rates ($E_p$).
-- Required machine counts ($M_n$) for every node in the graph.
-
-The solver translates graph topology into a continuous Linear Program (LP) solved using Google OR-Tools' **GLOP** solver (`operations_research::MPSolver`). Optimization executes as a **3-phase lexicographic process**:
-1. **Phase 1: Iterative Target Water-Filling:** Fair max-min satisfaction of user target demands.
-2. **Phase 2: Lexicographic Depth Priority for Leaf Throughput:** Maximizes production of reachable leaf products layer-by-layer, deepest nodes first.
-3. **Phase 3: Waste Minimization & Fair Splitting:** Terminal solve minimizing unconsumed excess, unnecessary flow, and branch imbalances.
+This document describes the **v3 solver formulation** implemented by `FactorySolver`: connected-component partitioning, port constraint modes (`AUTO`, `LIMIT`, `TARGET`, `PUSH`), the sink-dedicated and target-serving subgraphs, no-overflow rules, and the 4-stage lexicographic optimization sequence.
 
 ---
 
-## 2. Decision Variables
+## 1. Graph Elements & Connected Component Partitioning
 
-Variables are continuous and non-negative ($[0, \infty)$):
+Before building any LP variables or resolving `AUTO` constraint modes, `FactorySolver::solve` partitions the `FactoryGraph` into **weakly connected components** $\mathcal{K}$ over the undirected projection of nodes and connections.
 
-| Variable | Notation | Domain | Creation Point | Description |
-|---|---|---|---|---|
-| **Port Rate** | $R_p$ | $[0, \infty)$ | `createAllVariables` | Total resource rate flowing through port $p$. Created for all ports in the graph. |
-| **Connection Flow** | $F_c$ | $[0, \infty)$ | `createAllVariables` | Flow traversing directed connection wire $c$. Created for all connections in the graph. |
-| **Port Excess** | $E_p$ | $[0, \infty)$ | `addConnectionConstraints` | Unconsumed surplus production on output port $p$. Created **only** for ports with $\ge 1$ outgoing connection. |
-| **Balance Bounds** | $hi_p, lo_p$ | $[0, \infty)$ | `addBalance` | Upper and lower branch bounds. Created **only** for ports with $\ge 2$ outgoing or $\ge 2$ incoming connections. |
-| **Saturation** | $S$ | $[0, 1]$ | `solveLexicographic` | Progress ratio for proportional target satisfaction. Created **only** if active `TARGET` ports exist. |
+Each component $K = (\mathcal{N}_K, \mathcal{P}_K, \mathcal{W}_K) \in \mathcal{K}$ is analyzed and solved in its own independent `MPSolver` pass:
+- **Nodes ($\mathcal{N}_K$):** Each node $n \in \mathcal{N}_K$ runs a selected `Recipe` (`selected_recipe_key`) on a `Machine` (`machine_key`) at a `clock_speed` ($\%$) and `production_multiplier` ($\%$). Its solved `machine_count` is written back after solving.
+- **Ports ($\mathcal{P}_K = \mathcal{P}^{\text{in}}_K \cup \mathcal{P}^{\text{out}}_K$):** Input and output pins on nodes in $\mathcal{N}_K$. Ports with `resource_key == "nothing"` represent environmental extraction (miners, water extractors) or disposal (sinks).
+  - Each port $p$ has a `user_constraint` ($-1$ when unconstrained, $\ge 0$ when active), a `constraint_mode` (`ConstraintMode::{AUTO, LIMIT, TARGET, PUSH}`), a solved `rate` $R_p$, and (for wired output ports) an unconsumed `excess_rate` $E_p$.
+- **Connections ($\mathcal{W}_K$):** Directed edges $c = (p_{\text{out}} \to p_{\text{in}})$ between ports of the same resource in $K$, each carrying a solved `rate` $F_c$.
+- **Component Failure Isolation:** If one component $K \in \mathcal{K}$ fails to solve (`INFEASIBLE`, `UNBOUNDED`, or `ERROR`), only the nodes, ports, and connections belonging to $K$ are zeroed; all other valid components retain their solved rates and machine counts.
 
-> [!NOTE]
-> The solver does not instantiate deficit or overshoot variables. Demand goals are handled strictly via the saturation variable $S$ and dynamic lower bounds in Phase 1.
+### Structural Subsets within Component $K$
 
----
+For each component $K$, let $W^+(p)$ and $W^-(p)$ denote the outgoing and incoming connections of port $p$, and $\nu(p) \in \mathcal{N}_K$ the node owning $p$:
 
-## 3. Core Graph Constraints
-
-### 3.1 Node Recipes & Crafting Ratios (`addRecipeConstraints`)
-
-Nodes transform inputs into outputs according to recipe definitions and the production multiplier. Clock speed only acts as an on/off switch here; it scales machine counts (section 6), not flow ratios:
-
-1. **Disabled / Non-Positive Multipliers:**
-   If $\text{clock\_speed} \le 0$ or $\text{production\_multiplier} \le 0$, all port rates on the node are fixed to zero:
-   $$R_p = 0 \quad \forall p \in (\text{input\_ports} \cup \text{output\_ports})$$
-   $\text{clock\_speed}$ does not appear as a coefficient anywhere else in the LP.
-
-2. **Branch 1: Output-Referenced Recipes:**
-   Applies when `!recipe.output_ports.empty() && recipe.output_ports[0].amount > 0.0 && !node.output_ports.empty()`.
-   The first output port ($O_0 = \text{node.output\_ports}[0]$) serves as the reference:
-   - **Input Ports ($i \ge 0$):**
-     $$R_{\text{in}[i]} \cdot \text{recipe.output}[0].\text{amount} \cdot \left(\frac{\text{node.production\_multiplier}}{100}\right) - R_{O_0} \cdot \text{recipe.input}[i].\text{amount} = 0$$
-   - **Secondary Output Ports ($i \ge 1$):**
-     $$R_{O_0} \cdot \text{recipe.output}[i].\text{amount} - R_{O_i} \cdot \text{recipe.output}[0].\text{amount} = 0$$
-
-3. **Branch 2: Input-Referenced Recipes:**
-   Applies when Branch 1 does not hold, and `!recipe.input_ports.empty() && recipe.input_ports[0].amount > 0.0 && !node.input_ports.empty()`.
-   The first input port ($I_0 = \text{node.input\_ports}[0]$) serves as the reference:
-   - **Secondary Input Ports ($i \ge 1$):**
-     $$R_{\text{in}[i]} \cdot \text{recipe.input}[0].\text{amount} - R_{I_0} \cdot \text{recipe.input}[i].\text{amount} = 0$$
-   - **Output Ports ($i \ge 0$):**
-     $$R_{\text{out}[i]} \cdot \text{recipe.input}[0].\text{amount} - R_{I_0} \cdot \text{recipe.output}[i].\text{amount} \cdot \left(\frac{\text{node.production\_multiplier}}{100}\right) = 0$$
-
-4. **Branch 3: Degenerate Recipes:**
-   If neither Branch 1 nor Branch 2 applies (e.g. empty recipe amounts or missing ports), all port rates on the node are fixed to zero:
-   $$R_p = 0 \quad \forall p \in (\text{input\_ports} \cup \text{output\_ports})$$
-
-### 3.2 Connection Flow & Conservation (`addConnectionConstraints`)
-
-Conservation constraints are added **only for connected ports**:
-
-- **Ports with $\ge 1$ Outgoing Connection:**
-  Flow leaving the port equals the sum of outgoing wire flows plus unconsumed excess:
-  $$R_p = \sum_{c \in \text{out}(p)} F_c + E_p \quad (E_p \ge 0)$$
-- **Ports with $\ge 1$ Incoming Connection:**
-  Flow entering the port equals the sum of incoming wire flows:
-  $$R_p = \sum_{c \in \text{in}(p)} F_c$$
-- **Unconnected Ports:**
-  No conservation constraint is generated. For unconnected output ports, no $E_p$ variable is created, and `excess_rate` is written to the graph as `0.0`.
-
-### 3.3 Multi-Branch Bounding (`addBalance`)
-
-For any port with $\ge 2$ outgoing or $\ge 2$ incoming connections:
-$$F_c \le hi_p \quad \forall c \in \text{connections}(p)$$
-$$F_c \ge lo_p \quad \forall c \in \text{connections}(p)$$
-Minimizing $(hi_p - lo_p)$ in Phase 3 balances branch flow across splits and merges.
+- **Raw Sources ($\mathcal{B}^{\text{raw}}_K$):** Output ports of nodes whose input ports are empty or all have `resource_key == "nothing"`.
+- **Unwired Imports ($\mathcal{B}^{\text{imp}}_K$):** Input ports with no incoming connections ($W^-(p) = \emptyset$) and `resource_key != "nothing"`.
+- **Exports ($\mathcal{X}_K$):** Output ports with no outgoing connections ($W^+(p) = \emptyset$) and `resource_key != "nothing"`.
+- **Sinks ($\mathcal{S}_K$):** Nodes $n \in \mathcal{N}_K$ that have no output ports, or whose output ports all have `resource_key == "nothing"`.
+- **Sink-Dedicated Subgraph ($\mathcal{S}^+_K$):** The set of nodes $n \in \mathcal{N}_K$ that have at least one directed path to $\mathcal{S}_K$, and for which **every** directed path starting at $n$ terminates at a sink in $\mathcal{S}_K$ without ever visiting an export port in $\mathcal{X}_K$, a pre-resolved active `TARGET` port ($g > 0$), or an explicit `PUSH` port. Computed once before Step 3 of `AUTO` resolution via backward reachability:
+  1. $R_{\text{sink}} = \text{BackwardBFS}(\mathcal{S}_K)$
+  2. $B = \{\nu(p) \mid p \in \mathcal{X}_K \cup G^{\text{pre}}_K \cup P^{\text{push,expl}}_K\} \cup (\mathcal{N}_K \setminus R_{\text{sink}})$
+  3. $\mathcal{S}^+_K = R_{\text{sink}} \setminus \text{BackwardBFS}(B)$
 
 ---
 
-## 4. User Constraints: LIMIT vs. TARGET Semantics
+## 2. Port Constraint Modes & `AUTO` Resolution
 
-User constraints are set on ports with `user_constraint >= 0`.
+Every port $p$ carries a `ConstraintMode`:
 
-### Universal Hard Upper Bound
-In `addAllConstraints`, **every port** with `user_constraint >= 0` receives a hard capacity ceiling regardless of classification:
-$$R_p \le \text{user\_constraint}$$
+| Mode | Semantics |
+| :--- | :--- |
+| **`AUTO`** | Default. Resolved per component $K$ into `LIMIT`, `TARGET`, or `PUSH` (see below). |
+| **`LIMIT`** | Hard capacity ceiling: $R_p \le c$. Never actively pulls or pushes flow. |
+| **`TARGET`** | Demand pull goal: enforces $R_p \le g_p$ and maximizes $R_p \to g_p$ in Stage 1 by pulling from upstream. |
+| **`PUSH`** | Supply push goal:<li>**Rated (`user_constraint >= 0`):** enforces $R_p \le g_p$, maximizes $R_p \to g_p$ in Stage 1, and forces $E_q = 0$ on all downstream wired output ports $q \in \mathrm{Cl}(p)$.</li><li>**Unrated (`user_constraint < 0`):** imposes no numeric rate ceiling or Stage 1 goal, but forces $E_q = 0$ on downstream non-target-serving wired output ports $q \in \mathrm{Cl}_{\neg\mathcal{T}}(p)$.</li> |
 
-### Constraint Classification (`classifyConstraint`)
-`classifyConstraint(factory_graph, port)` classifies constrained ports into two kinds:
+### 3-Step `AUTO` Resolution within Component $K$
 
-1. **`ConstraintKind::LIMIT`:**
-   - **Assigned to:**
-     - All input ports (`factory_graph.isInputPort(port.id)`).
-     - Output ports of nodes whose input ports are all `"nothing"` (`resource_key == "nothing"`), **or** nodes with no input ports at all (`std::all_of` on empty `input_ports` evaluates to `true`).
-   - **Semantics:**
-     Represents an extraction capacity or consumption ceiling: $0 \le R_p \le \text{user\_constraint}$. The solver may pull less than this limit if downstream demand is lower.
+For any port $p \in \mathcal{P}_K$ with `constraint_mode == ConstraintMode::AUTO`:
 
-2. **`ConstraintKind::TARGET`:**
-   - **Assigned to:**
-     - Orphan ports where `port.node_id` does not resolve to a node (`node == nullptr`).
-     - All other output ports (manufactured goods and intermediate outputs).
-   - **Semantics:**
-     Represents a demand goal. In addition to the upper bound $R_p \le \text{user\_constraint}$, the port is registered for proportional satisfaction in Phase 1 ($R_p \ge S \cdot \text{user\_constraint}$).
-
----
-
-## 5. Lexicographic Optimization Phases
-
-The solver executes three sequential phases in `solveLexicographic`:
-
-```mermaid
-flowchart TD
-    A["Phase 1: Iterative Water-Filling Loop<br>(Maximize saturation S across active TARGETs)"] --> B["Phase 2: Lexicographic Depth Priority<br>(Maximize reachable leaf throughput, deepest first)"]
-    B --> C["Phase 3: Waste Minimization & Fair Splitting<br>(Terminal solve: excess + flow + branch balance)"]
-    C --> D["Store Solution & Update Graph"]
-```
-
-### Phase 1: Iterative Target Water-Filling Loop
-
-If no ports have `user_constraint >= 0` with `ConstraintKind::TARGET`, Phase 1 is skipped.
-
-When active targets exist:
-1. Create continuous saturation variable $S \in [0, 1]$.
-2. For each active target port $i$, add coupling constraint:
-   $$R_i - S \cdot \text{target}_i \ge 0 \quad (R_i \ge S \cdot \text{target}_i)$$
-3. **Iterative Resolution Loop:**
-   - Maximize $S$. If status is not `OPTIMAL`, abort Phase 1 and return the non-optimal status.
-   - If $s_{\text{val}} \ge 1.0 - \text{kZeroEpsilon}$ (where $\text{kZeroEpsilon} = 10^{-9}$):
-     All active targets are fully satisfiable. For every active target $i$, set hard lower bound:
-     $$\text{SetLB}(\max(0.0, \text{target}_i))$$
-     Break loop.
-   - If $s_{\text{val}} < 1.0 - \text{kZeroEpsilon}$ (bottleneck detected):
-     1. Temporarily clamp $S$: $\text{SetLB}(s_{\text{val}})$, $\text{SetUB}(s_{\text{val}})$.
-     2. **Optimistic Fast Filter (Sum Solve):** Maximize total active target flow $\sum_{i \in \text{active\_targets}} R_i$. If status is not `OPTIMAL`, abort Phase 1 and return the non-optimal status.
-        - If $R_i > \text{target}_i \cdot s_{\text{val}} + 10^{-6}$, target $i$ has proven headroom; retain it directly in `next_active`.
-        - Otherwise, target $i$ did not expand in the sum solve (possibly due to GLOP favoring another competing target on a degenerate facet); mark target $i$ as a suspect.
-     3. **Suspect Verification (Individual Test Solves):** For each suspect target $i$, run an individual test solve maximizing $R_i$ while $S$ remains clamped to $s_{\text{val}}$:
-        - If the solve fails abnormally (status not `OPTIMAL` or `FEASIBLE`), return the non-optimal status.
-        - If $R_i \le \text{target}_i \cdot s_{\text{val}} + 10^{-6}$: Target $i$ is a genuine bottleneck. Lock its lower bound:
-          $$\text{SetLB}(\max(R_i.\text{lb}, \text{locked\_val} - \text{lockTolerance}(\text{locked\_val})))$$
-          where $\text{locked\_val} = \text{target}_i \cdot s_{\text{val}}$.
-          Decouple port $i$ from $S$ by resetting its coupling constraint bounds to $(-\infty, \infty)$ and clearing coefficients. Target $i$ is excluded from `next_active`.
-        - Else ($R_i > \text{target}_i \cdot s_{\text{val}} + 10^{-6}$): Target $i$ was merely starved in the sum solve; retain it in `next_active`.
-     4. Restore original bounds of $S$.
-     5. **Loop Guard:** If $\text{next\_active.size}() == \text{active\_targets.size}()$, no target was bottlenecked; break loop to prevent cycling.
-     6. Set $\text{active\_targets} = \text{next\_active}$ and repeat.
-
-### Phase 2: Lexicographic Depth Priority for Leaf Throughput
-
-Phase 2 maximizes production of unconsumed leaf outputs reachable from constrained ports:
-
-1. **Reachability Analysis (`findReachablePorts`):**
-   Forward BFS starting from constrained ports with `user_constraint >= 0`. When active `TARGET` demand ports exist in the graph, `LIMIT` ports (capacity ceilings on raw extractors and inputs) are excluded from seeding reachability, ensuring passive supply limits do not actively push overproduction into unconstrained downstream leaves. If no active targets exist (pure supply push mode), all constrained ports seed reachability. Traverses forward connection wires ($F_c$) and internal node connections (all input ports to all output ports).
-2. **Reachable Leaf Selection (`buildThroughputTerms`):**
-   - Output ports with no outgoing connections that are reachable from constrained ports, **including** constrained ones.
-   - For consumer nodes without any output ports, their reachable input ports.
-3. **SCC Topological Depth Condensation (`computeNodeDepths`):**
-   - Condenses graph cycles using an iterative two-pass Kosaraju algorithm to construct an SCC DAG without recursion.
-   - Computes topological depths for all SCCs and maps depths back to nodes.
-4. **Layered Lexicographic Optimization:**
-   - Groups reachable leaf terms by node depth in descending order: `std::map<int, Terms, std::greater<int>>` (**deepest node depth first**).
-   - For each distinct depth $d$:
-     1. Solve LP maximizing leaf throughput: $\max \sum_{p \in \text{leaves}(d)} R_p$.
-     2. If `OPTIMAL`, lock the achieved value via `lockStage`:
-        $$\sum_{p \in \text{leaves}(d)} R_p \ge \text{optimal} - \text{lockTolerance}(\text{optimal})$$
-        If status is not `OPTIMAL`, abort Phase 2 and return the failure status directly.
-
-### Phase 3: Waste Minimization and Fair Branch Splitting
-
-Phase 3 is a single terminal LP solve. It is **not locked** with `lockStage`.
-
-$$\min \sum_{p} \text{kExcessWasteWeight} \cdot E_p + \sum_{p} \text{kFlowWasteWeight} \cdot R_p + \sum_{p} 10^{-4} \cdot (hi_p - lo_p)$$
-
-- **Constants:**
-  - $\text{kExcessWasteWeight} = 1.0$
-  - $\text{kFlowWasteWeight} = 10^{-3}$
-  - Multi-branch balance weight $= 10^{-4}$
-- **Hierarchy of Objectives:**
-  1. **Excess Waste ($1.0 \cdot E_p$):** Strongly penalizes unconsumed byproduct excess on connected output ports. Routing byproducts into downstream consumers or sinks is strictly preferred over dumping at the port.
-  2. **Flow Waste ($10^{-3} \cdot R_p$):** Suppresses unnecessary overproduction and ghost flows.
-  3. **Fair Splitting ($10^{-4} \cdot (hi_p - lo_p)$):** Equalizes flows across branches of splits and merges when downstream demand does not dictate specific proportions.
-
-On `OPTIMAL` status, `storeSolution()` captures all variable solution values into `m_solution`.
+1. **Step 1 — Non-Boundary Ports:**
+   - Wired input ports ($p \in \mathcal{P}^{\text{in}}_K \setminus \mathcal{B}^{\text{imp}}_K$) resolve to **`LIMIT`**.
+   - Non-raw output ports ($p \in \mathcal{P}^{\text{out}}_K \setminus \mathcal{B}^{\text{raw}}_K$) resolve to **`TARGET`**.
+2. **Step 2 — Sink-Dedicated Subgraph:** Compute $\mathcal{S}^+_K$ using the pre-resolved `TARGET` ($g > 0$) and explicit `PUSH` ports.
+3. **Step 3 — Boundary Supply Ports ($p \in \mathcal{B}^{\text{raw}}_K \cup \mathcal{B}^{\text{imp}}_K$):**
+   - **Demand-Driven Component** ($K$ has $\ge 1$ effective `TARGET` port with `user_constraint > 0`; a `TARGET` with `user_constraint == 0` is only a zero cap and does not switch $K$ into demand mode): every `AUTO` boundary port resolves to **`LIMIT`**.
+   - **Supply-Driven Component** ($K$ has $0$ effective `TARGET`s):
+     - *Auxiliary sink-supplier demotion:* If $\mathcal{N}_K \setminus \mathcal{S}^+_K \neq \emptyset$ and $\nu(p) \in \mathcal{S}^+_K$, $p$ is demoted to **`LIMIT`** if and only if every sink $s \in \mathcal{S}_K$ reachable from $p$ is reached exclusively through sink input port(s) that have no directed path from $\mathcal{N}_K \setminus \mathcal{S}^+_K$, while $s$ has at least one other input port that *does* have a directed path from $\mathcal{N}_K \setminus \mathcal{S}^+_K$.
+     - All other `AUTO` boundary supply ports resolve to **`PUSH`**.
 
 ---
 
-## 6. Machine Count Derivation
+## 3. Variables & Hard Constraints
 
-During `updateFactoryGraph`, each node's `machine_count` ($M_n$) is derived:
+### LP Variables (per Component $K$)
 
-### 6.1 Scaling Factors
-- **Time Unit Multiplier ($U$):**
-  - `"minutes"`: $U = 60$
-  - `"hours"`: $U = 3600$
-  - `"seconds"` (or any other value): $U = 1$
-- **Base Crafting Speed ($B$):** $\text{machine.base\_crafting\_speed}$
-- **Clock Speed Multiplier ($C$):** $\text{node.clock\_speed} / 100.0$
-- **Production Multiplier ($P$):** $\text{node.production\_multiplier} / 100.0$
+All variables are non-negative ($\ge 0$):
 
-### 6.2 Zero / Missing Value Guards
-$M_n = 0.0$ if:
-- `node.selected_recipe_key` is not found in `game_data.recipes`.
-- `node.machine_key` is not found in `game_data.machines`.
-- $\text{recipe.time\_seconds} \le 0.0$.
-- $\text{node.clock\_speed} \le 0.0$.
-- $\text{node.production\_multiplier} \le 0.0$.
+| Variable | Created for | Meaning |
+| :--- | :--- | :--- |
+| $R_p \ge 0$ | Every port $p \in \mathcal{P}_K$ | Flow rate through port $p$ |
+| $F_c \ge 0$ | Every connection $c \in \mathcal{W}_K$ | Flow rate along wire $c$ |
+| $E_p \ge 0$ | Every wired output port $p \in \mathcal{P}^{\text{out}}_K$ ($W^+(p) \neq \emptyset$) | Unconsumed production on port $p$ |
+| $S \in [0, 1]$ | Stage 1 (when $G_K \neq \emptyset$) | Common water-filling saturation fraction |
+| $hi^{\text{ns}}_p, lo^{\text{ns}}_p \ge 0$ | Every output port $p$ with $\ge 2$ outgoing wires to $(\mathcal{N}_K \setminus \mathcal{S}^+_K) \setminus \mathcal{T}_K$ | Max and min branch flow across non-sink, non-target-serving outgoing wires of $p$ |
+| $hi_p, lo_p \ge 0$ | Every port $p$ with $\ge 2$ outgoing or $\ge 2$ incoming wires | Max and min branch flow across all wires of $p$ |
 
-### 6.3 Formula by Recipe Branch
+### Hard Constraints
 
-1. **Raw Producers (`std::all_of` input ports are `"nothing"` or empty):**
-   Requires `!recipe.output_ports.empty() && !node.output_ports.empty()`. Finds the first output port with $\text{recipe.output}[i].\text{amount} > 0.0$:
-   $$\text{output\_per\_machine} = \frac{\text{recipe.output}[i].\text{amount} \cdot P}{\text{recipe.time\_seconds}} \cdot B \cdot U \cdot C$$
-   $$M_n = \frac{R_{\text{node.output}[i]}}{\text{output\_per\_machine}}$$
+1. **Recipe Stoichiometry:** For each node $n \in \mathcal{N}_K$ with a valid recipe, positive `clock_speed`, and positive `production_multiplier` $P = \text{production\_multiplier} / 100$:
+   - If the node's recipe is missing, or if `clock_speed <= 0` or `production_multiplier <= 0`, all ports of $n$ are clamped to $R_p = 0$.
+   - Otherwise, all input and output port rates are locked in exact linear proportion to the first positive output port $o_0$ (or first positive input port $i_0$ for sink recipes):
+     $$a_{o_0} \cdot P \cdot R_{i_k} - a_{i_k} \cdot R_{o_0} = 0, \qquad a_{o_k} \cdot R_{o_0} - a_{o_0} \cdot R_{o_k} = 0$$
+2. **User Rate Ceilings:** Every port $p \in \mathcal{P}_K$ with `user_constraint >= 0` (regardless of whether its resolved mode is `LIMIT`, `TARGET`, or `PUSH`) enforces:
+   $$R_p \le p.\text{user\_constraint}$$
+3. **Wire Flow Conservation:**
+   - Wired output port ($W^+(p) \neq \emptyset$): $R_p - E_p - \sum_{c \in W^+(p)} F_c = 0$
+   - Wired input port ($W^-(p) \neq \emptyset$): $\sum_{c \in W^-(p)} F_c - R_p = 0$
+4. **No-Overflow Rules ($E_p = 0$):**
+   Let:
+   - $G_K = \{p \in \mathcal{P}_K \mid p.\text{user\_constraint} > 0 \land \text{mode}(p) \in \{\text{TARGET}, \text{PUSH}\}\}$ be the **active goals** of $K$.
+   - $\mathcal{T}_K = \text{BackwardBFS}(\{\nu(p) \mid p \in G_K \land \text{mode}(p) = \text{TARGET}\}) \setminus \mathcal{S}^+_K$ be the **target-serving subgraph** of $K$.
+   - $Z_K = \{p \in \mathcal{P}^{\text{out}}_K \mid W^+(p) \neq \emptyset \land p \in \mathrm{Cl}(P^{\text{push,rated}}_K) \cup \mathrm{Cl}_{\neg\mathcal{T}}(P^{\text{push,unrated}}_K)\}$ be the **push-driven no-overflow port set**, where $\mathrm{Cl}$ is forward reachability over wires and node input$\to$output links, and $\mathrm{Cl}_{\neg\mathcal{T}}$ restricts internal node traversal to $n \in \mathcal{N}_K \setminus \mathcal{T}_K$.
 
-2. **Standard Crafting Nodes:**
-   Finds the first input port that is not `"nothing"` and has $\text{recipe.input}[i].\text{amount} > 0.0$:
-   $$\text{input\_per\_machine} = \frac{\text{recipe.input}[i].\text{amount}}{\text{recipe.time\_seconds}} \cdot B \cdot U \cdot C$$
-   $$M_n = \frac{R_{\text{node.input}[i]}}{\text{input\_per\_machine}}$$
-   If no positive non-"nothing" input port exists (e.g. all inputs are non-consumed catalysts with amount 0.0), falls back to the first positive output port as in branch 3.
+   Then $E_p$ is fixed to zero (`excess->SetUB(0.0)`) on every wired output port $p$ satisfying:
+   - **Rule 1:** $p \in Z_K$ (push-driven paths cannot dump flow into unconsumed wire excess), OR
+   - **Rule 2:** $\nu(p) \notin \mathcal{T}_K$ (nodes outside the target-serving subgraph cannot generate unconsumed wire excess).
 
-3. **Output-Only Nodes (`!recipe.output_ports.empty() && !node.output_ports.empty()`):**
-   $$\text{output\_per\_machine} = \frac{\text{recipe.output}[i].\text{amount} \cdot P}{\text{recipe.time\_seconds}} \cdot B \cdot U \cdot C$$
-   $$M_n = \frac{R_{\text{node.output}[i]}}{\text{output\_per\_machine}}$$
-
-If `output_per_machine` or `input_per_machine` $\le 0.0$, $M_n = 0.0$.
+   Consequently, $E_p > 0$ is permitted **only** on target-serving nodes ($\nu(p) \in \mathcal{T}_K$) not subject to a push constraint ($p \notin Z_K$), allowing co-product/byproduct shedding when required to satisfy a `TARGET`.
 
 ---
 
-## 7. Deterministic Model Construction
+## 4. The 4-Stage Lexicographic Solve
 
-GLOP LP constraint and variable orders must be deterministic across platforms and executions:
-- `addConnectionConstraints`: uses `std::map<uint64_t, std::vector<uint64_t>>` for `port_outgoing` and `port_incoming`.
-- Phase 2: uses `std::map<int, Terms, std::greater<int>>` to order depth stages deterministically.
-- Phase 3: copies variables into `std::map<uint64_t, MPVariable*>` (`ordered_excess` and `ordered_ports`) before appending to objective terms.
+Each component $K$ is solved through a fixed sequence of LP stages. After each intermediate stage achieves optimum $z^\star$, `lockStage` adds a linear constraint locking that stage's objective within $\tau(z^\star) = 10^{-9} \cdot \max(1, |z^\star|)$.
 
-This prevents iteration order variations of `std::unordered_map` from affecting numerical row sequences in GLOP.
+### Stage 1: Max-Min Water-Filling on Active Goals ($G_K$)
+
+If $G_K \neq \emptyset$, introduce $S \in [0, 1]$ with $R_p - g_p \cdot S \ge 0$ for all $p \in G_K$, and iteratively maximize $S$:
+- If $S^\star \ge 1 - 10^{-9}$, all remaining goals in $G_K$ are locked at $R_p \ge g_p$ and the loop terminates.
+- Otherwise, $S$ is temporarily fixed to $S^\star$ and a **Hybrid Filter** identifies bottlenecked goals:
+  1. **Sum solve:** Maximize $\sum_{p \in G_{\text{active}}} R_p$. Any goal with $R_p > g_p S^\star + 10^{-6}$ has headroom and stays active.
+  2. **Suspect verification:** Each goal that did not grow in the sum solve is maximized individually. If it still cannot exceed $g_p S^\star + 10^{-6}$, it is a genuine bottleneck: its lower bound is locked at $g_p S^\star - \tau(g_p S^\star)$ and its $S$-constraint is decoupled.
+- When all goals are locked, all $S$-constraints are decoupled so $S$ is inert in Stages 2–4.
+
+### Stage 2: Upstream Conservation & Overflow Routing
+
+- **Stage 2a — Minimal Target-Serving Machine Activity:**
+  $$\min \sum_{n \in \mathcal{T}_K} w_n \cdot R_{\text{ref}(n)}$$
+  where $\text{ref}(n)$ is the first non-`"nothing"` input port (or first positive output port for raw sources), and $w_n$ is the machine-count weight per unit reference flow (using $B = 1.0$ if no valid machine is assigned):
+  $$w_n = \frac{\text{recipe.time\_seconds}}{\text{ref\_amount} \cdot B \cdot U \cdot C}$$
+  Only the total weighted sum is locked via `lockStage`, preserving freedom for Stage 4 to balance parallel equal-efficiency branches.
+- **Stage 2b — Maximal Wired Consumption (Minimal Unconsumed Excess):**
+  $$\min \sum_{p \in \mathcal{P}^{\text{out}}_K,\, W^+(p) \neq \emptyset} E_p$$
+  Forces all produced flow on wired output ports into connected downstream wires (including sinks) up to their capacity before leaving any excess $E_p > 0$.
+- **Stage 2c — Non-Sink Routing Priority & Fair Splitting:**
+  - **Stage 2c.1 (Mixed-Splitter Sink-Branch Minimization):** For every mixed splitter port $p$ (having both sink-dedicated outgoing wires $c \in W^+_{\text{sink}}(p)$ to $\mathcal{S}^+_K$ and non-sink outgoing wires $c \in W^+_{\text{ns}}(p)$ to $\mathcal{N}_K \setminus \mathcal{S}^+_K$), minimize total flow into the sink-dedicated branches:
+    $$\min \sum_{c \in W^{\text{mix-sink}}_K} F_c$$
+  - **Stage 2c.2 (Non-Sink Splitter Fairness):** For every output port $p$ with $\ge 2$ outgoing wires $W^+_{\text{ns}\setminus\mathcal{T}}(p)$ to non-sink nodes outside $\mathcal{T}_K$ ($(\mathcal{N}_K \setminus \mathcal{S}^+_K) \setminus \mathcal{T}_K$), minimize the spread across those branches:
+    $$\min \sum_{p:\, |W^+_{\text{ns}\setminus\mathcal{T}}(p)| \ge 2} \left(hi^{\text{ns}}_p - lo^{\text{ns}}_p\right)$$
+
+### Stage 3: Residual & Sink Subgraph Minimization
+
+- **Stage 3a — Minimal Remaining Non-Sink Machine Activity:**
+  $$\min \sum_{n \in \mathcal{N}_K \setminus (\mathcal{T}_K \cup \mathcal{S}^+_K)} w_n \cdot R_{\text{ref}(n)}$$
+  Drives unconstrained nodes, unused branches, and unconstrained amplifying cycles to zero while respecting all locked upstream pushes and targets.
+- **Stage 3b — Minimal Sink-Dedicated Port Flow:**
+  $$\min \sum_{p \in \mathcal{P}_K:\, \nu(p) \in \mathcal{S}^+_K} R_p$$
+  Ensures sink-dedicated subgraphs run only as much as forced by Stage 1 goals or Stage 2b overflow absorption.
+
+### Stage 4: Terminal Fair Branch Splitting
+
+$$\min \sum_{p:\, |W^+(p)| \ge 2 \text{ or } |W^-(p)| \ge 2} \left(hi_p - lo_p\right)$$
+Balances any remaining degrees of freedom across all splitters and mergers (including equal-efficiency upstream suppliers and parallel sink lines).
 
 ---
 
-## 8. Solver Status, Failure Handling & Edge Cases
+## 5. Post-Processing & Diagnostics
 
-### 8.1 Status Mapping (`convertSolverStatus`)
-| `operations_research::MPSolver::ResultStatus` | `FactorySolver::SolverResultStatus` |
-|---|---|
-| `MPSolver::OPTIMAL` | `SolverResultStatus::SUCCESS` |
-| `MPSolver::INFEASIBLE` | `SolverResultStatus::INFEASIBLE` |
-| `MPSolver::UNBOUNDED` | `SolverResultStatus::UNBOUNDED` |
-| Other / Aborted | `SolverResultStatus::ERROR_` |
-
-### 8.2 Non-SUCCESS Behavior
-If the solve fails (`result != SolverResultStatus::SUCCESS`):
-- All port `rate` and `excess_rate` in the graph are set to `0.0`.
-- All connection `rate` in the graph are set to `0.0`.
-- All `node.machine_count` in the graph are reset to `0.0` (clearing stale values from previous solves).
-- An error is logged via Abseil: `LOG(ERROR) << "Solver failed with status: " << m_lastSolverStatus`.
-
-### 8.3 Exception Handling
-`solve()` encloses execution in a `try ... catch (const std::exception &e)` block:
-- Stderr threshold is restored: `absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo)`.
-- Error is logged: `LOG(ERROR) << "Exception during solving: " << e.what()`.
-- Dispatches a UI error notification:
-  `NotificationManager::instance().addNotification("Solver Error", ..., NotificationType::Error)`.
-- Returns result struct with `SolverResultStatus::ERROR_`.
-
-### 8.4 Graph With No Constraints
-If a graph contains no port constraints (`user_constraint < 0` for all ports):
-- Phase 1 finds no active targets and is skipped.
-- Reachability BFS starts from an empty set, resulting in no throughput terms; Phase 2 is skipped.
-- Phase 3 minimizes excess, port flow, and branch imbalance without driving constraints, solving to all-zero rates ($R_p = 0$, $F_c = 0$, $E_p = 0$).
-
----
-
-## 9. Numerical Stability & Tolerances
-
-- **`kZeroEpsilon` ($10^{-9}$):** Solution values with magnitude smaller than $10^{-9}$ are cleaned to `0.0` in `cleanValue()`. Also used as the full-saturation threshold $S \ge 1.0 - \text{kZeroEpsilon}$.
-- **`lockTolerance(v)`:**
-  $$\text{lockTolerance}(v) = 10^{-9} \cdot \max(1.0, |v|)$$
-  Relaxes locked stage bounds slightly to prevent minor floating-point fluctuations from causing subsequent stages to become infeasible.
+After solving each component $K$:
+- Any solved value with $|v| < 10^{-9}$ is snapped to `0.0`.
+- Port rates $R_p$, wire rates $F_c$, and unconsumed excess rates $E_p$ are written back to `FactoryGraph`.
+- Node `machine_count` is computed from the solved reference port rate, recipe craft time, machine `base_crafting_speed`, time unit (`seconds` = 1, `minutes` = 60, `hours` = 3600), `clock_speed`, and `production_multiplier`.
+- Diagnostic getters on `FactorySolver` expose the per-port resolved `ConstraintMode` (`getResolvedConstraintMode`) and per-goal saturation ratio $R_p / g_p \in [0, 1]$ (`getGoalSaturation`, `isGoalBottlenecked`).

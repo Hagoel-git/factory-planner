@@ -97,6 +97,31 @@ protected:
     void triggerUnsavedChangesSave(Application& app) {
         app.handleUnsavedChangesSave();
     }
+
+    void drawEditorPinPopupFrame(FactoryNodeEditor& editor, uint64_t portId, bool openPopupThisFrame) {
+        ImGui::NewFrame();
+        ImGui::SetNextWindowPos(ImVec2(0, 0));
+        ImGui::SetNextWindowSize(ImVec2(1280, 720));
+        ImGui::Begin("EditorHost", nullptr, ImGuiWindowFlags_NoDecoration);
+        ax::NodeEditor::SetCurrentEditor(editor.getContext());
+        ax::NodeEditor::Begin(editor.getName().c_str());
+        if (openPopupThisFrame) {
+            editor.m_contextPinId = IdUtils::toPinId(portId);
+            editor.m_isContextMenuInitialized = false;
+            ax::NodeEditor::Suspend();
+            ImGui::OpenPopup("Pin Context Menu");
+            ax::NodeEditor::Resume();
+        }
+        editor.handlePopups();
+        ax::NodeEditor::End();
+        ax::NodeEditor::SetCurrentEditor(nullptr);
+        ImGui::End();
+        ImGui::EndFrame();
+    }
+
+    size_t getEditorUndoStackSize(const FactoryNodeEditor& editor) const {
+        return editor.m_undoRedoManager.getUndoStackSize();
+    }
 };
 
 // -----------------------------------------------------------------------------
@@ -890,4 +915,116 @@ TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_CutClearsSelection) {
 
     ax::NodeEditor::SetCurrentEditor(nullptr);
 }
+
+TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_PinContextMenu_EditRateAndClickRadioButtonAndDismiss) {
+    GameData gd;
+    gd.gameName = "TestGame";
+    gd.time_unit = "seconds";
+    gd.resources["nothing"] = Resource{"Nothing", 0};
+    gd.resources["iron_ore"] = Resource{"Iron Ore", 1};
+    gd.machines["miner"] = Machine{"Miner", 1, 0};
+    Recipe mine_ore;
+    mine_ore.name = "Mine Iron Ore";
+    mine_ore.produced_in_machines_keys.push_back("miner");
+    mine_ore.input_ports.push_back(RecipePort{1.0, "nothing"});
+    mine_ore.output_ports.push_back(RecipePort{30.0, "iron_ore"});
+    mine_ore.time_seconds = 1.0;
+    gd.recipes["mine_ore"] = mine_ore;
+
+    FactoryNodeEditor editor(gd, "", "PinPopupTest");
+    uint64_t nodeId = editor.getGraph()->addNode("Mine Iron Ore", "mine_ore");
+    Node* node = editor.getGraph()->getNode(nodeId);
+    ASSERT_NE(node, nullptr);
+    ASSERT_FALSE(node->output_ports.empty());
+    uint64_t portId = node->output_ports[0];
+
+    ImGuiIO& io = ImGui::GetIO();
+
+    // Frame 1: Open Pin Context Menu inside the node-editor canvas scope
+    drawEditorPinPopupFrame(editor, portId, true);
+    ASSERT_EQ(GImGui->OpenPopupStack.Size, 1);
+
+    // Frame 2: Let InputText("##rate") gain focus on appearing, then type "60"
+    drawEditorPinPopupFrame(editor, portId, false);
+    io.AddInputCharactersUTF8("60");
+    drawEditorPinPopupFrame(editor, portId, false);
+
+    ASSERT_DOUBLE_EQ(editor.getGraph()->getPort(portId)->user_constraint, 60.0);
+    // Live solve updated port rate while typing, but no undo command has been committed yet
+    EXPECT_EQ(getEditorUndoStackSize(editor), 0u);
+    ASSERT_EQ(GImGui->OpenPopupStack.Size, 1);
+
+    // Find the "Limit (Cap)" RadioButton inside the popup window and click it
+    ImGuiWindow* popupWin = GImGui->OpenPopupStack[0].Window;
+    ASSERT_NE(popupWin, nullptr);
+    ImGuiID limitRadioId = popupWin->GetID("Limit (Cap)");
+
+    ImVec2 popupPos = popupWin->Pos;
+    ImVec2 targetClickPos(popupPos.x + 25.0f, popupPos.y + 100.0f);
+    for (float dy = 40.0f; dy < popupWin->Size.y; dy += 6.0f) {
+        io.AddMousePosEvent(popupPos.x + 25.0f, popupPos.y + dy);
+        drawEditorPinPopupFrame(editor, portId, false);
+        if (GImGui->HoveredId == limitRadioId) {
+            targetClickPos = ImVec2(popupPos.x + 25.0f, popupPos.y + dy);
+            break;
+        }
+    }
+    ASSERT_EQ(GImGui->HoveredId, limitRadioId);
+
+    // Mouse down + up on the "Limit (Cap)" RadioButton
+    io.AddMousePosEvent(targetClickPos.x, targetClickPos.y);
+    io.AddMouseButtonEvent(0, true);
+    drawEditorPinPopupFrame(editor, portId, false);
+    io.AddMouseButtonEvent(0, false);
+    drawEditorPinPopupFrame(editor, portId, false);
+
+    // Verify:
+    // 1) Popup stayed OPEN after deactivating ##rate and clicking the RadioButton!
+    EXPECT_EQ(GImGui->OpenPopupStack.Size, 1);
+    // 2) Both rate (60.0) and mode (LIMIT) were applied
+    EXPECT_DOUBLE_EQ(editor.getGraph()->getPort(portId)->user_constraint, 60.0);
+    EXPECT_EQ(editor.getGraph()->getPort(portId)->constraint_mode, ConstraintMode::LIMIT);
+    // 3) Exactly 2 undo commands were pushed (1 for SetPortConstraintCommand on ##rate deactivation,
+    //    1 for SetPortConstraintModeCommand on RadioButton click — NO duplicate SetPortConstraintCommand!)
+    EXPECT_EQ(getEditorUndoStackSize(editor), 2u);
+
+    // Close the popup by clicking outside on the canvas
+    io.AddMousePosEvent(900.0f, 600.0f);
+    io.AddMouseButtonEvent(0, true);
+    drawEditorPinPopupFrame(editor, portId, false);
+    io.AddMouseButtonEvent(0, false);
+    drawEditorPinPopupFrame(editor, portId, false);
+    ASSERT_EQ(GImGui->OpenPopupStack.Size, 0);
+
+    // Reopen Pin Context Menu, edit ##rate to "120", and immediately click outside to dismiss (without pressing Enter):
+    drawEditorPinPopupFrame(editor, portId, true);
+    ASSERT_EQ(GImGui->OpenPopupStack.Size, 1);
+    drawEditorPinPopupFrame(editor, portId, false);
+    io.AddInputCharactersUTF8("120");
+    drawEditorPinPopupFrame(editor, portId, false);
+    ASSERT_DOUBLE_EQ(editor.getGraph()->getPort(portId)->user_constraint, 120.0);
+    // Still 2 commands before popup dismissal
+    EXPECT_EQ(getEditorUndoStackSize(editor), 2u);
+
+    // Click outside popup to dismiss -> must commit the 3rd undo command (60.0 -> 120.0)!
+    io.AddMousePosEvent(900.0f, 600.0f);
+    io.AddMouseButtonEvent(0, true);
+    drawEditorPinPopupFrame(editor, portId, false);
+    io.AddMouseButtonEvent(0, false);
+    drawEditorPinPopupFrame(editor, portId, false);
+    ASSERT_EQ(GImGui->OpenPopupStack.Size, 0);
+    EXPECT_EQ(getEditorUndoStackSize(editor), 3u);
+
+    // Undo all 3 commands and verify full rollback: 120.0 -> 60.0 -> AUTO -> -1.0
+    editor.undo();
+    EXPECT_DOUBLE_EQ(editor.getGraph()->getPort(portId)->user_constraint, 60.0);
+    EXPECT_EQ(editor.getGraph()->getPort(portId)->constraint_mode, ConstraintMode::LIMIT);
+    editor.undo();
+    EXPECT_EQ(editor.getGraph()->getPort(portId)->constraint_mode, ConstraintMode::AUTO);
+    EXPECT_DOUBLE_EQ(editor.getGraph()->getPort(portId)->user_constraint, 60.0);
+    editor.undo();
+    EXPECT_DOUBLE_EQ(editor.getGraph()->getPort(portId)->user_constraint, -1.0);
+    EXPECT_FALSE(editor.canUndo());
+}
+
 

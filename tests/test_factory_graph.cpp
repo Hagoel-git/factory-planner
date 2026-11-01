@@ -2649,3 +2649,39 @@ TEST_F(FactoryGraphTest, ChangeMachine_SafeHandling) {
     });
 }
 
+TEST_F(FactoryGraphTest, SerializeAndDeserializePortConstraintModes) {
+    uint64_t n1 = addNode("mine_ore");
+    uint64_t n2 = addNode("smelt_ingot");
+    Port* p1_out = getPort(n1, "iron_ore", false);
+    Port* p2_in = getPort(n2, "iron_ore", true);
+    Port* p2_out = getPort(n2, "iron_ingot", false);
+    ASSERT_NE(p1_out, nullptr);
+    ASSERT_NE(p2_in, nullptr);
+    ASSERT_NE(p2_out, nullptr);
+
+    // Rated PUSH on p1_out, unrated PUSH on p2_in, explicit LIMIT on p2_out
+    EXPECT_TRUE(graph->setPortConstraint(p1_out->id, 60.0, ConstraintMode::PUSH));
+    EXPECT_TRUE(graph->setPortConstraintMode(p2_in->id, ConstraintMode::PUSH));
+    EXPECT_TRUE(graph->setPortConstraint(p2_out->id, 30.0, ConstraintMode::LIMIT));
+
+    nlohmann::json j = graph->serialize();
+
+    FactoryGraph loaded(testGameData);
+    loaded.deserialize(j, testGameData);
+
+    const Port* lp1_out = loaded.getPort(p1_out->id);
+    const Port* lp2_in = loaded.getPort(p2_in->id);
+    const Port* lp2_out = loaded.getPort(p2_out->id);
+    ASSERT_NE(lp1_out, nullptr);
+    ASSERT_NE(lp2_in, nullptr);
+    ASSERT_NE(lp2_out, nullptr);
+
+    EXPECT_DOUBLE_EQ(lp1_out->user_constraint, 60.0);
+    EXPECT_EQ(lp1_out->constraint_mode, ConstraintMode::PUSH);
+    EXPECT_DOUBLE_EQ(lp2_in->user_constraint, -1.0);
+    EXPECT_EQ(lp2_in->constraint_mode, ConstraintMode::PUSH);
+    EXPECT_DOUBLE_EQ(lp2_out->user_constraint, 30.0);
+    EXPECT_EQ(lp2_out->constraint_mode, ConstraintMode::LIMIT);
+}
+
+
