@@ -122,6 +122,66 @@ protected:
     size_t getEditorUndoStackSize(const FactoryNodeEditor& editor) const {
         return editor.m_undoRedoManager.getUndoStackSize();
     }
+
+    void setEditorFocused(FactoryNodeEditor& editor, bool focused) {
+        editor.m_isFocused = focused;
+    }
+
+    void handleApplicationShortcuts(Application& app) {
+        app.handleShortcuts();
+    }
+
+    void setSaveDialogCancelled(Application& app, bool cancelled) {
+        std::lock_guard<std::mutex> lock(app.m_saveDialogState->mutex);
+        app.m_saveDialogState->isCancelled = cancelled;
+    }
+
+    void setSaveDialogResultPath(Application& app, const std::string& path) {
+        std::lock_guard<std::mutex> lock(app.m_saveDialogState->mutex);
+        app.m_saveDialogState->resultPath = path;
+    }
+
+    void drawSaveAsDialog(Application& app) {
+        app.drawSaveAsDialog();
+    }
+
+    void triggerSaveCopy(Application& app) {
+        app.m_isSaveAsCopy = true;
+        app.m_saveAsTargetEditor = (app.m_activeEditor >= 0 && static_cast<size_t>(app.m_activeEditor) < app.m_editors.size())
+                                       ? app.m_editors[app.m_activeEditor].get() : nullptr;
+        app.m_showSaveDialog = true;
+    }
+
+    void triggerSaveAs(Application& app) {
+        app.m_isSaveAsCopy = false;
+        app.m_saveAsTargetEditor = (app.m_activeEditor >= 0 && static_cast<size_t>(app.m_activeEditor) < app.m_editors.size())
+                                       ? app.m_editors[app.m_activeEditor].get() : nullptr;
+        app.m_showSaveDialog = true;
+    }
+
+    bool getIsSaveAsCopy(const Application& app) const {
+        return app.m_isSaveAsCopy;
+    }
+
+    void setActiveEditorIndex(Application& app, int index) {
+        app.m_activeEditor = index;
+    }
+
+    void requestCloseEditor(Application& app, int index) {
+        app.requestCloseEditor(index);
+    }
+
+    void setNextAutosaveTime(FactoryNodeEditor& editor, std::chrono::time_point<std::chrono::steady_clock> time) {
+        editor.m_nextAutosaveTime = time;
+    }
+
+    std::shared_ptr<DialogState> getSaveDialogState(const Application& app) const {
+        return app.m_saveDialogState;
+    }
+
+    std::shared_ptr<std::atomic<bool>> getAppAlive(const Application& app) const {
+        return app.m_appAlive;
+    }
 };
 
 // -----------------------------------------------------------------------------
@@ -1027,4 +1087,313 @@ TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_PinContextMenu_EditRateAndCli
     EXPECT_FALSE(editor.canUndo());
 }
 
+TEST_F(ApplicationLifecycleTest, Issue23_Shortcuts_DoNotModifyGraphWhenWantTextInputIsTrue) {
+    Application app;
+    fs::path projFile = dirA / "project.fpp";
+    app.createNewEditor("", projFile, "project", false);
+    ASSERT_EQ(app.getEditorCount(), 1);
+
+    auto* editor = app.getEditor(0);
+    ASSERT_NE(editor, nullptr);
+    setEditorFocused(*editor, true);
+
+    uint64_t nodeId = editor->getGraph()->addNode("Mine Iron Ore", "mine_ore");
+    uint64_t portId = editor->getGraph()->addPort("iron_ore", nodeId);
+
+    editor->executeCommand(std::make_unique<SetPortConstraintCommand>(portId, -1.0, 50.0));
+    ASSERT_EQ(getEditorUndoStackSize(*editor), 1u);
+
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddKeyEvent(ImGuiMod_Ctrl, true);
+    io.AddKeyEvent(ImGuiKey_Z, true);
+    ImGui::NewFrame();
+    io.WantTextInput = true;
+
+    handleApplicationShortcuts(app);
+
+    // With io.WantTextInput true, Ctrl+Z should be ignored by the app shell
+    EXPECT_EQ(getEditorUndoStackSize(*editor), 1u);
+    ImGui::EndFrame();
+}
+
+TEST_F(ApplicationLifecycleTest, Issue24_SaveAsCopyCancellationDoesNotLeakIntoSaveAs) {
+    Application app;
+    fs::path originalFile = dirA / "original.fpp";
+    app.createNewEditor("", originalFile, "original", false);
+    ASSERT_EQ(app.getEditorCount(), 1);
+
+    // 1. User triggers "Save a Copy"
+    triggerSaveCopy(app);
+    EXPECT_TRUE(getIsSaveAsCopy(app));
+
+    // 2. User cancels the dialog
+    setSaveDialogCancelled(app, true);
+    drawSaveAsDialog(app);
+
+    EXPECT_FALSE(app.isSaveDialogOpen());
+
+    // 3. User triggers "Save As..." with a new path "new_file.fpp"
+    triggerSaveAs(app);
+    fs::path newFile = dirA / "new_file.fpp";
+    setSaveDialogResultPath(app, newFile.string());
+    drawSaveAsDialog(app);
+
+    // Expected: Editor switches to newFile because Save As was triggered
+    // But due to bug 24, m_isSaveAsCopy was still true from previous cancel!
+    EXPECT_EQ(app.getEditor(0)->getProjectFilePath(), newFile);
+}
+
+TEST_F(ApplicationLifecycleTest, Issue25_SaveAs_SavesInitiatingEditorEvenIfActiveEditorSwitched) {
+    Application app;
+    fs::path fileA = dirA / "ProjectA.fpp";
+    fs::path fileB = dirB / "ProjectB.fpp";
+
+    app.createNewEditor("", fileA, "ProjectA", false);
+    app.createNewEditor("", fileB, "ProjectB", false);
+    ASSERT_EQ(app.getEditorCount(), 2);
+
+    // Tab 0 is active initially
+    setActiveEditorIndex(app, 0);
+
+    // Tab 0 initiates "Save As..."
+    triggerSaveAs(app);
+
+    // User switches active tab to Tab 1 while dialog is running
+    setActiveEditorIndex(app, 1);
+
+    // Dialog completes with target file for Tab 0
+    fs::path newFileA = dirA / "ProjectA_v2.fpp";
+    setSaveDialogResultPath(app, newFileA.string());
+    drawSaveAsDialog(app);
+
+    // Tab 0 should have switched to newFileA
+    EXPECT_EQ(app.getEditor(0)->getProjectFilePath(), newFileA);
+    // Tab 1 should still be fileB
+    EXPECT_EQ(app.getEditor(1)->getProjectFilePath(), fileB);
+}
+
+TEST_F(ApplicationLifecycleTest, Issue26_SaveAs_DoesNotSilentlyDestroyDirtyOpenTabOnCollision) {
+    Application app;
+    fs::path fileA = dirA / "factory_a.fpp";
+    fs::path fileB = dirB / "factory_b.fpp";
+
+    app.createNewEditor("", fileA, "factory_a", false);
+    app.createNewEditor("", fileB, "factory_b", false);
+    ASSERT_EQ(app.getEditorCount(), 2);
+
+    // Tab 0 has unsaved changes
+    app.getEditor(0)->setDirty(true);
+    ASSERT_TRUE(app.getEditor(0)->isDirty());
+
+    // Switch to Tab 1
+    setActiveEditorIndex(app, 1);
+    triggerSaveAs(app);
+
+    // Dialog completes with fileA's path (colliding with dirty Tab 0)
+    setSaveDialogResultPath(app, fileA.string());
+    drawSaveAsDialog(app);
+
+    // Tab 0 must NOT be silently destroyed or lose its unsaved changes!
+    ASSERT_EQ(app.getEditorCount(), 2);
+    EXPECT_EQ(app.getEditor(0)->getProjectFilePath(), fileA);
+    EXPECT_TRUE(app.getEditor(0)->isDirty());
+}
+
+TEST_F(ApplicationLifecycleTest, Issue27_AutosaveDoesNotFireWhileAwaitingUnsavedChangesConfirmation) {
+    Application app;
+    fs::path projFile = dirA / "project_dirty.fpp";
+    app.createNewEditor("", projFile, "project_dirty", false);
+    ASSERT_EQ(app.getEditorCount(), 1);
+
+    auto* editor = app.getEditor(0);
+    ASSERT_NE(editor, nullptr);
+
+    // Initial state: not dirty
+    EXPECT_FALSE(editor->isDirty());
+
+    // Mark dirty
+    editor->setDirty(true);
+    EXPECT_TRUE(editor->isDirty());
+
+    // User requests closing the tab -> opens Unsaved Changes dialog
+    requestCloseEditor(app, 0);
+    EXPECT_TRUE(app.isUnsavedChangesDialogOpen());
+    ASSERT_EQ(app.getEditorsToClose().size(), 1u);
+
+    // Enable autosave and rewind next autosave time to past
+    AppSettings settings = SettingsManager::instance().getSettings();
+    settings.autoSaveEnabled = true;
+    settings.autoSaveIntervalMinutes = 1;
+    SettingsManager::instance().setSettings(settings);
+
+    setNextAutosaveTime(*editor, std::chrono::steady_clock::now() - std::chrono::seconds(10));
+
+    // Simulate drawing a frame
+    ImGui::NewFrame();
+    app.draw();
+    ImGui::EndFrame();
+
+    // Editor must still be dirty because autosave was suppressed!
+    EXPECT_TRUE(editor->isDirty());
+}
+
+TEST_F(ApplicationLifecycleTest, Issue22_RunningDialogPreventsQuitAndSurvivesAppDestruction) {
+    auto app = std::make_unique<Application>();
+    fs::path projFile = dirA / "project.fpp";
+    app->createNewEditor("", projFile, "project", false);
+
+    // Simulate an open dialog being in progress on worker thread
+    auto saveState = getSaveDialogState(*app);
+    {
+        std::lock_guard<std::mutex> lock(saveState->mutex);
+        saveState->isRunning = true;
+    }
+
+    EXPECT_TRUE(app->hasRunningDialog());
+
+    // Request quit while dialog is running -> must be rejected
+    app->requestQuit();
+    EXPECT_FALSE(app->isQuitConfirmed());
+
+    // Notification was posted
+    EXPECT_TRUE(NotificationManager::instance().hasActiveNotifications());
+
+    // Now simulate application destruction while a detached worker thread is still in flight
+    auto appAlive = getAppAlive(*app);
+    EXPECT_TRUE(appAlive->load());
+
+    std::atomic<bool> threadFinished = false;
+    std::thread workerThread([saveState, appAlive, &threadFinished]() {
+        // Wait briefly for app to be destroyed
+        while (appAlive->load()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+
+        // App has been destroyed. Access state safely:
+        std::lock_guard<std::mutex> lock(saveState->mutex);
+        saveState->isRunning = false;
+        threadFinished = true;
+    });
+
+    // Destroy the application
+    app.reset();
+
+    // Verify appAlive became false
+    EXPECT_FALSE(appAlive->load());
+
+    // Wait for the worker thread to finish safely without crashing
+    workerThread.join();
+    EXPECT_TRUE(threadFinished.load());
+    EXPECT_FALSE(saveState->isRunning);
+}
+
+TEST_F(ApplicationLifecycleTest, SaveAs_AppendsFppExtensionIfMissing) {
+    Application app;
+    fs::path initialFile = dirA / "initial.fpp";
+    app.createNewEditor("", initialFile, "initial", false);
+    ASSERT_EQ(app.getEditorCount(), 1);
+
+    triggerSaveAs(app);
+    fs::path targetNoExt = dirA / "new_project";
+    setSaveDialogResultPath(app, targetNoExt.string());
+    drawSaveAsDialog(app);
+
+    fs::path expectedFile = dirA / "new_project.fpp";
+    EXPECT_EQ(app.getEditor(0)->getProjectFilePath(), expectedFile);
+    EXPECT_EQ(app.getEditor(0)->getName(), "new_project");
+    EXPECT_TRUE(fs::exists(expectedFile));
+    EXPECT_FALSE(fs::exists(targetNoExt));
+}
+
+TEST_F(ApplicationLifecycleTest, SaveAs_NormalizesVariationsOfFppExtension) {
+    Application app;
+    fs::path initialFile = dirA / "initial.fpp";
+    app.createNewEditor("", initialFile, "initial", false);
+
+    // 1. Existing .fpp remains .fpp (not .fpp.fpp)
+    triggerSaveAs(app);
+    fs::path targetFpp = dirA / "regular.fpp";
+    setSaveDialogResultPath(app, targetFpp.string());
+    drawSaveAsDialog(app);
+    EXPECT_EQ(app.getEditor(0)->getProjectFilePath(), targetFpp);
+    EXPECT_TRUE(fs::exists(targetFpp));
+
+    // 2. Trailing dot becomes .fpp (not ..fpp)
+    triggerSaveAs(app);
+    fs::path targetTrailingDot = dirA / "trailing_dot.";
+    setSaveDialogResultPath(app, targetTrailingDot.string());
+    drawSaveAsDialog(app);
+    fs::path expectedDot = dirA / "trailing_dot.fpp";
+    EXPECT_EQ(app.getEditor(0)->getProjectFilePath(), expectedDot);
+    EXPECT_TRUE(fs::exists(expectedDot));
+
+    // 3. Uppercase .FPP is normalized to lowercase .fpp
+    triggerSaveAs(app);
+    fs::path targetUpper = dirA / "uppercase.FPP";
+    setSaveDialogResultPath(app, targetUpper.string());
+    drawSaveAsDialog(app);
+    fs::path expectedUpper = dirA / "uppercase.fpp";
+    EXPECT_EQ(app.getEditor(0)->getProjectFilePath(), expectedUpper);
+    EXPECT_TRUE(fs::exists(expectedUpper));
+
+    // 4. Dotted filename without .fpp has .fpp appended
+    triggerSaveAs(app);
+    fs::path targetDotted = dirA / "my.factory.v1";
+    setSaveDialogResultPath(app, targetDotted.string());
+    drawSaveAsDialog(app);
+    fs::path expectedDotted = dirA / "my.factory.v1.fpp";
+    EXPECT_EQ(app.getEditor(0)->getProjectFilePath(), expectedDotted);
+    EXPECT_TRUE(fs::exists(expectedDotted));
+}
+
+TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_SaveAs_AppendsFppExtension) {
+    Application app;
+    fs::path initialFile = dirA / "initial.fpp";
+    app.createNewEditor("", initialFile, "initial", false);
+
+    auto* editor = app.getEditor(0);
+    ASSERT_NE(editor, nullptr);
+
+    fs::path directSave = dirA / "direct_save";
+    bool success = editor->saveAs(directSave, SaveAsMode::SwitchToNewFile);
+    EXPECT_TRUE(success);
+
+    fs::path expectedDirect = dirA / "direct_save.fpp";
+    EXPECT_EQ(editor->getProjectFilePath(), expectedDirect);
+    EXPECT_EQ(editor->getName(), "direct_save");
+    EXPECT_TRUE(fs::exists(expectedDirect));
+    EXPECT_FALSE(fs::exists(directSave));
+}
+
+TEST_F(ApplicationLifecycleTest, SaveAs_DetectsCollisionWhenTargetOmitsExtension) {
+    Application app;
+    fs::path fileA = dirA / "target.fpp";
+    fs::path fileB = dirB / "source.fpp";
+
+    app.createNewEditor("", fileA, "target", false);
+    app.createNewEditor("", fileB, "source", false);
+    ASSERT_EQ(app.getEditorCount(), 2);
+
+    // Make Tab 0 dirty
+    auto* editorA = app.getEditor(0);
+    uint64_t nodeId = editorA->getGraph()->addNode("Mine Iron Ore", "mine_ore");
+    uint64_t portId = editorA->getGraph()->addPort("iron_ore", nodeId);
+    editorA->executeCommand(std::make_unique<SetPortConstraintCommand>(portId, -1.0, 50.0));
+    ASSERT_TRUE(editorA->isDirty());
+
+    // Switch to Tab 1
+    setActiveEditorIndex(app, 1);
+
+    // User triggers Save As with path "target" (omitting .fpp) which should collide with Tab 0's target.fpp
+    triggerSaveAs(app);
+    fs::path targetNoExt = dirA / "target";
+    setSaveDialogResultPath(app, targetNoExt.string());
+    drawSaveAsDialog(app);
+
+    // Overwrite must be blocked because Tab 0 has dirty changes at target.fpp
+    EXPECT_EQ(app.getEditorCount(), 2);
+    EXPECT_EQ(app.getEditor(0)->getProjectFilePath(), fileA);
+    EXPECT_EQ(app.getEditor(1)->getProjectFilePath(), fileB);
+    EXPECT_TRUE(NotificationManager::instance().hasActiveNotifications());
+}
 

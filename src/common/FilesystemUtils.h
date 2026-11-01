@@ -4,6 +4,9 @@
 #include <optional>
 #include <vector>
 #include <string>
+#include <string_view>
+#include <algorithm>
+#include <cctype>
 #include <system_error>
 
 #ifdef _WIN32
@@ -144,6 +147,35 @@ inline std::filesystem::path pathFromUtf8(std::string_view utf8Str) {
 #else
     return std::filesystem::path(std::string(utf8Str));
 #endif
+}
+
+/**
+ * @brief Ensures the project file path ends with the canonical ".fpp" extension.
+ * If the path has no extension or a non-.fpp extension, ".fpp" is appended.
+ * If the extension is already ".fpp" (case-insensitive), it is normalized to lowercase ".fpp".
+ * If the path ends in a trailing dot (e.g. "my_proj."), "fpp" is appended resulting in "my_proj.fpp".
+ */
+inline std::filesystem::path ensureProjectExtension(const std::filesystem::path& path) {
+    if (path.empty()) {
+        return path;
+    }
+    std::string ext = path.extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    if (ext == ".fpp") {
+        std::filesystem::path result = path;
+        result.replace_extension(".fpp");
+        return result;
+    }
+    if (ext == ".") {
+        std::filesystem::path result = path;
+        result += "fpp";
+        return result;
+    }
+    std::filesystem::path result = path;
+    result += ".fpp";
+    return result;
 }
 
 #endif //FILESYSTEMUTILS_H
