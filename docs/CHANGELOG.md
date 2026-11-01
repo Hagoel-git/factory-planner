@@ -11,6 +11,13 @@ This document holds the user-facing changelog that is also used in release notes
 - Reworked the production solver (v3): disconnected sub-factories are now solved independently per connected component, pure supply-push networks automatically drive constraints as targets when no downstream goals exist, and coproduct surplus is automatically routed into terminal byproduct sinks instead of backing up as port excess.
 
 ### Fixed
+- Fixed "Save As..." and save operations failing to append the canonical ".fpp" extension when omitted in the file dialog or save path.
+- Fixed canvas shortcuts (`Ctrl+Z`, `Ctrl+Y`, `Ctrl+X`, `Ctrl+C`, `Ctrl+V`, `Ctrl+A`) triggering graph modifications while typing in text input widgets (such as recipe search and rate constraint fields).
+- Fixed cancelled "Save a Copy" dialog leaking state into subsequent "Save As..." operations and preventing the editor from switching to the newly chosen file path.
+- Fixed "Save As..." saving whichever project tab was active when the file picker closed rather than the initiating tab if the user switched tabs during the operation.
+- Fixed "Save As..." silently closing and destroying another open tab and its unsaved changes without confirmation when saving to a colliding file path.
+- Fixed autosave firing on tabs awaiting user confirmation in the "Unsaved Changes" dialog, preventing discarded changes from being accidentally committed to disk.
+- Fixed potential application crash when quitting while a native file dialog is open on a background thread.
 - Improved tab and recent file disambiguation when multiple open projects share identical filenames and parent folder names by walking ancestor directory components up to the differing directory (e.g. `1 (instance1/projects/myproj)` vs `1 (instance2/projects/myproj)`).
 - Fixed crash on application startup when `app_settings.json` contains non-positive window dimensions by enforcing minimum safe dimensions (640x480).
 - Fixed crash (`std::length_error`) on project open when `maxRecentFiles` setting is negative.

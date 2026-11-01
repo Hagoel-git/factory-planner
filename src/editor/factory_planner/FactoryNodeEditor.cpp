@@ -15,6 +15,7 @@
 
 #include "common/IdUtils.h"
 #include "common/CopyBuffer.h"
+#include "common/FilesystemUtils.h"
 #include "services/NotificationManager.h"
 #include "services/ProjectIo.h"
 #include "services/SettingsManager.h"
@@ -124,7 +125,7 @@ void FactoryNodeEditor::draw() {
 
     m_isFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 
-    if (std::chrono::steady_clock::now() > m_nextAutosaveTime && SettingsManager::instance().getSettings().autoSaveEnabled) {
+    if (!m_autosaveSuspended && std::chrono::steady_clock::now() > m_nextAutosaveTime && SettingsManager::instance().getSettings().autoSaveEnabled) {
         if (m_isDirty && !m_projectFilePath.empty()) {
             LOG(INFO) << "Auto-saved project: " << m_projectFilePath;
             save();
@@ -201,21 +202,26 @@ bool FactoryNodeEditor::save() {
 }
 
 bool FactoryNodeEditor::saveAs(const std::filesystem::path &newFilePath, SaveAsMode mode) {
-    if (!m_loadedSuccessfully && newFilePath == m_projectFilePath) {
-        LOG(WARNING) << "SaveAs refused: cannot overwrite corrupted project file: " << newFilePath;
+    if (newFilePath.empty()) {
+        LOG(ERROR) << "SaveAs failed: path is empty";
         return false;
     }
-    if (ProjectIO::saveProject(newFilePath, *m_graph, this->m_context)) {
+    std::filesystem::path resolvedPath = ensureProjectExtension(newFilePath);
+    if (!m_loadedSuccessfully && resolvedPath == m_projectFilePath) {
+        LOG(WARNING) << "SaveAs refused: cannot overwrite corrupted project file: " << resolvedPath;
+        return false;
+    }
+    if (ProjectIO::saveProject(resolvedPath, *m_graph, this->m_context)) {
         if (mode == SaveAsMode::SwitchToNewFile) {
-            m_projectFilePath = newFilePath;
-            m_editorName = newFilePath.stem().string();
+            m_projectFilePath = resolvedPath;
+            m_editorName = resolvedPath.stem().string();
             m_isDirty = false;
             m_loadedSuccessfully = true;
         }
-        LOG(INFO) << "Project saved as: " << newFilePath;
+        LOG(INFO) << "Project saved as: " << resolvedPath;
         return true;
     }
-    LOG(ERROR) << "Failed to save project as: " << newFilePath;
+    LOG(ERROR) << "Failed to save project as: " << resolvedPath;
     return false;
 }
 

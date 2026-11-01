@@ -4,6 +4,7 @@
 #include <vector>
 #include <memory>
 #include <mutex>
+#include <atomic>
 #include <string>
 #include "common/CopyBuffer.h"
 #include "core/data/GameData.h"
@@ -50,11 +51,18 @@ public:
     bool isSaveDialogOpen() const { return m_showSaveDialog; }
     bool isResetLayoutRequested() const { return m_resetLayoutRequested; }
     bool hasActiveAnimations() const;
+    bool hasRunningDialog() const;
     bool saveActiveEditor();
     void handleUnsavedChangesSave();
 
     friend class ApplicationLifecycleTest;
 private:
+    std::shared_ptr<DialogState> m_dirDialogState;
+    std::shared_ptr<DialogState> m_openDialogState;
+    std::shared_ptr<DialogState> m_saveDialogState;
+    std::shared_ptr<std::atomic<bool>> m_appAlive;
+    FactoryNodeEditor* m_saveAsTargetEditor = nullptr;
+
     std::vector<std::unique_ptr<FactoryNodeEditor>> m_editors;
     std::vector<std::filesystem::path> m_closedEditorHistory;
     SettingsEditor m_settingsEditor;
@@ -109,6 +117,7 @@ private:
     std::optional<GameData> loadGameDataForNewEditor(const std::filesystem::path& path);
 
     bool saveActiveEditorAs(const std::filesystem::path &newFilePath, SaveAsMode mode);
+    bool saveEditorAs(FactoryNodeEditor* editor, const std::filesystem::path &newFilePath, SaveAsMode mode);
     void saveAll();
 
     void copyActiveEditor();
