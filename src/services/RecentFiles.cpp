@@ -30,9 +30,11 @@ void RecentFiles::addFile(std::filesystem::path filePath) {
     VLOG(2) << "Adding recent file: " << filePath;
     m_files.erase(std::remove(m_files.begin(), m_files.end(), filePath), m_files.end());
     m_files.insert(m_files.begin(), std::move(filePath));
-    const int maxFiles = SettingsManager::instance().getSettings().maxRecentFiles;
-    if (static_cast<int>(m_files.size()) > maxFiles) {
-        m_files.resize(maxFiles);
+    const int maxFiles = std::max(0, SettingsManager::instance().getSettings().maxRecentFiles);
+    if (maxFiles == 0) {
+        m_files.clear();
+    } else if (static_cast<int>(m_files.size()) > maxFiles) {
+        m_files.resize(static_cast<size_t>(maxFiles));
     }
 
     save();
@@ -65,9 +67,10 @@ void RecentFiles::loadRecentFiles() {
                 if (item.is_string()) {
                     std::string str = item.get<std::string>();
                     if (str.empty()) continue;
-                    bool alreadyExists = m_files.end() != std::find(m_files.begin(), m_files.end(), str);
+                    auto p = pathFromUtf8(str);
+                    bool alreadyExists = m_files.end() != std::find(m_files.begin(), m_files.end(), p);
                     if (!alreadyExists) {
-                        m_files.push_back(std::move(str));
+                        m_files.push_back(std::move(p));
                     }
                 }
             }
@@ -83,7 +86,7 @@ void RecentFiles::saveRecentFiles() const {
     nlohmann::json j;
     j["recentFiles"] = nlohmann::json::array();
     for (const auto &path : m_files) {
-        j["recentFiles"].push_back(path.string());
+        j["recentFiles"].push_back(pathToUtf8(path));
     }
     auto file = getExecutableDirectory().value_or(std::filesystem::current_path()) / "recent.json";
     std::filesystem::path tmp = file;
@@ -97,7 +100,7 @@ void RecentFiles::saveRecentFiles() const {
                 LOG(ERROR) << "Failed to open temporary recent file for write: " << tmp;
                 return;
             }
-            ofs << j.dump(2);
+            ofs << j.dump(2, ' ', false, nlohmann::json::error_handler_t::replace);
             ofs.flush();
             if (!ofs.good()) {
                 LOG(ERROR) << "Failed to write recent files data to temporary file: " << tmp;

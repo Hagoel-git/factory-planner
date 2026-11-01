@@ -10,6 +10,7 @@
 #include "nativefiledialog-extended/src/include/nfd.h"
 
 #include "editor/factory_planner/FactoryNodeEditor.h"
+#include "common/FilesystemUtils.h"
 #include "core/data/GameDataManager.h"
 #include "core/data/GameDataScanner.h"
 #include "services/NotificationManager.h"
@@ -18,7 +19,72 @@
 #include "services/SessionManager.h"
 #include "services/TextureManager.h"
 
+namespace {
+
+std::vector<std::string> getParentComponents(const std::filesystem::path& p) {
+    std::vector<std::string> comps;
+    std::filesystem::path cur = p.lexically_normal().parent_path();
+    while (cur.has_filename() && cur != cur.parent_path()) {
+        std::string fn = cur.filename().generic_string();
+        if (!fn.empty()) {
+            comps.push_back(fn);
+        }
+        cur = cur.parent_path();
+    }
+    return comps;
+}
+
+std::string getDisambiguatedPathSuffix(const std::filesystem::path& target,
+                                      const std::vector<std::filesystem::path>& collidingPaths) {
+    if (target.empty() || !target.has_parent_path()) {
+        return "";
+    }
+
+    auto targetComps = getParentComponents(target);
+    if (targetComps.empty()) {
+        return target.parent_path().filename().generic_string();
+    }
+
+    size_t maxDepthNeeded = 1;
+
+    for (const auto& other : collidingPaths) {
+        if (other.empty() || other == target) {
+            continue;
+        }
+        auto otherComps = getParentComponents(other);
+        size_t depth = 0;
+        while (depth < targetComps.size() && depth < otherComps.size()) {
+            if (targetComps[depth] != otherComps[depth]) {
+                break;
+            }
+            depth++;
+        }
+        size_t needed = depth + 1;
+        if (needed > maxDepthNeeded) {
+            maxDepthNeeded = needed;
+        }
+    }
+
+    maxDepthNeeded = std::min(maxDepthNeeded, targetComps.size());
+
+    std::string result;
+    for (size_t i = maxDepthNeeded; i > 0; --i) {
+        if (!result.empty()) {
+            result += "/";
+        }
+        result += targetComps[i - 1];
+    }
+    return result;
+}
+
+} // namespace
+
 Application::Application() {
+    m_dirDialogState = std::make_shared<DialogState>();
+    m_openDialogState = std::make_shared<DialogState>();
+    m_saveDialogState = std::make_shared<DialogState>();
+    m_appAlive = std::make_shared<std::atomic<bool>>(true);
+
     VLOG(2) << "Application starting up.";
     SettingsManager::instance().load();
     RecentFiles::instance().load();
@@ -91,6 +157,9 @@ Application::Application() {
 }
 
 Application::~Application() {
+    if (m_appAlive) {
+        *m_appAlive = false;
+    }
     SettingsManager::instance().save();
     RecentFiles::instance().save();
     saveSession();
@@ -152,6 +221,9 @@ void Application::draw() {
     for (int i = 0; i < static_cast<int>(m_editors.size()); ++i) {
         auto &editor = m_editors[i];
         if (editor) {
+            bool isAwaitingClose = std::find(m_editorsToClose.begin(), m_editorsToClose.end(), editor.get()) != m_editorsToClose.end();
+            editor->setAutosaveSuspended(isAwaitingClose);
+
             ImGuiCond dockCond = m_dockResetThisFrame ? ImGuiCond_Always : ImGuiCond_FirstUseEver;
             ImGui::SetNextWindowDockID(dockspace_id, dockCond);
 
@@ -437,9 +509,9 @@ void Application::drawMenuBar() {
                     ImGui::TextDisabled("No recent files");
                 } else {
                     // Detect duplicates to determine how to display them
-                    std::map<std::string, int> nameCounts;
+                    std::map<std::string, std::vector<std::filesystem::path>> stemPaths;
                     for (const auto &file : recentFiles) {
-                        nameCounts[file.stem().string()]++;
+                        stemPaths[file.stem().string()].push_back(file);
                     }
 
                     for (size_t i = 0; i < recentFiles.size(); ++i) {
@@ -447,8 +519,18 @@ void Application::drawMenuBar() {
                         std::string stem = file.stem().string();
                         std::string displayName = stem;
 
-                        if (nameCounts[stem] > 1) {
-                            displayName += " (" + file.parent_path().filename().string() + ")";
+                        const auto& others = stemPaths[stem];
+                        if (others.size() > 1) {
+                            std::vector<std::filesystem::path> colliding;
+                            for (const auto& other : others) {
+                                if (other != file) {
+                                    colliding.push_back(other);
+                                }
+                            }
+                            std::string suffix = getDisambiguatedPathSuffix(file, colliding);
+                            if (!suffix.empty()) {
+                                displayName += " (" + suffix + ")";
+                            }
                         }
 
                         bool exists = std::filesystem::exists(file);
@@ -489,11 +571,16 @@ void Application::drawMenuBar() {
             }
             if (ImGui::MenuItem("Save As...", "Ctrl+Shift+S", false, hasOpenProjects)) {
                 VLOG(1) << "Menu: Save As selected.";
+                m_isSaveAsCopy = false;
+                m_saveAsTargetEditor = (m_activeEditor >= 0 && static_cast<size_t>(m_activeEditor) < m_editors.size())
+                                           ? m_editors[m_activeEditor].get() : nullptr;
                 m_showSaveDialog = true;
             }
             if (ImGui::MenuItem("Save a Copy", nullptr, false, hasOpenProjects)) {
                 VLOG(1) << "Menu: Save a Copy selected.";
                 m_isSaveAsCopy = true;
+                m_saveAsTargetEditor = (m_activeEditor >= 0 && static_cast<size_t>(m_activeEditor) < m_editors.size())
+                                           ? m_editors[m_activeEditor].get() : nullptr;
                 m_showSaveDialog = true;
             }
             if (ImGui::MenuItem("Save All", nullptr, false, hasOpenProjects)) {
@@ -620,40 +707,45 @@ void Application::handleShortcuts() {
             if (ImGui::IsKeyPressed(ImGuiKey_S)) {
                 if (io.KeyShift) {
                     VLOG(1) << "Shortcut: Ctrl+Shift+S pressed, opening Save As dialog.";
+                    m_isSaveAsCopy = false;
+                    m_saveAsTargetEditor = (m_activeEditor >= 0 && static_cast<size_t>(m_activeEditor) < m_editors.size())
+                                               ? m_editors[m_activeEditor].get() : nullptr;
                     m_showSaveDialog = true; // Show Save As dialog
                 } else {
                     VLOG(1) << "Shortcut: Ctrl+S pressed, saving active editor.";
                     saveActiveEditor(); // Save current editor
                 }
             }
-            if (ImGui::IsKeyPressed(ImGuiKey_Y)) {
-                VLOG(1) << "Shortcut: Ctrl+Y pressed, redoing in active editor.";
-                redoActiveEditor();
-            }
-            if (ImGui::IsKeyPressed(ImGuiKey_Z)) {
-                if (io.KeyShift) {
-                    VLOG(1)<< "Shortcut: Ctrl+Shift+Z pressed, redoing in active editor.";
+            if (!io.WantTextInput) {
+                if (ImGui::IsKeyPressed(ImGuiKey_Y)) {
+                    VLOG(1) << "Shortcut: Ctrl+Y pressed, redoing in active editor.";
                     redoActiveEditor();
-                } else {
-                    VLOG(1) << "Shortcut: Ctrl+Z pressed, undoing in active editor.";
-                    undoActiveEditor();
                 }
-            }
-            if (ImGui::IsKeyPressed(ImGuiKey_X)) {
-                VLOG(1) << "Shortcut: Ctrl+X pressed, cutting in active editor.";
-                cutActiveEditor();
-            }
-            if (ImGui::IsKeyPressed(ImGuiKey_C)) {
-                VLOG(1) << "Shortcut: Ctrl+C pressed, copying in active editor.";
-                copyActiveEditor();
-            }
-            if (ImGui::IsKeyPressed(ImGuiKey_V)) {
-                VLOG(1) << "Shortcut: Ctrl+V " << (io.KeyShift ? "(Special)" : "") << " pressed, pasting in active editor.";
-                pasteActiveEditor(io.KeyShift); // Shift key to map external connections
-            }
-            if (ImGui::IsKeyPressed(ImGuiKey_A)) {
-                VLOG(1) << "Shortcut: Ctrl+A pressed, selecting all in active editor.";
-                selectAllActiveEditor();
+                if (ImGui::IsKeyPressed(ImGuiKey_Z)) {
+                    if (io.KeyShift) {
+                        VLOG(1)<< "Shortcut: Ctrl+Shift+Z pressed, redoing in active editor.";
+                        redoActiveEditor();
+                    } else {
+                        VLOG(1) << "Shortcut: Ctrl+Z pressed, undoing in active editor.";
+                        undoActiveEditor();
+                    }
+                }
+                if (ImGui::IsKeyPressed(ImGuiKey_X)) {
+                    VLOG(1) << "Shortcut: Ctrl+X pressed, cutting in active editor.";
+                    cutActiveEditor();
+                }
+                if (ImGui::IsKeyPressed(ImGuiKey_C)) {
+                    VLOG(1) << "Shortcut: Ctrl+C pressed, copying in active editor.";
+                    copyActiveEditor();
+                }
+                if (ImGui::IsKeyPressed(ImGuiKey_V)) {
+                    VLOG(1) << "Shortcut: Ctrl+V " << (io.KeyShift ? "(Special)" : "") << " pressed, pasting in active editor.";
+                    pasteActiveEditor(io.KeyShift); // Shift key to map external connections
+                }
+                if (ImGui::IsKeyPressed(ImGuiKey_A)) {
+                    VLOG(1) << "Shortcut: Ctrl+A pressed, selecting all in active editor.";
+                    selectAllActiveEditor();
+                }
             }
         }
     } else {
@@ -670,8 +762,6 @@ void Application::handleShortcuts() {
         }
     }
 }
-
-DialogState dirDialogState;
 
 void Application::drawNewProjectDialog() {
     if (!m_showNewProjectDialog) return;
@@ -702,32 +792,32 @@ void Application::drawNewProjectDialog() {
         std::strncpy(locationBuf, defaultLocation.string().c_str(), sizeof(locationBuf));
         locationBuf[sizeof(locationBuf) - 1] = '\0';
 
-        std::lock_guard<std::mutex> lock(dirDialogState.mutex);
-        dirDialogState.resultPath.clear();
-        dirDialogState.errorMessage.clear();
-        dirDialogState.hasError = false;
-        dirDialogState.isCancelled = false;
+        std::lock_guard<std::mutex> lock(m_dirDialogState->mutex);
+        m_dirDialogState->resultPath.clear();
+        m_dirDialogState->errorMessage.clear();
+        m_dirDialogState->hasError = false;
+        m_dirDialogState->isCancelled = false;
 
         VLOG(2) << "New Project dialog initialized.";
     }
 
     {
-        std::unique_lock<std::mutex> lock(dirDialogState.mutex);
+        std::unique_lock<std::mutex> lock(m_dirDialogState->mutex);
 
-        if (!dirDialogState.isRunning) {
+        if (!m_dirDialogState->isRunning) {
             // 1. Handle Path Result
-            if (!dirDialogState.resultPath.empty()) {
-                std::strncpy(locationBuf, dirDialogState.resultPath.c_str(), sizeof(locationBuf) - 1);
+            if (!m_dirDialogState->resultPath.empty()) {
+                std::strncpy(locationBuf, m_dirDialogState->resultPath.c_str(), sizeof(locationBuf) - 1);
                 locationBuf[sizeof(locationBuf) - 1] = '\0';
-                dirDialogState.resultPath.clear();
+                m_dirDialogState->resultPath.clear();
                 LOG(INFO) << "New Project: Selected location: " << locationBuf;
             }
 
             // 2. Handle Error
-            if (dirDialogState.hasError) {
-                std::string msg = dirDialogState.errorMessage;
-                dirDialogState.hasError = false;
-                dirDialogState.errorMessage.clear();
+            if (m_dirDialogState->hasError) {
+                std::string msg = m_dirDialogState->errorMessage;
+                m_dirDialogState->hasError = false;
+                m_dirDialogState->errorMessage.clear();
 
                 lock.unlock();
 
@@ -735,8 +825,8 @@ void Application::drawNewProjectDialog() {
             }
 
             // 3. Handle Cancellation (reset flag)
-            if (dirDialogState.isCancelled) {
-                dirDialogState.isCancelled = false;
+            if (m_dirDialogState->isCancelled) {
+                m_dirDialogState->isCancelled = false;
             }
         }
     }
@@ -779,30 +869,41 @@ void Application::drawNewProjectDialog() {
     ImGui::PopItemWidth();
     ImGui::SameLine();
     if (ImGui::Button("Browse...", ImVec2(buttonWidth, 0))) {
-        std::lock_guard<std::mutex> lock(dirDialogState.mutex);
-        if (!dirDialogState.isRunning) {
+        std::lock_guard<std::mutex> lock(m_dirDialogState->mutex);
+        if (!m_dirDialogState->isRunning) {
             VLOG(1) << "New Project: Browse for location button clicked.";
-            dirDialogState.isRunning = true;
-            dirDialogState.isCancelled = false;
-            dirDialogState.hasError = false;
+            m_dirDialogState->isRunning = true;
+            m_dirDialogState->isCancelled = false;
+            m_dirDialogState->hasError = false;
 
-            std::thread([]() {
+            auto state = m_dirDialogState;
+            auto alive = m_appAlive;
+            std::thread([state, alive]() {
                 nfdu8char_t *outPath = nullptr;
                 nfdpickfolderu8args_t args = {0};
                 nfdresult_t result = NFD_PickFolderU8_With(&outPath, &args);
 
-                std::lock_guard<std::mutex> threadLock(dirDialogState.mutex);
+                if (alive && !alive->load()) {
+                    if (result == NFD_OKAY && outPath) {
+                        NFD_FreePathU8(outPath);
+                    }
+                    std::lock_guard<std::mutex> threadLock(state->mutex);
+                    state->isRunning = false;
+                    return;
+                }
+
+                std::lock_guard<std::mutex> threadLock(state->mutex);
                 if (result == NFD_OKAY && outPath) {
-                    dirDialogState.resultPath = outPath;
+                    state->resultPath = outPath;
                     NFD_FreePathU8(outPath);
                 } else if (result == NFD_CANCEL) {
-                    dirDialogState.isCancelled = true;
+                    state->isCancelled = true;
                 } else {
-                    dirDialogState.hasError = true;
-                    dirDialogState.errorMessage = "An error occurred while opening the directory selection dialog.";
+                    state->hasError = true;
+                    state->errorMessage = "An error occurred while opening the directory selection dialog.";
                     LOG(ERROR) << "New Project: File dialog error.";
                 }
-                dirDialogState.isRunning = false;
+                state->isRunning = false;
             }).detach();
         }
     }
@@ -966,19 +1067,17 @@ void Application::drawNewProjectDialog() {
     ImGui::End();
 }
 
-static DialogState openDialogState;
-
 void Application::drawOpenProjectDialog() {
     if (!m_showOpenProjectDialog) return;
 
     {
-        std::unique_lock<std::mutex> lock(openDialogState.mutex);
+        std::unique_lock<std::mutex> lock(m_openDialogState->mutex);
 
-        if (!openDialogState.isRunning) {
+        if (!m_openDialogState->isRunning) {
             // 1. Handle Success
-            if (!openDialogState.resultPath.empty()) {
-                std::string path = openDialogState.resultPath;
-                openDialogState.resultPath.clear();
+            if (!m_openDialogState->resultPath.empty()) {
+                std::string path = m_openDialogState->resultPath;
+                m_openDialogState->resultPath.clear();
 
                 lock.unlock();
 
@@ -989,10 +1088,10 @@ void Application::drawOpenProjectDialog() {
             }
 
             // 2. Handle Error
-            if (openDialogState.hasError) {
-                std::string msg = openDialogState.errorMessage;
-                openDialogState.hasError = false;
-                openDialogState.errorMessage.clear();
+            if (m_openDialogState->hasError) {
+                std::string msg = m_openDialogState->errorMessage;
+                m_openDialogState->hasError = false;
+                m_openDialogState->errorMessage.clear();
 
                 lock.unlock();
                 NotificationManager::instance().addNotification("Error", msg, NotificationType::Error);
@@ -1001,9 +1100,9 @@ void Application::drawOpenProjectDialog() {
             }
 
             // 3. Handle Cancel
-            if (openDialogState.isCancelled) {
+            if (m_openDialogState->isCancelled) {
                 m_showOpenProjectDialog = false;
-                openDialogState.isCancelled = false;
+                m_openDialogState->isCancelled = false;
                 return;
             }
         }
@@ -1011,8 +1110,8 @@ void Application::drawOpenProjectDialog() {
 
     bool shouldStart = false;
     {
-        std::lock_guard<std::mutex> lock(openDialogState.mutex);
-        if (!openDialogState.isRunning && openDialogState.resultPath.empty() && !openDialogState.isCancelled && !openDialogState.hasError) {
+        std::lock_guard<std::mutex> lock(m_openDialogState->mutex);
+        if (!m_openDialogState->isRunning && m_openDialogState->resultPath.empty() && !m_openDialogState->isCancelled && !m_openDialogState->hasError) {
             shouldStart = true;
         }
     }
@@ -1021,13 +1120,15 @@ void Application::drawOpenProjectDialog() {
         VLOG(2) << "Opening native file dialog for project selection.";
 
         {
-            std::lock_guard<std::mutex> lock(openDialogState.mutex);
-            openDialogState.isRunning = true;
-            openDialogState.isCancelled = false;
-            openDialogState.hasError = false;
+            std::lock_guard<std::mutex> lock(m_openDialogState->mutex);
+            m_openDialogState->isRunning = true;
+            m_openDialogState->isCancelled = false;
+            m_openDialogState->hasError = false;
         }
 
-        std::thread([]() {
+        auto state = m_openDialogState;
+        auto alive = m_appAlive;
+        std::thread([state, alive]() {
             nfdu8char_t *outPath = nullptr;
             nfdopendialogu8args_t args = {0};
             nfdu8filteritem_t filters[1] = { { "Factory Planner Project", "fpp" } };
@@ -1036,84 +1137,134 @@ void Application::drawOpenProjectDialog() {
 
             nfdresult_t result = NFD_OpenDialogU8_With(&outPath, &args);
 
-            std::lock_guard<std::mutex> lock(openDialogState.mutex);
+            if (alive && !alive->load()) {
+                if (result == NFD_OKAY && outPath) {
+                    NFD_FreePathU8(outPath);
+                }
+                std::lock_guard<std::mutex> threadLock(state->mutex);
+                state->isRunning = false;
+                return;
+            }
+
+            std::lock_guard<std::mutex> lock(state->mutex);
             if (result == NFD_OKAY && outPath) {
-                openDialogState.resultPath = outPath;
+                state->resultPath = outPath;
                 NFD_FreePathU8(outPath);
             } else if (result == NFD_CANCEL) {
-                openDialogState.isCancelled = true;
+                state->isCancelled = true;
             } else {
-                openDialogState.hasError = true;
-                openDialogState.errorMessage = "An error occurred while trying to open the file dialog.";
+                state->hasError = true;
+                state->errorMessage = "An error occurred while trying to open the file dialog.";
                 LOG(ERROR) << "Open dialog error.";
             }
 
-            openDialogState.isRunning = false;
+            state->isRunning = false;
         }).detach();
     }
 }
 
-static DialogState saveDialogState;
-
 void Application::drawSaveAsDialog() {
     if (!m_showSaveDialog) return;
     if (m_editors.empty()) {
-        m_showSaveDialog = false; // No editors to save
+        std::lock_guard<std::mutex> lock(m_saveDialogState->mutex);
+        m_saveDialogState->resultPath.clear();
+        m_showSaveDialog = false;
+        m_isSaveAsCopy = false;
+        m_saveAsTargetEditor = nullptr;
         return;
     }
     {
-        std::unique_lock<std::mutex> lock(saveDialogState.mutex);
+        std::unique_lock<std::mutex> lock(m_saveDialogState->mutex);
 
-        if (!saveDialogState.isRunning) {
+        if (!m_saveDialogState->isRunning) {
             // 1. Handle Success
-            if (!saveDialogState.resultPath.empty()) {
-                std::string path = saveDialogState.resultPath;
-                saveDialogState.resultPath.clear();
+            if (!m_saveDialogState->resultPath.empty()) {
+                std::string path = m_saveDialogState->resultPath;
+                m_saveDialogState->resultPath.clear();
 
                 lock.unlock();
 
-                if (m_isSaveAsCopy) {
-                    saveActiveEditorAs(path, SaveAsMode::KeepCurrentFile);
-                    m_isSaveAsCopy = false;
-                } else {
-                    std::error_code ec;
-                    auto targetPath = std::filesystem::weakly_canonical(path, ec);
+                auto* targetEditor = m_saveAsTargetEditor;
+                if (!targetEditor && m_activeEditor >= 0 && static_cast<size_t>(m_activeEditor) < m_editors.size()) {
+                    targetEditor = m_editors[m_activeEditor].get();
+                }
 
-                    // If another open tab already has this file path, close that tab first
-                    auto* currentEditor = (m_activeEditor >= 0 && static_cast<size_t>(m_activeEditor) < m_editors.size())
-                                              ? m_editors[m_activeEditor].get() : nullptr;
-                    for (int i = 0; i < static_cast<int>(m_editors.size()); ++i) {
-                        if (m_editors[i] && m_editors[i].get() != currentEditor && !m_editors[i]->getProjectFilePath().empty()) {
-                            std::error_code edEc;
-                            if (std::filesystem::weakly_canonical(m_editors[i]->getProjectFilePath(), edEc) == targetPath) {
-                                closeEditor(i);
-                                break;
+                if (!targetEditor || getEditorIndex(targetEditor) == -1) {
+                    m_showSaveDialog = false;
+                    m_isSaveAsCopy = false;
+                    m_saveAsTargetEditor = nullptr;
+                    return;
+                }
+
+                std::filesystem::path targetFilePath = ensureProjectExtension(pathFromUtf8(path));
+                path = targetFilePath.string();
+
+                std::error_code ec;
+                auto targetPath = std::filesystem::weakly_canonical(targetFilePath, ec);
+
+                // Check for collisions with other open tabs
+                bool hasDirtyCollision = false;
+                int cleanCollidingIndex = -1;
+                for (int i = 0; i < static_cast<int>(m_editors.size()); ++i) {
+                    if (m_editors[i] && m_editors[i].get() != targetEditor && !m_editors[i]->getProjectFilePath().empty()) {
+                        std::error_code edEc;
+                        if (std::filesystem::weakly_canonical(m_editors[i]->getProjectFilePath(), edEc) == targetPath) {
+                            if (m_editors[i]->isDirty()) {
+                                hasDirtyCollision = true;
+                            } else {
+                                cleanCollidingIndex = i;
                             }
+                            break;
                         }
                     }
-                    saveActiveEditorAs(path, SaveAsMode::SwitchToNewFile);
+                }
+
+                if (hasDirtyCollision) {
+                    NotificationManager::instance().addNotification(
+                        "Cannot Overwrite Open File",
+                        "Cannot overwrite '" + path + "' because it is currently open with unsaved changes in another tab.",
+                        NotificationType::Error);
+                    m_showSaveDialog = false;
+                    m_isSaveAsCopy = false;
+                    m_saveAsTargetEditor = nullptr;
+                    return;
+                }
+
+                if (m_isSaveAsCopy) {
+                    saveEditorAs(targetEditor, targetFilePath, SaveAsMode::KeepCurrentFile);
+                } else {
+                    if (cleanCollidingIndex != -1) {
+                        closeEditor(cleanCollidingIndex);
+                    }
+                    saveEditorAs(targetEditor, targetFilePath, SaveAsMode::SwitchToNewFile);
                 }
                 m_showSaveDialog = false;
+                m_isSaveAsCopy = false;
+                m_saveAsTargetEditor = nullptr;
                 return;
             }
 
             // 2. Handle Error
-            if (saveDialogState.hasError) {
-                std::string msg = saveDialogState.errorMessage;
-                saveDialogState.hasError = false;
-                saveDialogState.errorMessage.clear();
+            if (m_saveDialogState->hasError) {
+                std::string msg = m_saveDialogState->errorMessage;
+                m_saveDialogState->hasError = false;
+                m_saveDialogState->errorMessage.clear();
 
                 lock.unlock();
                 NotificationManager::instance().addNotification("Error", msg, NotificationType::Error);
 
                 m_showSaveDialog = false;
+                m_isSaveAsCopy = false;
+                m_saveAsTargetEditor = nullptr;
                 return;
             }
 
             // 3. Handle Cancel
-            if (saveDialogState.isCancelled) {
-                saveDialogState.isCancelled = false;
+            if (m_saveDialogState->isCancelled) {
+                m_saveDialogState->isCancelled = false;
                 m_showSaveDialog = false;
+                m_isSaveAsCopy = false;
+                m_saveAsTargetEditor = nullptr;
                 return;
             }
         }
@@ -1121,8 +1272,8 @@ void Application::drawSaveAsDialog() {
 
     bool shouldStart = false;
     {
-        std::lock_guard<std::mutex> lock(saveDialogState.mutex);
-        if (!saveDialogState.isRunning && saveDialogState.resultPath.empty() && !saveDialogState.isCancelled && !saveDialogState.hasError) {
+        std::lock_guard<std::mutex> lock(m_saveDialogState->mutex);
+        if (!m_saveDialogState->isRunning && m_saveDialogState->resultPath.empty() && !m_saveDialogState->isCancelled && !m_saveDialogState->hasError) {
             shouldStart = true;
         }
     }
@@ -1130,13 +1281,15 @@ void Application::drawSaveAsDialog() {
     if (shouldStart) {
         VLOG(2) << "Opening native file dialog for Save As.";
         {
-            std::lock_guard<std::mutex> lock(saveDialogState.mutex);
-            saveDialogState.isRunning = true;
-            saveDialogState.isCancelled = false;
-            saveDialogState.hasError = false;
+            std::lock_guard<std::mutex> lock(m_saveDialogState->mutex);
+            m_saveDialogState->isRunning = true;
+            m_saveDialogState->isCancelled = false;
+            m_saveDialogState->hasError = false;
         }
 
-        std::thread([]() {
+        auto state = m_saveDialogState;
+        auto alive = m_appAlive;
+        std::thread([state, alive]() {
             nfdu8char_t *outPath = nullptr;
             nfdsavedialogu8args_t args = {0};
             nfdu8filteritem_t filters[1] = { { "Factory Planner Project", "fpp" } };
@@ -1145,19 +1298,28 @@ void Application::drawSaveAsDialog() {
 
             nfdresult_t result = NFD_SaveDialogU8_With(&outPath, &args);
 
-            std::lock_guard<std::mutex> lock(saveDialogState.mutex);
+            if (alive && !alive->load()) {
+                if (result == NFD_OKAY && outPath) {
+                    NFD_FreePathU8(outPath);
+                }
+                std::lock_guard<std::mutex> threadLock(state->mutex);
+                state->isRunning = false;
+                return;
+            }
+
+            std::lock_guard<std::mutex> lock(state->mutex);
             if (result == NFD_OKAY && outPath) {
-                saveDialogState.resultPath = outPath;
+                state->resultPath = outPath;
                 NFD_FreePathU8(outPath);
             } else if (result == NFD_CANCEL) {
-                saveDialogState.isCancelled = true;
+                state->isCancelled = true;
             } else {
-                saveDialogState.hasError = true;
-                saveDialogState.errorMessage = "An error occurred while opening the save dialog.";
+                state->hasError = true;
+                state->errorMessage = "An error occurred while opening the save dialog.";
                 LOG(ERROR) << "Save dialog error.";
             }
 
-            saveDialogState.isRunning = false;
+            state->isRunning = false;
         }).detach();
     }
 }
@@ -1179,6 +1341,14 @@ void Application::requestCloseEditor(int index) {
 }
 
 void Application::requestQuit() {
+    if (hasRunningDialog()) {
+        NotificationManager::instance().addNotification(
+            "Dialog Open",
+            "Please finish or cancel the active file dialog before quitting.",
+            NotificationType::Warning);
+        return;
+    }
+
     m_editorsToClose.clear();
     for (const auto& editor : m_editors) {
         if (editor->isDirty()) {
@@ -1204,6 +1374,8 @@ void Application::handleUnsavedChangesSave() {
             m_activeEditor = idx;
             m_focusRequested = idx;
         }
+        m_isSaveAsCopy = false;
+        m_saveAsTargetEditor = m_currentEditorToClose;
         m_showSaveDialog = true;
         m_showUnsavedChangesDialog = false;
         m_editorsToClose.clear();
@@ -1411,6 +1583,8 @@ bool Application::saveActiveEditor() {
     auto &editor = m_editors[m_activeEditor];
     if (editor) {
         if (editor->getProjectFilePath().empty()) {
+            m_isSaveAsCopy = false;
+            m_saveAsTargetEditor = editor.get();
             m_showSaveDialog = true;
             return false;
         }
@@ -1422,20 +1596,23 @@ bool Application::saveActiveEditor() {
     return false;
 }
 
-bool Application::saveActiveEditorAs(const std::string &newFilePath, SaveAsMode mode) {
+bool Application::saveEditorAs(FactoryNodeEditor* editor, const std::filesystem::path &newFilePath, SaveAsMode mode) {
+    if (!editor) {
+        return false;
+    }
+    std::filesystem::path resolvedPath = ensureProjectExtension(newFilePath);
+    bool success = editor->saveAs(resolvedPath, mode);
+    if (success && !editor->getProjectFilePath().empty()) {
+        RecentFiles::instance().addFile(editor->getProjectFilePath());
+    }
+    return success;
+}
+
+bool Application::saveActiveEditorAs(const std::filesystem::path &newFilePath, SaveAsMode mode) {
     if (m_activeEditor < 0 || static_cast<size_t>(m_activeEditor) >= m_editors.size()) {
         return false; // No active editor to save
     }
-
-    auto &editor = m_editors[m_activeEditor];
-    if (editor) {
-        bool success = editor->saveAs(newFilePath, mode);
-        if (success && !editor->getProjectFilePath().empty()) {
-            RecentFiles::instance().addFile(editor->getProjectFilePath());
-        }
-        return success;
-    }
-    return false;
+    return saveEditorAs(m_editors[m_activeEditor].get(), newFilePath, mode);
 }
 
 void Application::saveAll() {
@@ -1547,6 +1724,10 @@ void Application::closeEditor(int index) {
     // index is signed; compare safely with size()
     if (index < 0 || static_cast<size_t>(index) >= m_editors.size()) return;
 
+    if (m_editors[index].get() == m_saveAsTargetEditor) {
+        m_saveAsTargetEditor = nullptr;
+    }
+
     auto &editor = m_editors[index];
     if (editor) {
         std::filesystem::path projectPath = editor->getProjectFilePath();
@@ -1582,16 +1763,20 @@ std::string Application::getTabTitle(size_t index) const {
     std::string displayName = editor->getName();
 
     int count = 0;
-    for (const auto& other : m_editors) {
-        if (other && other->getName() == editor->getName()) {
+    std::vector<std::filesystem::path> collidingPaths;
+    for (size_t j = 0; j < m_editors.size(); ++j) {
+        if (m_editors[j] && m_editors[j]->getName() == editor->getName()) {
             count++;
+            if (j != index && !m_editors[j]->getProjectFilePath().empty()) {
+                collidingPaths.push_back(m_editors[j]->getProjectFilePath());
+            }
         }
     }
 
     if (count > 1 && !editor->getProjectFilePath().empty()) {
-        std::string parentName = editor->getProjectFilePath().parent_path().filename().string();
-        if (!parentName.empty()) {
-            displayName += " (" + parentName + ")";
+        std::string suffix = getDisambiguatedPathSuffix(editor->getProjectFilePath(), collidingPaths);
+        if (!suffix.empty()) {
+            displayName += " (" + suffix + ")";
         }
     }
 
@@ -1724,6 +1909,22 @@ bool Application::hasActiveAnimations() const {
         if (editor && editor->hasActiveAnimations()) {
             return true;
         }
+    }
+    return false;
+}
+
+bool Application::hasRunningDialog() const {
+    if (m_dirDialogState) {
+        std::lock_guard<std::mutex> lock(m_dirDialogState->mutex);
+        if (m_dirDialogState->isRunning) return true;
+    }
+    if (m_openDialogState) {
+        std::lock_guard<std::mutex> lock(m_openDialogState->mutex);
+        if (m_openDialogState->isRunning) return true;
+    }
+    if (m_saveDialogState) {
+        std::lock_guard<std::mutex> lock(m_saveDialogState->mutex);
+        if (m_saveDialogState->isRunning) return true;
     }
     return false;
 }

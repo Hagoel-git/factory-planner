@@ -45,6 +45,8 @@ public:
     const Port* getPort(uint64_t id) const;
     [[nodiscard]] const std::vector<Port>& getPorts() const;
     bool setPortConstraint(uint64_t port_id, double demand);
+    bool setPortConstraint(uint64_t port_id, double demand, ConstraintMode mode);
+    bool setPortConstraintMode(uint64_t port_id, ConstraintMode mode);
     bool isInputPort(uint64_t port_id) const;
 
     void setMachinePreferred(const std::string& machineKey, bool preferred);
@@ -96,10 +98,12 @@ private:
     void removeConnectionFromIndex(uint64_t id) { m_connectionIdToIndex.erase(id); }
 
     nlohmann::json serializePortConstraints(const Node& node) const;
+    nlohmann::json serializePortConstraintModes(const Node& node) const;
 
     void deserializeNode(const nlohmann::json &node_json, const GameData &game_data);
     void processPorts(const std::vector<RecipePort> &recipePorts, const nlohmann::json &savedPortsJson,
-                      std::vector<uint64_t> &nodePortList, const nlohmann::json &constraints, uint64_t nodeId);
+                      std::vector<uint64_t> &nodePortList, const nlohmann::json &constraints,
+                      const nlohmann::json &constraintModes, uint64_t nodeId);
     void deserializeConnection(const nlohmann::json &conn_json);
 
     template<typename TMap>

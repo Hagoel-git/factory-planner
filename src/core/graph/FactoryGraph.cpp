@@ -17,10 +17,16 @@ uint64_t FactoryGraph::addNode(const std::string &name, std::string recipe_key) 
 }
 
 void FactoryGraph::restoreNode(const Node &node, const std::vector<Port> &ports) {
+    if (node.id >= m_nextNodeId) {
+        m_nextNodeId = node.id + 1;
+    }
     m_nodes.push_back(node);
     size_t index = m_nodes.size() - 1;
     addNodeToIndex(node.id, index);
     for (const auto& port : ports) {
+        if (port.id >= m_nextPortId) {
+            m_nextPortId = port.id + 1;
+        }
         this->m_ports.push_back(port);
         addPortToIndex(port.id, this->m_ports.size() - 1);
     }
@@ -323,6 +329,10 @@ nlohmann::json FactoryGraph::serialize() const {
         if (node.production_multiplier != 100.0) node_json["production_multiplier"] = node.production_multiplier;
 
         node_json["port_constraints"] = serializePortConstraints(node);
+        nlohmann::json portModes = serializePortConstraintModes(node);
+        if (!portModes.empty()) {
+            node_json["port_constraint_modes"] = std::move(portModes);
+        }
 
         j["nodes"].push_back(node_json);
     }
@@ -363,6 +373,22 @@ nlohmann::json FactoryGraph::serializePortConstraints(const Node& node) const {
     for (uint64_t pid : node.output_ports) save_constraint(pid);
 
     return constraints;
+}
+
+nlohmann::json FactoryGraph::serializePortConstraintModes(const Node& node) const {
+    nlohmann::json modes = nlohmann::json::object();
+
+    auto save_mode = [&](uint64_t port_id) {
+        const Port* port = getPort(port_id);
+        if (port && port->constraint_mode != ConstraintMode::AUTO) {
+            modes[std::to_string(port_id)] = constraintModeToString(port->constraint_mode);
+        }
+    };
+
+    for (uint64_t pid : node.input_ports) save_mode(pid);
+    for (uint64_t pid : node.output_ports) save_mode(pid);
+
+    return modes;
 }
 
 void FactoryGraph::deserialize(const nlohmann::json& j, const GameData &game_data) {
@@ -439,12 +465,13 @@ void FactoryGraph::deserializeNode(const nlohmann::json& node_json, const GameDa
 
     // D. Process Ports
     const auto& portConstraints = node_json.value("port_constraints", nlohmann::json::object());
+    const auto& portConstraintModes = node_json.value("port_constraint_modes", nlohmann::json::object());
 
     processPorts(recipe.input_ports, node_json.value("input_ports", nlohmann::json::array()),
-                 node.input_ports, portConstraints, nodeId);
+                 node.input_ports, portConstraints, portConstraintModes, nodeId);
 
     processPorts(recipe.output_ports, node_json.value("output_ports", nlohmann::json::array()),
-                 node.output_ports, portConstraints, nodeId);
+                 node.output_ports, portConstraints, portConstraintModes, nodeId);
 
     m_nodes.push_back(node);
     addNodeToIndex(node.id, m_nodes.size() - 1);
@@ -454,6 +481,7 @@ void FactoryGraph::processPorts(const std::vector<RecipePort>& recipePorts,
                                 const nlohmann::json& savedPortsJson,
                                 std::vector<uint64_t>& nodePortList,
                                 const nlohmann::json& constraints,
+                                const nlohmann::json& constraintModes,
                                 uint64_t nodeId) {
     for (size_t i = 0; i < recipePorts.size(); ++i) {
         Port p;
@@ -471,8 +499,22 @@ void FactoryGraph::processPorts(const std::vector<RecipePort>& recipePorts,
             }
 
             // Check for constraints on this existing port
-            if (constraints.contains(originalIdStr) && constraints[originalIdStr].is_number()) {
-                p.user_constraint = constraints[originalIdStr].get<double>();
+            if (constraints.is_object() && constraints.contains(originalIdStr)) {
+                const auto& entry = constraints[originalIdStr];
+                if (entry.is_number()) {
+                    p.user_constraint = entry.get<double>();
+                } else if (entry.is_object()) {
+                    if (entry.contains("value") && entry["value"].is_number()) {
+                        p.user_constraint = entry["value"].get<double>();
+                    }
+                    if (entry.contains("mode") && entry["mode"].is_string()) {
+                        p.constraint_mode = constraintModeFromString(entry["mode"].get<std::string>());
+                    }
+                }
+            }
+            if (constraintModes.is_object() && constraintModes.contains(originalIdStr) &&
+                constraintModes[originalIdStr].is_string()) {
+                p.constraint_mode = constraintModeFromString(constraintModes[originalIdStr].get<std::string>());
             }
         } else {
             // New port (recipe changed?) -> Generate new ID
@@ -655,6 +697,25 @@ bool FactoryGraph::setPortConstraint(uint64_t port_id, double demand) {
         return false;
     }
     port->user_constraint = demand;
+    return true;
+}
+
+bool FactoryGraph::setPortConstraint(uint64_t port_id, double demand, ConstraintMode mode) {
+    Port *port = getPort(port_id);
+    if (!port) {
+        return false;
+    }
+    port->user_constraint = demand;
+    port->constraint_mode = mode;
+    return true;
+}
+
+bool FactoryGraph::setPortConstraintMode(uint64_t port_id, ConstraintMode mode) {
+    Port *port = getPort(port_id);
+    if (!port) {
+        return false;
+    }
+    port->constraint_mode = mode;
     return true;
 }
 
