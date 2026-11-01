@@ -862,6 +862,41 @@ TEST_F(ConcreteCommandsTest, PasteCommand_PreservesMachineClockMultiplier_UndoRe
     EXPECT_DOUBLE_EQ(redone.production_multiplier, 250.0);
 }
 
+TEST_F(ConcreteCommandsTest, PasteCommand_NodeWithMorePortsThanClipboard_RestoresAllPortsOnRedo) {
+    CopyBuffer buffer;
+    Node n;
+    n.id = 700;
+    n.name = "Plates Node";
+    n.selected_recipe_key = "make_plates"; // has 1 input port and 1 output port
+    // Clipboard node has 0 input and 0 output ports (fewer than the recipe has)
+    buffer.nodes[700] = n;
+    buffer.nodePositions[700] = ImVec2(100.0f, 150.0f);
+
+    auto pasteCmd = std::make_unique<PasteCommand>(buffer, false);
+    manager->executeCommand(std::move(pasteCmd), *graph);
+
+    ASSERT_EQ(graph->getNodes().size(), 1);
+    const Node& pasted = graph->getNodes()[0];
+    ASSERT_EQ(pasted.input_ports.size(), 1);
+    ASSERT_EQ(pasted.output_ports.size(), 1);
+    uint64_t inPortId = pasted.input_ports[0];
+    uint64_t outPortId = pasted.output_ports[0];
+    EXPECT_NE(graph->getPort(inPortId), nullptr);
+    EXPECT_NE(graph->getPort(outPortId), nullptr);
+
+    // Undo removes node and ports
+    manager->undo(*graph);
+    EXPECT_TRUE(graph->getNodes().empty());
+    EXPECT_TRUE(graph->getPorts().empty());
+
+    // Redo must restore all ports in graph->m_ports
+    manager->redo(*graph);
+    ASSERT_EQ(graph->getNodes().size(), 1);
+    EXPECT_EQ(graph->getPorts().size(), 2);
+    EXPECT_NE(graph->getPort(inPortId), nullptr);
+    EXPECT_NE(graph->getPort(outPortId), nullptr);
+}
+
 TEST_F(ConcreteCommandsTest, PasteCommand_MissingNodePosition_DoesNotThrow) {
     CopyBuffer buffer;
     Node n;
@@ -875,4 +910,160 @@ TEST_F(ConcreteCommandsTest, PasteCommand_MissingNodePosition_DoesNotThrow) {
     EXPECT_NO_THROW(manager->executeCommand(std::move(pasteCmd), *graph));
     ASSERT_EQ(graph->getNodes().size(), 1);
 }
+
+// ============================================================================
+// Headless Execution (No ax::NodeEditor Context) Tests - Bug Audit Run 1 Finding 1
+// ============================================================================
+
+class HeadlessUndoRedoTest : public ::testing::Test {
+protected:
+    GameData testGameData;
+    std::unique_ptr<FactoryGraph> graph;
+    std::unique_ptr<UndoRedoManager> manager;
+
+    void SetUp() override {
+        // Ensure no active ax::NodeEditor context exists
+        ax::NodeEditor::SetCurrentEditor(nullptr);
+
+        testGameData.gameName = "TestGame";
+        testGameData.time_unit = "seconds";
+
+        testGameData.resources["iron_ore"] = Resource{"Iron Ore", 1};
+        testGameData.resources["iron_ingot"] = Resource{"Iron Ingot", 2};
+        testGameData.resources["iron_plate"] = Resource{"Iron Plate", 3};
+
+        testGameData.machines["miner"] = Machine{"Miner", 1, 0};
+        testGameData.machines["smelter"] = Machine{"Smelter", 1, 1};
+        testGameData.machines["constructor"] = Machine{"Constructor", 1, 2};
+
+        Recipe mine_ore;
+        mine_ore.name = "Mine Iron Ore";
+        mine_ore.produced_in_machines_keys.push_back("miner");
+        mine_ore.output_ports.push_back(RecipePort{30.0, "iron_ore"});
+        testGameData.recipes["mine_ore"] = mine_ore;
+
+        Recipe smelt_ingot;
+        smelt_ingot.name = "Smelt Iron Ingot";
+        smelt_ingot.produced_in_machines_keys.push_back("smelter");
+        smelt_ingot.input_ports.push_back(RecipePort{30.0, "iron_ore"});
+        smelt_ingot.output_ports.push_back(RecipePort{30.0, "iron_ingot"});
+        testGameData.recipes["smelt_ingot"] = smelt_ingot;
+
+        graph = std::make_unique<FactoryGraph>(testGameData);
+        manager = std::make_unique<UndoRedoManager>(10);
+    }
+
+    void TearDown() override {
+        manager.reset();
+        graph.reset();
+        ax::NodeEditor::SetCurrentEditor(nullptr);
+    }
+};
+
+TEST_F(HeadlessUndoRedoTest, AddNodeCommand_WithoutEditorContext_DoesNotCrash) {
+    auto cmd = std::make_unique<AddNodeCommand>("Mine Iron Ore", "mine_ore", (uint64_t)-1, ImVec2(100.0f, 200.0f));
+    manager->executeCommand(std::move(cmd), *graph);
+    EXPECT_EQ(graph->getNodes().size(), 1);
+
+    manager->undo(*graph);
+    EXPECT_EQ(graph->getNodes().size(), 0);
+
+    manager->redo(*graph);
+    EXPECT_EQ(graph->getNodes().size(), 1);
+}
+
+TEST_F(HeadlessUndoRedoTest, RemoveNodeCommand_WithoutEditorContext_DoesNotCrash) {
+    uint64_t nodeId = graph->addNode("Mine Iron Ore", "mine_ore");
+    auto cmd = std::make_unique<RemoveNodeCommand>(nodeId);
+    manager->executeCommand(std::move(cmd), *graph);
+    EXPECT_EQ(graph->getNodes().size(), 0);
+
+    manager->undo(*graph);
+    EXPECT_EQ(graph->getNodes().size(), 1);
+}
+
+TEST_F(HeadlessUndoRedoTest, MoveNodeCommand_WithoutEditorContext_DoesNotCrash) {
+    uint64_t nodeId = graph->addNode("Mine Iron Ore", "mine_ore");
+    auto cmd = std::make_unique<MoveNodeCommand>(nodeId, ImVec2(0.0f, 0.0f), ImVec2(100.0f, 200.0f));
+    manager->executeCommand(std::move(cmd), *graph);
+    manager->undo(*graph);
+    manager->redo(*graph);
+}
+
+TEST_F(HeadlessUndoRedoTest, PasteCommand_WithoutEditorContext_DoesNotCrash) {
+    CopyBuffer buffer;
+    Node n;
+    n.id = 100;
+    n.name = "Mine Iron Ore";
+    n.selected_recipe_key = "mine_ore";
+    buffer.nodes[100] = n;
+    buffer.nodePositions[100] = ImVec2(50.0f, 50.0f);
+
+    auto cmd = std::make_unique<PasteCommand>(buffer, false);
+    manager->executeCommand(std::move(cmd), *graph);
+    EXPECT_EQ(graph->getNodes().size(), 1);
+
+    manager->undo(*graph);
+    EXPECT_EQ(graph->getNodes().size(), 0);
+
+    manager->redo(*graph);
+    EXPECT_EQ(graph->getNodes().size(), 1);
+}
+
+TEST_F(ConcreteCommandsTest, SetPortConstraintModeCommand_UndoRedo) {
+    uint64_t n1 = graph->addNode("Miner", "mine_ore");
+    uint64_t portId = graph->getNode(n1)->output_ports[0];
+    ASSERT_EQ(graph->getPort(portId)->constraint_mode, ConstraintMode::AUTO);
+
+    auto cmd = std::make_unique<SetPortConstraintModeCommand>(portId, ConstraintMode::AUTO, ConstraintMode::PUSH);
+    manager->executeCommand(std::move(cmd), *graph);
+    EXPECT_EQ(graph->getPort(portId)->constraint_mode, ConstraintMode::PUSH);
+
+    manager->undo(*graph);
+    EXPECT_EQ(graph->getPort(portId)->constraint_mode, ConstraintMode::AUTO);
+
+    manager->redo(*graph);
+    EXPECT_EQ(graph->getPort(portId)->constraint_mode, ConstraintMode::PUSH);
+}
+
+TEST_F(ConcreteCommandsTest, PasteCommand_PreservesPortConstraintAndMode_UndoRedo) {
+    uint64_t n1 = graph->addNode("Smelter", "smelt_ingot");
+    Node* origNode = graph->getNode(n1);
+    ASSERT_NE(origNode, nullptr);
+    uint64_t inPortId = origNode->input_ports[0];
+    uint64_t outPortId = origNode->output_ports[0];
+    graph->setPortConstraint(inPortId, 45.0, ConstraintMode::PUSH);
+    graph->setPortConstraint(outPortId, 30.0, ConstraintMode::LIMIT);
+
+    CopyBuffer buffer;
+    buffer.nodes[n1] = *origNode;
+    buffer.nodePositions[n1] = ImVec2(10.0f, 20.0f);
+    buffer.ports[inPortId] = *graph->getPort(inPortId);
+    buffer.ports[outPortId] = *graph->getPort(outPortId);
+
+    auto pasteCmd = std::make_unique<PasteCommand>(buffer, false);
+    manager->executeCommand(std::move(pasteCmd), *graph);
+    ASSERT_EQ(graph->getNodes().size(), 2);
+
+    const Node& pastedNode = graph->getNodes()[1];
+    const Port* pastedIn = graph->getPort(pastedNode.input_ports[0]);
+    const Port* pastedOut = graph->getPort(pastedNode.output_ports[0]);
+    ASSERT_NE(pastedIn, nullptr);
+    ASSERT_NE(pastedOut, nullptr);
+    EXPECT_DOUBLE_EQ(pastedIn->user_constraint, 45.0);
+    EXPECT_EQ(pastedIn->constraint_mode, ConstraintMode::PUSH);
+    EXPECT_DOUBLE_EQ(pastedOut->user_constraint, 30.0);
+    EXPECT_EQ(pastedOut->constraint_mode, ConstraintMode::LIMIT);
+
+    manager->undo(*graph);
+    ASSERT_EQ(graph->getNodes().size(), 1);
+
+    manager->redo(*graph);
+    ASSERT_EQ(graph->getNodes().size(), 2);
+    const Node& redoneNode = graph->getNodes()[1];
+    EXPECT_EQ(graph->getPort(redoneNode.input_ports[0])->constraint_mode, ConstraintMode::PUSH);
+    EXPECT_EQ(graph->getPort(redoneNode.output_ports[0])->constraint_mode, ConstraintMode::LIMIT);
+}
+
+
 

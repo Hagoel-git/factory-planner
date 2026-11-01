@@ -32,6 +32,12 @@ const AppSettings& SettingsManager::getSettings() const {
 void SettingsManager::setSettings(const AppSettings &settings) {
     m_settings = settings;
     m_settings.autoSaveIntervalMinutes = std::clamp(m_settings.autoSaveIntervalMinutes, 1, 60);
+    m_settings.windowWidth = std::max(640, m_settings.windowWidth);
+    m_settings.windowHeight = std::max(480, m_settings.windowHeight);
+    m_settings.maxRecentFiles = std::max(0, m_settings.maxRecentFiles);
+    if (m_settings.navigationButtonIndex != 1 && m_settings.navigationButtonIndex != 2) {
+        m_settings.navigationButtonIndex = 2;
+    }
 }
 
 SettingsManager::SettingsManager() = default;
@@ -55,10 +61,10 @@ void SettingsManager::loadAppSettings() {
         f >> j;
 
         if (j.contains("gameDataPath") && j["gameDataPath"].is_string()) {
-            m_settings.gameDataPath = j["gameDataPath"].get<std::string>();
+            m_settings.gameDataPath = pathFromUtf8(j["gameDataPath"].get<std::string>());
         }
         if (j.contains("defaultProjectPath") && j["defaultProjectPath"].is_string()) {
-            m_settings.defaultProjectPath = j["defaultProjectPath"].get<std::string>();
+            m_settings.defaultProjectPath = pathFromUtf8(j["defaultProjectPath"].get<std::string>());
         }
         if (j.contains("restorePreviousSession") && j["restorePreviousSession"].is_boolean()) {
             m_settings.restorePreviousSession = j["restorePreviousSession"].get<bool>();
@@ -91,19 +97,24 @@ void SettingsManager::loadAppSettings() {
             m_settings.autoSaveIntervalMinutes = std::clamp(j["autoSaveIntervalMinutes"].get<int>(), 1, 60);
         }
         if (j.contains("navigationButtonIndex") && j["navigationButtonIndex"].is_number_integer()) {
-            m_settings.navigationButtonIndex = j["navigationButtonIndex"].get<int>();
+            int btn = j["navigationButtonIndex"].get<int>();
+            if (btn == 1 || btn == 2) {
+                m_settings.navigationButtonIndex = btn;
+            } else {
+                m_settings.navigationButtonIndex = 2;
+            }
         }
         if (j.contains("maxUndoHistory") && j["maxUndoHistory"].is_number_integer()) {
             m_settings.maxUndoHistory = j["maxUndoHistory"].get<int>();
         }
         if (j.contains("maxRecentFiles") && j["maxRecentFiles"].is_number_integer()) {
-            m_settings.maxRecentFiles = j["maxRecentFiles"].get<int>();
+            m_settings.maxRecentFiles = std::max(0, j["maxRecentFiles"].get<int>());
         }
         if (j.contains("windowWidth") && j["windowWidth"].is_number_integer()) {
-            m_settings.windowWidth = j["windowWidth"].get<int>();
+            m_settings.windowWidth = std::max(640, j["windowWidth"].get<int>());
         }
         if (j.contains("windowHeight") && j["windowHeight"].is_number_integer()) {
-            m_settings.windowHeight = j["windowHeight"].get<int>();
+            m_settings.windowHeight = std::max(480, j["windowHeight"].get<int>());
         }
         if (j.contains("windowMaximized") && j["windowMaximized"].is_boolean()) {
             m_settings.windowMaximized = j["windowMaximized"].get<bool>();
@@ -118,8 +129,8 @@ void SettingsManager::loadAppSettings() {
 void SettingsManager::saveAppSettings() const {
     VLOG(2) << "Saving app settings to file.";
     json j;
-    j["gameDataPath"] = m_settings.gameDataPath.string();
-    j["defaultProjectPath"] = m_settings.defaultProjectPath.string();
+    j["gameDataPath"] = pathToUtf8(m_settings.gameDataPath);
+    j["defaultProjectPath"] = pathToUtf8(m_settings.defaultProjectPath);
     j["restorePreviousSession"] = m_settings.restorePreviousSession;
     j["themeName"] = m_settings.themeName;
     j["fontName"] = m_settings.fontName;
@@ -147,7 +158,7 @@ void SettingsManager::saveAppSettings() const {
                 LOG(ERROR) << "Failed to open temporary settings file for writing: " << tmp;
                 return;
             }
-            o << j.dump(4);
+            o << j.dump(4, ' ', false, json::error_handler_t::replace);
             o.flush();
             if (!o.good()) {
                 LOG(ERROR) << "Failed to write app settings to temporary file: " << tmp;

@@ -7,11 +7,38 @@
 #include <utility>
 
 
+enum class ConstraintMode {
+    AUTO,
+    LIMIT,
+    TARGET,
+    PUSH
+};
+
+inline const char* constraintModeToString(ConstraintMode mode) {
+    switch (mode) {
+        case ConstraintMode::LIMIT: return "limit";
+        case ConstraintMode::TARGET: return "target";
+        case ConstraintMode::PUSH: return "push";
+        case ConstraintMode::AUTO:
+        default: return "auto";
+    }
+}
+
+inline ConstraintMode constraintModeFromString(const std::string &str) {
+    if (str == "limit" || str == "LIMIT") return ConstraintMode::LIMIT;
+    if (str == "target" || str == "TARGET") return ConstraintMode::TARGET;
+    if (str == "push" || str == "PUSH") return ConstraintMode::PUSH;
+    return ConstraintMode::AUTO;
+}
+
 struct Port {
+    using ConstraintMode = ::ConstraintMode;
+
     double rate = 0.0; // Rate of the port, e.g., how much resource it can handle per second
     double user_constraint = -1.0; // User-defined constraint for the port, -1 means no constraint
-    // Solver output (not serialized). For output ports with connections: production not consumed downstream.
-    // Otherwise: amount by which the rate overshoots its target constraint.
+    ConstraintMode constraint_mode = ConstraintMode::AUTO;
+    // Solver output (not serialized). For wired output ports: production not consumed downstream.
+    // Unwired output ports and input ports always report excess_rate = 0.0.
     double excess_rate = 0.0;
     uint64_t id = 0;
     uint64_t node_id = 0;

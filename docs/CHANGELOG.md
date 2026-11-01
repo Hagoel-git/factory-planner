@@ -4,6 +4,39 @@ This document holds the user-facing changelog that is also used in release notes
 
 ## Unreleased
 
+### Added
+- Added explicit port constraint modes (`Auto`, `Limit`, `Target`, `Push`) in the port context menu, with canvas badges (`[L]`, `[T]`, `[P]`) for explicit overrides and red outlines/tooltips for under-satisfied bottlenecks.
+
+### Changed
+- Reworked the production solver (v3): disconnected sub-factories are now solved independently per connected component, pure supply-push networks automatically drive constraints as targets when no downstream goals exist, and coproduct surplus is automatically routed into terminal byproduct sinks instead of backing up as port excess.
+
+### Fixed
+- Fixed "Save As..." and save operations failing to append the canonical ".fpp" extension when omitted in the file dialog or save path.
+- Fixed canvas shortcuts (`Ctrl+Z`, `Ctrl+Y`, `Ctrl+X`, `Ctrl+C`, `Ctrl+V`, `Ctrl+A`) triggering graph modifications while typing in text input widgets (such as recipe search and rate constraint fields).
+- Fixed cancelled "Save a Copy" dialog leaking state into subsequent "Save As..." operations and preventing the editor from switching to the newly chosen file path.
+- Fixed "Save As..." saving whichever project tab was active when the file picker closed rather than the initiating tab if the user switched tabs during the operation.
+- Fixed "Save As..." silently closing and destroying another open tab and its unsaved changes without confirmation when saving to a colliding file path.
+- Fixed autosave firing on tabs awaiting user confirmation in the "Unsaved Changes" dialog, preventing discarded changes from being accidentally committed to disk.
+- Fixed potential application crash when quitting while a native file dialog is open on a background thread.
+- Improved tab and recent file disambiguation when multiple open projects share identical filenames and parent folder names by walking ancestor directory components up to the differing directory (e.g. `1 (instance1/projects/myproj)` vs `1 (instance2/projects/myproj)`).
+- Fixed crash on application startup when `app_settings.json` contains non-positive window dimensions by enforcing minimum safe dimensions (640x480).
+- Fixed crash (`std::length_error`) on project open when `maxRecentFiles` setting is negative.
+- Fixed potential assertion and memory errors from out-of-bounds `navigationButtonIndex` in settings by validating to supported mouse buttons (Right or Middle).
+- Fixed silent project file overwrite by autosave when opening JSON files missing `"graph_data"`.
+- Fixed risk of project file truncation on full disk during save operations by flushing and closing output streams prior to atomic file replacement.
+- Fixed session, recent files, and settings persistence failures when file paths contain non-ASCII or Unicode characters.
+- Fixed project save and load failures on Windows when file paths contain Unicode characters outside the system ANSI code page.
+- Fixed crash when undo/redo commands (`AddNodeCommand`, `RemoveNodeCommand`, `MoveNodeCommand`, `PasteCommand`) execute in headless mode or without an active canvas editor context.
+- Fixed potential ID collisions and graph index corruption when restoring nodes by advancing next node and port ID counters in `FactoryGraph::restoreNode`.
+- Fixed pasted nodes dropping ports on redo when a recipe has more ports than the clipboard source node.
+- Fixed cut nodes remaining selected in the canvas, preventing subsequent delete operations from creating dummy undo entries.
+- Fixed toggling preferred machines in the node context menu not marking the project dirty.
+- Fixed false bottleneck classification in solver Phase 1 (Target Water-Filling) where competing targets sharing common upstream capacity were prematurely frozen at low throughput instead of receiving fair, proportional resource allocation.
+- Fixed passive supply capacity limits (e.g. miners, resource wells) aggressively pushing maximum throughput and producing unwanted downstream product excess when active demand targets exist in the factory.
+- Fixed nodes retaining stale, non-zero machine counts on the canvas after a failed solve.
+- Fixed machine counts evaluating to zero for multi-input recipes where the first ingredient has zero consumption (such as non-consumed catalysts or auxiliary slots).
+- Fixed solver masking Phase 1 and Phase 2 optimization failures (such as unbounded production cycles) and falsely reporting a successful solve.
+
 ### Removed
 - Removed the in-app Game Data Editor and the "Game Data Manager" menu entry.
 

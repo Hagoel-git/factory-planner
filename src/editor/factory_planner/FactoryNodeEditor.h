@@ -60,6 +60,7 @@ struct DebugInfo {
 };
 
 class FactoryNodeEditor {
+    friend class ApplicationLifecycleTest;
 public:
 
     FactoryNodeEditor(const GameData& game_data, const std::filesystem::path& projectFilePath, std::string  title );
@@ -69,7 +70,7 @@ public:
     void draw();
 
     bool save();
-    bool saveAs(const std::string& newFilePath, SaveAsMode mode = SaveAsMode::KeepCurrentFile);
+    bool saveAs(const std::filesystem::path& newFilePath, SaveAsMode mode = SaveAsMode::KeepCurrentFile);
 
     void cut(CopyBuffer &copyBuffer);
     void copy(CopyBuffer &copy_buffer);
@@ -94,6 +95,9 @@ public:
 
     bool isDirty() const { return m_isDirty; }
     void setDirty(bool dirty) { m_isDirty = dirty; }
+
+    bool isAutosaveSuspended() const { return m_autosaveSuspended; }
+    void setAutosaveSuspended(bool suspended) { m_autosaveSuspended = suspended; }
 
     void undo();
     void redo();
@@ -127,6 +131,7 @@ private:
     bool m_loadedSuccessfully = true;
     bool m_isDirty = false;
     bool m_isFocused = false;
+    bool m_autosaveSuspended = false;
     bool m_wasDragging = false;
     bool m_draggingNodes = false;
     ed::NodeId m_draggedNodeId;

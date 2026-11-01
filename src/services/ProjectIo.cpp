@@ -15,7 +15,7 @@
 using json = nlohmann::json;
 namespace ed = ax::NodeEditor;
 
-bool ProjectIO::saveProject(const std::string &path, const FactoryGraph &factoryGraph, ax::NodeEditor::EditorContext *context) {
+bool ProjectIO::saveProject(const std::filesystem::path &path, const FactoryGraph &factoryGraph, ax::NodeEditor::EditorContext *context) {
     try {
         json projectData;
 
@@ -55,7 +55,8 @@ bool ProjectIO::saveProject(const std::string &path, const FactoryGraph &factory
             std::chrono::system_clock::now().time_since_epoch()).count();
 
         // Write atomically with better error handling
-        std::string tmp = path + ".tmp";
+        std::filesystem::path tmp = path;
+        tmp += ".tmp";
         {
             std::ofstream ofs(tmp, std::ios::binary);
             if (!ofs) {
@@ -69,6 +70,7 @@ bool ProjectIO::saveProject(const std::string &path, const FactoryGraph &factory
 
             std::string jsonStr = projectData.dump(2); // Pretty print with 2-space indent
             ofs << jsonStr;
+            ofs.flush();
 
             if (!ofs.good()) {
                 LOG(ERROR) << "Failed to write data to temporary file: " << tmp;
@@ -77,7 +79,19 @@ bool ProjectIO::saveProject(const std::string &path, const FactoryGraph &factory
                     "Failed to write project data to temporary file.",
                     NotificationType::Error);
                 ofs.close();
-                std::filesystem::remove(tmp); // Clean up temp file
+                std::error_code ec;
+                std::filesystem::remove(tmp, ec); // Clean up temp file
+                return false;
+            }
+            ofs.close();
+            if (!ofs.good()) {
+                LOG(ERROR) << "Failed to close temporary file: " << tmp;
+                NotificationManager::instance().addNotification(
+                    "Error Saving Project",
+                    "Failed to finalize project data writing.",
+                    NotificationType::Error);
+                std::error_code ec;
+                std::filesystem::remove(tmp, ec);
                 return false;
             }
         }
@@ -94,7 +108,8 @@ bool ProjectIO::saveProject(const std::string &path, const FactoryGraph &factory
                 "Error Saving Project",
                 "Failed to finalize project save operation.",
                 NotificationType::Error);
-            std::filesystem::remove(tmp); // Clean up temp file
+            std::error_code rmEc;
+            std::filesystem::remove(tmp, rmEc); // Clean up temp file
             return false;
         }
         NotificationManager::instance().addNotification(
@@ -115,14 +130,14 @@ bool ProjectIO::saveProject(const std::string &path, const FactoryGraph &factory
     }
 }
 
-bool ProjectIO::loadProject(const std::string &path, FactoryGraph &factoryGraph) {
+bool ProjectIO::loadProject(const std::filesystem::path &path, FactoryGraph &factoryGraph) {
     try {
         // Check if file exists
         if (!std::filesystem::exists(path)) {
             LOG(ERROR) << "Project file does not exist: " << path;
             NotificationManager::instance().addNotification(
                 "Error Loading Project",
-                "Project file does not exist: " + path,
+                "Project file does not exist: " + pathToUtf8(path),
                 NotificationType::Error);
             return false;
         }
@@ -132,7 +147,7 @@ bool ProjectIO::loadProject(const std::string &path, FactoryGraph &factoryGraph)
             LOG(ERROR) << "Failed to open project file: " << path;
             NotificationManager::instance().addNotification(
                 "Error Loading Project",
-                "Failed to open project file: " + path,
+                "Failed to open project file: " + pathToUtf8(path),
                 NotificationType::Error);
             return false;
         }
@@ -162,51 +177,58 @@ bool ProjectIO::loadProject(const std::string &path, FactoryGraph &factoryGraph)
 
 
         // Load graph data first
-        if (projectData.contains("graph_data")) {
-            try {
-                std::string targetUUID = projectData["graph_data"].value("game_data_uuid", "");
-                GameDataManager game_data_manager;
-                std::string error;
-                std::vector<GameDataPackage> packages = scanForGameData(SettingsManager::instance().getSettings().gameDataPath);
-                // search for path from name in packages
-                std::filesystem::path gameDataPath;
-                std::error_code ec;
-                for (const auto& pkg : packages) {
-                    if (!targetUUID.empty() && pkg.uuid == targetUUID) {
-                        if (pkg.dataFilePath.is_absolute() || (std::filesystem::exists(pkg.dataFilePath, ec) && !ec)) {
-                            gameDataPath = pkg.dataFilePath;
-                        } else {
-                            gameDataPath = SettingsManager::instance().getSettings().gameDataPath / pkg.dataFilePath;
-                        }
-                        break;
-                    }
-                }
-                if (gameDataPath.empty()) {
-                    LOG(ERROR) << "Game data file not found for project: " << path << " (UUID: " << targetUUID << ")";
-                    NotificationManager::instance().addNotification(
-                        "Error Loading Project",
-                        "Game data file not found for project: " + path + " (UUID: " + targetUUID + ")",
-                        NotificationType::Error);
-                    return false;
-                }
-                if (!game_data_manager.loadFromFile(gameDataPath, error)) {
-                    LOG(ERROR) << "Failed to load game data from file: " << error;
-                    NotificationManager::instance().addNotification(
-                        "Error Loading Project",
-                        "Failed to load game data from file: " + error,
-                        NotificationType::Error);
-                    return false;
-                }
+        if (!projectData.contains("graph_data") || !projectData["graph_data"].is_object()) {
+            LOG(ERROR) << "Project file does not contain valid graph_data: " << path;
+            NotificationManager::instance().addNotification(
+                "Error Loading Project",
+                "Project file does not contain valid graph data: " + pathToUtf8(path),
+                NotificationType::Error);
+            return false;
+        }
 
-                factoryGraph.deserialize(projectData["graph_data"], game_data_manager.current());
-            } catch (const std::exception& e) {
-                LOG(ERROR) << "Failed to deserialize graph data: " << e.what();
+        try {
+            std::string targetUUID = projectData["graph_data"].value("game_data_uuid", "");
+            GameDataManager game_data_manager;
+            std::string error;
+            std::vector<GameDataPackage> packages = scanForGameData(SettingsManager::instance().getSettings().gameDataPath);
+            // search for path from name in packages
+            std::filesystem::path gameDataPath;
+            std::error_code ec;
+            for (const auto& pkg : packages) {
+                if (!targetUUID.empty() && pkg.uuid == targetUUID) {
+                    if (pkg.dataFilePath.is_absolute() || (std::filesystem::exists(pkg.dataFilePath, ec) && !ec)) {
+                        gameDataPath = pkg.dataFilePath;
+                    } else {
+                        gameDataPath = SettingsManager::instance().getSettings().gameDataPath / pkg.dataFilePath;
+                    }
+                    break;
+                }
+            }
+            if (gameDataPath.empty()) {
+                LOG(ERROR) << "Game data file not found for project: " << path << " (UUID: " << targetUUID << ")";
                 NotificationManager::instance().addNotification(
                     "Error Loading Project",
-                    "Failed to deserialize graph data: " + std::string(e.what()),
+                    "Game data file not found for project: " + pathToUtf8(path) + " (UUID: " + targetUUID + ")",
                     NotificationType::Error);
                 return false;
             }
+            if (!game_data_manager.loadFromFile(gameDataPath, error)) {
+                LOG(ERROR) << "Failed to load game data from file: " << error;
+                NotificationManager::instance().addNotification(
+                    "Error Loading Project",
+                    "Failed to load game data from file: " + error,
+                    NotificationType::Error);
+                return false;
+            }
+
+            factoryGraph.deserialize(projectData["graph_data"], game_data_manager.current());
+        } catch (const std::exception& e) {
+            LOG(ERROR) << "Failed to deserialize graph data: " << e.what();
+            NotificationManager::instance().addNotification(
+                "Error Loading Project",
+                "Failed to deserialize graph data: " + std::string(e.what()),
+                NotificationType::Error);
+            return false;
         }
         VLOG(2) << "Graph data deserialized successfully.";
 

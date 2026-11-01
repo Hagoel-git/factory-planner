@@ -55,7 +55,7 @@ void SessionManager::loadSession() {
             m_state.openProjectPaths.clear();
             for (const auto &item : j["openProjectPaths"]) {
                 if (item.is_string()) {
-                    m_state.openProjectPaths.emplace_back(item.get<std::string>());
+                    m_state.openProjectPaths.emplace_back(pathFromUtf8(item.get<std::string>()));
                 }
             }
         }
@@ -80,7 +80,7 @@ void SessionManager::saveSession() const {
         nlohmann::json j;
         j["openProjectPaths"] = nlohmann::json::array();
         for (const auto &path : m_state.openProjectPaths) {
-            j["openProjectPaths"].push_back(path.string());
+            j["openProjectPaths"].push_back(pathToUtf8(path));
         }
         j["activeProjectIndex"] = m_state.activeProjectIndex;
         {
@@ -89,7 +89,7 @@ void SessionManager::saveSession() const {
                 LOG(ERROR) << "Failed to open temporary session file for write: " << tmp;
                 return;
             }
-            ofs << j.dump(2);
+            ofs << j.dump(2, ' ', false, nlohmann::json::error_handler_t::replace);
             ofs.flush();
             if (!ofs.good()) {
                 LOG(ERROR) << "Failed to write session data to temporary file: " << tmp;
