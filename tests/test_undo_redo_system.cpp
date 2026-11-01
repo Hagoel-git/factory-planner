@@ -1010,4 +1010,60 @@ TEST_F(HeadlessUndoRedoTest, PasteCommand_WithoutEditorContext_DoesNotCrash) {
     EXPECT_EQ(graph->getNodes().size(), 1);
 }
 
+TEST_F(ConcreteCommandsTest, SetPortConstraintModeCommand_UndoRedo) {
+    uint64_t n1 = graph->addNode("Miner", "mine_ore");
+    uint64_t portId = graph->getNode(n1)->output_ports[0];
+    ASSERT_EQ(graph->getPort(portId)->constraint_mode, ConstraintMode::AUTO);
+
+    auto cmd = std::make_unique<SetPortConstraintModeCommand>(portId, ConstraintMode::AUTO, ConstraintMode::PUSH);
+    manager->executeCommand(std::move(cmd), *graph);
+    EXPECT_EQ(graph->getPort(portId)->constraint_mode, ConstraintMode::PUSH);
+
+    manager->undo(*graph);
+    EXPECT_EQ(graph->getPort(portId)->constraint_mode, ConstraintMode::AUTO);
+
+    manager->redo(*graph);
+    EXPECT_EQ(graph->getPort(portId)->constraint_mode, ConstraintMode::PUSH);
+}
+
+TEST_F(ConcreteCommandsTest, PasteCommand_PreservesPortConstraintAndMode_UndoRedo) {
+    uint64_t n1 = graph->addNode("Smelter", "smelt_ingot");
+    Node* origNode = graph->getNode(n1);
+    ASSERT_NE(origNode, nullptr);
+    uint64_t inPortId = origNode->input_ports[0];
+    uint64_t outPortId = origNode->output_ports[0];
+    graph->setPortConstraint(inPortId, 45.0, ConstraintMode::PUSH);
+    graph->setPortConstraint(outPortId, 30.0, ConstraintMode::LIMIT);
+
+    CopyBuffer buffer;
+    buffer.nodes[n1] = *origNode;
+    buffer.nodePositions[n1] = ImVec2(10.0f, 20.0f);
+    buffer.ports[inPortId] = *graph->getPort(inPortId);
+    buffer.ports[outPortId] = *graph->getPort(outPortId);
+
+    auto pasteCmd = std::make_unique<PasteCommand>(buffer, false);
+    manager->executeCommand(std::move(pasteCmd), *graph);
+    ASSERT_EQ(graph->getNodes().size(), 2);
+
+    const Node& pastedNode = graph->getNodes()[1];
+    const Port* pastedIn = graph->getPort(pastedNode.input_ports[0]);
+    const Port* pastedOut = graph->getPort(pastedNode.output_ports[0]);
+    ASSERT_NE(pastedIn, nullptr);
+    ASSERT_NE(pastedOut, nullptr);
+    EXPECT_DOUBLE_EQ(pastedIn->user_constraint, 45.0);
+    EXPECT_EQ(pastedIn->constraint_mode, ConstraintMode::PUSH);
+    EXPECT_DOUBLE_EQ(pastedOut->user_constraint, 30.0);
+    EXPECT_EQ(pastedOut->constraint_mode, ConstraintMode::LIMIT);
+
+    manager->undo(*graph);
+    ASSERT_EQ(graph->getNodes().size(), 1);
+
+    manager->redo(*graph);
+    ASSERT_EQ(graph->getNodes().size(), 2);
+    const Node& redoneNode = graph->getNodes()[1];
+    EXPECT_EQ(graph->getPort(redoneNode.input_ports[0])->constraint_mode, ConstraintMode::PUSH);
+    EXPECT_EQ(graph->getPort(redoneNode.output_ports[0])->constraint_mode, ConstraintMode::LIMIT);
+}
+
+
 

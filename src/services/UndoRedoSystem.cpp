@@ -227,11 +227,27 @@ void ChangeProductionMultiplierCommand::undo(FactoryGraph &graph) {
 }
 
 void SetPortConstraintCommand::execute(FactoryGraph &graph) {
-    graph.setPortConstraint(portId, newConstraint);
+    if (hasModeChange) {
+        graph.setPortConstraint(portId, newConstraint, newMode);
+    } else {
+        graph.setPortConstraint(portId, newConstraint);
+    }
 }
 
 void SetPortConstraintCommand::undo(FactoryGraph &graph) {
-    graph.setPortConstraint(portId, oldConstraint);
+    if (hasModeChange) {
+        graph.setPortConstraint(portId, oldConstraint, oldMode);
+    } else {
+        graph.setPortConstraint(portId, oldConstraint);
+    }
+}
+
+void SetPortConstraintModeCommand::execute(FactoryGraph &graph) {
+    graph.setPortConstraintMode(portId, newMode);
+}
+
+void SetPortConstraintModeCommand::undo(FactoryGraph &graph) {
+    graph.setPortConstraintMode(portId, oldMode);
 }
 
 void MoveNodeCommand::execute(FactoryGraph &graph) {
@@ -319,6 +335,7 @@ void PasteCommand::execute(FactoryGraph &graph) {
                         auto oldPortIt = copy_buffer.ports.find(oldPortId);
                         if (oldPortIt != copy_buffer.ports.end()) {
                             newPort->user_constraint = oldPortIt->second.user_constraint;
+                            newPort->constraint_mode = oldPortIt->second.constraint_mode;
                         }
                     }
                 }
@@ -333,6 +350,7 @@ void PasteCommand::execute(FactoryGraph &graph) {
                         auto oldPortIt = copy_buffer.ports.find(oldPortId);
                         if (oldPortIt != copy_buffer.ports.end()) {
                             newPort->user_constraint = oldPortIt->second.user_constraint;
+                            newPort->constraint_mode = oldPortIt->second.constraint_mode;
                         }
                     }
                 }

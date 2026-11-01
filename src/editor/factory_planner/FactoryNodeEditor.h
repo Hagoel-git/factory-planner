@@ -60,6 +60,7 @@ struct DebugInfo {
 };
 
 class FactoryNodeEditor {
+    friend class ApplicationLifecycleTest;
 public:
 
     FactoryNodeEditor(const GameData& game_data, const std::filesystem::path& projectFilePath, std::string  title );

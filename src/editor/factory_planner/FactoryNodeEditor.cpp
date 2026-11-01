@@ -873,6 +873,59 @@ void FactoryNodeEditor::drawNodes() {
         float machine_offset = (node_h - machine_h) * 0.5f;
         float outputs_offset = (node_h - outputs_h) * 0.5f;
 
+        auto buildPinTooltip = [&](const Port *p, const Resource &res, bool has_excess) {
+            std::string tip = res.name;
+            if (has_excess) {
+                char ex_buf[128];
+                snprintf(ex_buf, sizeof(ex_buf), "\nExcess: %.2f/%s", p->excess_rate, timeUnit.c_str());
+                tip += ex_buf;
+            }
+            const bool hasNumericConstraint = p->user_constraint >= 0.0;
+            const bool hasUnratedPush = (p->user_constraint < 0.0 && p->constraint_mode == ConstraintMode::PUSH);
+            if (hasNumericConstraint || hasUnratedPush || p->constraint_mode != ConstraintMode::AUTO) {
+                const ConstraintMode resolved = m_solver->getResolvedConstraintMode(p->id);
+                const char *modeLabel = constraintModeToString(resolved);
+                char mode_buf[160];
+                if (hasNumericConstraint) {
+                    const double sat = m_solver->getGoalSaturation(p->id);
+                    if (sat >= 0.0) {
+                        const bool bottlenecked = m_solver->isGoalBottlenecked(p->id);
+                        snprintf(mode_buf, sizeof(mode_buf), "\n%s: %.2f/%s (%.1f%%%s)",
+                                 modeLabel, p->user_constraint, timeUnit.c_str(),
+                                 sat * 100.0, bottlenecked ? " - Bottlenecked" : "");
+                    } else {
+                        snprintf(mode_buf, sizeof(mode_buf), "\n%s: %.2f/%s",
+                                 modeLabel, p->user_constraint, timeUnit.c_str());
+                    }
+                } else if (hasUnratedPush) {
+                    snprintf(mode_buf, sizeof(mode_buf), "\nMode: PUSH (Unrated - No Overflow)");
+                } else {
+                    snprintf(mode_buf, sizeof(mode_buf), "\nMode: %s", modeLabel);
+                }
+                tip += mode_buf;
+            }
+            return tip;
+        };
+
+        auto formatPinRateText = [&](const Port *p, char *out_buf, size_t out_size) {
+            const bool hasNumericConstraint = p->user_constraint >= 0.0;
+            const bool hasUnratedPush = (p->user_constraint < 0.0 && p->constraint_mode == ConstraintMode::PUSH);
+            if (hasNumericConstraint) {
+                const ConstraintMode resolved = m_solver->getResolvedConstraintMode(p->id);
+                const char tag = (resolved == ConstraintMode::LIMIT) ? 'L'
+                               : (resolved == ConstraintMode::PUSH)  ? 'P' : 'T';
+                if (m_solver->isGoalBottlenecked(p->id)) {
+                    snprintf(out_buf, out_size, "%.2f [!%c]", p->rate, tag);
+                } else {
+                    snprintf(out_buf, out_size, "%.2f [%c]", p->rate, tag);
+                }
+            } else if (hasUnratedPush) {
+                snprintf(out_buf, out_size, "%.2f [P]", p->rate);
+            } else {
+                snprintf(out_buf, out_size, "%.2f", p->rate);
+            }
+        };
+
         // --- LEFT (inputs) ---
         ImGui::BeginGroup();
         // add vertical offset to center inputs column
@@ -888,21 +941,32 @@ void FactoryNodeEditor::drawNodes() {
                 if (resIt == resources.end()) continue;
                 const Resource& res = resIt->second;
                 ed::BeginPin(IdUtils::toPinId(p->id), ed::PinKind::Input);
+                ImVec2 iconPos = ImGui::GetCursorScreenPos();
+                ImVec2 iconSize(port_img_h, port_img_h);
                 if (m_graph->getConnectionsForPort(p->id).empty()) {
-                    ImVec2 pos = ImGui::GetCursorScreenPos();
-                    ImVec2 size(port_img_h, port_img_h);
-
                     bool isDark = SettingsManager::instance().getSettings().themeName == "Dark";
                     ImU32 bgColor = isDark ? IM_COL32(190, 70, 70, 200)
                                            : IM_COL32(235, 180, 180, 255);
 
-                    ImGui::GetWindowDrawList()->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), bgColor, 0.0f);
+                    ImGui::GetWindowDrawList()->AddRectFilled(iconPos, ImVec2(iconPos.x + iconSize.x, iconPos.y + iconSize.y), bgColor, 0.0f);
                 }
-                ImGui::Image(res.texture, ImVec2(port_img_h,port_img_h)); ImGui::SameLine();
+                ImGui::Image(res.texture, ImVec2(port_img_h,port_img_h));
+                if (m_solver->isGoalBottlenecked(p->id)) {
+                    ImGui::GetWindowDrawList()->AddRect(
+                        iconPos, ImVec2(iconPos.x + iconSize.x, iconPos.y + iconSize.y),
+                        IM_COL32(235, 80, 40, 255), 0.0f, 0, 2.0f);
+                }
+                ImGui::SameLine();
                 if (ImGui::IsItemHovered()) {
-                    deferredTooltip = res.name;
+                    deferredTooltip = buildPinTooltip(p, res, false);
                 }
-                ImGui::Text("%.2f", p->rate);
+                char rateBuf[64];
+                formatPinRateText(p, rateBuf, sizeof(rateBuf));
+                if (m_solver->isGoalBottlenecked(p->id)) {
+                    ImGui::TextColored(ImVec4(0.95f, 0.45f, 0.2f, 1.0f), "%s", rateBuf);
+                } else {
+                    ImGui::Text("%s", rateBuf);
+                }
                 if (SettingsManager::instance().getSettings().showResourceNames) {
                     ImGui::Text("%s", res.name.c_str());
                 }
@@ -951,13 +1015,19 @@ void FactoryNodeEditor::drawNodes() {
                 if (resIt == resources.end()) continue;
                 const Resource& res = resIt->second;
                 ed::BeginPin(IdUtils::toPinId(p->id), ed::PinKind::Output);
-                ImGui::Text("%.2f", p->rate); ImGui::SameLine();
+                char rateBuf[64];
+                formatPinRateText(p, rateBuf, sizeof(rateBuf));
+                if (m_solver->isGoalBottlenecked(p->id)) {
+                    ImGui::TextColored(ImVec4(0.95f, 0.45f, 0.2f, 1.0f), "%s", rateBuf);
+                } else {
+                    ImGui::Text("%s", rateBuf);
+                }
+                ImGui::SameLine();
                 bool has_excess = p->excess_rate > 1e-4;
                 bool is_unconnected = m_graph->getConnectionsForPort(p->id).empty();
+                ImVec2 iconPos = ImGui::GetCursorScreenPos();
+                ImVec2 iconSize(port_img_h, port_img_h);
                 if (has_excess || is_unconnected) {
-                    ImVec2 pos = ImGui::GetCursorScreenPos();
-                    ImVec2 size(port_img_h, port_img_h);
-
                     bool isDark = SettingsManager::instance().getSettings().themeName == "Dark";
                     ImU32 bgColor;
                     if (has_excess) {
@@ -966,17 +1036,16 @@ void FactoryNodeEditor::drawNodes() {
                         bgColor = isDark ? IM_COL32(70, 190, 70, 200) : IM_COL32(180, 235, 180, 255); // Green
                     }
 
-                    ImGui::GetWindowDrawList()->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), bgColor, 0.0f);
+                    ImGui::GetWindowDrawList()->AddRectFilled(iconPos, ImVec2(iconPos.x + iconSize.x, iconPos.y + iconSize.y), bgColor, 0.0f);
                 }
                 ImGui::Image(res.texture, ImVec2(port_img_h,port_img_h));
+                if (m_solver->isGoalBottlenecked(p->id)) {
+                    ImGui::GetWindowDrawList()->AddRect(
+                        iconPos, ImVec2(iconPos.x + iconSize.x, iconPos.y + iconSize.y),
+                        IM_COL32(235, 80, 40, 255), 0.0f, 0, 2.0f);
+                }
                 if (ImGui::IsItemHovered()) {
-                    if (has_excess) {
-                        char ex_buf[128];
-                        snprintf(ex_buf, sizeof(ex_buf), "%s\nExcess: %.2f/%s", res.name.c_str(), p->excess_rate, timeUnit.c_str());
-                        deferredTooltip = ex_buf;
-                    } else {
-                        deferredTooltip = res.name;
-                    }
+                    deferredTooltip = buildPinTooltip(p, res, has_excess);
                 }
                 if (SettingsManager::instance().getSettings().showResourceNames) {
                     ImGui::Text("%s", res.name.c_str());
@@ -1175,7 +1244,17 @@ void FactoryNodeEditor::handleContextMenus() {
     if (ed::ShowNodeContextMenu(&m_contextNodeId)) {
         ImGui::OpenPopup("Node Context Menu");
     }
-    if (ed::ShowPinContextMenu(&m_contextPinId)) {
+    ed::PinId clickedPinId = 0;
+    if (ed::ShowPinContextMenu(&clickedPinId)) {
+        if (m_isContextMenuInitialized && m_contextPinCurrentConstraint != m_contextPinOriginalConstraint) {
+            if (auto prevPort = m_graph->getPort(IdUtils::fromPinId(m_contextPinId))) {
+                executeCommand(std::make_unique<SetPortConstraintCommand>(
+                    prevPort->id, m_contextPinOriginalConstraint, m_contextPinCurrentConstraint
+                ));
+            }
+            m_contextPinOriginalConstraint = m_contextPinCurrentConstraint;
+        }
+        m_contextPinId = clickedPinId;
         ImGui::OpenPopup("Pin Context Menu");
         m_isContextMenuInitialized = false;
     }
@@ -1402,21 +1481,66 @@ void FactoryNodeEditor::handlePopups() {
                 // Only solve LIVE if graph is small
                 if (!hugeGraph) {
                     m_graph->setPortConstraint(port->id, m_contextPinCurrentConstraint);
-                    m_solver->solve(*m_graph);
+                    (void)m_solver->solve(*m_graph);
                 }
             }
             ImGui::PopItemWidth();
-            if (ImGui::IsItemDeactivatedAfterEdit() || (ImGui::IsItemFocused() && ImGui::IsKeyPressed(ImGuiKey_Enter))) {
+            const bool enterPressed = ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter);
+            if (ImGui::IsItemDeactivatedAfterEdit() || (ImGui::IsItemFocused() && enterPressed)) {
                 if (m_contextPinCurrentConstraint != m_contextPinOriginalConstraint) {
                     executeCommand(std::make_unique<SetPortConstraintCommand>(
                         port->id, m_contextPinOriginalConstraint, m_contextPinCurrentConstraint
                     ));
+                    m_contextPinOriginalConstraint = m_contextPinCurrentConstraint;
                 }
-                ImGui::CloseCurrentPopup();
-                m_isContextMenuInitialized = false;
+                if (enterPressed) {
+                    ImGui::CloseCurrentPopup();
+                    m_isContextMenuInitialized = false;
+                }
             }
 
+            ImGui::Spacing();
+            const ConstraintMode resolvedMode = m_solver->getResolvedConstraintMode(port->id);
+            char autoLabel[64];
+            if (port->constraint_mode == ConstraintMode::AUTO && resolvedMode != ConstraintMode::AUTO) {
+                snprintf(autoLabel, sizeof(autoLabel), "Auto (%s)", constraintModeToString(resolvedMode));
+            } else {
+                snprintf(autoLabel, sizeof(autoLabel), "Auto");
+            }
+
+            ImGui::Text("Constraint Mode:");
+            auto modeOption = [&](const char *label, const ConstraintMode mode) {
+                const bool selected = (port->constraint_mode == mode);
+                if (ImGui::RadioButton(label, selected) && !selected) {
+                    if (m_contextPinCurrentConstraint != m_contextPinOriginalConstraint) {
+                        executeCommand(std::make_unique<SetPortConstraintCommand>(
+                            port->id, m_contextPinOriginalConstraint, m_contextPinCurrentConstraint,
+                            port->constraint_mode, mode));
+                        m_contextPinOriginalConstraint = m_contextPinCurrentConstraint;
+                    } else {
+                        executeCommand(std::make_unique<SetPortConstraintModeCommand>(
+                            port->id, port->constraint_mode, mode));
+                    }
+                }
+            };
+            modeOption(autoLabel, ConstraintMode::AUTO);
+            modeOption("Limit (Cap)", ConstraintMode::LIMIT);
+            modeOption("Target (Pull)", ConstraintMode::TARGET);
+            modeOption("Push (Force Downstream)", ConstraintMode::PUSH);
+
+            ImGui::Separator();
+
             ImGui::TextDisabled("Current Actual Flow: %.2f", port->rate);
+            const double saturation = m_solver->getGoalSaturation(port->id);
+            if (saturation >= 0.0) {
+                if (m_solver->isGoalBottlenecked(port->id)) {
+                    ImGui::TextColored(ImVec4(0.95f, 0.45f, 0.2f, 1.0f),
+                                       "Goal Saturation: %.1f%% (Bottlenecked)", saturation * 100.0);
+                } else {
+                    ImGui::TextColored(ImVec4(0.35f, 0.85f, 0.35f, 1.0f),
+                                       "Goal Saturation: %.1f%%", saturation * 100.0);
+                }
+            }
             if (!m_graph->isInputPort(port->id)) {
                 if (port->excess_rate > 1e-4) {
                     ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "Excess (Unconsumed): %.2f", port->excess_rate);
@@ -1432,9 +1556,22 @@ void FactoryNodeEditor::handlePopups() {
                 ImGui::Text("Port ID: %" PRIu64, port->id);
                 ImGui::Text("Node ID: %" PRIu64, port->node_id);
                 ImGui::Text("Constraint Val: %f", port->user_constraint);
+                ImGui::Text("Constraint Mode: %s (Resolved: %s)",
+                            constraintModeToString(port->constraint_mode),
+                            constraintModeToString(resolvedMode));
             }
         }
         ImGui::EndPopup();
+    } else if (m_isContextMenuInitialized) {
+        if (m_contextPinCurrentConstraint != m_contextPinOriginalConstraint) {
+            if (auto port = m_graph->getPort(IdUtils::fromPinId(m_contextPinId))) {
+                executeCommand(std::make_unique<SetPortConstraintCommand>(
+                    port->id, m_contextPinOriginalConstraint, m_contextPinCurrentConstraint
+                ));
+            }
+            m_contextPinOriginalConstraint = m_contextPinCurrentConstraint;
+        }
+        m_isContextMenuInitialized = false;
     }
 
     if (ImGui::BeginPopup("Link Context Menu")) {

@@ -4,6 +4,12 @@ This document holds the user-facing changelog that is also used in release notes
 
 ## Unreleased
 
+### Added
+- Added explicit port constraint modes (`Auto`, `Limit`, `Target`, `Push`) in the port context menu, with canvas badges (`[L]`, `[T]`, `[P]`) for explicit overrides and red outlines/tooltips for under-satisfied bottlenecks.
+
+### Changed
+- Reworked the production solver (v3): disconnected sub-factories are now solved independently per connected component, pure supply-push networks automatically drive constraints as targets when no downstream goals exist, and coproduct surplus is automatically routed into terminal byproduct sinks instead of backing up as port excess.
+
 ### Fixed
 - Improved tab and recent file disambiguation when multiple open projects share identical filenames and parent folder names by walking ancestor directory components up to the differing directory (e.g. `1 (instance1/projects/myproj)` vs `1 (instance2/projects/myproj)`).
 - Fixed crash on application startup when `app_settings.json` contains non-positive window dimensions by enforcing minimum safe dimensions (640x480).
