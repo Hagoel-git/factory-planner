@@ -212,14 +212,24 @@ Run these **one after another**. Each one only writes findings; it doesn't fix a
 > src/core/graph/FactorySolver.cpp to understand the current data model.
 >
 > Task: research production mechanics across factory games, to feed the design of a
-> generic, formula-driven game data schema. Games: Satisfactory (incl. clock speed,
-> somersloop amplification, power shards), Factorio (incl. Space Age: modules, beacons,
-> quality, spoilage, productivity research), Dyson Sphere Program (proliferator modes),
-> Mindustry (optional boosters, power), GregTech: New Horizons (voltage tiers, overclocking
-> rules, tier-gated byproducts, chance outputs, non-consumed catalysts/circuits,
-> programmed circuits, multiblocks, crop sticks/crop manager), Captain of Industry
-> (workers, maintenance, electricity, computing), Foundry, Techtonica, Create (stress
-> units, RPM), Shapez 2.
+> generic, formula-driven game data schema. Games: Satisfactory (clock speed, somersloop
+> amplification, power shards, variable-power recipes), Factorio (incl. Space Age:
+> modules, beacons, quality, spoilage, productivity research, burner/fluid fuels),
+> Factorio Overhauls: Pyanodons / Seablock (tiered fuel/steam temperatures, ash/spent
+> fuel outputs, plant/animal modules, T.U.R.D. global tech upgrades), Dyson Sphere
+> Program (proliferator modes, ray receivers, fractionators), Mindustry (Serpulo &
+> Erekir: optional boosters, overdrive auras, tile attribute efficiency, heat scaling),
+> GregTech: New Horizons (voltage tiers, overclocking rules, multi-amp/multi-energy
+> hatches, coil heat bonuses, tier-gated byproducts, chance outputs, non-consumed
+> catalysts/programmed circuits, multiblock parallels, Processing Array, GTNH crops (2.9 update),
+> Forestry/Gendustry bees), Captain of Industry (workers, maintenance, electricity,
+> computing, unity), Oxygen Not Included (thermal/SHC output temperatures, geyser
+> dormancy cycles, wild vs domesticated plants), Anno 1800 (trade union specialists,
+> input replacements, extra cycle byproducts, workforce), Against the Storm (star
+> recipe ratings, rainwater engines, crit yield chance, ingredient categories), Create
+> (stress units, RPM, blaze burner heat levels, sequenced assembly), Timberborn
+> (workday hours, seasonal cycles, bots), Stationeers (pressure/temperature windows,
+> gas laws).
 >
 > Produce docs/design/mechanics-matrix.md containing:
 > 1. A table: mechanic | games | a short description with the concrete math | category:
