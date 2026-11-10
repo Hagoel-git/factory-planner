@@ -1,7 +1,7 @@
 # GameData v4 — Specification
 
-**Status:** Draft for adversarial review (step 3c). **Roadmap:** step 3b, decisions D4–D7.
-**Inputs:** `docs/ROADMAP.md`, `docs/design/mechanics-matrix.md`, the v3 code (`GameData.h`, `GameDataManager.cpp`, `FactorySolver.cpp`, `Node.h`).
+**Status:** Final specification (incorporating adversarial review R-01 through R-18, step 3c). **Roadmap:** step 3b/3c, decisions D4–D7.
+**Inputs:** `docs/ROADMAP.md`, `docs/design/mechanics-matrix.md`, `docs/design/gamedata-v4-review.md`, the v3 code (`GameData.h`, `GameDataManager.cpp`, `FactorySolver.cpp`, `Node.h`).
 
 This document defines the v4 game data format, its expression language, how the solver consumes it, what a project file stores per node, the validation rules, and five worked examples. It contains no C++; steps 3d–3h implement it.
 
@@ -12,12 +12,12 @@ This document defines the v4 game data format, its expression language, how the 
 | # | Topic | Decision |
 |---|---|---|
 | Q1 | Where formulas live | **Profiles**: shared formula sets attached to machines. Recipes are pure data. A recipe or a single port may override a formula. |
-| Q2 | Conditional ports | **Stable superset**: a node owns every port its recipe and profile can declare. Inactive ports: rate locked to 0, wires kept but marked inactive, port IDs never change. |
-| Q3 | Parameter-driven port resources | **In v4, limited**: a port can take its resource from a `resource_choice` parameter. Wires that no longer match become *invalid* (shown as an error), never silently deleted. |
-| Q4 | Post-solve metrics | **Linear form** (`per_machine` / `per_craft` constant × solved machines or crafts) **or** a display-only free-form `value`. |
+| Q2 | Conditional ports | **Stable superset**: a node owns every port its recipe and profile can declare. Inactive ports: excluded from LP topology and fixed to 0, wires kept but marked inactive, port IDs never change. |
+| Q3 | Parameter-driven port resources | **In v4**: an extra port or long-form recipe port can take its resource from a `resource_choice` parameter (`resource_param`) or a `resource_expr` expression. Wires that no longer match become *invalid* (shown as an error), never silently deleted. |
+| Q4 | Post-solve metrics | **Linear form** (`per_machine` / `per_craft` constant × solved machines or crafts) **or** a display-only free-form `value`, with an optional `enabled` condition. |
 | Q5 | GTNH voltage tiers | **One machine per family** with a `voltage_tier` node parameter; allowed tiers are filtered by machine and recipe attributes. |
 | Q6 | Factorio modules | **List-valued `slots` parameter type**; expressions aggregate over the slots with `sum` / `count` / `min` / `max`. |
-| R1 | `"nothing"` | **Removed.** A node is a raw source when its *recipe declares no inputs* and a sink when its *recipe declares no outputs*. |
+| R1 | `"nothing"` | **Removed.** A node is a **raw source** in a component when it has no active recipe input ports (`in:*`) and no active extra input ports (`x:*`) with an `OK` incoming wire; it is a **sink** when it has no active recipe output ports (`out:*`) and no active extra output ports (`x:*`) with an `OK` outgoing wire (§7.4). |
 | R2 | Units | Game data declares the recipe time unit and a **default rate unit**. The **project** chooses its own rate unit (it starts as the default, and the user can change it). Internally everything is **per second**. |
 | R3 | Large datasets | A manifest plus included shard files, loaded eagerly, compact tuple ports, formulas only in profiles, **no binary cache in v4**. |
 | R4 | Loading errors | **Strict**: any error stops the load and shows a report. The user may choose **"Load anyway"**, which drops the broken entities and everything that depends on them. Fatal errors cannot be bypassed. |
@@ -145,7 +145,7 @@ Attributes are typed key–value data on entities. They must be declared once, s
 ```
 
 - Types: `number`, `bool`, `string`. A `default` is required.
-- Attribute names match `[a-z_][a-z0-9_]*` and must not shadow a built-in field (§5.5).
+- Attribute names match `[a-z_][a-z0-9_]*` and must not shadow a built-in field (§5.5), a reserved root identifier (`game`, `global`, `machine`, `recipe`, `param`, `port`, `node`, `option`, `craft_time`, `true`, `false`), or any built-in function name (§5.6).
 - Game-level constants go in `game.attrs` and need no declaration (their type comes from the JSON value).
 
 ### 2.6 Resources
@@ -179,8 +179,8 @@ Attributes are typed key–value data on entities. They must be declared once, s
 | `id`, `name` | As usual. |
 | `category` **or** `machines` | `category`: every machine whose `categories` contains it can run the recipe (needed for GTNH recipe maps and Factorio crafting categories). `machines`: an explicit list of machine ids. Exactly one of the two. |
 | `time` | Craft time per craft at machine speed 1, in `units.recipe_time`. Must be > 0. |
-| `in`, `out` | Port lists (below). Either may be empty or missing, but not both (V-NUM-4). An empty `in` makes the recipe a **raw source**; an empty `out` makes it a **sink** (R1). |
-| `setup` | Optional list of `[resource, amount]` items needed to *build or configure* the machine but not consumed per craft (GT programmed circuits, molds, lenses). Shown on the node, not part of the LP. |
+| `in`, `out` | Port lists (below). Either may be empty or missing, but not both (V-NUM-4). Whether a node acts as a **raw source** or **sink** in the solver depends on active recipe ports and wired extra ports at evaluation time (R1, §7.4). |
+| `setup` | Optional list of `[resource, amount]` tuples for items needed to *build or configure* the machine but not consumed per craft (GT programmed circuits, molds, lenses). Each entry must reference a valid resource id (V-REF-1) with a finite `amount` > 0 (V-NUM-2). Shown on the node, not part of the LP. |
 | `attrs` | Recipe attributes. |
 | `overrides` | Optional formula overrides (§4.4). |
 
@@ -193,12 +193,12 @@ Attributes are typed key–value data on entities. They must be declared once, s
 
 | Field | Default | Meaning |
 |---|---|---|
-| `res` | — | Resource id. |
+| `res` **or** `resource_param` **or** `resource_expr` | — | Exactly one of the three (V-REF-1, V-PROF-4): `res` is a fixed resource id; `resource_param` names a `resource_choice` parameter of every compatible machine's profile (enabling ingredient category slots, specialist replacements, and generic sink/source recipes); `resource_expr` is a pre-solve expression returning a `string` (resource id, or `""` to mark the port inactive) or `resource`. |
 | `amount` | — | Base amount per craft, > 0. |
 | `chance` | 1 | Probability in (0, 1]. Applied by the profile's amount formula (the default profile multiplies by it). |
 | `catalyst` | 0 | Part of `amount` that productivity bonuses do not apply to, in [0, amount] (Factorio `ignored_by_productivity`, M10). |
-| `attrs` | {} | Port attributes (declared under `attributes.port`). |
-| `enabled`, `amount_expr` | — | Per-port formula overrides (§4.4). |
+| `attrs` | {} | Port attributes (declared under `attributes.port`). Can be read in `allowed_if` / `resource_expr` / port formulas as `port.<attr>` (e.g. a recipe-slot tag filter). |
+| `enabled`, `amount_expr` | — | Per-port formula overrides (§4.4). `enabled` accepts a bool literal or expression string. |
 
 Port **slot keys**: `in:<index>` and `out:<index>` (0-based, in file order). They identify ports in project files (§8).
 
@@ -210,12 +210,17 @@ Port **slot keys**: `in:<index>` and `out:<index>` (0-based, in file order). The
 
 - Each entry is a file or a directory (trailing `/`). A directory contributes every `*.json` file under it, recursively, **sorted by relative path in byte order**, so the order is the same on every platform.
 - A shard is a JSON object that may contain the same keys as the manifest **except** `schema_version`, `game`, `units`, `include` and `icon_root`. Shards cannot include other shards.
-- Entity ids are global across all files. Maps (`profiles`, `parameters`, …) are merged by key, and a key defined twice is an error (V-ID-2).
+- Entity ids are global across all files. Maps (`profiles`, `parameters`, …) are merged by key, and a key defined twice (either across shards or within a single JSON object) is an error (V-ID-2).
 - Paths must stay inside the package directory (V-INC-3).
 
 **Why this scales to GTNH (50k+ recipes):**
 - Formulas live in about 20–50 profiles that are parsed once. A typical GTNH recipe in short form is pure numbers, roughly 150–250 bytes, so 50k recipes come to about 10 MB of JSON.
-- Everything loads eagerly. **Budget: under 2 s for 50k recipes in a Release build**, measured in step 4 with the real import. Implementation guidance for 3d: intern ids, store entities in vectors with hash indices (not `std::map<std::string, …>`), load icons lazily, validate in one pass.
+- Everything loads eagerly. **Budget: under 2 s for 50k recipes in a Release build**, measured in step 4 with the real import. Implementation requirements for step 3d:
+  1. Intern ids and store entities in contiguous vectors with hash indices (not `std::map<std::string, …>`).
+  2. **Intern and cache compiled expressions** by `(profile_id, context, expr_string)` so identical port `enabled` / `amount_expr` / `resource_expr` and recipe `overrides` expressions across 50k recipes are parsed and type-checked once.
+  3. **Construct JSON pointers lazily**: maintain a lightweight stack of string/index path frames during traversal and format `/recipes/49999/out/2` strings only when pushing an error or warning to `LoadReport`.
+  4. **Cap fuzzy "did you mean" Levenshtein searches** to at most the first 25 errors per load, pre-filtering candidates by `abs(len(a) - len(b)) <= 2`.
+  5. Compute unused-entity warnings (`V-W-2`) in a single linear $O(N + R + M)$ marking pass using bitsets/hashsets, and load icons lazily.
 - No binary cache in v4. A cache only gets designed (in step 4) if the budget is missed.
 - Importers may split shards however they like (e.g. one per GT recipe map). The split has no meaning to the loader.
 
@@ -240,26 +245,27 @@ Port **slot keys**: `in:<index>` and `out:<index>` (0-based, in file order). The
 | `label`, `tooltip` | all | Display text. |
 | `type` | all | `number`, `int`, `bool`, `enum`, `resource_choice`, `slots`. |
 | `default` | all | Literal. Required for `number`/`int`/`bool`. Optional for `enum` (first allowed option), `resource_choice` (first allowed resource, or none if `allow_none`) and `slots` (all empty). |
-| `min`, `max` | number, int | Expressions in the **static context** (§5.4), e.g. `"machine.somersloop_slots"`. |
+| `min`, `max` | number, int | JSON number literal **or** expression string in the **static context** (§5.4), e.g. `1`, `250`, or `"machine.somersloop_slots"`. |
 | `step` | number, int | UI step; `int` requires an integer step (default 1). |
 | `unit` | number, int | Display suffix only. |
-| `option_set` | enum, slots | The option set name (§3.3). |
-| `allowed_if` | enum, slots, resource_choice | Static-context bool expression evaluated per option (`option.*` bound), or per resource (`option` bound to the resource). Options for which it is false are not offered. |
-| `resources` / `tag` | resource_choice | Candidate resources: an explicit list or every resource carrying the tag. |
-| `allow_none` | enum, resource_choice | Adds a "none" choice; test it with `is_set(param.x)`. |
-| `count` | slots | Static expression giving the number of slots, e.g. `"machine.module_slots"`. |
+| `option_set` | enum, slots | The option set name (§3.3). Must contain at least one option (V-PAR-3). |
+| `allowed_if` | enum, slots, resource_choice | JSON bool literal **or** static-context bool expression evaluated per option (`option.*` bound), or per resource (`option` bound to the resource). Options for which it is false are not offered. |
+| `resources` / `tag` | resource_choice | Candidate resources: an explicit non-empty list or every resource carrying the tag (must match at least one resource, V-REF-5). |
+| `allow_none` | enum, resource_choice | Adds a "none" (`null`) choice; test it with `is_set(param.x)`. |
+| `count` | slots | JSON number literal **or** static expression giving the number of slots, e.g. `2` or `"machine.module_slots"`. Must evaluate to an integer in `[0, 64]` at runtime (otherwise runtime `ERROR`). |
 | `allow_empty` | slots | Default `true`. |
-| `visible_if` | all | Static-context bool. **A hidden parameter evaluates as its default.** Its stored value is kept, so un-hiding restores it. |
+| `visible_if` | all | JSON bool literal **or** static-context bool. **Evaluated first in §4.5 step 1: when `false`, the parameter is hidden and bound directly to its declared `default` (or `null` / empty slots if no literal default) without evaluating `min`, `max`, `count`, or `allowed_if` and without emitting range warnings.** Its stored value in `node.params` is preserved, so un-hiding restores it. |
 | `ui` | all | `widget` (`slider`, `drag`, `input`, `stepper`, `checkbox`, `combo`, `slot_row`), `format` (printf-style), `group` (UI section label), `placement` (`body` = on the node card, `panel` = properties panel only; default `panel`). |
 
 **Value rules.**
 - `int` values must be integral. A stored value outside `[min, max]` is **clamped during evaluation**, and the node shows a `WARNING` status; the stored value is not rewritten.
-- An `enum` / `resource_choice` / slot value that is no longer allowed (e.g. the recipe changed) falls back to the default, with a `WARNING`.
-- Parameter ids match `[a-z_][a-z0-9_]*`.
+- **Fallback chain for `enum` and `resource_choice`:** if a stored value fails `allowed_if` (or if no explicit `default` was declared), try the parameter's declared `default` (if present and passing `allowed_if`), then the **first option/resource in declaration order passing `allowed_if`**, or `null` (`none`) if `allow_none: true`. If a stored value had to fall back, the node receives a `WARNING`. If **zero** options/resources pass `allowed_if` and `allow_none` is `false`, evaluation stops immediately in §4.5 step 1 with status `BLOCKED` and message `"No allowed value for parameter '<label>'"`.
+- **`slots` sizing and per-slot fallback:** at runtime, `count` must evaluate to an integer in `[0, 64]` (otherwise runtime `ERROR`). Evaluation considers only the first `count` slots (padding with `null` if the stored array is shorter, and keeping any extra stored elements past `count` untouched in `node.params`, with a `WARNING` if any ignored slot beyond `count` is non-empty). `allowed_if` is checked **per individual slot** in `0 .. count - 1`: any slot whose option fails `allowed_if` evaluates as `null` (empty) with a `WARNING`, while keeping valid options in the remaining slots. If `allow_empty: false` and any active slot in `0 .. count - 1` is `null` after fallback, evaluation stops in §4.5 step 1 with status `BLOCKED`.
+- Parameter ids match `[a-z_][a-z0-9_]*` and must not match a reserved root identifier or built-in function name (§5.1).
 
 ### 3.2 Globals
 
-Same definition format as parameters, under `"globals"`. They are stored once per project, edited in a project settings panel, and read as `global.<id>`. `visible_if`, `allowed_if`, `min`, `max` and `count` may only reference `game.*` and other globals.
+Same definition format as parameters, under `"globals"`. They are stored once per project, edited in a project settings panel, and read as `global.<id>`. `visible_if`, `allowed_if`, `min`, `max` and `count` may only reference `game.*` and other globals. Globals are evaluated in topological dependency order of their static expressions; dependency cycles among globals are rejected at load time (V-EXPR-6).
 
 Example (Factorio mining productivity research, M9):
 
@@ -287,7 +293,7 @@ A mining-drill profile can then use `"let": { "prod": "1 + 0.1 * global.mining_p
 }
 ```
 
-Option keys are unique within a set. Expressions read an option's attributes with `.attr` and compare options by key (`param.mode == "extra"`; the key is checked at load time).
+An option set must contain at least one option, and option keys must be unique within the set (V-PAR-3). Option attributes must be declared in the set's `attrs` with a default. Expressions read an option's attributes with `.attr` and compare options by key (`param.mode == "extra"` or `'extra'`; the key is checked at load time).
 
 ### 3.4 Tables
 
@@ -298,7 +304,7 @@ Option keys are unique within a set. Expressions read an option's attributes wit
 }
 ```
 
-An array table is indexed by an integral number (0-based); an object table is indexed by a string key. Values are numbers. Expressions use `lookup("gt_voltage", t)` (§5.6).
+An array table is a non-empty JSON array indexed by an integral number (0-based); an object table is a non-empty JSON object indexed by a string key. All table values must be finite numbers (V-TBL-1). Expressions use `lookup("gt_voltage", t)` (§5.6).
 
 ---
 
@@ -328,11 +334,11 @@ An array table is indexed by an integral number (0-based); an object table is in
 |---|---|---|---|
 | `extends` | id | — | Single inheritance. Every profile implicitly extends `default`. |
 | `params` | array of ids | — | Parameters shown on nodes of this profile, in UI order. Only listed parameters may be referenced as `param.*`. |
-| `let` | map name → expr | pre-solve | Named intermediate values. Evaluated in dependency order (topological sort, ties by name); cycles are an error. Later formulas use them by bare name. |
+| `let` | map name → expr | pre-solve | Named intermediate values. Evaluated in dependency order (topological sort, ties by name); cycles are an error (V-EXPR-6). `let` names must not shadow reserved root identifiers or built-in functions (§5.1). Later formulas use them by bare name. |
 | `requires` | array | pre-solve, bool | If any condition is false, the node becomes `BLOCKED` with the given message (e.g. "Recipe needs MV or higher"). |
 | `craft_time` | expr | pre-solve, number | Seconds per craft per machine, > 0. |
 | `input_amount`, `output_amount` | expr | pre-solve + `port.*`, number | Effective amount per craft for each recipe port, ≥ 0. |
-| `port_enabled` | expr | pre-solve + `port.*`, bool | Whether a recipe port is active. |
+| `port_enabled`, `input_enabled`, `output_enabled` | expr / bool | pre-solve + `port.*`, bool | Whether a recipe port is active. A port uses `input_enabled` (for `"in"` ports) or `output_enabled` (for `"out"` ports) when defined, falling back to `port_enabled` (default `true`). `port.dir` (`"in"` or `"out"`) is also available in `port_enabled`. |
 | `extra_ports` | array | — | Ports added by the machine or profile (fuel, booster, spray, ash, maintenance). §4.3. |
 | `metrics` | map metric id → form | — | §6. |
 
@@ -354,9 +360,10 @@ An array table is indexed by an integral number (0-based); an object table is in
 
 ### 4.2 Inheritance rules
 
+- `params` is **appended** in UI order: the child inherits the parent's `params` list first, followed by any new parameter ids listed by the child (deduplicating any parameter id already present in the parent, keeping its first position).
 - `let`, `metrics` and `extra_ports` merge **by key / id**: the child replaces entries with the same name and adds new ones.
 - `requires` is **appended** (the parent's requirements still apply).
-- Every other key is **replaced** when the child defines it.
+- Every other key (`craft_time`, `input_amount`, `output_amount`, `port_enabled`, `input_enabled`, `output_enabled`) is **replaced** when the child defines it.
 - `extends` cycles are an error (V-PROF-2).
 
 ### 4.3 Extra ports
@@ -370,11 +377,11 @@ An array table is indexed by an integral number (0-based); an object table is in
 |---|---|
 | `id` | Unique within the (merged) profile. Slot key `x:<id>`. |
 | `dir` | `"in"` or `"out"`. |
-| `resource` **or** `resource_param` | A fixed resource id, or the id of a `resource_choice` parameter of this profile (Q3). If the parameter is unset (`allow_none`), the port is inactive. |
+| `resource` **or** `resource_param` **or** `resource_expr` | Exactly one of the three (V-PROF-4): `resource` is a fixed resource id; `resource_param` is the id of a `resource_choice` parameter of this profile (Q3; if unset via `allow_none`, the port is inactive); `resource_expr` is a pre-solve expression returning a `string` (resource id, or `""` to mark the port inactive) or `resource` (e.g. `"param.fuel.burnt_result"` or `"machine.booster_res"`). |
 | `amount` | Pre-solve expression, amount per craft ≥ 0. `craft_time` is available, so time-proportional consumption is `rate_per_s * craft_time`. |
-| `enabled` | Pre-solve bool, default `true`. |
+| `enabled` | Pre-solve bool literal or expression, default `true`. |
 
-Extra ports **do not change** whether a node is a raw source or a sink (R1): a drill with a water booster port is still a raw source.
+Whether an extra port affects raw-source or sink classification depends on whether it is active and wired (R1, §7.4): an unwired active extra input (such as a water booster on a drill or crop manager) is treated as an unwired import and leaves the node a raw source, whereas wiring an upstream producer into that extra input makes the node an intermediate consumer so its outputs resolve to `TARGET` in `AUTO` mode.
 
 ### 4.4 Overrides (recipe and port level)
 
@@ -389,23 +396,25 @@ Recipe level:
 }
 ```
 
-- Overridable: `craft_time`, `input_amount`, `output_amount`, `port_enabled`, `let` entries (by name; the name must already exist in the profile), `metrics` entries (by id), and `requires` (appended).
-- Not overridable: `params` and `extra_ports`, because they define the port and UI superset of the machine.
-- An override applies to **every** machine that can run the recipe. It is type-checked against the profile of each of those machines, and an override that does not compile for one of them is an error (V-OVR-2).
+- Overridable: `craft_time`, `input_amount`, `output_amount`, `port_enabled`, `input_enabled`, `output_enabled`, `let` entries (by name; the name must already exist in the profile), `metrics` entries (by id), and `requires` (appended).
+- Not overridable: `params` and `extra_ports`, because they define the parameter and extra-port superset of the machine.
+- An override applies to **every** machine that can run the recipe. It is type-checked against the profile of each of those machines, and `let` cycle detection (`V-EXPR-6`) is re-run for each `(recipe, profile)` pair that overrides `let`. An override that fails to compile or introduces a `let` cycle for any compatible machine drops the recipe (V-OVR-2).
 
-Port level: `enabled` and `amount_expr` on a long-form port replace `port_enabled` and `input_amount`/`output_amount` for that port only.
+Port level: `enabled` and `amount_expr` on a long-form port replace `input_enabled`/`output_enabled`/`port_enabled` and `input_amount`/`output_amount` for that port only.
 
 ### 4.5 Evaluation order (pre-solve)
 
 For a node with recipe R, machine M and profile P (with recipe overrides applied):
 
-1. Resolve `global.*` and `param.*` values: stored value → validation and clamping → default if hidden or invalid.
-2. Evaluate `let` values in dependency order.
-3. Evaluate `requires`. If any is false: status `BLOCKED`, every port locked to 0, stop.
-4. Evaluate `craft_time`. If it is ≤ 0 or not finite: status `ERROR`.
-5. For each recipe port in slot order: `enabled`, then (if enabled) `amount`.
-6. For each extra port in declaration order: resolve the resource, then `enabled`, then `amount`.
-7. Evaluate the linear metric coefficients (`per_machine`, `per_craft`).
+1. Resolve `global.*` (in topological dependency order) and then `param.*` sequentially in `P.params` order:
+   - Evaluate `visible_if` first. If `false`, bind the parameter directly to its declared `default` (or `null` / empty slots if no literal default) **without** evaluating `min`, `max`, `count`, or `allowed_if` and without emitting range warnings.
+   - Otherwise, validate and clamp (`number`/`int` to `[min, max]`), or evaluate `count` (must be an integer in `[0, 64]`) and `allowed_if` (`enum`, `resource_choice`, `slots`). Apply the fallback rules of §3.1. If an `enum`/`resource_choice` with `allow_none: false` has zero allowed options, or a `slots` parameter with `allow_empty: false` has an empty active slot, set status `BLOCKED` (`"No allowed value for parameter '<label>'"`), lock every port to 0, and stop.
+2. Evaluate `let` values in topological dependency order.
+3. Evaluate `requires` in order. If any condition is false: status `BLOCKED` with that requirement's message, every port locked to 0, stop.
+4. Evaluate `craft_time`. If it is ≤ 0 or not finite: status `ERROR`, stop.
+5. For each recipe port in slot order: resolve the resource (`res`, `resource_param`, or `resource_expr`); if unset (`null`) or `""`, mark `active = false` and `amount_per_craft = 0`. Otherwise evaluate `enabled` (port `enabled` override → `input_enabled`/`output_enabled` → `port_enabled`), and if `true`, evaluate `amount` (port `amount_expr` override → `input_amount`/`output_amount`). If `amount < -1e-9` or not finite: status `ERROR`; if `amount` is in `[-1e-9, 1e-9]`, clamp to `0.0` and mark `active = false`.
+6. For each extra port in declaration order: resolve the resource (`resource`, `resource_param`, or `resource_expr`); if unset (`null`) or `""`, mark `active = false` and `amount_per_craft = 0`. Otherwise evaluate `enabled`, and if `true`, evaluate `amount` with the same `-1e-9` / `1e-9` epsilon rules as step 5.
+7. For each metric in `P.metrics`: evaluate `enabled` (default `true`); if `true` and the metric uses a linear form (`per_machine` or `per_craft`), evaluate its coefficient.
 
 The result is a **NodeEval** (§7.1).
 
@@ -418,8 +427,9 @@ A small, pure, statically typed expression language implemented in C++ (lexer �
 ### 5.1 Lexical rules
 
 - **Numbers:** `12`, `1.5`, `0.25`, `1e-9`, `2.5E3`. No leading `.`, no hex, no suffixes. A leading `-` is the unary operator.
-- **Strings:** double-quoted, no escapes except `\"` and `\\`. They are only used for option and resource keys and as table names.
+- **Strings:** double-quoted (`"extra"`) or single-quoted (`'extra'`), no escapes except `\"`, `\'`, and `\\`. Single-quoted strings avoid `\"` escaping inside JSON strings. Strings are used for option keys, resource ids (including `""` for an inactive `resource_expr` port), port directions (`"in"`, `"out"`), and table names.
 - **Identifiers:** `[A-Za-z_][A-Za-z0-9_]*`. **Keywords:** `true`, `false`.
+- **Reserved names:** `let` variable names, parameter ids, global ids, and attribute names must not match any reserved root identifier (`game`, `global`, `machine`, `recipe`, `param`, `port`, `node`, `option`, `craft_time`, `true`, `false`) or any built-in function name (§5.6).
 - Whitespace is insignificant. There are no comments (expressions are JSON strings; use `notes`).
 
 ### 5.2 Grammar (EBNF)
@@ -456,16 +466,18 @@ Notes:
 | `option<S>` | `enum` params, `option` in `allowed_if` | `.attr` (attribute of set S), `==` / `!=` with a string literal (a key of S, checked at load) or another `option<S>` |
 | `resource` | `resource_choice` params, `port.resource` | `.attr` (resource attributes), `.id` (string), `==` / `!=` with a string literal (a resource id, checked at load) |
 | `slots<S>` | `slots` params | `.attr` → `list<number>`; argument of `count()` |
-| `list<number>` | `slots<S>.attr` | only as the sole argument of `sum`, `min`, `max` |
+| `list<number>` | `slots<S>.attr` | argument of `sum`, `min`, `max` |
 
-There are no implicit conversions (`bool` is not a number; write `if(b, 1, 0)`). Each expression has a **required result type**: `number` for amounts, times, bounds and metrics; `bool` for `enabled`, `requires`, `visible_if` and `allowed_if`.
+**Unset (`allow_none`) semantics:** when an `enum` or `resource_choice` parameter with `allow_none: true` is unset (`null` / `none`), comparing `param.x == "key"` evaluates to `false` and `param.x != "key"` evaluates to `true` (never a runtime error). Accessing `.attr`, `.id`, or passing an unset `param.x` as the key to `lookup()` is a runtime `ERROR` and must be guarded by `is_set(param.x)` (relying on `&&`, `||`, and `if()` short-circuiting).
+
+There are no implicit conversions (`bool` is not a number; write `if(b, 1, 0)`). Each expression has a **required result type**: `number` for amounts, times, bounds and metrics; `bool` for `enabled`, `requires`, `visible_if` and `allowed_if`; `string` or `resource` for `resource_expr`.
 
 ### 5.4 Contexts and available variables
 
 | Context | Used for | Available names |
 |---|---|---|
-| **static** | `min`, `max`, `count`, `visible_if`, `allowed_if` | `game.*`, `global.*`, `machine.*`, `recipe.*`, `param.*` of parameters listed **earlier** in the profile's `params`, `option` (only in `allowed_if`) |
-| **pre-solve** | `let`, `requires`, `craft_time`, port formulas, extra ports, `per_machine`, `per_craft` | static names + all `param.*` of the profile + `let` names + `craft_time` (after step 4 of §4.5) + `port.*` (only in port formulas) |
+| **static** | `min`, `max`, `count`, `visible_if`, `allowed_if` | `game.*`, `global.*`, `machine.*`, `recipe.*`, `param.*` of parameters listed **earlier** in the profile's `params`, `option` (only in `allowed_if`), `port.*` (only when `allowed_if` is evaluated for a recipe port's `resource_param`) |
+| **pre-solve** | `let`, `requires`, `craft_time`, port formulas (`enabled`, `amount_expr`, `resource_expr`), extra ports, metric `enabled`, `per_machine`, `per_craft` | static names + all `param.*` of the profile + `let` names + `craft_time` (after step 4 of §4.5) + `port.*` (only in recipe port formulas) |
 | **post-solve** | `value` metrics | pre-solve names (except `port.*`) + `node.machines` (solved machine count) + `node.crafts` (crafts per second, all machines) |
 
 A name used outside its context is a load-time error (V-EXPR-3). For example, `node.machines` in `craft_time` is rejected. This is what keeps the LP linear (§7.2).
@@ -486,9 +498,10 @@ A name used outside its context is a load-time error (V-EXPR-3). For example, `n
 | `recipe.time_raw` | number | As written in the file (e.g. ticks). |
 | `recipe.input_items_total`, `recipe.input_fluids_total`, `recipe.output_items_total`, `recipe.output_fluids_total` | number | Sums of base `amount` over recipe ports of resources with kind `item` / `fluid` (precomputed). If the game defines no `fluid` kind, the fluid totals are 0. |
 | `recipe.<attr>` | declared | Recipe attributes. |
+| `port.dir` | string | `"in"` or `"out"`. |
 | `port.amount`, `port.chance`, `port.catalyst` | number | Base port data. |
 | `port.index` | number | 0-based index within `in` or `out`. |
-| `port.resource` | resource | |
+| `port.resource` | resource | Resolved port resource (available in `enabled` and `amount_expr` after resource resolution). |
 | `port.<attr>` | declared | Port attributes. |
 | `craft_time` | number | Result of the profile's `craft_time` (port, extra-port and metric formulas only). |
 | `node.machines`, `node.crafts` | number | Post-solve only. |
@@ -497,17 +510,17 @@ A name used outside its context is a load-time error (V-EXPR-3). For example, `n
 
 | Function | Signature | Notes |
 |---|---|---|
-| `min`, `max` | `(number, number, …)` or `(list)` | At least 1 argument. An empty list → runtime error. |
+| `min`, `max` | `(number, number, …)` or `(list)` or `(list, default)` | Scalar form takes ≥ 1 number argument. List form aggregates over non-empty active slots in `0 .. count - 1`: if all active slots are empty, returns `default` (if provided) or `0` (matching `sum(list)`). |
 | `clamp` | `(x, lo, hi)` | Error if `lo > hi`. |
 | `abs`, `floor`, `ceil`, `round`, `sqrt` | `(number)` | `round` rounds half away from zero. `sqrt(x < 0)` → runtime error. |
 | `pow` | `(a, b)` | Same as `a ^ b`. Error if the result is not finite. |
 | `exp`, `ln` | `(number)` | `ln(x ≤ 0)` → runtime error. |
 | `log` | `(x, base)` | `ln(x) / ln(base)`, with the same domain checks. |
 | `if` | `(bool, T, T)` | Lazy; both branches must have the same type. |
-| `lookup` | `(table, key)` or `(table, key, default)` | `table` must be a **string literal** naming a table (checked at load). The key must be a number for array tables (integral within 1e-9; otherwise runtime error) or a string, option or resource for object tables (an option uses its key, a resource its id). A miss without a default → runtime error. |
-| `sum` | `(list)` | Over non-empty slots; 0 if all are empty. |
-| `count` | `(slots)` or `(slots, "key")` | Number of non-empty slots, or of slots holding that option key (checked at load). |
-| `is_set` | `(param)` | For `allow_none` enum / `resource_choice`, and for `slots` (true if any slot is non-empty). The argument must be a bare `param.x`. |
+| `lookup` | `(table, key)` or `(table, key, default)` | `table` must be a **string literal** naming a table (checked at load). The key must be a number for array tables (integral within 1e-9; otherwise runtime error) or a string, option or resource for object tables (an option uses its key, a resource its id; passing an unset `allow_none` parameter is a runtime error). A miss without a default → runtime error. |
+| `sum` | `(list)` | Over non-empty active slots in `0 .. count - 1`; `0` if all are empty. |
+| `count` | `(slots)` or `(slots, "key")` | Number of non-empty active slots in `0 .. count - 1`, or of active slots holding that option key (checked at load). |
+| `is_set` | `(param)` | For `allow_none` enum / `resource_choice`, and for `slots` (true if any active slot in `0 .. count - 1` is non-empty). The argument must be a bare `param.x`. |
 
 The function set is closed. There are no user-defined functions, loops, variables or indexing (§11).
 
@@ -525,7 +538,7 @@ recipes/gt.json: /profiles/gt_single/let/oc: 1:38: expected ')' but found end of
 game.json: /profiles/sf_production/craft_time: 1:30: unknown identifier 'param.clok' (did you mean 'param.clock'?)
 ```
 
-Compile-time checks: syntax; unknown identifier (with a "did you mean" suggestion from edit distance ≤ 2); a name that is not allowed in this context; operand and argument types; arity; unknown function; unknown table; unknown option key or resource id in a comparison; a `param.*` that is not listed in the profile's `params`; result type; `let` cycles.
+Compile-time checks: syntax; unknown identifier (with a "did you mean" suggestion from edit distance ≤ 2, capped at the first 25 errors per load and pre-filtered by `abs(len(a) - len(b)) <= 2`; also specifically detects `machine.attrs.x` / `recipe.attrs.x` / `port.attrs.x` and suggests `machine.x` / `recipe.x` / `port.x`); a name that shadows a reserved identifier or is not allowed in this context; operand and argument types; arity; unknown function; unknown table; unknown option key or resource id in a comparison or `resource_expr` string literal; a `param.*` that is not listed in the profile's `params`; result type; `let` or `globals` cycles.
 
 **Runtime (evaluation) errors** put the node into `ERROR`: all of its ports are locked to 0, the message is shown on the node, and other nodes still solve. No exception escapes the evaluator or the solver. Messages name the formula's source:
 
@@ -535,7 +548,7 @@ Node "Assembler #1": craft_time evaluated to 0 s (must be > 0) in profiles/fa_cr
 Node "Constructor #2": lookup("gt_voltage", 9.5): index must be an integer
 ```
 
-Runtime checks: division or modulo by zero; NaN or ±Inf produced by any operation; domain errors (`sqrt`, `ln`, `log`, `pow`); lookup miss or non-integral index; `min`/`max` of an empty list; `clamp` with `lo > hi`; negative port amount; `craft_time ≤ 0`; a `resource_choice` that resolves to a resource missing from the loaded data.
+Runtime checks: division or modulo by zero; NaN or ±Inf produced by any operation; domain errors (`sqrt`, `ln`, `log`, `pow`); lookup miss or non-integral index; accessing `.attr`, `.id`, or `lookup()` on an unset (`null`) `allow_none` parameter; `slots.count` outside integers in `[0, 64]`; `clamp` with `lo > hi`; negative port amount (`< -1e-9`; values in `[-1e-9, 1e-9]` are clamped to `0`); `craft_time ≤ 0`; a `resource_choice` or non-empty `resource_expr` that resolves to a resource missing from the loaded data.
 
 ### 5.8 Determinism
 
@@ -567,15 +580,15 @@ Runtime checks: division or modulo by zero; NaN or ±Inf produced by any operati
 
 ### 6.2 Forms in a profile
 
-Each `profiles.<id>.metrics.<metric>` entry has **exactly one** of:
+Each `profiles.<id>.metrics.<metric>` entry has an optional `"enabled"` bool literal or pre-solve expression (default `true`; when `false`, the metric is hidden on that node and contributes `0` to totals) and **exactly one** of:
 
-| Form | Context | Node value | LP-usable |
-|---|---|---|---|
-| `per_machine` | pre-solve | `coeff × node.machines` | yes: `machines` is linear in the reference flow |
-| `per_craft` | pre-solve | `coeff × node.crafts` | yes |
-| `value` | post-solve | the expression's result | no (display only; may use `ceil`, `max`, …) |
+| Form | Context | Node value | Canonical unit when `is_rate: true` | LP-usable |
+|---|---|---|---|---|
+| `per_machine` | pre-solve | `coeff × node.machines` | `coeff` is in units per second per machine | yes: `machines` is linear in the reference flow |
+| `per_craft` | pre-solve | `coeff × node.crafts` | `coeff` is in units per craft (`node.crafts` is already crafts/s) | yes |
+| `value` | post-solve | the expression's result | result is in units per second | no (display only; may use `ceil`, `max`, …) |
 
-Linear forms are what a later "minimize power" objective (step 7) or a power constraint can use without becoming non-linear. A metric with `aggregate` other than `none` is aggregated over **every node whose profile defines it**. Nodes in `ERROR`/`BLOCKED` contribute 0.
+Linear forms are what a later "minimize power" objective (step 7) or a power constraint can use without becoming non-linear. A metric with `aggregate` other than `none` is aggregated over **every node whose profile defines it and where `enabled` evaluates to `true`**. Nodes in `ERROR`/`BLOCKED` (or where the metric's `enabled` is `false`) contribute 0.
 
 The machine count is not a metric: it is always shown.
 
@@ -593,7 +606,7 @@ NodeEval {
   messages: [ { severity, text, source } ]
   craft_time_s: number
   ports: [ { slot_key, port_id, dir, resource, active, amount_per_craft } ]
-  metric_coeffs: [ { metric, form: per_machine|per_craft, coeff } ]
+  metric_coeffs: [ { metric, enabled, form: per_machine|per_craft|value, coeff } ]
 }
 ```
 
@@ -604,11 +617,9 @@ NodeEval {
 ### 7.2 LP mapping and why it stays linear
 
 For node n with NodeEval E:
-- If `E.status ∈ {BLOCKED, ERROR}`, every port of n is fixed to 0 (as v3 does for `clock_speed ≤ 0`).
-- Ports with `active = false` or `amount_per_craft = 0` are fixed to 0.
-- Among the remaining ports, pick the **reference port**: the first active input with a > 0 in slot order (recipe inputs, then extra inputs), or, if there is none, the first active output with a > 0. If there is no reference, every port is fixed to 0 and the node gets a `WARNING` ("no active flow").
-- Stoichiometry: for every other remaining port p, `a_ref · R_p − a_p · R_ref = 0` (the v3 ratio constraints, with coefficients taken from E).
-- Wires whose state is not OK (§7.4) have their flow variable fixed to 0.
+- **Active ports and `OK` wires only:** All solver graph-topology and LP steps (`partitionComponents`, `analyzeComponent`, `addConnectionConstraints`, `addBalance`) operate **exclusively** on active ports (`E.status ∈ {OK, WARNING}`, `active == true`, and `amount_per_craft > 1e-9`) and `OK` wires (§7.4). Inactive ports (including all ports on `BLOCKED` or `ERROR` nodes, or ports whose evaluated `amount_per_craft` was in `[-1e-9, 1e-9]` and clamped to `0.0`) and non-`OK` wires (`INACTIVE` or `INVALID`) are excluded from $W^+(p)$, $W^-(p)$, $\mathcal{B}^{\text{imp}}_K$, $\mathcal{X}_K$, $\mathcal{S}^+_K$, and component BFS, so they never trigger No-Overflow rules on upstream nodes, never clamp downstream nodes to 0, never merge independent components, and never skew splitter fairness. Their solved `rate` and `excess_rate` are written directly as `0.0`.
+- Among the node's active ports (`amount_per_craft > 1e-9`), pick the **reference port**: the first active input with $a > 10^{-9}$ in slot order (recipe inputs, then extra inputs), or, if there is none, the first active output with $a > 10^{-9}$. If a node in `OK`/`WARNING` has no active port with $a > 10^{-9}$, all of its ports have solved rate `0.0` and the node gets a `WARNING` ("no active flow").
+- Stoichiometry: for every other active port p on the node, `a_ref · R_p − a_p · R_ref = 0` (the v3 ratio constraints, with coefficients taken from E).
 
 **Linearity argument.** Every expression is evaluated before the LP is built, from inputs that do not depend on LP variables (parameters, globals, attributes). Each `a_p` and `craft_time_s` is therefore a constant during `solve()`, and every constraint is constant × variable. Post-solve names (`node.machines`, `node.crafts`) are rejected at compile time in every pre-solve formula (V-EXPR-3), so no formula can feed a solved value back into a coefficient. Linear metrics are constant × M_n, and M_n is itself constant × R_ref.
 
@@ -627,13 +638,16 @@ where $t'_n$ = `craft_time_s`. Compared with v3 ($w_n = t_0 / (a_{\text{ref}} \c
 
 - **Port superset.** A node's ports are: one per recipe port (`in:i`, `out:i`) plus one per extra port of its machine's profile (`x:id`). They exist even when inactive.
 - **Wire state** (computed after evaluation, not serialized):
-  - `OK`: both ends active and the resources match.
-  - `INACTIVE`: at least one end is inactive. Drawn dimmed; flow 0.
-  - `INVALID`: the resources differ (a `resource_choice` changed). Drawn as an error; flow 0; never deleted automatically.
-- **Parameter change**: never adds or removes ports. It may change activity, amounts and the resources of `resource_param` ports.
+  - `OK`: both ends active (`active == true && amount_per_craft > 1e-9`) and the resources match.
+  - `INACTIVE`: at least one end is inactive. Drawn dimmed; excluded from LP topology; flow 0.
+  - `INVALID`: both ends are active (or have resolved resources) and the resources differ (a `resource_choice` or `resource_expr` changed). Drawn as an error; excluded from LP topology; flow 0; never deleted automatically.
+- **Parameter change**: never adds or removes ports. It may change activity, amounts and the resources of `resource_param` / `resource_expr` ports.
 - **Machine change** (same recipe): ports are matched by slot key. Recipe ports are unchanged. Extra ports whose key exists in both profiles keep their port ID and wires. New keys get new ports. Ports whose key disappears are deleted together with their wires, **inside the same undoable command**.
 - **Recipe change**: rebuilds all ports, as v3 does (undoable).
-- **Raw/sink classification (R1)**: raw source ⇔ the recipe's `in` is empty; sink ⇔ the recipe's `out` is empty. These replace the `resource_key == "nothing"` predicates in `analyzeComponent` and `classifyConstraint`. Extra ports do not affect classification.
+- **Raw/sink classification (R1)**:
+  - A node is a **raw source** in component $K$ iff it has **zero active recipe input ports** (`in:*` with `active == true && amount_per_craft > 1e-9`) **and zero active extra input ports (`x:*`) that have an `OK` incoming wire**. (Thus, a recipe with no inputs or with all inputs disabled at runtime—such as an ONI Wild Plant—is a raw source; if it has an active unwired extra input such as `x:water`, that port is an unwired import in $\mathcal{B}^{\text{imp}}_K$ and the node remains a raw source; as soon as an upstream node is wired into `x:water` via an `OK` wire, the node ceases to be a raw source so its outputs resolve to `TARGET` in `AUTO` mode.)
+  - Symmetrically, a node is a **sink** in component $K$ iff it has **zero active recipe output ports** (`out:*` with `active == true && amount_per_craft > 1e-9`) **and zero active extra output ports (`x:*`) that have an `OK` outgoing wire**.
+  - These rules replace the `resource_key == "nothing"` predicates in `analyzeComponent` and `classifyConstraint`.
 
 ### 7.5 What replaces `Node::clock_speed` / `production_multiplier`
 
@@ -724,14 +738,14 @@ After solving, for each node: `node.machines` = M_n and `node.crafts` = crafts_n
 flowchart LR
     S["Broken shard files (skipped)"] --> R["Resources"]
     R --> O["Option sets / tables"]
-    O --> P["Parameters / globals"]
+    O --> P["Parameters / globals (transitive closure)"]
     P --> M["Metrics"]
-    M --> F["Profiles"]
+    M --> F["Profiles (inheritance closure)"]
     F --> MA["Machines"]
     MA --> RE["Recipes"]
 ```
 
-  For example, a profile that references a dropped parameter is dropped. Machines using it are then dropped, and recipes no machine can run any more are dropped too. The package is marked **degraded**: the status bar shows "Game data loaded with N errors (M entities skipped)", and the report stays available from the menu. The choice is not remembered; the next load asks again.
+  Within `Parameters / globals`, if parameter `p1` (or global `g1`) is dropped and another parameter `p2` (or global `g2`) references it in a static expression, `p2` is dropped too (transitive closure) before cascading to `Profiles`. Likewise, if a parent profile is dropped, all child profiles extending it are dropped. A profile that references a dropped parameter is dropped; machines using a dropped profile are dropped; and recipes that no remaining machine can run are dropped too. The package is marked **degraded**: the status bar shows "Game data loaded with N errors (M entities skipped)", and the report stays available from the menu. The choice is not remembered; the next load asks again.
 - **Fatal errors** (F-*) cannot be ignored; the only choice is to close the report.
 
 ### 9.2 Rules
@@ -750,36 +764,37 @@ Severity: **F** = fatal, **E** = error (droppable), **W** = warning. "Drops" = w
 | V-INC-3 | E | Path escapes the package, or a shard uses a manifest-only key | the shard | `recipes/a.json: /include: shards cannot include other files` |
 | V-STRUCT-1 | E | Unknown key (top level or in an entity) | the entity (or shard for top level) | `recipes/gt.json: /recipes/88/ammount: unknown field (did you mean 'amount'?)` |
 | V-STRUCT-2 | E | Wrong JSON type | the entity | `game.json: /machines/3/speed: expected number, got string` |
-| V-ID-1 | E | Id missing or not matching `[A-Za-z0-9_.:/-]+` | the entity | `game.json: /resources/12/id: invalid id 'iron ore' (spaces not allowed)` |
-| V-ID-2 | E | Duplicate id or map key across all files | the second definition | `recipes/b.json: /recipes/4/id: duplicate recipe id 'iron-plate' (first defined at recipes/a.json: /recipes/17)` |
-| V-REF-1 | E | Port references an unknown resource | the recipe | `recipes/gt.json: /recipes/88/in/0: unknown resource 'crushed_coper' (did you mean 'crushed_copper'?)` |
+| V-ID-1 | E | Id missing or not matching `[A-Za-z0-9_.:/-]+` (or `[a-z_][a-z0-9_]*` for parameters, globals, `let`, and attributes); or name shadows a reserved root identifier or built-in function | the entity | `game.json: /resources/12/id: invalid id 'iron ore' (spaces not allowed)` |
+| V-ID-2 | E | Duplicate id or map key across all files or within a single JSON object (checked via JSON parser callback) | the second definition | `recipes/b.json: /recipes/4/id: duplicate recipe id 'iron-plate' (first defined at recipes/a.json: /recipes/17)` |
+| V-REF-1 | E | Port (`res` / `resource` / `resource_expr`), `recipe.setup`, or `resource_choice.resources` references an unknown resource | the recipe / profile / parameter | `recipes/gt.json: /recipes/88/in/0: unknown resource 'crushed_coper' (did you mean 'crushed_copper'?)` |
 | V-REF-2 | E | Recipe has both or neither of `category` / `machines`; unknown machine in `machines` | the recipe | `game.json: /recipes/5: specify exactly one of 'category' or 'machines'` |
 | V-REF-3 | E | No loaded machine can run the recipe | the recipe | `recipes/gt.json: /recipes/88: no machine has category 'gt.macerator'` |
 | V-REF-4 | E | Machine references an unknown profile | the machine | `game.json: /machines/2/profile: unknown profile 'sf_prodution'` |
-| V-REF-5 | E | Resource of unknown kind; parameter with unknown option set; `resource_choice` tag matching no resource | the entity | `game.json: /parameters/prolif/tag: no resource has tag 'proliferator'` |
-| V-ATTR-1 | E | Attribute not declared for this entity type | the entity | `game.json: /machines/4/attrs/powr: undeclared machine attribute 'powr' (did you mean 'power'?)` |
-| V-ATTR-2 | E | Attribute value of the wrong type; declaration without a default; name shadows a built-in | the entity / the declaration | `game.json: /attributes/machine/speed: 'speed' is a built-in machine field` |
+| V-REF-5 | E | Resource of unknown kind; parameter with unknown option set; `resource_choice` with empty `resources` list or `tag` matching no resource | the entity | `game.json: /parameters/prolif/tag: no resource has tag 'proliferator'` |
+| V-ATTR-1 | E | Attribute not declared for this entity type (message includes a ready-to-paste declaration snippet) | the entity | `game.json: /machines/4/attrs/powr: undeclared machine attribute 'powr' (did you mean 'power'? Or declare it under /attributes/machine)` |
+| V-ATTR-2 | E | Attribute value of the wrong type; declaration without a default; name shadows a built-in or reserved name | the entity / the declaration | `game.json: /attributes/machine/speed: 'speed' is a built-in machine field` |
+| V-TBL-1 | E | Table is empty, or contains a non-number or non-finite value | the table | `game.json: /tables/gt_voltage/2: table values must be finite numbers, got string` |
 | V-NUM-1 | E | `time` ≤ 0 or not finite; machine `speed` ≤ 0 | the entity | `recipes/gt.json: /recipes/88/time: must be > 0, got 0` |
-| V-NUM-2 | E | Port `amount` ≤ 0 or not finite | the recipe | `game.json: /recipes/9/in/1: amount must be > 0 (use 'setup' for items that are not consumed)` |
+| V-NUM-2 | E | Port or `recipe.setup` `amount` ≤ 0 or not finite | the recipe | `game.json: /recipes/9/in/1: amount must be > 0 (use 'setup' for items that are not consumed)` |
 | V-NUM-3 | E | `chance` ∉ (0, 1]; `catalyst` ∉ [0, amount] | the recipe | `recipes/gt.json: /recipes/88/out/1: chance 1.5 outside (0, 1]` |
 | V-NUM-4 | E | Recipe with neither inputs nor outputs | the recipe | `game.json: /recipes/40: recipe has no inputs and no outputs` |
 | V-PAR-1 | E | Unknown `type`; required `default` missing; default of the wrong type | the parameter | `game.json: /parameters/clock/default: required for type 'number'` |
-| V-PAR-2 | E | Literal default outside literal `min`/`max`; literal `min` > `max`; non-integral `int` default or step | the parameter | `game.json: /parameters/somersloops/default: 5 outside [0, 4]` |
-| V-PAR-3 | E | `enum` default not an option key; option keys duplicated in a set | the parameter / set | `game.json: /parameters/prolif_mode/default: 'extras' is not an option of 'prolif_modes' (extra, speed)` |
+| V-PAR-2 | E | Literal default outside literal `min`/`max`; literal `min` > `max`; non-integral `int` default or step; literal `slots.count` outside integers in `[0, 64]` | the parameter | `game.json: /parameters/somersloops/default: 5 outside [0, 4]` |
+| V-PAR-3 | E | `option_set` has empty `options` array; `enum` default not an option key; option keys duplicated in a set | the parameter / set | `game.json: /parameters/prolif_mode/default: 'extras' is not an option of 'prolif_modes' (extra, speed)` |
 | V-PAR-4 | E | Field not valid for the type (e.g. `count` on `number`, `option_set` on `bool`) | the parameter | `game.json: /parameters/clock/count: 'count' only applies to type 'slots'` |
 | V-PAR-5 | W | `ui.widget` unsuitable for the type (falls back to the type's default widget) | — | `game.json: /parameters/boosted/ui/widget: 'slider' unsuitable for bool, using 'checkbox'` |
-| V-EXPR-1 | E | Syntax error | the owner (profile / parameter / recipe) | see §5.7 |
-| V-EXPR-2 | E | Unknown identifier, function, table, option key or resource id | the owner | `game.json: /profiles/dsp/let/extra: 1:33: 'extras' is not an option of 'prolif_modes'` |
+| V-EXPR-1 | E | Syntax error | the owner (profile / parameter / global / recipe) | see §5.7 |
+| V-EXPR-2 | E | Unknown identifier, function, table, option key or resource id (detects `.attrs.x` and suggests `.x`) | the owner | `game.json: /profiles/dsp/let/extra: 1:33: 'extras' is not an option of 'prolif_modes'` |
 | V-EXPR-3 | E | Name not allowed in this context | the owner | `game.json: /profiles/sf/craft_time: 1:22: 'node.machines' is only available in post-solve 'value' metrics` |
 | V-EXPR-4 | E | Type error, arity error, wrong result type | the owner | `game.json: /profiles/gt/port_enabled: result must be bool, got number` |
-| V-EXPR-5 | E | `param.x` not listed in the profile's `params`; a static expression using a later parameter | the owner | `game.json: /profiles/sf/let/c: 'param.clok' is not a parameter of profile 'sf_production'` |
-| V-EXPR-6 | E | `let` dependency cycle | the profile | `game.json: /profiles/gt/let: cycle oc -> t -> oc` |
+| V-EXPR-5 | E | Unknown `param.x` in a parameter's static expression (drops the parameter); or a profile formula / parameter static expression referencing a `param.x` not listed in (or listed later in) that profile's `params` (drops the profile) | the parameter / the profile | `game.json: /profiles/sf/let/c: 'param.clok' is not a parameter of profile 'sf_production'` |
+| V-EXPR-6 | E | Dependency cycle in a profile's `let` (drops the profile), in `globals` static expressions (drops all globals in the cycle), or introduced by a recipe's `overrides.let` (drops the recipe) | the profile / globals / recipe | `game.json: /profiles/gt/let: cycle oc -> t -> oc` |
 | V-PROF-1 | E | `extends` unknown | the profile | `game.json: /profiles/gt_ebf/extends: unknown profile 'gt_singel'` |
 | V-PROF-2 | E | `extends` cycle | all profiles in the cycle | `game.json: /profiles/a/extends: inheritance cycle a -> b -> a` |
 | V-PROF-3 | E | Metric entry with zero or several forms; metric id not in the registry | the profile | `game.json: /profiles/sf/metrics/power: give exactly one of per_machine, per_craft, value` |
-| V-PROF-4 | E | Extra port: duplicate id, bad `dir`, both or neither of `resource` / `resource_param`, `resource_param` that is not a `resource_choice` parameter of this profile | the profile | `game.json: /profiles/dsp/extra_ports/0/resource_param: 'prolif_mode' is not a resource_choice parameter` |
+| V-PROF-4 | E | Extra port or long-form recipe port: duplicate id, bad `dir`, not specifying exactly one of `resource` (`res`) / `resource_param` / `resource_expr`, or `resource_param` that is not a `resource_choice` parameter of the profile (or of every compatible machine's profile for recipe ports) | the profile / the recipe | `game.json: /profiles/dsp/extra_ports/0/resource_param: 'prolif_mode' is not a resource_choice parameter` |
 | V-OVR-1 | E | Override key not overridable; override `let` name not defined in the profile | the recipe | `recipes/py.json: /recipes/3/overrides/params: 'params' cannot be overridden per recipe` |
-| V-OVR-2 | E | Override fails to compile for one of the machines that can run the recipe | the recipe | `recipes/py.json: /recipes/3/overrides/craft_time: 'param.clock' unknown in profile 'py_furnace' (machine 'stone-furnace')` |
+| V-OVR-2 | E | Override or recipe port formula/parameter fails to compile (or introduces a `let` cycle) for one of the machines that can run the recipe | the recipe | `recipes/py.json: /recipes/3/overrides/craft_time: 'param.clock' unknown in profile 'py_furnace' (machine 'stone-furnace')` |
 | V-MET-1 | E | Bad `aggregate`/`display`; `split_sign` with `aggregate` ≠ `sum` | the metric | `game.json: /metrics/power/split_sign: requires aggregate 'sum'` |
 | V-W-1 | W | Icon file missing | — | `icons/machines/foundry.png not found` |
 | V-W-2 | W | Unused parameter, option set, table or metric; machine that no recipe can use; resource used by no recipe | — | `game.json: /parameters/old_clock: defined but not used by any profile` |
@@ -892,7 +907,7 @@ Every example below is valid as written: each referenced identifier is declared 
   },
   "parameters": {
     "voltage_tier": { "label": "Tier", "type": "enum", "option_set": "gt_tiers",
-                      "allowed_if": "option.t >= machine.min_tier && option.t <= machine.max_tier && option.v >= recipe.eut",
+                      "allowed_if": "option.t >= machine.min_tier && option.t <= machine.max_tier",
                       "ui": { "widget": "combo", "placement": "body" } }
   },
   "metrics": {
@@ -905,7 +920,7 @@ Every example below is valid as written: each referenced identifier is declared 
       "let": {
         "t": "param.voltage_tier.t",
         "v": "param.voltage_tier.v",
-        "oc_v": "max(0, floor(log(v / recipe.eut, 4) + 1e-9))",
+        "oc_v": "max(0, floor(log(v / max(8, recipe.eut), 4) + 1e-9))",
         "oc": "min(oc_v, floor(log(recipe.time_raw, 2) + 1e-9))"
       },
       "requires": [ { "expr": "v >= recipe.eut", "message": "Machine tier too low for this recipe" } ],
@@ -930,23 +945,23 @@ Every example below is valid as written: each referenced identifier is declared 
 ```
 
 Notes:
-- `allowed_if` hides ULV (the machine's minimum is LV) and any tier below the recipe's EU/t. `requires` repeats the check, so a stored tier that is no longer allowed falls back to the first allowed tier and never silently runs.
-- `oc_v` counts how many times EU/t can be multiplied by 4 while staying within the tier voltage (standard GT overclocking, 2× speed and 4× EU/t). `oc` additionally stops overclocking before the duration drops below one tick. The `+ 1e-9` guards are explained in §5.8.
+- `allowed_if` filters options to the machine's valid tiers (`machine.min_tier .. machine.max_tier`), so ULV is hidden (the machine's minimum is LV) while `voltage_tier` always has a valid allowed option regardless of the recipe. `requires` then checks `v >= recipe.eut`, putting the node into `BLOCKED` with `"Machine tier too low for this recipe"` when the chosen tier is below the recipe's voltage.
+- `oc_v` counts how many times EU/t can be multiplied by 4 above the ULV baseline (`max(8, recipe.eut)`) while staying within the tier voltage (standard GT5u/GTNH overclocking, 2× speed and 4× EU/t per tier above ULV). `oc` additionally stops overclocking before the duration drops below one tick. The `+ 1e-9` guards are explained in §5.8.
 - Port amounts are illustrative of the GT5u pattern; the importer provides real values, `chance_boost` included.
 
 **NodeEval at MV** (t = 2, v = 128):
-- oc_v = floor(log₄(128 / 2) + ε) = floor(3) = 3; time cap = floor(log₂ 400) = 8; oc = 3.
-- craft_time = floor(400 / 8) / 20 = 50 / 20 = **2.5 s**.
-- out:1 dust_gold has min_tier 3 > 2, so it is **inactive** (the pin is greyed out, wires stay attached).
-- EU/t coefficient = 2 · 4³ = **128 per machine**.
+- oc_v = floor(log₄(128 / 8) + ε) = floor(2) = 2; time cap = floor(log₂ 400) = 8; oc = 2.
+- craft_time = floor(400 / 4) / 20 = 100 / 20 = **5.0 s**.
+- out:1 dust_gold has min_tier 3 > 2, so it is **inactive** (excluded from LP topology, pin greyed out, wires stay attached).
+- EU/t coefficient = 2 · 4² = **32 per machine**.
 
 **NodeEval at HV** (t = 3, v = 512):
-- oc_v = floor(log₄ 256 + ε) = 4; oc = min(4, 8) = 4.
-- craft_time = floor(400 / 16) / 20 = 25 / 20 = **1.25 s**.
-- in:0 = 1; out:0 = 1; out:1 dust_gold **active**, amount 1 · min(1, 0.1 + 0 · 4) = **0.1**.
-- EU/t coefficient = 2 · 4⁴ = **512 per machine**.
+- oc_v = floor(log₄(512 / 8) + ε) = 3; oc = min(3, 8) = 3.
+- craft_time = floor(400 / 8) / 20 = 50 / 20 = **2.5 s**.
+- in:0 = 1; out:0 = 1; out:1 dust_gold **active**, amount 1 · min(1, 0.1 + 0 · 3) = **0.1**.
+- EU/t coefficient = 2 · 4³ = **128 per machine**.
 
-**Solved at HV**, target 2 impure dust/s: crafts = 2/s; M = 2 · 1.25 = **2.5 machines**; crushed copper 2/s; gold dust **0.2/s**; energy 2.5 · 512 = **1280 EU/t**.
+**Solved at HV**, target 2 impure dust/s: crafts = 2/s; M = 2 · 2.5 = **5.0 machines**; crushed copper 2/s; gold dust **0.2/s**; energy 5.0 · 128 = **640 EU/t**.
 
 ### 10.3 GTNH: Crop Manager driven by parameters (constants illustrative)
 
@@ -1004,7 +1019,7 @@ Notes:
 }
 ```
 
-(It reuses `voltage_tier`, `gt_tiers` and the `eut` metric from 10.2. `recipe.time` is unused here because this profile computes time from growth points. The recipe has no `in`, so the node is a raw source (R1) even when the water and fertilizer ports are active.)
+(It reuses `voltage_tier`, `gt_tiers` and the `eut` metric from 10.2. `recipe.time` is unused here because this profile computes time from growth points. Because the recipe has no `in`, the node acts as a raw source when `x:water` and `x:fertilizer` are unwired (making them unwired imports), and switches to an intermediate consumer whose outputs resolve to `TARGET` in `AUTO` mode as soon as an upstream producer is wired into `x:water` or `x:fertilizer` per R1 / §7.4.)
 
 **NodeEval** for an LV manager (t = 1), growth 31, gain 31, hydrated and fertilized:
 - requires: crop_tier 4 ≤ crop_tier_cap[1] = 4 ✓.
@@ -1203,12 +1218,12 @@ Notes:
 
 ---
 
-## 12. Known limitations and points for the 3c review
+## 12. Known limitations and resolved review items
 
-1. **Per-recipe research levels** (Factorio Space Age per-recipe productivity research, Pyanodons T.U.R.D. per line) need one global per research and a recipe attribute naming which applies. With no indexing, profiles must branch with `if(recipe.research == "steel", global.steel_prod, …)` or use one profile per research group. A `lookup` on globals could close this gap; for now it is deliberately left out.
+1. **Per-recipe research levels** (Factorio Space Age per-recipe productivity research, Pyanodons T.U.R.D. per line) need one global per research and a recipe attribute naming which applies. With no dynamic global indexing, profiles branch with `if(recipe.research == 'steel', global.steel_prod, …)` or use one profile per research group.
 2. **Port order is identity.** Importers must keep `in`/`out` order stable across data versions, or saved wires attach to the wrong ports.
-3. **Override type-checking against every machine** (V-OVR-2) can make recipe overrides brittle when a new machine is added to a category. The review should check that the error message makes this obvious.
-4. **Sub-tick parallels** (GTNH multiblocks, M26/M32) are expressible (a `let` parallel count multiplying amounts) but untested in the examples.
-5. **Hidden parameters evaluate as their default.** Confirm this matches what users expect (e.g. hiding modules on a machine with 0 slots).
-6. **The load-time budget** (50k recipes in under 2 s) is an estimate until step 4 measures it.
-7. **Reference port selection** now includes extra inputs (§7.2), so a raw drill with an active booster uses the booster input as its reference. Because every ratio on the node is fixed, the choice of reference does not change any solved value or $M_n$. The review should still confirm that AUTO resolution (`docs/solver.md`) treats an unwired booster input on a raw source sensibly (it becomes an unwired import).
+3. **Override type-checking against every machine** (V-OVR-2) verifies that recipe overrides and recipe port formulas/parameters compile (and introduce no `let` cycles) for every compatible machine's profile, naming both the profile and machine in the error message.
+4. **Sub-tick parallels** (GTNH multiblocks, M26/M32) are expressed via a `let` parallel count multiplying `input_amount` and `output_amount`.
+5. **Hidden parameters short-circuit to their default** (§4.5 step 1): `visible_if` is evaluated first, and when `false`, the parameter binds directly to its default without evaluating `min`, `max`, `count`, or `allowed_if`.
+6. **The load-time budget** (50k recipes in under 2 s) is guarded by AST interning, lazy JSON pointer formatting, capped Levenshtein suggestions (≤ 25 per load), and single-pass `V-W-2` validation (§2.9), and will be measured in step 4.
+7. **Reference port selection and `AUTO` resolution** (§7.2, §7.4): only active ports (`amount_per_craft > 1e-9`) and `OK` wires participate in solver topology and LP constraints; raw-source and sink classification (R1) accounts for active recipe ports and wired active extra ports.
