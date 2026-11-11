@@ -71,13 +71,14 @@ data/game_data/<game>/<package>/
 
 - A game directory may hold several packages (e.g. different game versions). `GameDataScanner` looks for `data/game_data/*/*/game.json`.
 - `"icon_root"` in the manifest (default `"icons"`) may point to a shared directory such as `"../icons"`. It must resolve to a path inside `<game>/`.
-- Icons are optional and **loaded lazily** (on first display). The v3 loader loads every texture eagerly, which does not scale to 50k entries.
+- All entity `id`s and option `key`s are lowercase slugs matching `[a-z0-9_-]+` (generated via `StringUtils::slugify()` by importers and converters, V-ID-1), so `<id>.png` and `<key>.png` are always flat, cross-platform filenames on both Windows and Linux.
+- Icons are optional and **loaded lazily** (on first UI display, falling back to the placeholder texture if absent). The v3 loader loads every texture eagerly, which does not scale to 50k entries. Missing-icon warnings (`V-W-1`) are checked on demand (e.g. in `gamedata_tool validate` or when an icon is first requested), not by `stat()`-scanning every entity at package load.
 
 ### 2.2 Manifest (`game.json`) top level
 
 | Key | Required | Type | Meaning |
 |---|---|---|---|
-| `schema_version` | yes | `4` | Any other value is fatal (F3). |
+| `schema_version` | yes | `4` | Any other value is fatal (F-3). |
 | `game` | yes | object | `{ "id", "name", "data_version", "attrs" }`. `id` identifies the game in project files; `data_version` is free text (e.g. `"1.1.0.4"`, `"2.7.2"`); `attrs` are game-wide constants readable as `game.<attr>`. |
 | `units` | yes | object | §2.3. |
 | `resource_kinds` | no | object | §2.4. The default is a single kind `item`. |
@@ -93,7 +94,7 @@ data/game_data/<game>/<package>/
 | `icon_root` | no | string | See §2.1. |
 | `notes` | no | string | Ignored by the loader. |
 
-Any other key is an error (E-STRUCT-1). Unknown fields are rejected so that typos never fail silently. The only free-text escape hatch is `notes`.
+Any other key is an error (V-STRUCT-1). Unknown fields are rejected so that typos never fail silently. The only free-text escape hatch is `notes`.
 
 ### 2.3 Units and time base (R2)
 
@@ -321,7 +322,7 @@ An array table is a non-empty JSON array indexed by an integral number (0-based)
     "let": { "c": "param.clock / 100" },
     "requires": [ { "expr": "...", "message": "..." } ],
     "craft_time": "recipe.time / (machine.speed * c)",
-    "input_amount": "port.amount",
+    "input_amount": "port.amount * port.chance",
     "output_amount": "port.amount * port.chance",
     "port_enabled": "true",
     "extra_ports": [ { "id": "spray", "dir": "in", "resource_param": "prolif",
@@ -525,10 +526,10 @@ A name used outside its context is a load-time error (V-EXPR-3). For example, `n
 | `exp`, `ln` | `(number)` | `ln(x ≤ 0)` → runtime error. |
 | `log` | `(x, base)` | `ln(x) / ln(base)`, with the same domain checks. |
 | `if` | `(bool, T, T)` | Lazy; both branches must have the same type. |
-| `lookup` | `(table, key)` or `(table, key, default)` | `table` must be a **string literal** naming a table (checked at load). The key must be a number for array tables (`abs(key - round(key)) <= 1e-9`, indexed via `std::llround(key)`; otherwise runtime error) or a string, option or resource for object tables (an option uses its key, a resource its id; passing an unset `allow_none` parameter is a runtime error). A miss without a default → runtime error. |
-| `has_tag` | `(resource, string)` | `true` iff the resource's `tags` list contains the string (`option` in `allowed_if` of a `resource_choice`, `param.x`, or `port.resource`). Passing an unset `allow_none` parameter is a runtime error. |
+| `lookup` | `(table, key)` or `(table, key, default)` | `table` must be a **string literal** naming a table (checked at load). The key must be a number for array tables (`abs(key - round(key)) <= 1e-9`, indexed via `std::llround(key)`; otherwise runtime error) or a string, option or resource for object tables (an option uses its key, a resource its id; passing an unset `allow_none` parameter or global is a runtime error). A miss without a default → runtime error. |
+| `has_tag` | `(resource, string)` | `true` iff the resource's `tags` list contains the string (`option` in `allowed_if` of a `resource_choice`, `param.x`, `global.x`, or `port.resource`). Passing an unset `allow_none` parameter or global is a runtime error. |
 | `sum` | `(list)` | Over non-empty active slots in `0 .. count - 1`; `0` if all are empty. |
-| `count` | `(slots)` or `(slots, "key")` | Number of non-empty active slots in `0 .. count - 1`, or of active slots holding that option key (checked at load). |
+| `count` | `(slots)` or `(slots, "key")` | Number of non-empty active slots in `0 .. count - 1`, or of active slots holding that option key (checked at load), on a `slots` parameter or global. |
 | `is_set` | `(param_or_global)` | For `enum` / `resource_choice` (returns `true` if non-null, or always `true` when `allow_none: false`), and for `slots` (`true` if any active slot in `0 .. count - 1` is non-empty). The argument must be a bare `param.x` or `global.x`. |
 
 The function set is closed. There are no user-defined functions, loops, variables or indexing (§11).
@@ -557,7 +558,7 @@ Node "Assembler #1": craft_time evaluated to 0 s (must be > 0) in profiles/fa_cr
 Node "Constructor #2": lookup("gt_voltage", 9.5): index must be an integer
 ```
 
-Runtime checks: division or modulo by zero; NaN or ±Inf produced by any operation; domain errors (`sqrt`, `ln`, `log`, `pow`); lookup miss or non-integral index; accessing `.attr`, `.id`, `.key`, `has_tag()`, or `lookup()` on an unset (`null`) `allow_none` parameter; `slots.count` outside integers in `[0, 64]`; `clamp` with `lo > hi` or dynamic parameter bounds with `min > max`; negative port amount (`< -1e-9`; values in `[-1e-9, 1e-9]` are clamped to `0`); `craft_time ≤ 0`; a `resource_choice` or non-empty `resource_expr` that resolves to a resource missing from the loaded data.
+Runtime checks: division or modulo by zero; NaN or ±Inf produced by any operation; domain errors (`sqrt`, `ln`, `log`, `pow`); lookup miss or non-integral index; accessing `.attr`, `.id`, `.key`, `has_tag()`, or `lookup()` on an unset (`null`) `allow_none` parameter or global; `slots.count` outside integers in `[0, 64]`; `clamp` with `lo > hi` or dynamic parameter bounds with `min > max`; negative port amount (`< -1e-9`; values in `[-1e-9, 1e-9]` are clamped to `0`); `craft_time ≤ 0`; a `resource_choice` or non-empty `resource_expr` that resolves to a resource missing from the loaded data.
 
 ### 5.8 Determinism
 
@@ -777,11 +778,11 @@ Severity: **F** = fatal, **E** = error (droppable), **W** = warning. "Drops" = w
 | V-INC-3 | E | Path escapes the package, or a shard uses a manifest-only key | the shard | `recipes/a.json: /include: shards cannot include other files` |
 | V-STRUCT-1 | E | Unknown key (top level or in an entity) | the entity (or shard for top level) | `recipes/gt.json: /recipes/88/ammount: unknown field (did you mean 'amount'?)` |
 | V-STRUCT-2 | E | Wrong JSON type | the entity | `game.json: /machines/3/speed: expected number, got string` |
-| V-ID-1 | E | Id missing or not matching `[A-Za-z0-9_.:/-]+` (or `[a-z_][a-z0-9_]*` for parameters, globals, `let`, and attributes); or name shadows a reserved root identifier or built-in function | the entity | `game.json: /resources/12/id: invalid id 'iron ore' (spaces not allowed)` |
+| V-ID-1 | E | Entity `id`, option `key`, `category` / `categories`, or `tag` / `tags` missing or not a slug matching `[a-z0-9_-]+` (as produced by `slugify()`; or `[a-z_][a-z0-9_]*` for parameters, globals, `let`, and attributes); or name shadows a reserved root identifier or built-in function | the entity | `game.json: /resources/12/id: invalid id 'Iron Ore' (must match [a-z0-9_-]+, e.g. 'iron-ore')` |
 | V-ID-2 | E | Duplicate id or map key across all files or within a single JSON object (preserving the first definition and rejecting the duplicate) | the second definition | `recipes/b.json: /recipes/4/id: duplicate recipe id 'iron-plate' (first defined at recipes/a.json: /recipes/17)` |
 | V-REF-1 | E | Port (`res`, `resource`, or non-empty result literal in `resource_expr`), `recipe.setup`, or `resource_choice` (`resources` or `default`) references an unknown resource | the recipe / profile / parameter | `recipes/gt.json: /recipes/88/in/0: unknown resource 'crushed_coper' (did you mean 'crushed_copper'?)` |
 | V-REF-2 | E | Recipe has both or neither of `category` / `machines`; unknown machine in `machines` | the recipe | `game.json: /recipes/5: specify exactly one of 'category' or 'machines'` |
-| V-REF-3 | E | No loaded machine can run the recipe | the recipe | `recipes/gt.json: /recipes/88: no machine has category 'gt.macerator'` |
+| V-REF-3 | E | No loaded machine can run the recipe | the recipe | `recipes/gt.json: /recipes/88: no machine has category 'gt-macerator'` |
 | V-REF-4 | E | Machine references an unknown profile | the machine | `game.json: /machines/2/profile: unknown profile 'sf_prodution'` |
 | V-REF-5 | E | Resource of unknown kind; parameter with unknown option set; `resource_choice` not specifying exactly one of non-empty `resources` or `tag` (matching ≥ 1 resource), or `default` not in the candidate set | the entity | `game.json: /parameters/prolif/tag: no resource has tag 'proliferator'` |
 | V-ATTR-1 | E | Attribute not declared for this entity type or option set (message includes a ready-to-paste declaration snippet) | the entity / option | `game.json: /machines/4/attrs/powr: undeclared machine attribute 'powr' (did you mean 'power'? Or declare it under /attributes/machine)` |
@@ -809,7 +810,7 @@ Severity: **F** = fatal, **E** = error (droppable), **W** = warning. "Drops" = w
 | V-OVR-1 | E | Override key not overridable; override `let` name not defined in the profile | the recipe | `recipes/py.json: /recipes/3/overrides/params: 'params' cannot be overridden per recipe` |
 | V-OVR-2 | E | Override or recipe port formula/parameter fails to compile, changes the result type of an overridden `let` variable, or introduces a `let` cycle for any compatible machine profile | the recipe | `recipes/py.json: /recipes/3/overrides/craft_time: 'param.clock' unknown in profile 'py_furnace' (machine 'stone-furnace')` |
 | V-MET-1 | E | Bad `aggregate`/`display`; `split_sign` with `aggregate` ≠ `sum` | the metric (removed from profiles/overrides) | `game.json: /metrics/power/split_sign: requires aggregate 'sum'` |
-| V-W-1 | W | Icon file missing | — | `icons/machines/foundry.png not found` |
+| V-W-1 | W | Icon file missing (checked on demand / in `gamedata_tool validate`) | — | `icons/machines/foundry.png not found` |
 | V-W-2 | W | Unused parameter, option set, table or metric; machine that no recipe can use; resource not referenced by any recipe (`in`, `out`, `setup`), profile (`extra_ports`), or parameter (`resource_choice`) | — | `game.json: /parameters/old_clock: defined but not used by any profile` |
 | V-W-3 | W | Same static resource twice in one recipe's `in` (or `out`) with identical `chance`, `catalyst`, `attrs`, `enabled`, and `amount_expr` | — | `recipes/gt.json: /recipes/88/out: resource 'stone_dust' listed twice` |
 
@@ -945,10 +946,10 @@ Every example below is valid as written: each referenced identifier is declared 
   },
   "machines": [
     { "id": "macerator", "name": "Macerator", "profile": "gt_single",
-      "categories": ["gt.macerator"], "attrs": { "min_tier": 1, "max_tier": 8 } }
+      "categories": ["gt-macerator"], "attrs": { "min_tier": 1, "max_tier": 8 } }
   ],
   "recipes": [
-    { "id": "macerate-crushed-copper", "category": "gt.macerator", "time": 400,
+    { "id": "macerate-crushed-copper", "category": "gt-macerator", "time": 400,
       "attrs": { "eut": 2 },
       "in":  [["crushed_copper", 1]],
       "out": [["impure_dust_copper", 1],
