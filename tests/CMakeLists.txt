@@ -10,6 +10,7 @@ add_executable(
         test_frame_pacer.cpp
         test_application.cpp
         test_golden.cpp
+        test_expr.cpp
 )
 
 target_link_libraries(

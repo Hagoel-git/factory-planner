@@ -41,7 +41,7 @@ inline std::string slugify(std::string text) {
                    [](unsigned char c){ return std::tolower(c); });
 
     static const std::regex re_plus("\\+");
-    static const std::regex re_colon_dot("[:.]");
+    static const std::regex re_colon_dot("[:./]");
     static const std::regex re_invalid("[^a-z0-9\\s:._-]");
     static const std::regex re_hyphens("[\\s-]+");
     static const std::regex re_trim("^-+|-+$");
@@ -49,7 +49,7 @@ inline std::string slugify(std::string text) {
     // Replace all instances of '+' with 'plus'.
     text = std::regex_replace(text, re_plus, "plus");
 
-    // Replace all instances of ':' or '.' with '-'.
+    // Replace all instances of ':', '.' or '/' with '-'.
     text = std::regex_replace(text, re_colon_dot, "-");
 
     // Remove characters that are not letters, numbers, whitespace, or specific symbols.
