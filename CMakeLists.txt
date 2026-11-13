@@ -106,6 +106,16 @@ set(FACTORY_PLANNER_LIB_SRC
         src/core/data/GameDataManager.h
         src/core/data/GameDataManager.cpp
 
+        src/core/expr/ExprValue.h
+        src/core/expr/ExprDiagnostic.h
+        src/core/expr/ExprDiagnostic.cpp
+        src/core/expr/ExprEnv.h
+        src/core/expr/ExprAst.h
+        src/core/expr/ExprCompiler.h
+        src/core/expr/ExprCompiler.cpp
+        src/core/expr/ExprEvaluator.h
+        src/core/expr/ExprEvaluator.cpp
+
         src/editor/factory_planner/FactoryNodeEditor.h
         src/editor/factory_planner/FactoryNodeEditor.cpp
 
