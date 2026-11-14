@@ -29,106 +29,52 @@ protected:
     GameData testGameData;
     std::unique_ptr<FactoryGraph> graph;
 
-void SetUp() override {
-        testGameData.gameName = "TestGame";
-        testGameData.time_unit = "seconds";
+    void SetUp() override {
+        testGameData.game.id = "test_game";
+        testGameData.game.name = "TestGame";
+        testGameData.game.data_version = "1.0";
+        testGameData.units.recipe_time = gamedata::RecipeTimeUnit::Seconds;
+        testGameData.units.default_rate = gamedata::RateUnit::PerSecond;
+        gamedata::ensureV3CompatProfile(testGameData);
 
         // --- 1. Define Resources ---
-        testGameData.resources["nothing"] = Resource{"Nothing", 0};
-        testGameData.resources["iron_ore"] = Resource{"Iron Ore", 1};
-        testGameData.resources["iron_ingot"] = Resource{"Iron Ingot", 2};
-        testGameData.resources["iron_plate"] = Resource{"Iron Plate", 3};
-        testGameData.resources["screw"] = Resource{"Screw", 4};
-        testGameData.resources["reinforced_plate"] = Resource{"Reinforced Plate", 5};
-        testGameData.resources["copper_ore"] = Resource{"Copper Ore", 6};
-        testGameData.resources["copper_ingot"] = Resource{"Copper Ingot", 7};
-        testGameData.resources["wire"] = Resource{"Wire", 8};
+        gamedata::upsertResource(testGameData, "nothing", "Nothing");
+        gamedata::upsertResource(testGameData, "iron_ore", "Iron Ore");
+        gamedata::upsertResource(testGameData, "iron_ingot", "Iron Ingot");
+        gamedata::upsertResource(testGameData, "iron_plate", "Iron Plate");
+        gamedata::upsertResource(testGameData, "screw", "Screw");
+        gamedata::upsertResource(testGameData, "reinforced_plate", "Reinforced Plate");
+        gamedata::upsertResource(testGameData, "copper_ore", "Copper Ore");
+        gamedata::upsertResource(testGameData, "copper_ingot", "Copper Ingot");
+        gamedata::upsertResource(testGameData, "wire", "Wire");
 
         // --- 2. Define Machines ---
-        // (Machine keys are used by setNodeRecipe)
-        testGameData.machines["miner"] = Machine{"Miner", 1, 0};
-        testGameData.machines["smelter"] = Machine{"Smelter", 1, 1};
-        testGameData.machines["constructor"] = Machine{"Constructor", 1, 2};
-        testGameData.machines["assembler"] = Machine{"Assembler", 1, 3};
-        testGameData.machines["sink"] = Machine{"AWESOME Sink", 1, 4};
+        gamedata::upsertMachine(testGameData, "miner", "Miner", 1.0, "v3_compat");
+        gamedata::upsertMachine(testGameData, "smelter", "Smelter", 1.0, "v3_compat");
+        gamedata::upsertMachine(testGameData, "constructor", "Constructor", 1.0, "v3_compat");
+        gamedata::upsertMachine(testGameData, "assembler", "Assembler", 1.0, "v3_compat");
+        gamedata::upsertMachine(testGameData, "sink", "AWESOME Sink", 1.0, "v3_compat");
 
         // --- 3. Define Recipes ---
-
-        // Producer (Miner)
-        Recipe mine_ore;
-        mine_ore.name = "Mine Iron Ore";
-        mine_ore.produced_in_machines_keys.push_back("miner");
-        mine_ore.input_ports.push_back(RecipePort{1.0, "nothing"});
-        mine_ore.output_ports.push_back(RecipePort{30.0, "iron_ore"});
-        testGameData.recipes["mine_ore"] = mine_ore;
-
-        // Processor (Smelter)
-        Recipe smelt_ingot;
-        smelt_ingot.name = "Smelt Iron Ingot";
-        smelt_ingot.produced_in_machines_keys.push_back("smelter");
-        smelt_ingot.input_ports.push_back(RecipePort{30.0, "iron_ore"});
-        smelt_ingot.output_ports.push_back(RecipePort{30.0, "iron_ingot"});
-        testGameData.recipes["smelt_ingot"] = smelt_ingot;
-
-        // Processor (Constructor)
-        Recipe make_plates;
-        make_plates.name = "Make Iron Plates";
-        make_plates.produced_in_machines_keys.push_back("constructor");
-        make_plates.input_ports.push_back(RecipePort{30.0, "iron_ingot"});
-        make_plates.output_ports.push_back(RecipePort{20.0, "iron_plate"});
-        testGameData.recipes["make_plates"] = make_plates;
-
-        // Processor (Constructor)
-        Recipe make_screws;
-        make_screws.name = "Make Screws";
-        make_screws.produced_in_machines_keys.push_back("constructor");
-        make_screws.input_ports.push_back(RecipePort{10.0, "iron_ingot"});
-        make_screws.output_ports.push_back(RecipePort{40.0, "screw"});
-        testGameData.recipes["make_screws"] = make_screws;
-
-        // Assembler (Multi-Input)
-        Recipe make_reinforced;
-        make_reinforced.name = "Make Reinforced Plates";
-        make_reinforced.produced_in_machines_keys.push_back("assembler");
-        make_reinforced.input_ports.push_back(RecipePort{30.0, "iron_plate"});
-        make_reinforced.input_ports.push_back(RecipePort{60.0, "screw"});
-        make_reinforced.output_ports.push_back(RecipePort{5.0, "reinforced_plate"});
-        testGameData.recipes["make_reinforced"] = make_reinforced;
-
-        // Consumer (Sink)
-        Recipe sink_plates;
-        sink_plates.name = "Sink Iron Plates";
-        sink_plates.produced_in_machines_keys.push_back("sink");
-        sink_plates.input_ports.push_back(RecipePort{1.0, "iron_plate"});
-        sink_plates.output_ports.push_back(RecipePort{1.0, "nothing"});
-        testGameData.recipes["sink_plates"] = sink_plates;
-
-        // Processor (Constructor - Wire)
-        Recipe make_wire;
-        make_wire.name = "Make Wire";
-        make_wire.produced_in_machines_keys.push_back("constructor");
-        make_wire.input_ports.push_back(RecipePort{15.0, "copper_ingot"});
-        make_wire.output_ports.push_back(RecipePort{30.0, "wire"});
-        testGameData.recipes["make_wire"] = make_wire;
-
-        // Multi-Input Multi-Output (Assembler)
-        Recipe multi_io;
-        multi_io.name = "Multi IO Recipe";
-        multi_io.produced_in_machines_keys.push_back("assembler");
-        multi_io.input_ports.push_back(RecipePort{30.0, "iron_plate"});
-        multi_io.input_ports.push_back(RecipePort{60.0, "screw"});
-        multi_io.input_ports.push_back(RecipePort{30.0, "wire"});
-        multi_io.output_ports.push_back(RecipePort{5.0, "reinforced_plate"});
-        multi_io.output_ports.push_back(RecipePort{15.0, "copper_ingot"});
-        testGameData.recipes["multi_io"] = multi_io;
-
-        // Consumer (Sink Reinforced)
-        Recipe sink_reinforced;
-        sink_reinforced.name = "Sink Reinforced";
-        sink_reinforced.produced_in_machines_keys.push_back("sink");
-        sink_reinforced.input_ports.push_back(RecipePort{1.0, "reinforced_plate"});
-        sink_reinforced.output_ports.push_back(RecipePort{1.0, "nothing"});
-        testGameData.recipes["sink_reinforced"] = sink_reinforced;
+        gamedata::upsertRecipe(testGameData, "mine_ore", "Mine Iron Ore", 1.0, {"miner"},
+                               {{"nothing", 1.0}}, {{"iron_ore", 30.0}});
+        gamedata::upsertRecipe(testGameData, "smelt_ingot", "Smelt Iron Ingot", 1.0, {"smelter"},
+                               {{"iron_ore", 30.0}}, {{"iron_ingot", 30.0}});
+        gamedata::upsertRecipe(testGameData, "make_plates", "Make Iron Plates", 1.0, {"constructor"},
+                               {{"iron_ingot", 30.0}}, {{"iron_plate", 20.0}});
+        gamedata::upsertRecipe(testGameData, "make_screws", "Make Screws", 1.0, {"constructor"},
+                               {{"iron_ingot", 10.0}}, {{"screw", 40.0}});
+        gamedata::upsertRecipe(testGameData, "make_reinforced", "Make Reinforced Plates", 1.0, {"assembler"},
+                               {{"iron_plate", 30.0}, {"screw", 60.0}}, {{"reinforced_plate", 5.0}});
+        gamedata::upsertRecipe(testGameData, "sink_plates", "Sink Iron Plates", 1.0, {"sink"},
+                               {{"iron_plate", 1.0}}, {{"nothing", 1.0}});
+        gamedata::upsertRecipe(testGameData, "make_wire", "Make Wire", 1.0, {"constructor"},
+                               {{"copper_ingot", 15.0}}, {{"wire", 30.0}});
+        gamedata::upsertRecipe(testGameData, "multi_io", "Multi IO Recipe", 1.0, {"assembler"},
+                               {{"iron_plate", 30.0}, {"screw", 60.0}, {"wire", 30.0}},
+                               {{"reinforced_plate", 5.0}, {"copper_ingot", 15.0}});
+        gamedata::upsertRecipe(testGameData, "sink_reinforced", "Sink Reinforced", 1.0, {"sink"},
+                               {{"reinforced_plate", 1.0}}, {{"nothing", 1.0}});
 
         // --- 4. Initialize Graph ---
         graph = std::make_unique<FactoryGraph>(testGameData);
@@ -138,37 +84,26 @@ void SetUp() override {
         graph.reset();
     }
 
-    /**
-     * @brief Helper to add a node and verify its creation.
-     * @param recipeKey The key of the recipe to use.
-     * @return The ID of the newly created node.
-     */
     uint64_t addNode(const std::string& recipeKey) {
-    std::string nodeName = testGameData.recipes.at(recipeKey).name;
-    uint64_t nodeId = graph->addNode(nodeName, recipeKey);
-    return nodeId;
-}
-
-    /**
-     * @brief Helper to get a specific port from a node.
-     * @param nodeId The ID of the node.
-     * @param resourceKey The resource key of the port.
-     * @param isInput True to search input ports, false to search output ports.
-     * @return A pointer to the port, or nullptr if not found.
-     */
-    Port* getPort(uint64_t nodeId, const std::string& resourceKey, bool isInput) {
-    Node* node = graph->getNode(nodeId);
-    if (!node) return nullptr;
-
-    const auto& port_ids = isInput ? node->input_ports : node->output_ports;
-    for (uint64_t portId : port_ids) {
-        Port* port = graph->getPort(portId);
-        if (port && port->resource_key == resourceKey) {
-            return port;
-        }
+        const auto* rec = testGameData.findRecipe(recipeKey);
+        std::string nodeName = rec ? rec->name : recipeKey;
+        uint64_t nodeId = graph->addNode(nodeName, recipeKey);
+        return nodeId;
     }
-    return nullptr;
-}
+
+    Port* getPort(uint64_t nodeId, const std::string& resourceKey, bool isInput) {
+        Node* node = graph->getNode(nodeId);
+        if (!node) return nullptr;
+
+        const auto& port_ids = isInput ? node->input_ports : node->output_ports;
+        for (uint64_t portId : port_ids) {
+            Port* port = graph->getPort(portId);
+            if (port && port->resource_key == resourceKey) {
+                return port;
+            }
+        }
+        return nullptr;
+    }
 };
 
 TEST_F(FactoryGraphTest, InitialState) {
@@ -191,11 +126,13 @@ TEST_F(FactoryGraphTest, AddNode) {
     EXPECT_EQ(node->machine_key, "miner");
 
     // Check ports
-    const Recipe& recipe = testGameData.recipes.at("mine_ore");
-    size_t expectedPortCount = recipe.input_ports.size() + recipe.output_ports.size();
+    const Recipe* recipePtr = testGameData.findRecipe("mine_ore");
+    ASSERT_NE(recipePtr, nullptr);
+    const Recipe& recipe = *recipePtr;
+    size_t expectedPortCount = recipe.in.size() + recipe.out.size();
     EXPECT_EQ(graph->getPorts().size(), initialPortCount + expectedPortCount);
-    EXPECT_EQ(node->input_ports.size(), recipe.input_ports.size());
-    EXPECT_EQ(node->output_ports.size(), recipe.output_ports.size());
+    EXPECT_EQ(node->input_ports.size(), recipe.in.size());
+    EXPECT_EQ(node->output_ports.size(), recipe.out.size());
 
     // Check specific ports
     Port* inPort = graph->getPort(node->input_ports[0]);
@@ -922,16 +859,18 @@ TEST_F(FactoryGraphTest, SerializeAndDeserialize) {
 
 TEST_F(FactoryGraphTest, DeserializeWithMismatchedGameData) {
     uint64_t n1 = addNode("mine_ore");
+    (void)n1;
     nlohmann::json j = graph->serialize();
 
-    // Create new EMPTY game data
+    // Create new EMPTY game data with a different game.id
     GameData emptyData;
-    emptyData.gameName = "Empty";
+    emptyData.game.id = "other_game";
+    emptyData.game.name = "Empty";
     FactoryGraph newGraph(emptyData);
 
-    // Deserialize. This should "fail" gracefully (i.e., load no nodes)
-    // because the recipe "mine_ore" doesn't exist.
-    newGraph.deserialize(j, emptyData);
+    // Deserialize. This should fail cleanly (returning false and leaving no nodes)
+    // because game.id does not match.
+    EXPECT_FALSE(newGraph.deserialize(j, emptyData));
 
     // Check that the graph is empty
     EXPECT_EQ(newGraph.getNodes().size(), 0);
@@ -980,13 +919,8 @@ protected:
         FactoryGraphTest::SetUp();
 
         // Add a recipe with no machines, to test that branch
-        Recipe recipe_no_machine;
-        recipe_no_machine.name = "Recipe With No Machine";
-        recipe_no_machine.input_ports.push_back(RecipePort{1.0, "nothing"});
-        recipe_no_machine.output_ports.push_back(RecipePort{1.0, "iron_ore"});
-        // recipe_no_machine.produced_in_machines_keys is EMPTY
-
-        testGameData.recipes["recipe_no_machine"] = recipe_no_machine;
+        gamedata::upsertRecipe(testGameData, "recipe_no_machine", "Recipe With No Machine", 1.0, {},
+                               {{"nothing", 1.0}}, {{"iron_ore", 1.0}});
 
         // Re-init graph with the new game data
         graph = std::make_unique<FactoryGraph>(testGameData);
@@ -1488,8 +1422,6 @@ TEST_F(FactoryGraphTest, DeserializeNode_SafelyResolvesMissingOrDanglingMachineK
         {"name", "Make Plates"},
         {"selected_recipe_key", "make_plates"},
         {"machine", "ghost_machine"}, // should resolve through alias to deleted_machine, but since deleted, falls back to preferred
-        {"clock_speed", 100.0},
-        {"production_multiplier", 100.0},
         {"input_ports", nlohmann::json::array()},
         {"output_ports", nlohmann::json::array()}
     };
@@ -1513,41 +1445,18 @@ TEST_F(FactoryGraphTest, ProjectIOLoadProject_Supports64BitNodeIds) {
     auto* edCtx = ax::NodeEditor::CreateEditor(&cfg);
     ax::NodeEditor::SetCurrentEditor(edCtx);
 
-    AppSettings origSettings = SettingsManager::instance().getSettings();
-    AppSettings testSettings = origSettings;
-    std::filesystem::path execDir = getExecutableDirectory().value_or(std::filesystem::current_path());
-    for (const auto& candidate : {
-             std::filesystem::current_path() / "bin" / "game_data",
-             std::filesystem::current_path() / "build" / "bin" / "game_data",
-             std::filesystem::current_path() / "data" / "game_data",
-             std::filesystem::current_path().parent_path() / "data" / "game_data",
-             execDir / "game_data",
-             execDir.parent_path() / "bin" / "game_data",
-             execDir.parent_path().parent_path() / "bin" / "game_data"
-         }) {
-        if (!candidate.empty() && std::filesystem::exists(candidate)) {
-            testSettings.gameDataPath = candidate;
-            break;
-        }
-    }
-    SettingsManager::instance().setSettings(testSettings);
-
     uint64_t largeNodeId = 0x100000005ULL; // > INT32_MAX
     ed::NodeId savedEdNodeId = IdUtils::toNodeId(largeNodeId);
     uintptr_t rawId = reinterpret_cast<uintptr_t>(savedEdNodeId.AsPointer());
 
     nlohmann::json projectJson = {
         {"graph_data", {
-            {"game_data_uuid", "3ddf1c4b-e2a5-4e84-8421-666955381c23"},
+            {"game", {{"id", "test_game"}, {"data_version", "1.0"}}},
             {"nodes", {{
                 {"id", largeNodeId},
                 {"name", "Iron Ingot"},
-                {"selected_recipe_key", "iron-ingot"},
-                {"machine", "smelter"},
-                {"clock_speed", 100.0},
-                {"production_multiplier", 100.0},
-                {"input_ports", nlohmann::json::array()},
-                {"output_ports", nlohmann::json::array()}
+                {"recipe", "smelt_ingot"},
+                {"machine", "smelter"}
             }}},
             {"connections", nlohmann::json::array()},
             {"preferred_machines", nlohmann::json::array()},
@@ -1581,7 +1490,6 @@ TEST_F(FactoryGraphTest, ProjectIOLoadProject_Supports64BitNodeIds) {
 
     std::error_code ec;
     std::filesystem::remove(tempProject, ec);
-    SettingsManager::instance().setSettings(origSettings);
     ax::NodeEditor::SetCurrentEditor(nullptr);
     ax::NodeEditor::DestroyEditor(edCtx);
     ImGui::DestroyContext(imguiCtx);
@@ -1599,8 +1507,8 @@ TEST_F(FactoryGraphTest, FactoryNodeEditor_Paste_MissingPositionDoesNotThrowAndR
     n.selected_recipe_key = "make_plates";
     // Deliberately set machine to a machine not in recipe's produced_in_machines_keys
     n.machine_key = "smelter"; // "make_plates" is produced in "constructor", not "smelter"
-    n.clock_speed = 125.0;
-    n.production_multiplier = 150.0;
+    n.params["clock"] = gamedata::ParamValue{125.0};
+    n.params["output_mult"] = gamedata::ParamValue{150.0};
     buffer.nodes[999] = n;
     // Deliberately omit ID 999 from buffer.nodePositions to test Fix 1.21
 
@@ -2115,13 +2023,18 @@ TEST(GraphPrimitivesTest, DefaultInitializers) {
     EXPECT_DOUBLE_EQ(p.rate, 0.0);
     EXPECT_DOUBLE_EQ(p.user_constraint, -1.0);
     EXPECT_DOUBLE_EQ(p.excess_rate, 0.0);
+    EXPECT_DOUBLE_EQ(p.amount_per_craft, 0.0);
+    EXPECT_TRUE(p.active);
+    EXPECT_FALSE(p.is_unresolved);
+    EXPECT_TRUE(p.slot_key.empty());
     EXPECT_TRUE(p.resource_key.empty());
 
     Node n;
     EXPECT_EQ(n.id, 0);
     EXPECT_DOUBLE_EQ(n.machine_count, 0.0);
-    EXPECT_DOUBLE_EQ(n.clock_speed, 100.0);
-    EXPECT_DOUBLE_EQ(n.production_multiplier, 100.0);
+    EXPECT_DOUBLE_EQ(n.crafts, 0.0);
+    EXPECT_TRUE(n.params.empty());
+    EXPECT_FALSE(n.is_unresolved);
     EXPECT_TRUE(n.name.empty());
     EXPECT_TRUE(n.machine_key.empty());
     EXPECT_TRUE(n.selected_recipe_key.empty());
@@ -2133,6 +2046,7 @@ TEST(GraphPrimitivesTest, DefaultInitializers) {
     EXPECT_EQ(c.from_port, 0);
     EXPECT_EQ(c.to_port, 0);
     EXPECT_DOUBLE_EQ(c.rate, 0.0);
+    EXPECT_EQ(c.state, WireState::OK);
     EXPECT_TRUE(c.resource_key.empty());
 
     // Fix 1.5: Resource and Machine ImTextureID default member initializers
@@ -2142,7 +2056,7 @@ TEST(GraphPrimitivesTest, DefaultInitializers) {
 
     Machine m;
     EXPECT_EQ(m.texture, 0ULL);
-    EXPECT_DOUBLE_EQ(m.base_crafting_speed, 1.0);
+    EXPECT_EQ(m.profile, "default");
     EXPECT_TRUE(m.name.empty());
 }
 
@@ -2340,18 +2254,15 @@ TEST(ViewportCullingAndWiringTest, OffscreenConnectionCrossingViewportDetection)
 
 TEST(ViewportCullingAndWiringTest, ActiveConnectionPinNodeResolution) {
     GameData gd;
-    gd.time_unit = "seconds";
-    gd.resources["nothing"] = Resource{"Nothing", 0};
-    gd.resources["iron_ore"] = Resource{"Iron Ore", 1};
-    gd.resources["iron_ingot"] = Resource{"Iron Ingot", 2};
-    gd.machines["smelter"] = Machine{"Smelter", 1, 0};
-
-    Recipe smelt;
-    smelt.name = "Smelt Iron";
-    smelt.produced_in_machines_keys.push_back("smelter");
-    smelt.input_ports.push_back(RecipePort{30.0, "iron_ore"});
-    smelt.output_ports.push_back(RecipePort{30.0, "iron_ingot"});
-    gd.recipes["smelt"] = smelt;
+    gd.game.id = "test_pin";
+    gd.units.recipe_time = gamedata::RecipeTimeUnit::Seconds;
+    gamedata::ensureV3CompatProfile(gd);
+    gamedata::upsertResource(gd, "nothing", "Nothing");
+    gamedata::upsertResource(gd, "iron_ore", "Iron Ore");
+    gamedata::upsertResource(gd, "iron_ingot", "Iron Ingot");
+    gamedata::upsertMachine(gd, "smelter", "Smelter", 1.0, "v3_compat");
+    gamedata::upsertRecipe(gd, "smelt", "Smelt Iron", 1.0, {"smelter"},
+                           {{"iron_ore", 30.0}}, {{"iron_ingot", 30.0}});
 
     FactoryGraph graph(gd);
     uint64_t node1 = graph.addNode("Smelter 1", "smelt");
@@ -2606,18 +2517,12 @@ TEST(ViewportDragStabilityTest, EditorContextMouseDragDeltaValidationAndExtremeC
 
 TEST_F(FactoryGraphTest, ChangeMachine_SafeHandling) {
     GameData gameData;
-    Machine machineA;
-    machineA.name = "Assembler 1";
-    gameData.machines["assembler_1"] = machineA;
-
-    Machine machineB;
-    machineB.name = "Assembler 2";
-    gameData.machines["assembler_2"] = machineB;
-
-    Recipe ironPlateRecipe;
-    ironPlateRecipe.name = "Iron Plate";
-    ironPlateRecipe.produced_in_machines_keys = {"assembler_1"};
-    gameData.recipes["iron_plate"] = ironPlateRecipe;
+    gameData.game.id = "test_change_machine";
+    gameData.units.recipe_time = gamedata::RecipeTimeUnit::Seconds;
+    gamedata::ensureV3CompatProfile(gameData);
+    gamedata::upsertMachine(gameData, "assembler_1", "Assembler 1", 1.0, "v3_compat");
+    gamedata::upsertMachine(gameData, "assembler_2", "Assembler 2", 1.0, "v3_compat");
+    gamedata::upsertRecipe(gameData, "iron_plate", "Iron Plate", 1.0, {"assembler_1"}, {}, {});
 
     FactoryGraph graph(gameData);
     uint64_t nodeId = graph.addNode("Iron Plate Node", "iron_plate");
@@ -2683,5 +2588,278 @@ TEST_F(FactoryGraphTest, SerializeAndDeserializePortConstraintModes) {
     EXPECT_DOUBLE_EQ(lp2_out->user_constraint, 30.0);
     EXPECT_EQ(lp2_out->constraint_mode, ConstraintMode::LIMIT);
 }
+
+// ============================================================================
+// GameData v4 Graph & Serialization Tests (§7.4, §8.1, §8.2)
+// ============================================================================
+
+TEST(FactoryGraphV4Test, ChangeMachine_SlotKeyPortMatchingAndParamMigration) {
+    const std::string pkg_json = R"({
+        "schema_version": 4,
+        "game": { "id": "test_slot", "name": "Test Slot", "data_version": "1.0" },
+        "units": { "recipe_time": "s", "default_rate": "s" },
+        "resources": [
+            { "id": "iron_ore", "name": "Iron Ore" },
+            { "id": "iron_ingot", "name": "Iron Ingot" },
+            { "id": "coal", "name": "Coal" },
+            { "id": "wood", "name": "Wood" },
+            { "id": "ash", "name": "Ash" }
+        ],
+        "parameters": {
+            "clock": { "label": "Clock", "type": "number", "default": 100.0, "min": 1.0, "max": 250.0 },
+            "burner_boost": { "label": "Burner Boost", "type": "int", "default": 1, "min": 1, "max": 4 },
+            "elec_mode": { "label": "Elec Mode", "type": "bool", "default": false }
+        },
+        "profiles": {
+            "burner_a": {
+                "params": ["clock", "burner_boost"],
+                "craft_time": "recipe.time",
+                "input_amount": "port.amount",
+                "output_amount": "port.amount",
+                "extra_ports": [
+                    { "id": "fuel", "dir": "in", "resource": "coal", "amount": "1.0" },
+                    { "id": "kindling", "dir": "in", "resource": "wood", "amount": "0.5" },
+                    { "id": "ash", "dir": "out", "resource": "ash", "amount": "0.2" }
+                ]
+            },
+            "burner_b": {
+                "params": ["clock"],
+                "craft_time": "recipe.time",
+                "input_amount": "port.amount",
+                "output_amount": "port.amount",
+                "extra_ports": [
+                    { "id": "fuel", "dir": "in", "resource": "coal", "amount": "2.0" }
+                ]
+            },
+            "electric": {
+                "params": ["clock", "elec_mode"],
+                "craft_time": "recipe.time",
+                "input_amount": "port.amount",
+                "output_amount": "port.amount"
+            }
+        },
+        "machines": [
+            { "id": "furnace_a", "name": "Furnace A", "profile": "burner_a" },
+            { "id": "furnace_b", "name": "Furnace B", "profile": "burner_b" },
+            { "id": "furnace_e", "name": "Furnace E", "profile": "electric" }
+        ],
+        "recipes": [
+            { "id": "supply_coal", "name": "Supply Coal", "time": 1.0, "machines": ["furnace_e"], "in": [], "out": [{ "res": "coal", "amount": 10.0 }] },
+            { "id": "supply_wood", "name": "Supply Wood", "time": 1.0, "machines": ["furnace_e"], "in": [], "out": [{ "res": "wood", "amount": 10.0 }] },
+            {
+                "id": "smelt", "name": "Smelt", "time": 1.0,
+                "machines": ["furnace_a", "furnace_b", "furnace_e"],
+                "in": [{ "res": "iron_ore", "amount": 1.0 }],
+                "out": [{ "res": "iron_ingot", "amount": 1.0 }]
+            }
+        ]
+    })";
+
+    gamedata::LoadReport report;
+    gamedata::GamePackage pkg;
+    ASSERT_TRUE(gamedata::loadGamePackageFromMemory(pkg_json, {}, pkg, report));
+
+    FactoryGraph g(pkg);
+    uint64_t n_coal = g.addNode("Coal", "supply_coal");
+    uint64_t n_wood = g.addNode("Wood", "supply_wood");
+    uint64_t n_smelt = g.addNode("Smelt", "smelt");
+
+    Node* smelt = g.getNode(n_smelt);
+    ASSERT_NE(smelt, nullptr);
+    EXPECT_EQ(smelt->machine_key, "furnace_a");
+
+    Port* p_in0 = g.getPortBySlot(n_smelt, "in:0");
+    Port* p_fuel = g.getPortBySlot(n_smelt, "xin:fuel");
+    Port* p_kindling = g.getPortBySlot(n_smelt, "xin:kindling");
+    Port* p_out0 = g.getPortBySlot(n_smelt, "out:0");
+    Port* p_ash = g.getPortBySlot(n_smelt, "xout:ash");
+    ASSERT_NE(p_in0, nullptr);
+    ASSERT_NE(p_fuel, nullptr);
+    ASSERT_NE(p_kindling, nullptr);
+    ASSERT_NE(p_out0, nullptr);
+    ASSERT_NE(p_ash, nullptr);
+
+    uint64_t in0_id = p_in0->id;
+    uint64_t fuel_id = p_fuel->id;
+    uint64_t kindling_id = p_kindling->id;
+    uint64_t ash_id = p_ash->id;
+
+    uint64_t c_fuel = g.addConnection(g.getPortBySlot(n_coal, "out:0")->id, fuel_id);
+    uint64_t c_kindling = g.addConnection(g.getPortBySlot(n_wood, "out:0")->id, kindling_id);
+    ASSERT_NE(c_fuel, static_cast<uint64_t>(-1));
+    ASSERT_NE(c_kindling, static_cast<uint64_t>(-1));
+
+    ASSERT_TRUE(g.setNodeParam(n_smelt, "clock", gamedata::ParamValue{150.0}));
+    ASSERT_TRUE(g.setNodeParam(n_smelt, "burner_boost", gamedata::ParamValue{int64_t(3)}));
+
+    // Switch furnace_a -> furnace_b:
+    // - in:0, out:0, and xin:fuel MUST keep their exact port IDs and c_fuel wire!
+    // - xin:kindling and xout:ash MUST be removed along with c_kindling wire!
+    // - clock = 150.0 is preserved; burner_boost is removed.
+    ASSERT_TRUE(g.changeMachine(n_smelt, "furnace_b"));
+    EXPECT_EQ(g.getPortBySlot(n_smelt, "in:0")->id, in0_id);
+    EXPECT_EQ(g.getPortBySlot(n_smelt, "xin:fuel")->id, fuel_id);
+    EXPECT_EQ(g.getPortBySlot(n_smelt, "xin:kindling"), nullptr);
+    EXPECT_EQ(g.getPortBySlot(n_smelt, "xout:ash"), nullptr);
+    EXPECT_EQ(g.getPort(kindling_id), nullptr);
+    EXPECT_EQ(g.getPort(ash_id), nullptr);
+    EXPECT_NE(g.getConnection(c_fuel), nullptr);
+    EXPECT_EQ(g.getConnection(c_kindling), nullptr);
+
+    auto clock_val = g.getNodeParam(n_smelt, "clock");
+    ASSERT_TRUE(clock_val.has_value());
+    EXPECT_DOUBLE_EQ(clock_val->asNumber(), 150.0);
+    EXPECT_FALSE(g.getNodeParam(n_smelt, "burner_boost").has_value());
+
+    // Switch furnace_b -> furnace_e:
+    // - xin:fuel and c_fuel are removed; elec_mode initialized to default (false).
+    ASSERT_TRUE(g.changeMachine(n_smelt, "furnace_e"));
+    EXPECT_EQ(g.getPortBySlot(n_smelt, "xin:fuel"), nullptr);
+    EXPECT_EQ(g.getConnection(c_fuel), nullptr);
+    auto elec_val = g.getNodeParam(n_smelt, "elec_mode");
+    ASSERT_TRUE(elec_val.has_value());
+    EXPECT_FALSE(elec_val->asBool());
+}
+
+TEST(FactoryGraphV4Test, SerializeAndDeserialize_UnresolvedNodesParamsGlobalsAndPorts) {
+    const std::string pkg_json = R"json({
+        "schema_version": 4,
+        "game": { "id": "satisfactory", "name": "Satisfactory", "data_version": "1.1" },
+        "units": { "recipe_time": "s", "default_rate": "min" },
+        "resources": [
+            { "id": "iron_ore", "name": "Iron Ore" },
+            { "id": "iron_ingot", "name": "Iron Ingot" }
+        ],
+        "globals": {
+            "proliferation": { "label": "Proliferation", "type": "int", "default": 0, "min": 0, "max": 4 }
+        },
+        "parameters": {
+            "clock": { "label": "Clock", "type": "number", "default": 100.0, "min": 1.0, "max": 250.0 }
+        },
+        "profiles": {
+            "std": {
+                "params": ["clock"],
+                "craft_time": "recipe.time / (param.clock / 100.0)",
+                "input_amount": "port.amount",
+                "output_amount": "port.amount"
+            }
+        },
+        "machines": [
+            { "id": "smelter", "name": "Smelter", "profile": "std" }
+        ],
+        "recipes": [
+            {
+                "id": "smelt_iron", "name": "Smelt Iron", "time": 2.0, "machines": ["smelter"],
+                "in": [{ "res": "iron_ore", "amount": 1.0 }],
+                "out": [{ "res": "iron_ingot", "amount": 1.0 }]
+            }
+        ]
+    })json";
+
+    gamedata::LoadReport report;
+    gamedata::GamePackage pkg;
+    ASSERT_TRUE(gamedata::loadGamePackageFromMemory(pkg_json, {}, pkg, report));
+
+    // Construct a project JSON with:
+    // - data_version mismatch ("1.0" vs "1.1") -> warning
+    // - valid global ("proliferation": 2), unknown global ("legacy_global": "foo")
+    // - Node 1: valid recipe "smelt_iron", with valid param "clock": 150.0, unknown param "old_mod_param": 42,
+    //           and an extra saved port slot "out:1": 99 that no longer exists in the recipe (unresolved port)
+    // - Node 2: unknown recipe "removed_mod_recipe" with custom fields and port "in:0": 200
+    // - Connection from unresolved port 99 on Node 1 to unresolved port 200 on Node 2
+    nlohmann::json projectGraphJson = {
+        {"game", {{"id", "satisfactory"}, {"data_version", "1.0"}}},
+        {"rate_unit", "min"},
+        {"globals", {{"proliferation", 2}, {"legacy_global", "foo"}}},
+        {"nodes", nlohmann::json::array({
+            {
+                {"id", 1},
+                {"name", "Smelter 1"},
+                {"recipe", "smelt_iron"},
+                {"machine", "smelter"},
+                {"params", {{"clock", 150.0}, {"old_mod_param", 42}}},
+                {"ports", {{"in:0", 10}, {"out:0", 11}, {"out:1", 99}}},
+                {"port_constraints", {{"11", 30.0}}},
+                {"port_constraint_modes", {{"11", "TARGET"}}}
+            },
+            {
+                {"id", 2},
+                {"name", "Removed Mod Node"},
+                {"recipe", "removed_mod_recipe"},
+                {"machine", "removed_machine"},
+                {"params", {{"custom_p", true}}},
+                {"ports", {{"in:0", 200}}},
+                {"custom_tag", "keep_me_verbatim"}
+            }
+        })},
+        {"connections", nlohmann::json::array({
+            {{"id", 5}, {"from_port", 99}, {"to_port", 200}}
+        })},
+        {"preferred_machines", nlohmann::json::array({"smelter"})},
+        {"next_node_id", 3},
+        {"next_connection_id", 6}
+    };
+
+    FactoryGraph g(pkg);
+    EXPECT_TRUE(g.deserialize(projectGraphJson, pkg));
+
+    EXPECT_TRUE(g.getLastLoadError().empty());
+    EXPECT_FALSE(g.getLastLoadWarnings().empty()); // data_version mismatch + unknown recipe + unknown param/global + unresolved port
+
+    ASSERT_EQ(g.getNodes().size(), 2u);
+    const Node* n1 = g.getNode(1);
+    const Node* n2 = g.getNode(2);
+    ASSERT_NE(n1, nullptr);
+    ASSERT_NE(n2, nullptr);
+    EXPECT_FALSE(n1->is_unresolved);
+    EXPECT_TRUE(n2->is_unresolved);
+
+    // Check unresolved port 99 on n1 and port 200 on n2, and connection 5 between them
+    const Port* p99 = g.getPort(99);
+    const Port* p200 = g.getPort(200);
+    ASSERT_NE(p99, nullptr);
+    ASSERT_NE(p200, nullptr);
+    EXPECT_TRUE(p99->is_unresolved);
+    EXPECT_TRUE(p200->is_unresolved);
+
+    const Connection* c5 = g.getConnection(5);
+    ASSERT_NE(c5, nullptr);
+    EXPECT_EQ(c5->state, WireState::INACTIVE);
+
+    // Round-trip serialize and verify unresolved node, unresolved params/globals, and unresolved ports are preserved verbatim!
+    nlohmann::json saved = g.serialize();
+    EXPECT_EQ(saved["game"]["id"], "satisfactory");
+    EXPECT_EQ(saved["game"]["data_version"], "1.1");
+    EXPECT_EQ(saved["rate_unit"], "min");
+    EXPECT_EQ(saved["globals"]["proliferation"], 2);
+    EXPECT_EQ(saved["globals"]["legacy_global"], "foo");
+
+    bool found_n1 = false;
+    bool found_n2 = false;
+    for (const auto& nj : saved["nodes"]) {
+        if (nj["id"] == 1) {
+            found_n1 = true;
+            EXPECT_EQ(nj["params"]["clock"], 150.0);
+            EXPECT_EQ(nj["params"]["old_mod_param"], 42);
+            EXPECT_EQ(nj["ports"]["out:1"], 99);
+        } else if (nj["id"] == 2) {
+            found_n2 = true;
+            EXPECT_EQ(nj["recipe"], "removed_mod_recipe");
+            EXPECT_EQ(nj["custom_tag"], "keep_me_verbatim");
+            EXPECT_EQ(nj["ports"]["in:0"], 200);
+        }
+    }
+    EXPECT_TRUE(found_n1);
+    EXPECT_TRUE(found_n2);
+
+    // Verify Rule 1: mismatched game.id fails cleanly
+    nlohmann::json wrongGameJson = saved;
+    wrongGameJson["game"]["id"] = "factorio";
+    FactoryGraph g2(pkg);
+    EXPECT_FALSE(g2.deserialize(wrongGameJson, pkg));
+    EXPECT_FALSE(g2.getLastLoadError().empty());
+    EXPECT_TRUE(g2.getNodes().empty());
+}
+
 
 

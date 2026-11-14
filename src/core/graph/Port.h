@@ -43,11 +43,23 @@ struct Port {
     uint64_t id = 0;
     uint64_t node_id = 0;
     std::string resource_key; // ID of the resource associated with this port
+    std::string slot_key;     // Stable slot key ("in:i", "out:i", "xin:id", "xout:id")
+    double amount_per_craft = 0.0; // Pre-solve evaluated amount per craft
+    bool active = true;       // Active in LP (enabled, resource != "", amount_per_craft > 1e-9, eval status != ERROR)
+    bool is_unresolved = false; // Stored slot key not found in recipe/profile on load
 
     Port() = default;
 
-    Port(uint64_t id, uint64_t node_id, std::string resource_key)
-        : id(id), node_id(node_id), resource_key(std::move(resource_key)) {
+    Port(uint64_t id, uint64_t node_id, std::string resource_key,
+         std::string slot_key = "", double amount_per_craft = 0.0,
+         bool active = true, bool is_unresolved = false)
+        : id(id),
+          node_id(node_id),
+          resource_key(std::move(resource_key)),
+          slot_key(std::move(slot_key)),
+          amount_per_craft(amount_per_craft),
+          active(active),
+          is_unresolved(is_unresolved) {
     }
 
     friend bool operator==(const Port &lhs, const Port &rhs) {

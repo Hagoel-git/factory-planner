@@ -187,41 +187,88 @@ bool ProjectIO::loadProject(const std::filesystem::path &path, FactoryGraph &fac
         }
 
         try {
-            std::string targetUUID = projectData["graph_data"].value("game_data_uuid", "");
-            GameDataManager game_data_manager;
-            std::string error;
-            std::vector<GameDataPackage> packages = scanForGameData(SettingsManager::instance().getSettings().gameDataPath);
-            // search for path from name in packages
-            std::filesystem::path gameDataPath;
-            std::error_code ec;
-            for (const auto& pkg : packages) {
-                if (!targetUUID.empty() && pkg.uuid == targetUUID) {
-                    if (pkg.dataFilePath.is_absolute() || (std::filesystem::exists(pkg.dataFilePath, ec) && !ec)) {
-                        gameDataPath = pkg.dataFilePath;
-                    } else {
-                        gameDataPath = SettingsManager::instance().getSettings().gameDataPath / pkg.dataFilePath;
-                    }
-                    break;
-                }
-            }
-            if (gameDataPath.empty()) {
-                LOG(ERROR) << "Game data file not found for project: " << path << " (UUID: " << targetUUID << ")";
-                NotificationManager::instance().addNotification(
-                    "Error Loading Project",
-                    "Game data file not found for project: " + pathToUtf8(path) + " (UUID: " + targetUUID + ")",
-                    NotificationType::Error);
-                return false;
-            }
-            if (!game_data_manager.loadFromFile(gameDataPath, error)) {
-                LOG(ERROR) << "Failed to load game data from file: " << error;
-                NotificationManager::instance().addNotification(
-                    "Error Loading Project",
-                    "Failed to load game data from file: " + error,
-                    NotificationType::Error);
-                return false;
+            const auto& graphDataJson = projectData["graph_data"];
+            std::string targetGameId;
+            std::string targetVersion;
+            if (graphDataJson.contains("game") && graphDataJson["game"].is_object()) {
+                targetGameId = graphDataJson["game"].value("id", "");
+                targetVersion = graphDataJson["game"].value("data_version", "");
             }
 
-            factoryGraph.deserialize(projectData["graph_data"], game_data_manager.current());
+            if (factoryGraph.getGameData().game.id.empty() && factoryGraph.getGameData().recipes.empty()) {
+                GameDataManager game_data_manager;
+                std::string error;
+                std::vector<GameDataPackage> packages =
+                    scanForGameData(SettingsManager::instance().getSettings().gameDataPath);
+                std::filesystem::path gameDataPath;
+                std::error_code ec;
+
+                auto resolvePkgPath = [&](const GameDataPackage& pkg) {
+                    if (pkg.dataFilePath.is_absolute() || (std::filesystem::exists(pkg.dataFilePath, ec) && !ec)) {
+                        return pkg.dataFilePath;
+                    }
+                    return SettingsManager::instance().getSettings().gameDataPath / pkg.dataFilePath;
+                };
+
+                // Prefer exact (game.id, data_version) match first, then fallback to matching game.id
+                for (const auto& pkg : packages) {
+                    if (!targetGameId.empty() && pkg.uuid == targetGameId &&
+                        !targetVersion.empty() && pkg.dataVersion == targetVersion) {
+                        gameDataPath = resolvePkgPath(pkg);
+                        break;
+                    }
+                }
+                if (gameDataPath.empty()) {
+                    for (const auto& pkg : packages) {
+                        if (!targetGameId.empty() && pkg.uuid == targetGameId) {
+                            gameDataPath = resolvePkgPath(pkg);
+                            break;
+                        }
+                    }
+                }
+
+                if (gameDataPath.empty()) {
+                    LOG(ERROR) << "Game data package not found for project: " << path
+                               << " (game.id: " << targetGameId << ")";
+                    NotificationManager::instance().addNotification(
+                        "Error Loading Project",
+                        "Game data package not found for project: " + pathToUtf8(path) +
+                            " (game.id: " + targetGameId + ")",
+                        NotificationType::Error);
+                    return false;
+                }
+                if (!game_data_manager.loadFromFile(gameDataPath, error)) {
+                    LOG(ERROR) << "Failed to load game data from file: " << error;
+                    NotificationManager::instance().addNotification(
+                        "Error Loading Project",
+                        "Failed to load game data from file: " + error,
+                        NotificationType::Error);
+                    return false;
+                }
+
+                if (!factoryGraph.deserialize(graphDataJson, game_data_manager.current())) {
+                    NotificationManager::instance().addNotification(
+                        "Error Loading Project",
+                        factoryGraph.getLastLoadError(),
+                        NotificationType::Error);
+                    return false;
+                }
+            } else {
+                if (!factoryGraph.deserialize(graphDataJson, factoryGraph.getGameData())) {
+                    NotificationManager::instance().addNotification(
+                        "Error Loading Project",
+                        factoryGraph.getLastLoadError(),
+                        NotificationType::Error);
+                    return false;
+                }
+            }
+
+            for (const auto& warn : factoryGraph.getLoadWarnings()) {
+                NotificationManager::instance().addNotification(
+                    "Project Load Warning",
+                    warn,
+                    NotificationType::Warning);
+            }
         } catch (const std::exception& e) {
             LOG(ERROR) << "Failed to deserialize graph data: " << e.what();
             NotificationManager::instance().addNotification(

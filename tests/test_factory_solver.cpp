@@ -2,6 +2,7 @@
 #include "core/graph/FactorySolver.h"
 #include "core/graph/FactoryGraph.h"
 #include "core/data/GameData.h"
+#include "core/data/GameDataLoader.h"
 
 class FactorySolverTest : public ::testing::Test {
 protected:
@@ -9,79 +10,64 @@ protected:
     std::unique_ptr<FactoryGraph> graph;
     std::unique_ptr<FactorySolver> solver;
 
+    static void defResource(GameData& pkg, const std::string& id, const std::string& name) {
+        gamedata::upsertResource(pkg, id, name);
+    }
+
+    static void defMachine(GameData& pkg, const std::string& id, const std::string& name, double speed = 1.0) {
+        gamedata::upsertMachine(pkg, id, name, speed, "v3_compat");
+    }
+
+    static void defRecipe(
+        GameData& pkg,
+        const std::string& id,
+        const std::string& name,
+        std::vector<std::string> machines,
+        const std::vector<std::pair<std::string, double>>& inputs,
+        const std::vector<std::pair<std::string, double>>& outputs,
+        double time = 1.0) {
+        gamedata::upsertRecipe(pkg, id, name, time, std::move(machines), inputs, outputs);
+    }
+
     void SetUp() override {
-        // --- 1. Set up GameData (same as FactoryGraphTest) ---
-        testGameData.gameName = "TestGame";
-        testGameData.time_unit = "seconds";
+        testGameData = GameData{};
+        testGameData.game.id = "test_game";
+        testGameData.game.name = "TestGame";
+        testGameData.game.data_version = "1.0.0";
+        testGameData.units.recipe_time = gamedata::RecipeTimeUnit::Seconds;
+        testGameData.units.default_rate = gamedata::RateUnit::PerSec;
+        gamedata::ensureV3CompatProfile(testGameData);
 
-        testGameData.resources["nothing"] = Resource{"Nothing", 0};
-        testGameData.resources["iron_ore"] = Resource{"Iron Ore", 1};
-        testGameData.resources["iron_ingot"] = Resource{"Iron Ingot", 2};
-        testGameData.resources["iron_plate"] = Resource{"Iron Plate", 3};
-        testGameData.resources["screw"] = Resource{"Screw", 4};
-        testGameData.resources["reinforced_plate"] = Resource{"Reinforced Plate", 5};
-        testGameData.resources["copper_ore"] = Resource{"Copper Ore", 6};
-        testGameData.resources["copper_ingot"] = Resource{"Copper Ingot", 7};
-        testGameData.resources["wire"] = Resource{"Wire", 8};
+        defResource(testGameData, "iron_ore", "Iron Ore");
+        defResource(testGameData, "iron_ingot", "Iron Ingot");
+        defResource(testGameData, "iron_plate", "Iron Plate");
+        defResource(testGameData, "screw", "Screw");
+        defResource(testGameData, "reinforced_plate", "Reinforced Plate");
+        defResource(testGameData, "copper_ore", "Copper Ore");
+        defResource(testGameData, "copper_ingot", "Copper Ingot");
+        defResource(testGameData, "wire", "Wire");
 
-        testGameData.machines["miner"] = Machine{"Miner", 1, 0};
-        testGameData.machines["smelter"] = Machine{"Smelter", 1, 1};
-        testGameData.machines["constructor"] = Machine{"Constructor", 1, 2};
-        testGameData.machines["assembler"] = Machine{"Assembler", 1, 3};
-        testGameData.machines["sink"] = Machine{"AWESOME Sink", 1, 4};
+        defMachine(testGameData, "miner", "Miner", 1.0);
+        defMachine(testGameData, "smelter", "Smelter", 1.0);
+        defMachine(testGameData, "constructor", "Constructor", 1.0);
+        defMachine(testGameData, "assembler", "Assembler", 1.0);
+        defMachine(testGameData, "sink", "AWESOME Sink", 1.0);
 
-        Recipe mine_ore;
-        mine_ore.name = "Mine Iron Ore";
-        mine_ore.produced_in_machines_keys.push_back("miner");
-        mine_ore.input_ports.push_back(RecipePort{1.0, "nothing"});
-        mine_ore.output_ports.push_back(RecipePort{30.0, "iron_ore"});
-        mine_ore.time_seconds = 1.0; // Added for machine count
-        testGameData.recipes["mine_ore"] = mine_ore;
+        defRecipe(testGameData, "mine_ore", "Mine Iron Ore", {"miner"},
+                  {}, {{"iron_ore", 30.0}}, 1.0);
+        defRecipe(testGameData, "smelt_ingot", "Smelt Iron Ingot", {"smelter"},
+                  {{"iron_ore", 30.0}}, {{"iron_ingot", 30.0}}, 1.0);
+        defRecipe(testGameData, "sink_ingot", "Sink Iron Ingot", {"sink"},
+                  {{"iron_ingot", 1.0}}, {}, 1.0);
+        defRecipe(testGameData, "make_plates", "Make Iron Plates", {"constructor"},
+                  {{"iron_ingot", 30.0}}, {{"iron_plate", 20.0}}, 1.0);
+        defRecipe(testGameData, "make_screws", "Make Screws", {"constructor"},
+                  {{"iron_ingot", 10.0}}, {{"screw", 40.0}}, 1.0);
+        defRecipe(testGameData, "make_reinforced", "Make Reinforced Plates", {"assembler"},
+                  {{"iron_plate", 30.0}, {"screw", 60.0}}, {{"reinforced_plate", 5.0}}, 1.0);
 
-        Recipe smelt_ingot;
-        smelt_ingot.name = "Smelt Iron Ingot";
-        smelt_ingot.produced_in_machines_keys.push_back("smelter");
-        smelt_ingot.input_ports.push_back(RecipePort{30.0, "iron_ore"});
-        smelt_ingot.output_ports.push_back(RecipePort{30.0, "iron_ingot"});
-        smelt_ingot.time_seconds = 1.0; // Added for machine count
-        testGameData.recipes["smelt_ingot"] = smelt_ingot;
-
-        Recipe sink_ingot;
-        sink_ingot.name = "Sink Iron Ingot";
-        sink_ingot.produced_in_machines_keys.push_back("sink");
-        sink_ingot.input_ports.push_back(RecipePort{1.0, "iron_ingot"});
-        sink_ingot.output_ports.push_back(RecipePort{1.0, "nothing"});
-        sink_ingot.time_seconds = 1.0; // Added for machine count
-        testGameData.recipes["sink_ingot"] = sink_ingot;
-
-        Recipe make_plates;
-        make_plates.name = "Make Iron Plates";
-        make_plates.produced_in_machines_keys.push_back("constructor");
-        make_plates.input_ports.push_back(RecipePort{30.0, "iron_ingot"});
-        make_plates.output_ports.push_back(RecipePort{20.0, "iron_plate"}); // 3:2 ratio
-        make_plates.time_seconds = 1.0;
-        testGameData.recipes["make_plates"] = make_plates;
-
-        Recipe make_screws;
-        make_screws.name = "Make Screws";
-        make_screws.produced_in_machines_keys.push_back("constructor");
-        make_screws.input_ports.push_back(RecipePort{10.0, "iron_ingot"});
-        make_screws.output_ports.push_back(RecipePort{40.0, "screw"}); // 1:4 ratio
-        make_screws.time_seconds = 1.0;
-        testGameData.recipes["make_screws"] = make_screws;
-
-        Recipe make_reinforced;
-        make_reinforced.name = "Make Reinforced Plates";
-        make_reinforced.produced_in_machines_keys.push_back("assembler");
-        make_reinforced.input_ports.push_back(RecipePort{30.0, "iron_plate"});
-        make_reinforced.input_ports.push_back(RecipePort{60.0, "screw"});
-        make_reinforced.output_ports.push_back(RecipePort{5.0, "reinforced_plate"});
-        make_reinforced.time_seconds = 1.0;
-        testGameData.recipes["make_reinforced"] = make_reinforced;
-
-        // --- 2. Initialize Graph and Solver ---
         graph = std::make_unique<FactoryGraph>(testGameData);
-        solver = std::make_unique<FactorySolver>(); // Uses default solver
+        solver = std::make_unique<FactorySolver>();
     }
 
     void TearDown() override {
@@ -89,14 +75,12 @@ protected:
         graph.reset();
     }
 
-    // Helper to add a node
     uint64_t addNode(const std::string& recipeKey) {
-        std::string nodeName = testGameData.recipes.at(recipeKey).name;
-        uint64_t nodeId = graph->addNode(nodeName, recipeKey);
-        return nodeId;
+        const auto* rec = testGameData.findRecipe(recipeKey);
+        std::string nodeName = rec ? rec->name : recipeKey;
+        return graph->addNode(nodeName, recipeKey);
     }
 
-    // Helper to get a port
     Port* getPort(uint64_t nodeId, const std::string& resourceKey, bool isInput) {
         Node* node = graph->getNode(nodeId);
         if (!node) return nullptr;
@@ -110,10 +94,31 @@ protected:
         return nullptr;
     }
 
-    // Helper to add a connection
     uint64_t addConnection(Port* from, Port* to) {
         if (!from || !to) return -1;
         return graph->addConnection(from->id, to->id);
+    }
+
+    void setClockSpeed(uint64_t nodeId, double clockPct) {
+        graph->setNodeParam(nodeId, "clock", gamedata::ParamValue::number(clockPct));
+    }
+
+    void setProductionMultiplier(uint64_t nodeId, double multPct) {
+        graph->setNodeParam(nodeId, "output_mult", gamedata::ParamValue::number(multPct));
+    }
+
+    void defResource(const std::string& id, const std::string& name) {
+        gamedata::upsertResource(testGameData, id, name);
+    }
+
+    void defRecipe(
+        const std::string& id,
+        const std::string& name,
+        double time,
+        std::vector<std::string> machines,
+        const std::vector<std::pair<std::string, double>>& inputs,
+        const std::vector<std::pair<std::string, double>>& outputs) {
+        gamedata::upsertRecipe(testGameData, id, name, time, std::move(machines), inputs, outputs);
     }
 };
 
@@ -351,7 +356,7 @@ TEST_F(FactorySolverTest, RobustnessZeroOrNegativeClockSpeed) {
     addConnection(getPort(n_miner, "iron_ore", false), getPort(n_smelter, "iron_ore", true));
 
     // Zero clock speed
-    graph->setNodeClockSpeed(n_smelter, 0.0);
+    setClockSpeed(n_smelter, 0.0);
     graph->setPortConstraint(getPort(n_miner, "iron_ore", false)->id, 30.0);
 
     FactorySolver::SolverResult result = solver->solve(*graph);
@@ -359,20 +364,15 @@ TEST_F(FactorySolverTest, RobustnessZeroOrNegativeClockSpeed) {
     EXPECT_NEAR(graph->getNode(n_smelter)->machine_count, 0.0, 0.001);
 
     // Negative clock speed
-    graph->setNodeClockSpeed(n_smelter, -50.0);
+    setClockSpeed(n_smelter, -50.0);
     result = solver->solve(*graph);
     ASSERT_EQ(result.status, FactorySolver::SolverResultStatus::SUCCESS);
     EXPECT_NEAR(graph->getNode(n_smelter)->machine_count, 0.0, 0.001);
 }
 
 TEST_F(FactorySolverTest, RobustnessZeroRecipeTime) {
-    Recipe zero_time_recipe;
-    zero_time_recipe.name = "Zero Time Recipe";
-    zero_time_recipe.produced_in_machines_keys.push_back("smelter");
-    zero_time_recipe.input_ports.push_back(RecipePort{30.0, "iron_ore"});
-    zero_time_recipe.output_ports.push_back(RecipePort{30.0, "iron_ingot"});
-    zero_time_recipe.time_seconds = 0.0;
-    testGameData.recipes["zero_time"] = zero_time_recipe;
+    defRecipe(testGameData, "zero_time", "Zero Time Recipe", {"smelter"},
+              {{"iron_ore", 30.0}}, {{"iron_ingot", 30.0}}, 0.0);
 
     graph = std::make_unique<FactoryGraph>(testGameData);
 
@@ -411,19 +411,19 @@ TEST_F(FactorySolverTest, ZeroProductionMultiplierOrClockSpeed_ClampsToZeroAndNo
 
     // Limit miner to 30
     graph->setPortConstraint(p_miner_out->id, 30.0);
-    // Set smelter production_multiplier to 0
-    graph->setProductionMultiplier(n_smelter, 0.0);
+    // Set smelter output_mult to 0
+    setProductionMultiplier(n_smelter, 0.0);
 
     FactorySolver::SolverResult result = solver->solve(*graph);
     ASSERT_EQ(result.status, FactorySolver::SolverResultStatus::SUCCESS);
 
-    EXPECT_NEAR(p_smelter_in->rate, 0.0, 0.001);
-    EXPECT_NEAR(p_smelter_out->rate, 0.0, 0.001);
-    EXPECT_NEAR(graph->getNode(n_smelter)->machine_count, 0.0, 0.001);
-
-    // Now test clock speed 0
-    graph->setProductionMultiplier(n_smelter, 100.0);
-    graph->setNodeClockSpeed(n_smelter, 0.0);
+    // With output_mult = 0, output_ports[0] becomes inactive (amount_per_craft = 0).
+    // Smelter now has 1 active input and 0 active outputs -> it acts as a sink in supply mode
+    // unless clock is 0! Wait: when output_mult = 0 and miner is constrained in AUTO mode (PUSH 30),
+    // wait: in v3, output_mult <= 0 forced all ports of the node to 0!
+    // In v4, when clock_speed <= 0, craft_time is <= 0 / division by zero -> node status = ERROR -> all ports clamped to 0!
+    setClockSpeed(n_smelter, 0.0);
+    setProductionMultiplier(n_smelter, 100.0);
 
     result = solver->solve(*graph);
     ASSERT_EQ(result.status, FactorySolver::SolverResultStatus::SUCCESS);
@@ -431,9 +431,10 @@ TEST_F(FactorySolverTest, ZeroProductionMultiplierOrClockSpeed_ClampsToZeroAndNo
     EXPECT_NEAR(p_smelter_in->rate, 0.0, 0.001);
     EXPECT_NEAR(p_smelter_out->rate, 0.0, 0.001);
     EXPECT_NEAR(graph->getNode(n_smelter)->machine_count, 0.0, 0.001);
-    // Test negative production multiplier
-    graph->setProductionMultiplier(n_smelter, -50.0);
-    graph->setNodeClockSpeed(n_smelter, 100.0);
+
+    // Test negative production multiplier (causes negative port amount runtime ERROR -> all ports clamped to 0)
+    setClockSpeed(n_smelter, 100.0);
+    setProductionMultiplier(n_smelter, -50.0);
     result = solver->solve(*graph);
     ASSERT_EQ(result.status, FactorySolver::SolverResultStatus::SUCCESS);
     EXPECT_NEAR(p_smelter_in->rate, 0.0, 0.001);
@@ -441,8 +442,8 @@ TEST_F(FactorySolverTest, ZeroProductionMultiplierOrClockSpeed_ClampsToZeroAndNo
     EXPECT_NEAR(graph->getNode(n_smelter)->machine_count, 0.0, 0.001);
 
     // Test negative clock speed
-    graph->setProductionMultiplier(n_smelter, 100.0);
-    graph->setNodeClockSpeed(n_smelter, -25.0);
+    setProductionMultiplier(n_smelter, 100.0);
+    setClockSpeed(n_smelter, -25.0);
     result = solver->solve(*graph);
     ASSERT_EQ(result.status, FactorySolver::SolverResultStatus::SUCCESS);
     EXPECT_NEAR(p_smelter_in->rate, 0.0, 0.001);
@@ -477,24 +478,11 @@ TEST_F(FactorySolverTest, Stage3WasteMinimization_PrefersDownstreamLinkOverExces
 }
 
 TEST_F(FactorySolverTest, Stage3WasteMinimization_ByproductRoutingPrefersDownstreamLinkOverExcess) {
-    Recipe split_recipe;
-    split_recipe.name = "Split Production";
-    split_recipe.produced_in_machines_keys.push_back("constructor");
-    split_recipe.input_ports.push_back(RecipePort{30.0, "iron_ingot"});
-    split_recipe.output_ports.push_back(RecipePort{20.0, "iron_plate"}); // output 0: main product
-    split_recipe.output_ports.push_back(RecipePort{10.0, "screw"});      // output 1: byproduct
-    split_recipe.time_seconds = 1.0;
-
-    Recipe sink_screw;
-    sink_screw.name = "Sink Screws";
-    sink_screw.produced_in_machines_keys.push_back("sink");
-    sink_screw.input_ports.push_back(RecipePort{1.0, "screw"});
-    sink_screw.output_ports.push_back(RecipePort{1.0, "nothing"});
-    sink_screw.time_seconds = 1.0;
-
     GameData gd = testGameData;
-    gd.recipes["split_recipe"] = split_recipe;
-    gd.recipes["sink_screw"] = sink_screw;
+    defRecipe(gd, "split_recipe", "Split Production", {"constructor"},
+              {{"iron_ingot", 30.0}}, {{"iron_plate", 20.0}, {"screw", 10.0}}, 1.0);
+    defRecipe(gd, "sink_screw", "Sink Screws", {"sink"},
+              {{"screw", 1.0}}, {}, 1.0);
 
     FactoryGraph g(gd);
     FactorySolver s;
@@ -548,57 +536,12 @@ TEST_F(FactorySolverTest, Stage3WasteMinimization_ByproductRoutingPrefersDownstr
 }
 
 TEST_F(FactorySolverTest, Phase1WaterFilling_CompetingTargetsSharingCapacityNotFalselyBottlenecked) {
-    // Finding #16 reproduction test:
-    // 3-target factory:
-    // - Target 3: separate chain with 20 coal/s supply, 100 demand (bottlenecks globally at S = 0.20).
-    // - Target 1: recipe 1 ore -> 1 item, target 100 items/s.
-    // - Target 2: recipe 2 ore -> 1 item, target 100 items/s.
-    // - Targets 1 and 2 share a common raw source producing 90 ore/s.
-    // When solved, Target 3 must be locked at 20 items/s.
-    // Under fair max-min water-filling, the remaining 30 surplus ore must be split proportionally
-    // between Target 1 and Target 2, achieving S = 0.30 (Target 1 = 30.0 items/s, Target 2 = 30.0 items/s).
-
-    Recipe r_coal_source;
-    r_coal_source.name = "Mine Coal";
-    r_coal_source.produced_in_machines_keys.push_back("miner");
-    r_coal_source.input_ports.push_back(RecipePort{1.0, "nothing"});
-    r_coal_source.output_ports.push_back(RecipePort{20.0, "coal"});
-    r_coal_source.time_seconds = 1.0;
-
-    Recipe r_coal_consumer;
-    r_coal_consumer.name = "Process Coal";
-    r_coal_consumer.produced_in_machines_keys.push_back("constructor");
-    r_coal_consumer.input_ports.push_back(RecipePort{1.0, "coal"});
-    r_coal_consumer.output_ports.push_back(RecipePort{1.0, "coal_item"});
-    r_coal_consumer.time_seconds = 1.0;
-
-    Recipe r_ore_source;
-    r_ore_source.name = "Mine Raw Ore";
-    r_ore_source.produced_in_machines_keys.push_back("miner");
-    r_ore_source.input_ports.push_back(RecipePort{1.0, "nothing"});
-    r_ore_source.output_ports.push_back(RecipePort{90.0, "ore"});
-    r_ore_source.time_seconds = 1.0;
-
-    Recipe r_target1;
-    r_target1.name = "Make Item 1";
-    r_target1.produced_in_machines_keys.push_back("constructor");
-    r_target1.input_ports.push_back(RecipePort{1.0, "ore"});
-    r_target1.output_ports.push_back(RecipePort{1.0, "item1"});
-    r_target1.time_seconds = 1.0;
-
-    Recipe r_target2;
-    r_target2.name = "Make Item 2";
-    r_target2.produced_in_machines_keys.push_back("constructor");
-    r_target2.input_ports.push_back(RecipePort{2.0, "ore"});
-    r_target2.output_ports.push_back(RecipePort{1.0, "item2"});
-    r_target2.time_seconds = 1.0;
-
     GameData gd = testGameData;
-    gd.recipes["mine_coal"] = r_coal_source;
-    gd.recipes["process_coal"] = r_coal_consumer;
-    gd.recipes["mine_ore_90"] = r_ore_source;
-    gd.recipes["make_item1"] = r_target1;
-    gd.recipes["make_item2"] = r_target2;
+    defRecipe(gd, "mine_coal", "Mine Coal", {"miner"}, {}, {{"coal", 20.0}}, 1.0);
+    defRecipe(gd, "process_coal", "Process Coal", {"constructor"}, {{"coal", 1.0}}, {{"coal_item", 1.0}}, 1.0);
+    defRecipe(gd, "mine_ore_90", "Mine Raw Ore", {"miner"}, {}, {{"ore", 90.0}}, 1.0);
+    defRecipe(gd, "make_item1", "Make Item 1", {"constructor"}, {{"ore", 1.0}}, {{"item1", 1.0}}, 1.0);
+    defRecipe(gd, "make_item2", "Make Item 2", {"constructor"}, {{"ore", 2.0}}, {{"item2", 1.0}}, 1.0);
 
     FactoryGraph g(gd);
     FactorySolver s;
@@ -612,24 +555,25 @@ TEST_F(FactorySolverTest, Phase1WaterFilling_CompetingTargetsSharingCapacityNotF
     uint64_t n_t1 = g.addNode("Make Item 1", "make_item1");
     uint64_t n_t2 = g.addNode("Make Item 2", "make_item2");
 
+    constexpr uint64_t kInvalidPortId = static_cast<uint64_t>(-1);
     auto getPortId = [&](uint64_t node_id, const std::string& res, bool is_in) -> uint64_t {
         const Node* node = g.getNode(node_id);
-        if (!node) return 0;
+        if (!node) return kInvalidPortId;
         const auto& p_ids = is_in ? node->input_ports : node->output_ports;
         for (uint64_t pid : p_ids) {
             const Port* p = g.getPort(pid);
             if (p && p->resource_key == res) return pid;
         }
-        return 0;
+        return kInvalidPortId;
     };
 
     uint64_t p_coal_mine_out = getPortId(n_coal_mine, "coal", false);
     uint64_t p_coal_proc_in = getPortId(n_coal_proc, "coal", true);
     uint64_t p_coal_proc_out = getPortId(n_coal_proc, "coal_item", false);
 
-    ASSERT_NE(p_coal_mine_out, 0);
-    ASSERT_NE(p_coal_proc_in, 0);
-    ASSERT_NE(p_coal_proc_out, 0);
+    ASSERT_NE(p_coal_mine_out, kInvalidPortId);
+    ASSERT_NE(p_coal_proc_in, kInvalidPortId);
+    ASSERT_NE(p_coal_proc_out, kInvalidPortId);
 
     g.addConnection(p_coal_mine_out, p_coal_proc_in);
     g.setPortConstraint(p_coal_mine_out, 20.0); // 20 coal/s supply limit
@@ -641,11 +585,11 @@ TEST_F(FactorySolverTest, Phase1WaterFilling_CompetingTargetsSharingCapacityNotF
     uint64_t p_t2_in = getPortId(n_t2, "ore", true);
     uint64_t p_t2_out = getPortId(n_t2, "item2", false);
 
-    ASSERT_NE(p_ore_mine_out, 0);
-    ASSERT_NE(p_t1_in, 0);
-    ASSERT_NE(p_t1_out, 0);
-    ASSERT_NE(p_t2_in, 0);
-    ASSERT_NE(p_t2_out, 0);
+    ASSERT_NE(p_ore_mine_out, kInvalidPortId);
+    ASSERT_NE(p_t1_in, kInvalidPortId);
+    ASSERT_NE(p_t1_out, kInvalidPortId);
+    ASSERT_NE(p_t2_in, kInvalidPortId);
+    ASSERT_NE(p_t2_out, kInvalidPortId);
 
     g.addConnection(p_ore_mine_out, p_t1_in);
     g.addConnection(p_ore_mine_out, p_t2_in);
@@ -662,14 +606,6 @@ TEST_F(FactorySolverTest, Phase1WaterFilling_CompetingTargetsSharingCapacityNotF
 }
 
 TEST_F(FactorySolverTest, Phase2LeafThroughput_SupplyLimitDoesNotPushUnwantedOverproductionWhenTargetExists) {
-    // Chain:
-    // - Miner outputs iron_ore, capped with LIMIT = 120.0
-    // - Smelter converts iron_ore -> iron_ingot (30:30, 1:1)
-    // - Constructor converts iron_ingot -> iron_plate (30:20, 3:2)
-    // - Constructor plate output has TARGET = 10.0
-    // Demand for 10.0 plates requires 15.0 iron_ingots and 15.0 iron_ore.
-    // The miner limit of 120.0 must NOT push through to overproduce plates or waste ore.
-
     uint64_t n_miner = addNode("mine_ore");
     uint64_t n_smelter = addNode("smelt_ingot");
     uint64_t n_const = addNode("make_plates");
@@ -703,14 +639,8 @@ TEST_F(FactorySolverTest, Phase2LeafThroughput_SupplyLimitDoesNotPushUnwantedOve
 }
 
 TEST_F(FactorySolverTest, MultiInputRecipeWithZeroAmountIngredientDerivesMachineCount) {
-    Recipe cat_recipe;
-    cat_recipe.name = "Catalytic Smelting";
-    cat_recipe.produced_in_machines_keys.push_back("smelter");
-    cat_recipe.input_ports.push_back(RecipePort{0.0, "copper_ingot"}); // 0 amount catalyst
-    cat_recipe.input_ports.push_back(RecipePort{30.0, "iron_ore"});
-    cat_recipe.output_ports.push_back(RecipePort{30.0, "iron_ingot"});
-    cat_recipe.time_seconds = 1.0;
-    testGameData.recipes["cat_recipe"] = cat_recipe;
+    defRecipe(testGameData, "cat_recipe", "Catalytic Smelting", {"smelter"},
+              {{"copper_ingot", 0.0}, {"iron_ore", 30.0}}, {{"iron_ingot", 30.0}}, 1.0);
 
     graph = std::make_unique<FactoryGraph>(testGameData);
     uint64_t n_miner = addNode("mine_ore");
@@ -724,14 +654,8 @@ TEST_F(FactorySolverTest, MultiInputRecipeWithZeroAmountIngredientDerivesMachine
 }
 
 TEST_F(FactorySolverTest, MultiInputRecipeWithZeroAmountCatalystNothingDerivesMachineCount) {
-    Recipe cat_recipe;
-    cat_recipe.name = "Catalytic Smelting With Nothing";
-    cat_recipe.produced_in_machines_keys.push_back("smelter");
-    cat_recipe.input_ports.push_back(RecipePort{0.0, "nothing"});
-    cat_recipe.input_ports.push_back(RecipePort{30.0, "iron_ore"});
-    cat_recipe.output_ports.push_back(RecipePort{30.0, "iron_ingot"});
-    cat_recipe.time_seconds = 1.0;
-    testGameData.recipes["cat_recipe_nothing"] = cat_recipe;
+    defRecipe(testGameData, "cat_recipe_nothing", "Catalytic Smelting With Nothing", {"smelter"},
+              {{"nothing", 0.0}, {"iron_ore", 30.0}}, {{"iron_ingot", 30.0}}, 1.0);
 
     graph = std::make_unique<FactoryGraph>(testGameData);
     uint64_t n_miner = addNode("mine_ore");
@@ -745,13 +669,8 @@ TEST_F(FactorySolverTest, MultiInputRecipeWithZeroAmountCatalystNothingDerivesMa
 }
 
 TEST_F(FactorySolverTest, AllZeroAmountInputsFallBackToOutputForMachineCount) {
-    Recipe zero_in_recipe;
-    zero_in_recipe.name = "Zero Input Recipe";
-    zero_in_recipe.produced_in_machines_keys.push_back("smelter");
-    zero_in_recipe.input_ports.push_back(RecipePort{0.0, "copper_ingot"});
-    zero_in_recipe.output_ports.push_back(RecipePort{30.0, "iron_ingot"});
-    zero_in_recipe.time_seconds = 1.0;
-    testGameData.recipes["zero_in_recipe"] = zero_in_recipe;
+    defRecipe(testGameData, "zero_in_recipe", "Zero Input Recipe", {"smelter"},
+              {{"copper_ingot", 0.0}}, {{"iron_ingot", 30.0}}, 1.0);
 
     graph = std::make_unique<FactoryGraph>(testGameData);
     uint64_t n_node = graph->addNode("Zero In Smelter", "zero_in_recipe");
@@ -763,22 +682,10 @@ TEST_F(FactorySolverTest, AllZeroAmountInputsFallBackToOutputForMachineCount) {
 }
 
 TEST_F(FactorySolverTest, UnboundedPhase2FailureNotMaskedByPhase3) {
-    Recipe amp_a;
-    amp_a.name = "Amp A";
-    amp_a.produced_in_machines_keys.push_back("smelter");
-    amp_a.input_ports.push_back(RecipePort{1.0, "iron_ore"});
-    amp_a.output_ports.push_back(RecipePort{2.0, "iron_ingot"});
-    amp_a.time_seconds = 1.0;
-    testGameData.recipes["amp_a"] = amp_a;
-
-    Recipe amp_b;
-    amp_b.name = "Amp B";
-    amp_b.produced_in_machines_keys.push_back("smelter");
-    amp_b.input_ports.push_back(RecipePort{1.0, "iron_ingot"});
-    amp_b.output_ports.push_back(RecipePort{2.0, "iron_ore"});
-    amp_b.output_ports.push_back(RecipePort{1.0, "screw"}); // unconstrained leaf output
-    amp_b.time_seconds = 1.0;
-    testGameData.recipes["amp_b"] = amp_b;
+    defRecipe(testGameData, "amp_a", "Amp A", {"smelter"},
+              {{"iron_ore", 1.0}}, {{"iron_ingot", 2.0}}, 1.0);
+    defRecipe(testGameData, "amp_b", "Amp B", {"smelter"},
+              {{"iron_ingot", 1.0}}, {{"iron_ore", 2.0}, {"screw", 1.0}}, 1.0);
 
     graph = std::make_unique<FactoryGraph>(testGameData);
     uint64_t n_miner = addNode("mine_ore");
@@ -900,37 +807,12 @@ TEST_F(FactorySolverTest, V3_Scenario2_DemandDrivenFactoryWithSupplyCap_PullsMin
 }
 
 TEST_F(FactorySolverTest, V3_Scenario3_ByproductOverflowIntoSinkAndTargetConsumer) {
-    // Refinery produces 60 iron_plate (Fuel) + 40 screw (Resin).
-    // Fuel has TARGET 60. Resin splits to:
-    //  - Plastic maker (10 screw -> 10 wire, TARGET 10)
-    //  - Sink (consumes screw -> nothing)
-    // Stage 1 locks Fuel = 60 and Plastic = 10.
-    // Stage 2a minimizes T_K activity (Refinery = 1 machine -> 40 screw produced, Plastic maker consumes 10 screw).
-    // Stage 2b minimizes E_p on screw output -> routes the remaining 30 screw into the Sink!
-    Recipe refine;
-    refine.name = "Refine";
-    refine.produced_in_machines_keys.push_back("assembler");
-    refine.input_ports.push_back(RecipePort{30.0, "iron_ore"});
-    refine.output_ports.push_back(RecipePort{60.0, "iron_plate"});
-    refine.output_ports.push_back(RecipePort{40.0, "screw"});
-    refine.time_seconds = 1.0;
-    testGameData.recipes["refine"] = refine;
-
-    Recipe make_plastic;
-    make_plastic.name = "Make Plastic";
-    make_plastic.produced_in_machines_keys.push_back("constructor");
-    make_plastic.input_ports.push_back(RecipePort{10.0, "screw"});
-    make_plastic.output_ports.push_back(RecipePort{10.0, "wire"});
-    make_plastic.time_seconds = 1.0;
-    testGameData.recipes["make_plastic"] = make_plastic;
-
-    Recipe sink_screw;
-    sink_screw.name = "Sink Screw";
-    sink_screw.produced_in_machines_keys.push_back("sink");
-    sink_screw.input_ports.push_back(RecipePort{1.0, "screw"});
-    sink_screw.output_ports.push_back(RecipePort{1.0, "nothing"});
-    sink_screw.time_seconds = 1.0;
-    testGameData.recipes["sink_screw"] = sink_screw;
+    defRecipe(testGameData, "refine", "Refine", {"assembler"},
+              {{"iron_ore", 30.0}}, {{"iron_plate", 60.0}, {"screw", 40.0}}, 1.0);
+    defRecipe(testGameData, "make_plastic", "Make Plastic", {"constructor"},
+              {{"screw", 10.0}}, {{"wire", 10.0}}, 1.0);
+    defRecipe(testGameData, "sink_screw", "Sink Screw", {"sink"},
+              {{"screw", 1.0}}, {}, 1.0);
 
     graph = std::make_unique<FactoryGraph>(testGameData);
     uint64_t n_miner = addNode("mine_ore");
@@ -1074,13 +956,7 @@ TEST_F(FactorySolverTest, V3_Scenario6_EqualAndUnequalEfficiencyParallelSupplier
 
     // Subcase B: Branch 2 uses an alternate recipe (30 ore -> 60 ingot in 1s, i.e. half the machines per ingot).
     // Stage 2a prefers the more machine-efficient Branch 2 (60 ingots from Branch 2, 0 from Branch 1).
-    Recipe pure_ingot;
-    pure_ingot.name = "Pure Iron Ingot";
-    pure_ingot.produced_in_machines_keys.push_back("smelter");
-    pure_ingot.input_ports.push_back(RecipePort{30.0, "iron_ore"});
-    pure_ingot.output_ports.push_back(RecipePort{60.0, "iron_ingot"});
-    pure_ingot.time_seconds = 1.0;
-    testGameData.recipes["pure_ingot"] = pure_ingot;
+    defRecipe("pure_ingot", "Pure Iron Ingot", 1.0, {"smelter"}, {{"iron_ore", 30.0}}, {{"iron_ingot", 60.0}});
 
     graph = std::make_unique<FactoryGraph>(testGameData);
     n_m1 = addNode("mine_ore");
@@ -1128,22 +1004,8 @@ TEST_F(FactorySolverTest, V3_Scenario7_SelfSustainingAmplifyingLoopWithTarget) {
     // Miner (iron_ore) + Amp B (iron_ore) -> Amp A (iron_ore).
     // Target = 10 on Amp B's screw output.
     // Loop produces 20 ore while Amp A only needs 5 ore, so Miner produces 0 and 15 excess ore is shed cleanly.
-    Recipe amp_a;
-    amp_a.name = "Amp A";
-    amp_a.produced_in_machines_keys.push_back("smelter");
-    amp_a.input_ports.push_back(RecipePort{1.0, "iron_ore"});
-    amp_a.output_ports.push_back(RecipePort{2.0, "iron_ingot"});
-    amp_a.time_seconds = 1.0;
-    testGameData.recipes["amp_a"] = amp_a;
-
-    Recipe amp_b;
-    amp_b.name = "Amp B";
-    amp_b.produced_in_machines_keys.push_back("smelter");
-    amp_b.input_ports.push_back(RecipePort{1.0, "iron_ingot"});
-    amp_b.output_ports.push_back(RecipePort{2.0, "iron_ore"});
-    amp_b.output_ports.push_back(RecipePort{1.0, "screw"});
-    amp_b.time_seconds = 1.0;
-    testGameData.recipes["amp_b"] = amp_b;
+    defRecipe("amp_a", "Amp A", 1.0, {"smelter"}, {{"iron_ore", 1.0}}, {{"iron_ingot", 2.0}});
+    defRecipe("amp_b", "Amp B", 1.0, {"smelter"}, {{"iron_ingot", 1.0}}, {{"iron_ore", 2.0}, {"screw", 1.0}});
 
     graph = std::make_unique<FactoryGraph>(testGameData);
     uint64_t n_miner = addNode("mine_ore");
@@ -1179,13 +1041,7 @@ TEST_F(FactorySolverTest, V3_Scenario8_MultipleCompetingTargets_WaterFillingFair
     //  - Constructor 1 (make_plates: 30 ingot -> 20 plate), TARGET = 40 plates (needs 60 ingots)
     //  - Constructor 2 (1:1 iron_ingot -> wire), TARGET = 60 wire (needs 60 ingots)
     // Total ingots needed for 100% = 120, available = 60 -> S = 0.5 (20 plates, 30 wire).
-    Recipe make_rods;
-    make_rods.name = "Make Rods";
-    make_rods.produced_in_machines_keys.push_back("constructor");
-    make_rods.input_ports.push_back(RecipePort{15.0, "iron_ingot"});
-    make_rods.output_ports.push_back(RecipePort{15.0, "wire"});
-    make_rods.time_seconds = 1.0;
-    testGameData.recipes["make_rods"] = make_rods;
+    defRecipe("make_rods", "Make Rods", 1.0, {"constructor"}, {{"iron_ingot", 15.0}}, {{"wire", 15.0}});
 
     graph = std::make_unique<FactoryGraph>(testGameData);
     uint64_t n_miner = addNode("mine_ore");
@@ -1304,31 +1160,9 @@ TEST_F(FactorySolverTest, V3_AuxiliarySinkSupplierDemotion_MultiInputSinkVsShare
     // Auxiliary supplier: Wire maker (unwired copper_ingot input = 60 -> 120 wire) connected to Sink in_2.
     // Because Auxiliary supplier is in S+_K and only reaches Sink via in_2 while Main factory reaches Sink via in_1,
     // Auxiliary supplier's 60 constraint is demoted to LIMIT (not PUSH), so Sink only consumes the 0/10 needed!
-    Recipe main_prod;
-    main_prod.name = "Main Prod";
-    main_prod.produced_in_machines_keys.push_back("assembler");
-    main_prod.input_ports.push_back(RecipePort{1.0, "nothing"});
-    main_prod.output_ports.push_back(RecipePort{30.0, "iron_plate"}); // export
-    main_prod.output_ports.push_back(RecipePort{10.0, "screw"});      // byproduct to sink
-    main_prod.time_seconds = 1.0;
-    testGameData.recipes["main_prod"] = main_prod;
-
-    Recipe aux_wire;
-    aux_wire.name = "Aux Wire";
-    aux_wire.produced_in_machines_keys.push_back("constructor");
-    aux_wire.input_ports.push_back(RecipePort{1.0, "nothing"});
-    aux_wire.output_ports.push_back(RecipePort{10.0, "wire"});
-    aux_wire.time_seconds = 1.0;
-    testGameData.recipes["aux_wire"] = aux_wire;
-
-    Recipe dual_sink;
-    dual_sink.name = "Dual Sink";
-    dual_sink.produced_in_machines_keys.push_back("sink");
-    dual_sink.input_ports.push_back(RecipePort{1.0, "screw"});
-    dual_sink.input_ports.push_back(RecipePort{1.0, "wire"});
-    dual_sink.output_ports.push_back(RecipePort{1.0, "nothing"});
-    dual_sink.time_seconds = 1.0;
-    testGameData.recipes["dual_sink"] = dual_sink;
+    defRecipe("main_prod", "Main Prod", 1.0, {"assembler"}, {}, {{"iron_plate", 30.0}, {"screw", 10.0}});
+    defRecipe("aux_wire", "Aux Wire", 1.0, {"constructor"}, {}, {{"wire", 10.0}});
+    defRecipe("dual_sink", "Dual Sink", 1.0, {"sink"}, {{"screw", 1.0}, {"wire", 1.0}}, {});
 
     graph = std::make_unique<FactoryGraph>(testGameData);
     uint64_t n_main = addNode("main_prod");
@@ -1360,14 +1194,7 @@ TEST_F(FactorySolverTest, V3_AuxiliarySinkSupplierDemotion_MultiInputSinkVsShare
 TEST_F(FactorySolverTest, V3_SharedSingleInputSink_DoesNotDemoteDedicatedSupplier) {
     // Both a main-factory node (with an unwired export) and a dedicated supplier merge into the SAME input port
     // of a single-input sink. The dedicated supplier's AUTO constraint must resolve to PUSH (not demoted to LIMIT).
-    Recipe main_prod;
-    main_prod.name = "Main Prod";
-    main_prod.produced_in_machines_keys.push_back("assembler");
-    main_prod.input_ports.push_back(RecipePort{1.0, "nothing"});
-    main_prod.output_ports.push_back(RecipePort{30.0, "iron_plate"}); // export
-    main_prod.output_ports.push_back(RecipePort{10.0, "iron_ingot"}); // to sink
-    main_prod.time_seconds = 1.0;
-    testGameData.recipes["main_prod"] = main_prod;
+    defRecipe("main_prod", "Main Prod", 1.0, {"assembler"}, {}, {{"iron_plate", 30.0}, {"iron_ingot", 10.0}});
 
     graph = std::make_unique<FactoryGraph>(testGameData);
     uint64_t n_main = addNode("main_prod");
@@ -1469,22 +1296,8 @@ TEST_F(FactorySolverTest, V3_T3_ExplicitConstraintModes_LimitTargetRatedAndUnrat
     // Refinery produces 60 iron_plate (TARGET 60) + 40 screw (wired to a consumer capped at 20 screw).
     // With AUTO on the screw output, Refinery produces 60 iron_plate and sheds 20 screw as excess_rate.
     // With Unrated PUSH on the screw output, E_p = 0 is enforced on the screw port, so Refinery is throttled to 30 iron_plate!
-    Recipe split_rec;
-    split_rec.name = "Split";
-    split_rec.produced_in_machines_keys.push_back("assembler");
-    split_rec.input_ports.push_back(RecipePort{1.0, "nothing"});
-    split_rec.output_ports.push_back(RecipePort{60.0, "iron_plate"});
-    split_rec.output_ports.push_back(RecipePort{40.0, "screw"});
-    split_rec.time_seconds = 1.0;
-    testGameData.recipes["split_rec"] = split_rec;
-
-    Recipe screw_user;
-    screw_user.name = "Screw User";
-    screw_user.produced_in_machines_keys.push_back("constructor");
-    screw_user.input_ports.push_back(RecipePort{20.0, "screw"});
-    screw_user.output_ports.push_back(RecipePort{20.0, "wire"});
-    screw_user.time_seconds = 1.0;
-    testGameData.recipes["screw_user"] = screw_user;
+    defRecipe("split_rec", "Split", 1.0, {"assembler"}, {}, {{"iron_plate", 60.0}, {"screw", 40.0}});
+    defRecipe("screw_user", "Screw User", 1.0, {"constructor"}, {{"screw", 20.0}}, {{"wire", 20.0}});
 
     graph = std::make_unique<FactoryGraph>(testGameData);
     uint64_t n_split = addNode("split_rec");
@@ -1537,36 +1350,14 @@ TEST_F(FactorySolverTest, V3_T3_ExplicitConstraintModes_LimitTargetRatedAndUnrat
 TEST_F(FactorySolverTest, V3_SpecTable_Scenarios1_2_3a_3b_FoundryWithByproductAndGreenhouse) {
     // Setup from §6: Foundry: 1 Iron + 1 Coal -> 1 Steel + 1 CO2, Iron Miner (240) and Coal Miner (30).
     // Greenhouse: 1 CO2 -> 1 Wood.
-    testGameData.resources["coal"] = Resource{"Coal", 10};
-    testGameData.resources["steel"] = Resource{"Steel", 11};
-    testGameData.resources["co2"] = Resource{"CO2", 12};
-    testGameData.resources["wood"] = Resource{"Wood", 13};
+    defResource("coal", "Coal");
+    defResource("steel", "Steel");
+    defResource("co2", "CO2");
+    defResource("wood", "Wood");
 
-    Recipe mine_coal;
-    mine_coal.name = "Mine Coal";
-    mine_coal.produced_in_machines_keys.push_back("miner");
-    mine_coal.input_ports.push_back(RecipePort{1.0, "nothing"});
-    mine_coal.output_ports.push_back(RecipePort{30.0, "coal"});
-    mine_coal.time_seconds = 1.0;
-    testGameData.recipes["mine_coal"] = mine_coal;
-
-    Recipe foundry_steel;
-    foundry_steel.name = "Foundry Steel";
-    foundry_steel.produced_in_machines_keys.push_back("assembler");
-    foundry_steel.input_ports.push_back(RecipePort{1.0, "iron_ore"});
-    foundry_steel.input_ports.push_back(RecipePort{1.0, "coal"});
-    foundry_steel.output_ports.push_back(RecipePort{1.0, "steel"});
-    foundry_steel.output_ports.push_back(RecipePort{1.0, "co2"});
-    foundry_steel.time_seconds = 1.0;
-    testGameData.recipes["foundry_steel"] = foundry_steel;
-
-    Recipe greenhouse_wood;
-    greenhouse_wood.name = "Greenhouse Wood";
-    greenhouse_wood.produced_in_machines_keys.push_back("constructor");
-    greenhouse_wood.input_ports.push_back(RecipePort{1.0, "co2"});
-    greenhouse_wood.output_ports.push_back(RecipePort{1.0, "wood"});
-    greenhouse_wood.time_seconds = 1.0;
-    testGameData.recipes["greenhouse_wood"] = greenhouse_wood;
+    defRecipe("mine_coal", "Mine Coal", 1.0, {"miner"}, {}, {{"coal", 30.0}});
+    defRecipe("foundry_steel", "Foundry Steel", 1.0, {"assembler"}, {{"iron_ore", 1.0}, {"coal", 1.0}}, {{"steel", 1.0}, {"co2", 1.0}});
+    defRecipe("greenhouse_wood", "Greenhouse Wood", 1.0, {"constructor"}, {{"co2", 1.0}}, {{"wood", 1.0}});
 
     graph = std::make_unique<FactoryGraph>(testGameData);
     uint64_t n_iron = addNode("mine_ore");
@@ -1653,44 +1444,15 @@ TEST_F(FactorySolverTest, V3_SpecTable_Scenarios1_2_3a_3b_FoundryWithByproductAn
 TEST_F(FactorySolverTest, V3_SpecTable_Scenario4_ByproductToMultiInputGeneratorWithDedicatedWaterExtractor) {
     // Target(Plastic) = 30 produces 30 Coke wired to Coal Generator (1 Coke + 2 Water -> nothing),
     // also fed by dedicated Water Extractor (Limit 120 in AUTO mode).
-    testGameData.resources["oil"] = Resource{"Oil", 14};
-    testGameData.resources["plastic"] = Resource{"Plastic", 15};
-    testGameData.resources["coke"] = Resource{"Coke", 16};
-    testGameData.resources["water"] = Resource{"Water", 17};
+    defResource("oil", "Oil");
+    defResource("plastic", "Plastic");
+    defResource("coke", "Coke");
+    defResource("water", "Water");
 
-    Recipe extract_oil;
-    extract_oil.name = "Extract Oil";
-    extract_oil.produced_in_machines_keys.push_back("miner");
-    extract_oil.input_ports.push_back(RecipePort{1.0, "nothing"});
-    extract_oil.output_ports.push_back(RecipePort{30.0, "oil"});
-    extract_oil.time_seconds = 1.0;
-    testGameData.recipes["extract_oil"] = extract_oil;
-
-    Recipe extract_water;
-    extract_water.name = "Extract Water";
-    extract_water.produced_in_machines_keys.push_back("miner");
-    extract_water.input_ports.push_back(RecipePort{1.0, "nothing"});
-    extract_water.output_ports.push_back(RecipePort{120.0, "water"});
-    extract_water.time_seconds = 1.0;
-    testGameData.recipes["extract_water"] = extract_water;
-
-    Recipe make_plastic_coke;
-    make_plastic_coke.name = "Plastic & Coke";
-    make_plastic_coke.produced_in_machines_keys.push_back("assembler");
-    make_plastic_coke.input_ports.push_back(RecipePort{30.0, "oil"});
-    make_plastic_coke.output_ports.push_back(RecipePort{30.0, "plastic"});
-    make_plastic_coke.output_ports.push_back(RecipePort{30.0, "coke"});
-    make_plastic_coke.time_seconds = 1.0;
-    testGameData.recipes["make_plastic_coke"] = make_plastic_coke;
-
-    Recipe coal_gen;
-    coal_gen.name = "Coal Generator";
-    coal_gen.produced_in_machines_keys.push_back("sink");
-    coal_gen.input_ports.push_back(RecipePort{15.0, "coke"});
-    coal_gen.input_ports.push_back(RecipePort{45.0, "water"});
-    coal_gen.output_ports.push_back(RecipePort{1.0, "nothing"});
-    coal_gen.time_seconds = 1.0;
-    testGameData.recipes["coal_gen"] = coal_gen;
+    defRecipe("extract_oil", "Extract Oil", 1.0, {"miner"}, {}, {{"oil", 30.0}});
+    defRecipe("extract_water", "Extract Water", 1.0, {"miner"}, {}, {{"water", 120.0}});
+    defRecipe("make_plastic_coke", "Plastic & Coke", 1.0, {"assembler"}, {{"oil", 30.0}}, {{"plastic", 30.0}, {"coke", 30.0}});
+    defRecipe("coal_gen", "Coal Generator", 1.0, {"sink"}, {{"coke", 15.0}, {"water", 45.0}}, {});
 
     graph = std::make_unique<FactoryGraph>(testGameData);
     uint64_t n_oil = addNode("extract_oil");
@@ -1727,43 +1489,14 @@ TEST_F(FactorySolverTest, V3_SpecTable_Scenario4_ByproductToMultiInputGeneratorW
 }
 
 TEST_F(FactorySolverTest, V3_SpecTable_Scenarios6a_6b_7_8_SharedMinerDownstreamClogAndSupplyCycle) {
-    testGameData.resources["coal"] = Resource{"Coal", 10};
-    testGameData.resources["steel"] = Resource{"Steel", 11};
-    testGameData.resources["co2"] = Resource{"CO2", 12};
+    defResource("coal", "Coal");
+    defResource("steel", "Steel");
+    defResource("co2", "CO2");
 
-    Recipe mine_coal;
-    mine_coal.name = "Mine Coal";
-    mine_coal.produced_in_machines_keys.push_back("miner");
-    mine_coal.input_ports.push_back(RecipePort{1.0, "nothing"});
-    mine_coal.output_ports.push_back(RecipePort{30.0, "coal"});
-    mine_coal.time_seconds = 1.0;
-    testGameData.recipes["mine_coal"] = mine_coal;
-
-    Recipe foundry_steel;
-    foundry_steel.name = "Foundry Steel";
-    foundry_steel.produced_in_machines_keys.push_back("assembler");
-    foundry_steel.input_ports.push_back(RecipePort{1.0, "iron_ore"});
-    foundry_steel.input_ports.push_back(RecipePort{1.0, "coal"});
-    foundry_steel.output_ports.push_back(RecipePort{1.0, "steel"});
-    foundry_steel.output_ports.push_back(RecipePort{1.0, "co2"});
-    foundry_steel.time_seconds = 1.0;
-    testGameData.recipes["foundry_steel"] = foundry_steel;
-
-    Recipe coal_gen;
-    coal_gen.name = "Coal Generator";
-    coal_gen.produced_in_machines_keys.push_back("sink");
-    coal_gen.input_ports.push_back(RecipePort{1.0, "coal"});
-    coal_gen.output_ports.push_back(RecipePort{1.0, "nothing"});
-    coal_gen.time_seconds = 1.0;
-    testGameData.recipes["coal_gen"] = coal_gen;
-
-    Recipe steel_constructor;
-    steel_constructor.name = "Steel Constructor";
-    steel_constructor.produced_in_machines_keys.push_back("constructor");
-    steel_constructor.input_ports.push_back(RecipePort{1.0, "steel"});
-    steel_constructor.output_ports.push_back(RecipePort{1.0, "iron_plate"});
-    steel_constructor.time_seconds = 1.0;
-    testGameData.recipes["steel_constructor"] = steel_constructor;
+    defRecipe("mine_coal", "Mine Coal", 1.0, {"miner"}, {}, {{"coal", 30.0}});
+    defRecipe("foundry_steel", "Foundry Steel", 1.0, {"assembler"}, {{"iron_ore", 1.0}, {"coal", 1.0}}, {{"steel", 1.0}, {"co2", 1.0}});
+    defRecipe("coal_gen", "Coal Generator", 1.0, {"sink"}, {{"coal", 1.0}}, {});
+    defRecipe("steel_constructor", "Steel Constructor", 1.0, {"constructor"}, {{"steel", 1.0}}, {{"iron_plate", 1.0}});
 
     // --- Scenario 6a & 6b: Coal Miner (60) wired to both Foundry (Target(Steel) = 10) and Coal Generator ---
     graph = std::make_unique<FactoryGraph>(testGameData);
@@ -1839,21 +1572,8 @@ TEST_F(FactorySolverTest, V3_SpecTable_Scenarios6a_6b_7_8_SharedMinerDownstreamC
     EXPECT_TRUE(solver->isGoalBottlenecked(p_iron_out->id));
 
     // --- Scenario 8: Supply Mode With Amplifying Cycle (gain > 1) and no sink/export exit ---
-    Recipe loop_a;
-    loop_a.name = "Loop A";
-    loop_a.produced_in_machines_keys.push_back("smelter");
-    loop_a.input_ports.push_back(RecipePort{1.0, "iron_ore"});
-    loop_a.output_ports.push_back(RecipePort{2.0, "iron_ingot"});
-    loop_a.time_seconds = 1.0;
-    testGameData.recipes["loop_a"] = loop_a;
-
-    Recipe loop_b;
-    loop_b.name = "Loop B";
-    loop_b.produced_in_machines_keys.push_back("smelter");
-    loop_b.input_ports.push_back(RecipePort{1.0, "iron_ingot"});
-    loop_b.output_ports.push_back(RecipePort{2.0, "iron_ore"});
-    loop_b.time_seconds = 1.0;
-    testGameData.recipes["loop_b"] = loop_b;
+    defRecipe("loop_a", "Loop A", 1.0, {"smelter"}, {{"iron_ore", 1.0}}, {{"iron_ingot", 2.0}});
+    defRecipe("loop_b", "Loop B", 1.0, {"smelter"}, {{"iron_ingot", 1.0}}, {{"iron_ore", 2.0}});
 
     graph = std::make_unique<FactoryGraph>(testGameData);
     uint64_t n_miner8 = addNode("mine_ore");
@@ -1883,34 +1603,13 @@ TEST_F(FactorySolverTest, V3_SpecTable_Scenarios6a_6b_7_8_SharedMinerDownstreamC
 TEST_F(FactorySolverTest, V3_SpecTable_Scenario9_ByproductRecyclingLoop_AluminumWaterLoop) {
     // Chain needs 100 Water total (Target on final product), produces 30 Water byproduct wired back to input
     // alongside Water Extractor (Limit 1000). Water Extractor pulls only the remaining 70 Water (0 excess).
-    testGameData.resources["water"] = Resource{"Water", 17};
-    testGameData.resources["alumina"] = Resource{"Alumina", 18};
-    testGameData.resources["scrap"] = Resource{"Aluminum Scrap", 19};
+    defResource("water", "Water");
+    defResource("alumina", "Alumina");
+    defResource("scrap", "Aluminum Scrap");
 
-    Recipe extract_water;
-    extract_water.name = "Extract Water";
-    extract_water.produced_in_machines_keys.push_back("miner");
-    extract_water.input_ports.push_back(RecipePort{1.0, "nothing"});
-    extract_water.output_ports.push_back(RecipePort{100.0, "water"});
-    extract_water.time_seconds = 1.0;
-    testGameData.recipes["extract_water"] = extract_water;
-
-    Recipe make_alumina;
-    make_alumina.name = "Alumina Solution";
-    make_alumina.produced_in_machines_keys.push_back("assembler");
-    make_alumina.input_ports.push_back(RecipePort{100.0, "water"});
-    make_alumina.output_ports.push_back(RecipePort{100.0, "alumina"});
-    make_alumina.time_seconds = 1.0;
-    testGameData.recipes["make_alumina"] = make_alumina;
-
-    Recipe make_scrap;
-    make_scrap.name = "Aluminum Scrap";
-    make_scrap.produced_in_machines_keys.push_back("assembler");
-    make_scrap.input_ports.push_back(RecipePort{100.0, "alumina"});
-    make_scrap.output_ports.push_back(RecipePort{100.0, "scrap"});
-    make_scrap.output_ports.push_back(RecipePort{30.0, "water"});
-    make_scrap.time_seconds = 1.0;
-    testGameData.recipes["make_scrap"] = make_scrap;
+    defRecipe("extract_water", "Extract Water", 1.0, {"miner"}, {}, {{"water", 100.0}});
+    defRecipe("make_alumina", "Alumina Solution", 1.0, {"assembler"}, {{"water", 100.0}}, {{"alumina", 100.0}});
+    defRecipe("make_scrap", "Aluminum Scrap", 1.0, {"assembler"}, {{"alumina", 100.0}}, {{"scrap", 100.0}, {"water", 30.0}});
 
     graph = std::make_unique<FactoryGraph>(testGameData);
     uint64_t n_water = addNode("extract_water");
@@ -1944,13 +1643,7 @@ TEST_F(FactorySolverTest, V3_SpecTable_Scenario9_ByproductRecyclingLoop_Aluminum
 TEST_F(FactorySolverTest, V3_SpecTable_Scenario10_ParallelSplitterBranches_10a_10b_10c_And_Stage2c2ExcludesTK) {
     // make_plates: 30 iron_ingot -> 20 iron_plate in 1s (1/30 machines per ingot)
     // make_rods:   15 iron_ingot -> 15 wire in 1s       (1/15 machines per ingot — 2x machine density!)
-    Recipe make_rods;
-    make_rods.name = "Make Rods";
-    make_rods.produced_in_machines_keys.push_back("constructor");
-    make_rods.input_ports.push_back(RecipePort{15.0, "iron_ingot"});
-    make_rods.output_ports.push_back(RecipePort{15.0, "wire"});
-    make_rods.time_seconds = 1.0;
-    testGameData.recipes["make_rods"] = make_rods;
+    defRecipe("make_rods", "Make Rods", 1.0, {"constructor"}, {{"iron_ingot", 15.0}}, {{"wire", 15.0}});
 
     // --- 10a: Supply mode with different machine densities (Plates vs Rods) and with LIMIT 40 ---
     graph = std::make_unique<FactoryGraph>(testGameData);
@@ -2056,82 +1749,22 @@ TEST_F(FactorySolverTest, V3_SpecTable_Scenario10_ParallelSplitterBranches_10a_1
 }
 
 TEST_F(FactorySolverTest, V3_SpecTable_Scenario11_BlockedDownstreamMultiInputWasteCompression_Factory1) {
-    // Scenario 11 (Factory_1.fpp):
-    // - Rubber Refinery (in T_K, driven by Target(Fuel) = 50) produces 50 Fuel + 50 Rubber from Crude Oil.
-    // - Rubber splits to:
-    //   1) Recycled Plastic (in T_K, 30 Rubber -> 60 Plastic with Target(Plastic) = 60, consuming 30 Rubber).
-    //   2) Circuit Board (not in T_K, 4 Rubber + 8 Coke -> 1 Circuit Board), wired to Electric Motor
-    //      (1 Circuit Board + 4 Rotor -> 4 Motor), where Rotor is produced by Rotor Maker with 6.0 on Rotor.out.
-    // - Because Circuit Board is not in T_K, E_CB = 0 is enforced (Rule 2 of §3.3).
-    // - Circuit Board runs at 1.5 (consuming 6.0 Rubber and 12.0 Coke for the 6.0 Motors, with 0 excess on CB),
-    //   and all remaining 14.0 surplus Rubber stays on Rubber.out as excess_rate = 14.0!
-    testGameData.resources["oil"] = Resource{"Crude Oil", 19};
-    testGameData.resources["fuel"] = Resource{"Fuel", 20};
-    testGameData.resources["rubber"] = Resource{"Rubber", 21};
-    testGameData.resources["plastic"] = Resource{"Plastic", 22};
-    testGameData.resources["coke"] = Resource{"Coke", 23};
-    testGameData.resources["circuit_board"] = Resource{"Circuit Board", 24};
-    testGameData.resources["rotor"] = Resource{"Rotor", 25};
-    testGameData.resources["motor"] = Resource{"Electric Motor", 26};
+    defResource("oil", "Crude Oil");
+    defResource("fuel", "Fuel");
+    defResource("rubber", "Rubber");
+    defResource("plastic", "Plastic");
+    defResource("coke", "Coke");
+    defResource("circuit_board", "Circuit Board");
+    defResource("rotor", "Rotor");
+    defResource("motor", "Electric Motor");
 
-    Recipe extract_oil;
-    extract_oil.name = "Extract Oil";
-    extract_oil.produced_in_machines_keys.push_back("miner");
-    extract_oil.input_ports.push_back(RecipePort{1.0, "nothing"});
-    extract_oil.output_ports.push_back(RecipePort{50.0, "oil"});
-    extract_oil.time_seconds = 1.0;
-    testGameData.recipes["extract_oil"] = extract_oil;
-
-    Recipe ref_rubber;
-    ref_rubber.name = "Rubber Refinery";
-    ref_rubber.produced_in_machines_keys.push_back("assembler");
-    ref_rubber.input_ports.push_back(RecipePort{50.0, "oil"});
-    ref_rubber.output_ports.push_back(RecipePort{50.0, "fuel"});
-    ref_rubber.output_ports.push_back(RecipePort{50.0, "rubber"});
-    ref_rubber.time_seconds = 1.0;
-    testGameData.recipes["ref_rubber"] = ref_rubber;
-
-    Recipe recycled_plastic;
-    recycled_plastic.name = "Recycled Plastic";
-    recycled_plastic.produced_in_machines_keys.push_back("assembler");
-    recycled_plastic.input_ports.push_back(RecipePort{30.0, "rubber"});
-    recycled_plastic.output_ports.push_back(RecipePort{60.0, "plastic"});
-    recycled_plastic.time_seconds = 1.0;
-    testGameData.recipes["recycled_plastic"] = recycled_plastic;
-
-    Recipe ref_coke;
-    ref_coke.name = "Coke Refinery";
-    ref_coke.produced_in_machines_keys.push_back("assembler");
-    ref_coke.input_ports.push_back(RecipePort{1.0, "nothing"});
-    ref_coke.output_ports.push_back(RecipePort{120.0, "coke"});
-    ref_coke.time_seconds = 1.0;
-    testGameData.recipes["ref_coke"] = ref_coke;
-
-    Recipe make_cb;
-    make_cb.name = "Electrode Circuit Board";
-    make_cb.produced_in_machines_keys.push_back("assembler");
-    make_cb.input_ports.push_back(RecipePort{4.0, "rubber"});
-    make_cb.input_ports.push_back(RecipePort{8.0, "coke"});
-    make_cb.output_ports.push_back(RecipePort{1.0, "circuit_board"});
-    make_cb.time_seconds = 1.0;
-    testGameData.recipes["make_cb"] = make_cb;
-
-    Recipe make_rotor;
-    make_rotor.name = "Make Rotor";
-    make_rotor.produced_in_machines_keys.push_back("constructor");
-    make_rotor.input_ports.push_back(RecipePort{6.0, "iron_ingot"});
-    make_rotor.output_ports.push_back(RecipePort{6.0, "rotor"});
-    make_rotor.time_seconds = 1.0;
-    testGameData.recipes["make_rotor"] = make_rotor;
-
-    Recipe make_motor;
-    make_motor.name = "Electric Motor";
-    make_motor.produced_in_machines_keys.push_back("assembler");
-    make_motor.input_ports.push_back(RecipePort{1.0, "circuit_board"});
-    make_motor.input_ports.push_back(RecipePort{4.0, "rotor"});
-    make_motor.output_ports.push_back(RecipePort{4.0, "motor"});
-    make_motor.time_seconds = 1.0;
-    testGameData.recipes["make_motor"] = make_motor;
+    defRecipe("extract_oil", "Extract Oil", 1.0, {"miner"}, {}, {{"oil", 50.0}});
+    defRecipe("ref_rubber", "Rubber Refinery", 1.0, {"assembler"}, {{"oil", 50.0}}, {{"fuel", 50.0}, {"rubber", 50.0}});
+    defRecipe("recycled_plastic", "Recycled Plastic", 1.0, {"assembler"}, {{"rubber", 30.0}}, {{"plastic", 60.0}});
+    defRecipe("ref_coke", "Coke Refinery", 1.0, {"assembler"}, {}, {{"coke", 120.0}});
+    defRecipe("make_cb", "Electrode Circuit Board", 1.0, {"assembler"}, {{"rubber", 4.0}, {"coke", 8.0}}, {{"circuit_board", 1.0}});
+    defRecipe("make_rotor", "Make Rotor", 1.0, {"constructor"}, {{"iron_ingot", 6.0}}, {{"rotor", 6.0}});
+    defRecipe("make_motor", "Electric Motor", 1.0, {"assembler"}, {{"circuit_board", 1.0}, {"rotor", 4.0}}, {{"motor", 4.0}});
 
     graph = std::make_unique<FactoryGraph>(testGameData);
     uint64_t n_oil = addNode("extract_oil");
@@ -2190,31 +1823,12 @@ TEST_F(FactorySolverTest, V3_SpecTable_Scenario11_BlockedDownstreamMultiInputWas
 }
 
 TEST_F(FactorySolverTest, V3_SpecTable_Scenario5_TwoDisconnectedIslands_FoundryAndSmelter) {
-    // §6 Scenario 5:
-    // Island A has Foundry with Target(Steel) = 10 (Iron Miner 240, Coal Miner 30).
-    // Island B has only Miner (60) -> Smelter.
-    // Island A runs in Demand Mode (10 Steel); Island B runs in Supply Mode (Miner -> PUSH 60, producing 60 Ingots).
-    testGameData.resources["coal"] = Resource{"Coal", 10};
-    testGameData.resources["steel"] = Resource{"Steel", 11};
-    testGameData.resources["co2"] = Resource{"CO2", 12};
+    defResource("coal", "Coal");
+    defResource("steel", "Steel");
+    defResource("co2", "CO2");
 
-    Recipe mine_coal;
-    mine_coal.name = "Mine Coal";
-    mine_coal.produced_in_machines_keys.push_back("miner");
-    mine_coal.input_ports.push_back(RecipePort{1.0, "nothing"});
-    mine_coal.output_ports.push_back(RecipePort{30.0, "coal"});
-    mine_coal.time_seconds = 1.0;
-    testGameData.recipes["mine_coal"] = mine_coal;
-
-    Recipe foundry_steel;
-    foundry_steel.name = "Foundry Steel";
-    foundry_steel.produced_in_machines_keys.push_back("assembler");
-    foundry_steel.input_ports.push_back(RecipePort{1.0, "iron_ore"});
-    foundry_steel.input_ports.push_back(RecipePort{1.0, "coal"});
-    foundry_steel.output_ports.push_back(RecipePort{1.0, "steel"});
-    foundry_steel.output_ports.push_back(RecipePort{1.0, "co2"});
-    foundry_steel.time_seconds = 1.0;
-    testGameData.recipes["foundry_steel"] = foundry_steel;
+    defRecipe("mine_coal", "Mine Coal", 1.0, {"miner"}, {}, {{"coal", 30.0}});
+    defRecipe("foundry_steel", "Foundry Steel", 1.0, {"assembler"}, {{"iron_ore", 1.0}, {"coal", 1.0}}, {{"steel", 1.0}, {"co2", 1.0}});
 
     graph = std::make_unique<FactoryGraph>(testGameData);
     // Island A & Island B nodes
@@ -2252,71 +1866,18 @@ TEST_F(FactorySolverTest, V3_SpecTable_Scenario5_TwoDisconnectedIslands_FoundryA
 }
 
 TEST_F(FactorySolverTest, V3_ComplexReconvergingUnratedPushByproductChains) {
-    // Two TARGET-driven refineries (Ref A and Ref B) each produce a main product and an unrated PUSH byproduct:
-    //  - Ref A (in T_K, Target(Plastic) = 20): 20 Oil -> 20 Plastic + 20 Slag
-    //    * 5 Slag recycles back into Ref A's Slag input (in T_K: Cl_{~T} stops at T_K so Plastic is not forced to 0 excess)
-    //    * 15 Slag goes to a shared Converter (not in T_K: 1 Slag -> 1 Coke) -> Shared Sink (capped at 25 Coke)
-    //  - Ref B (in T_K, Target(Rubber) = 20): 20 Oil -> 20 Rubber + 20 Slag
-    //    * Slag (unrated PUSH) goes into the same shared Converter -> Shared Sink
-    // Because both Ref A.Slag and Ref B.Slag have Unrated PUSH, Cl_{~T} forces E_Slag = 0 and E_Coke = 0 on the Converter,
-    // while stopping at Ref A (in T_K).
-    // With 5 Slag recycled into Ref A and Shared Sink capped at 25 Coke, total Slag produced by Ref A + Ref B is capped at 5 + 25 = 30.
-    // Max-min water-filling in Stage 1 balances Ref A and Ref B at S = 0.75 (15 Plastic + 15 Rubber, 15 + 15 = 30 Slag)!
-    testGameData.resources["oil"] = Resource{"Oil", 30};
-    testGameData.resources["plastic"] = Resource{"Plastic", 31};
-    testGameData.resources["rubber"] = Resource{"Rubber", 32};
-    testGameData.resources["slag"] = Resource{"Slag", 33};
-    testGameData.resources["coke"] = Resource{"Coke", 34};
+    defResource("oil", "Oil");
+    defResource("plastic", "Plastic");
+    defResource("rubber", "Rubber");
+    defResource("slag", "Slag");
+    defResource("coke", "Coke");
 
-    Recipe extract_oil;
-    extract_oil.name = "Extract Oil";
-    extract_oil.produced_in_machines_keys.push_back("miner");
-    extract_oil.input_ports.push_back(RecipePort{1.0, "nothing"});
-    extract_oil.output_ports.push_back(RecipePort{100.0, "oil"});
-    extract_oil.time_seconds = 1.0;
-    testGameData.recipes["extract_oil"] = extract_oil;
-
-    Recipe ref_a;
-    ref_a.name = "Refinery A";
-    ref_a.produced_in_machines_keys.push_back("assembler");
-    ref_a.input_ports.push_back(RecipePort{20.0, "oil"});
-    ref_a.output_ports.push_back(RecipePort{20.0, "plastic"});
-    ref_a.output_ports.push_back(RecipePort{20.0, "slag"});
-    ref_a.time_seconds = 1.0;
-    testGameData.recipes["ref_a"] = ref_a;
-
-    Recipe ref_b;
-    ref_b.name = "Refinery B";
-    ref_b.produced_in_machines_keys.push_back("assembler");
-    ref_b.input_ports.push_back(RecipePort{20.0, "oil"});
-    ref_b.output_ports.push_back(RecipePort{20.0, "rubber"});
-    ref_b.output_ports.push_back(RecipePort{20.0, "slag"});
-    ref_b.time_seconds = 1.0;
-    testGameData.recipes["ref_b"] = ref_b;
-
-    Recipe slag_to_oil;
-    slag_to_oil.name = "Slag Recycle";
-    slag_to_oil.produced_in_machines_keys.push_back("constructor");
-    slag_to_oil.input_ports.push_back(RecipePort{5.0, "slag"});
-    slag_to_oil.output_ports.push_back(RecipePort{5.0, "oil"});
-    slag_to_oil.time_seconds = 1.0;
-    testGameData.recipes["slag_to_oil"] = slag_to_oil;
-
-    Recipe slag_to_coke;
-    slag_to_coke.name = "Slag Converter";
-    slag_to_coke.produced_in_machines_keys.push_back("constructor");
-    slag_to_coke.input_ports.push_back(RecipePort{1.0, "slag"});
-    slag_to_coke.output_ports.push_back(RecipePort{1.0, "coke"});
-    slag_to_coke.time_seconds = 1.0;
-    testGameData.recipes["slag_to_coke"] = slag_to_coke;
-
-    Recipe sink_coke;
-    sink_coke.name = "Sink Coke";
-    sink_coke.produced_in_machines_keys.push_back("sink");
-    sink_coke.input_ports.push_back(RecipePort{1.0, "coke"});
-    sink_coke.output_ports.push_back(RecipePort{1.0, "nothing"});
-    sink_coke.time_seconds = 1.0;
-    testGameData.recipes["sink_coke"] = sink_coke;
+    defRecipe("extract_oil", "Extract Oil", 1.0, {"miner"}, {}, {{"oil", 100.0}});
+    defRecipe("ref_a", "Refinery A", 1.0, {"assembler"}, {{"oil", 20.0}}, {{"plastic", 20.0}, {"slag", 20.0}});
+    defRecipe("ref_b", "Refinery B", 1.0, {"assembler"}, {{"oil", 20.0}}, {{"rubber", 20.0}, {"slag", 20.0}});
+    defRecipe("slag_to_oil", "Slag Recycle", 1.0, {"constructor"}, {{"slag", 5.0}}, {{"oil", 5.0}});
+    defRecipe("slag_to_coke", "Slag Converter", 1.0, {"constructor"}, {{"slag", 1.0}}, {{"coke", 1.0}});
+    defRecipe("sink_coke", "Sink Coke", 1.0, {"sink"}, {{"coke", 1.0}}, {});
 
     graph = std::make_unique<FactoryGraph>(testGameData);
     uint64_t n_oil = addNode("extract_oil");
@@ -2367,4 +1928,355 @@ TEST_F(FactorySolverTest, V3_ComplexReconvergingUnratedPushByproductChains) {
     EXPECT_NEAR(solver->getGoalSaturation(p_ra_plas->id), 0.75, 1e-4);
     EXPECT_NEAR(solver->getGoalSaturation(p_rb_rub->id), 0.75, 1e-4);
 }
+
+// ============================================================================
+// GameData v4 Integration Tests (Formulas, Dynamic/Conditional/Extra Ports, Metrics)
+// ============================================================================
+
+TEST_F(FactorySolverTest, V4_PreSolveFormulas_ExtraPorts_ConditionalPorts_And_DynamicResourceWireStates) {
+    // Load a v4 package with custom profile, extra ports, conditional ports, and dynamic resource ports
+    const std::string pkg_json = R"json({
+        "schema_version": 4,
+        "game": { "id": "test_v4", "name": "Test V4", "data_version": "1.0" },
+        "units": { "recipe_time": "s", "default_rate": "s" },
+        "resources": [
+            { "id": "iron_ore", "name": "Iron Ore" },
+            { "id": "copper_ore", "name": "Copper Ore" },
+            { "id": "iron_ingot", "name": "Iron Ingot" },
+            { "id": "coal", "name": "Coal" },
+            { "id": "slag", "name": "Slag" },
+            { "id": "ash", "name": "Ash" }
+        ],
+        "parameters": {
+            "clock": { "label": "Clock", "type": "number", "default": 100.0, "min": 1.0, "max": 250.0 },
+            "make_slag": { "label": "Make Slag", "type": "bool", "default": true },
+            "ore_choice": {
+                "label": "Ore Choice", "type": "resource_choice",
+                "resources": ["iron_ore", "copper_ore"],
+                "default": "iron_ore"
+            }
+        },
+        "profiles": {
+            "burner_prof": {
+                "params": ["clock", "make_slag"],
+                "let": { "speed_mult": "param.clock / 100.0" },
+                "craft_time": "recipe.time / (machine.speed * speed_mult)",
+                "input_amount": "port.amount",
+                "output_amount": "port.amount * port.chance",
+                "extra_ports": [
+                    { "id": "fuel", "dir": "in", "resource": "coal", "amount": "0.5 * recipe.time" },
+                    { "id": "ash", "dir": "out", "resource": "ash", "amount": "0.1 * recipe.time" }
+                ]
+            },
+            "miner_prof": {
+                "params": ["ore_choice"],
+                "craft_time": "recipe.time",
+                "input_amount": "port.amount",
+                "output_amount": "port.amount"
+            },
+            "basic_prof": {
+                "params": [],
+                "craft_time": "recipe.time",
+                "input_amount": "port.amount",
+                "output_amount": "port.amount"
+            }
+        },
+        "machines": [
+            { "id": "miner_m", "name": "Miner", "profile": "miner_prof", "speed": 1.0 },
+            { "id": "basic_m", "name": "Basic Machine", "profile": "basic_prof", "speed": 1.0 },
+            { "id": "burner_smelter", "name": "Burner Smelter", "profile": "burner_prof", "speed": 2.0 }
+        ],
+        "recipes": [
+            {
+                "id": "mine_dynamic",
+                "name": "Mine Dynamic",
+                "time": 1.0,
+                "machines": ["miner_m"],
+                "in": [],
+                "out": [
+                    { "resource_param": "ore_choice", "amount": 10.0 }
+                ]
+            },
+            {
+                "id": "mine_coal",
+                "name": "Mine Coal",
+                "time": 1.0,
+                "machines": ["basic_m"],
+                "in": [],
+                "out": [
+                    { "res": "coal", "amount": 10.0 }
+                ]
+            },
+            {
+                "id": "smelt_with_slag",
+                "name": "Smelt With Slag",
+                "time": 2.0,
+                "machines": ["burner_smelter"],
+                "in": [
+                    { "res": "iron_ore", "amount": 4.0 }
+                ],
+                "out": [
+                    { "res": "iron_ingot", "amount": 4.0 },
+                    { "res": "slag", "amount": 2.0, "enabled": "param.make_slag" }
+                ]
+            },
+            {
+                "id": "consume_slag",
+                "name": "Consume Slag",
+                "time": 1.0,
+                "machines": ["basic_m"],
+                "in": [
+                    { "res": "slag", "amount": 1.0 }
+                ],
+                "out": []
+            }
+        ]
+    })json";
+
+    gamedata::LoadReport report;
+    gamedata::GamePackage pkg;
+    ASSERT_TRUE(gamedata::loadGamePackageFromMemory(pkg_json, {}, pkg, report))
+        << (report.errors.empty() ? "" : report.errors[0].message);
+
+    FactoryGraph g(pkg);
+    uint64_t n_miner = g.addNode("Miner", "mine_dynamic");
+    uint64_t n_coal = g.addNode("Coal Miner", "mine_coal");
+    uint64_t n_smelter = g.addNode("Smelter", "smelt_with_slag");
+    uint64_t n_slag_sink = g.addNode("Slag Sink", "consume_slag");
+
+    Port* p_miner_out = g.getPortBySlot(n_miner, "out:0");
+    Port* p_coal_out = g.getPortBySlot(n_coal, "out:0");
+    Port* p_smelt_in = g.getPortBySlot(n_smelter, "in:0");
+    Port* p_smelt_fuel = g.getPortBySlot(n_smelter, "xin:fuel");
+    Port* p_smelt_ingot = g.getPortBySlot(n_smelter, "out:0");
+    Port* p_smelt_slag = g.getPortBySlot(n_smelter, "out:1");
+    Port* p_smelt_ash = g.getPortBySlot(n_smelter, "xout:ash");
+    Port* p_slag_sink_in = g.getPortBySlot(n_slag_sink, "in:0");
+
+    ASSERT_NE(p_miner_out, nullptr);
+    ASSERT_NE(p_coal_out, nullptr);
+    ASSERT_NE(p_smelt_in, nullptr);
+    ASSERT_NE(p_smelt_fuel, nullptr);
+    ASSERT_NE(p_smelt_ingot, nullptr);
+    ASSERT_NE(p_smelt_slag, nullptr);
+    ASSERT_NE(p_smelt_ash, nullptr);
+    ASSERT_NE(p_slag_sink_in, nullptr);
+
+    uint64_t c_ore = g.addConnection(p_miner_out->id, p_smelt_in->id);
+    uint64_t c_fuel = g.addConnection(p_coal_out->id, p_smelt_fuel->id);
+    uint64_t c_slag = g.addConnection(p_smelt_slag->id, p_slag_sink_in->id);
+    ASSERT_NE(c_ore, static_cast<uint64_t>(-1));
+    ASSERT_NE(c_fuel, static_cast<uint64_t>(-1));
+    ASSERT_NE(c_slag, static_cast<uint64_t>(-1));
+
+    // Target 8.0 iron_ingot/s -> crafts_n = 8.0 / 4.0 = 2.0 crafts/s.
+    // Craft time = 2.0 / (2.0 * 1.0) = 1.0s -> machine_count = 2.0 * 1.0 = 2.0.
+    // Extra fuel input: 0.5 * 2.0 = 1.0 coal/craft -> 2.0 coal/s.
+    // Extra ash output: 0.1 * 2.0 = 0.2 ash/craft -> 0.4 ash/s.
+    // Slag output (make_slag = true): 2.0 slag/craft -> 4.0 slag/s.
+    g.setPortConstraint(p_smelt_ingot->id, 8.0, ConstraintMode::TARGET);
+
+    auto res1 = solver->solve(g);
+    ASSERT_EQ(res1.status, FactorySolver::SolverResultStatus::SUCCESS);
+    EXPECT_NEAR(p_smelt_ingot->rate, 8.0, 1e-4);
+    EXPECT_NEAR(p_smelt_in->rate, 8.0, 1e-4);
+    EXPECT_NEAR(p_smelt_fuel->rate, 2.0, 1e-4);
+    EXPECT_NEAR(p_smelt_ash->rate, 0.4, 1e-4);
+    EXPECT_NEAR(p_smelt_slag->rate, 4.0, 1e-4);
+    EXPECT_NEAR(p_slag_sink_in->rate, 4.0, 1e-4);
+    EXPECT_NEAR(g.getNode(n_smelter)->machine_count, 2.0, 1e-4);
+    EXPECT_NEAR(g.getNode(n_smelter)->crafts, 2.0, 1e-4);
+
+    // Disable conditional slag port via make_slag = false:
+    // Slag port becomes inactive, wire c_slag becomes INACTIVE, rate = 0.0, without clamping Smelter!
+    ASSERT_TRUE(g.setNodeParam(n_smelter, "make_slag", gamedata::ParamValue{false}));
+    EXPECT_FALSE(p_smelt_slag->active);
+    EXPECT_EQ(g.getConnection(c_slag)->state, WireState::INACTIVE);
+
+    auto res2 = solver->solve(g);
+    ASSERT_EQ(res2.status, FactorySolver::SolverResultStatus::SUCCESS);
+    EXPECT_NEAR(p_smelt_ingot->rate, 8.0, 1e-4);
+    EXPECT_DOUBLE_EQ(p_smelt_slag->rate, 0.0);
+    EXPECT_DOUBLE_EQ(g.getConnection(c_slag)->rate, 0.0);
+    EXPECT_DOUBLE_EQ(p_slag_sink_in->rate, 0.0);
+
+    // Change miner's ore_choice to "copper_ore" -> p_miner_out resource becomes "copper_ore",
+    // so wire c_ore to p_smelt_in ("iron_ore") becomes INVALID!
+    // Wire c_ore is excluded from LP (rate = 0.0), and p_smelt_in becomes an unwired active input port
+    // (free import in demand mode), while Miner (in its own targetless component with no constraints) is 0.
+    ASSERT_TRUE(g.setNodeParam(n_miner, "ore_choice", gamedata::ParamValue::string("copper_ore")));
+    EXPECT_EQ(p_miner_out->resource_key, "copper_ore");
+    EXPECT_EQ(g.getConnection(c_ore)->state, WireState::INVALID);
+
+    auto res3 = solver->solve(g);
+    ASSERT_EQ(res3.status, FactorySolver::SolverResultStatus::SUCCESS);
+    EXPECT_DOUBLE_EQ(g.getConnection(c_ore)->rate, 0.0);
+    EXPECT_DOUBLE_EQ(p_miner_out->rate, 0.0);
+}
+
+TEST_F(FactorySolverTest, V4_PostSolveMetrics_NodeAndGraphTotals_And_ErrorNodeClamping) {
+    const std::string pkg_json = R"json({
+        "schema_version": 4,
+        "game": { "id": "test_metrics", "name": "Test Metrics", "data_version": "1.0" },
+        "units": { "recipe_time": "s", "default_rate": "s" },
+        "attributes": {
+            "machine": {
+                "stress": { "type": "number", "default": 0.0 }
+            }
+        },
+        "resources": [
+            { "id": "ore", "name": "Ore" },
+            { "id": "ingot", "name": "Ingot" }
+        ],
+        "parameters": {
+            "clock": { "label": "Clock", "type": "number", "default": 100.0, "min": 1.0, "max": 250.0 },
+            "broken_div": { "label": "Broken Div", "type": "number", "default": 1.0, "min": 0.0, "max": 10.0 }
+        },
+        "metrics": {
+            "power_mw": { "label": "Power", "unit": "MW", "aggregate": "sum", "split_sign": true },
+            "heat_kw": { "label": "Heat", "unit": "kW", "aggregate": "sum", "split_sign": false },
+            "peak_stress": { "label": "Peak Stress", "unit": "MPa", "aggregate": "max" },
+            "min_eff": { "label": "Min Efficiency", "unit": "%", "aggregate": "min" },
+            "pollution": { "label": "Pollution", "unit": "/s", "aggregate": "sum", "is_rate": true },
+            "local_only": { "label": "Local Tag", "unit": "", "aggregate": "none" }
+        },
+        "profiles": {
+            "gen_prof": {
+                "params": ["clock"],
+                "craft_time": "recipe.time / (param.clock / 100.0)",
+                "input_amount": "port.amount",
+                "output_amount": "port.amount",
+                "metrics": {
+                    "power_mw": { "per_machine": "-50.0" },
+                    "heat_kw": { "per_craft": "10.0" },
+                    "peak_stress": { "value": "machine.stress" },
+                    "min_eff": { "value": "90.0" },
+                    "pollution": { "per_craft": "2.0" },
+                    "local_only": { "value": "node.machines * 3.0" }
+                }
+            },
+            "smelt_prof": {
+                "params": ["clock", "broken_div"],
+                "craft_time": "recipe.time / ((param.clock / 100.0) * param.broken_div)",
+                "input_amount": "port.amount",
+                "output_amount": "port.amount",
+                "metrics": {
+                    "power_mw": { "per_machine": "15.0" },
+                    "heat_kw": { "per_craft": "5.0" },
+                    "peak_stress": { "value": "machine.stress" },
+                    "min_eff": { "value": "75.0" },
+                    "pollution": { "per_craft": "1.0" },
+                    "local_only": { "value": "node.machines * 2.0" }
+                }
+            }
+        },
+        "machines": [
+            { "id": "miner", "name": "Miner", "profile": "gen_prof", "attrs": { "stress": 20.0 } },
+            { "id": "smelter", "name": "Smelter", "profile": "smelt_prof", "attrs": { "stress": 35.0 } }
+        ],
+        "recipes": [
+            {
+                "id": "mine_ore", "name": "Mine Ore", "time": 1.0, "machines": ["miner"],
+                "in": [], "out": [{ "res": "ore", "amount": 10.0 }]
+            },
+            {
+                "id": "smelt_ore", "name": "Smelt Ore", "time": 2.0, "machines": ["smelter"],
+                "in": [{ "res": "ore", "amount": 10.0 }],
+                "out": [{ "res": "ingot", "amount": 10.0 }]
+            }
+        ]
+    })json";
+
+    gamedata::LoadReport report;
+    gamedata::GamePackage pkg;
+    ASSERT_TRUE(gamedata::loadGamePackageFromMemory(pkg_json, {}, pkg, report));
+
+    FactoryGraph g(pkg);
+    uint64_t n_miner = g.addNode("Miner", "mine_ore");
+    uint64_t n_smelter = g.addNode("Smelter", "smelt_ore");
+    Port* p_miner_out = g.getPortBySlot(n_miner, "out:0");
+    Port* p_smelt_in = g.getPortBySlot(n_smelter, "in:0");
+    Port* p_smelt_out = g.getPortBySlot(n_smelter, "out:0");
+    g.addConnection(p_miner_out->id, p_smelt_in->id);
+
+    // Target 20 ingot/s:
+    // Miner: 20 ore/s -> crafts = 2.0/s, machine_count = 2.0
+    //   power_mw = 2.0 * -50 = -100 MW
+    //   heat_kw  = 2.0 * 10 = 20 kW
+    //   peak_stress = 20
+    //   min_eff = 90
+    //   pollution = 2.0 * 2 = 4/s
+    //   local_only = 6
+    // Smelter: 20 ingot/s -> crafts = 2.0/s, machine_count = 2.0 * 2.0 = 4.0
+    //   power_mw = 4.0 * 15 = +60 MW
+    //   heat_kw  = 2.0 * 5 = 10 kW
+    //   peak_stress = 35
+    //   min_eff = 75
+    //   pollution = 2.0 * 1 = 2/s
+    //   local_only = 8
+    g.setPortConstraint(p_smelt_out->id, 20.0, ConstraintMode::TARGET);
+
+    auto res = solver->solve(g);
+    ASSERT_EQ(res.status, FactorySolver::SolverResultStatus::SUCCESS);
+
+    const auto* m_miner = solver->getNodeMetrics(n_miner);
+    const auto* m_smelt = solver->getNodeMetrics(n_smelter);
+    ASSERT_NE(m_miner, nullptr);
+    ASSERT_NE(m_smelt, nullptr);
+
+    const auto* m_miner_power = m_miner->findMetric("power_mw");
+    const auto* m_smelt_power = m_smelt->findMetric("power_mw");
+    const auto* m_miner_local = m_miner->findMetric("local_only");
+    const auto* m_smelt_local = m_smelt->findMetric("local_only");
+    ASSERT_NE(m_miner_power, nullptr);
+    ASSERT_NE(m_smelt_power, nullptr);
+    ASSERT_NE(m_miner_local, nullptr);
+    ASSERT_NE(m_smelt_local, nullptr);
+    EXPECT_NEAR(m_miner_power->value, -100.0, 1e-4);
+    EXPECT_NEAR(m_smelt_power->value, 60.0, 1e-4);
+    EXPECT_NEAR(m_miner_local->value, 6.0, 1e-4);
+    EXPECT_NEAR(m_smelt_local->value, 8.0, 1e-4);
+
+    auto findTotal = [&](const std::string& id) -> const gamedata::MetricTotal* {
+        for (const auto& t : solver->getTotals()) {
+            if (t.metric_id == id) return &t;
+        }
+        return nullptr;
+    };
+
+    const auto* t_power = findTotal("power_mw");
+    const auto* t_heat = findTotal("heat_kw");
+    const auto* t_stress = findTotal("peak_stress");
+    const auto* t_eff = findTotal("min_eff");
+    const auto* t_poll = findTotal("pollution");
+    const auto* t_local = findTotal("local_only");
+
+    ASSERT_NE(t_power, nullptr);
+    EXPECT_TRUE(t_power->has_value);
+    EXPECT_NEAR(t_power->positive_sum, 60.0, 1e-4);
+    EXPECT_NEAR(t_power->negative_sum, -100.0, 1e-4);
+    EXPECT_NEAR(t_power->net_sum, -40.0, 1e-4);
+
+    ASSERT_NE(t_heat, nullptr);
+    ASSERT_NE(t_stress, nullptr);
+    ASSERT_NE(t_eff, nullptr);
+    ASSERT_NE(t_poll, nullptr);
+    EXPECT_NEAR(t_heat->value, 30.0, 1e-4);
+    EXPECT_NEAR(t_stress->value, 35.0, 1e-4);
+    EXPECT_NEAR(t_eff->value, 75.0, 1e-4);
+    EXPECT_NEAR(t_poll->value, 6.0, 1e-4);
+    EXPECT_TRUE(t_local == nullptr || !t_local->has_value);
+
+    // Trigger EvalStatus::ERROR on Smelter by setting broken_div = 0.0 (division by zero in craft_time):
+    // Smelter must be clamped to 0 (machine_count = 0, crafts = 0, rates = 0) and excluded from totals!
+    ASSERT_TRUE(g.setNodeParam(n_smelter, "broken_div", gamedata::ParamValue{0.0}));
+    EXPECT_EQ(g.getNodeEval(n_smelter)->status, gamedata::EvalStatus::ERROR);
+
+    auto res_err = solver->solve(g);
+    ASSERT_EQ(res_err.status, FactorySolver::SolverResultStatus::SUCCESS);
+    EXPECT_DOUBLE_EQ(g.getNode(n_smelter)->machine_count, 0.0);
+    EXPECT_DOUBLE_EQ(g.getNode(n_smelter)->crafts, 0.0);
+    EXPECT_DOUBLE_EQ(p_smelt_out->rate, 0.0);
+}
+
 

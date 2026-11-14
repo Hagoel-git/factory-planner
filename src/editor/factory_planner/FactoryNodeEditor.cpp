@@ -235,7 +235,8 @@ void FactoryNodeEditor::copy(CopyBuffer &copy_buffer) {
 
     copy_buffer.clear();
 
-    copy_buffer.gameName = m_graph->getGameData().gameName;
+    copy_buffer.gameId = m_graph->getGameData().game.id;
+    copy_buffer.gameName = m_graph->getGameData().game.name;
     copy_buffer.sourceEditor = this;
 
     for (const auto &nodeId : selectedNodes) {
@@ -294,10 +295,15 @@ void FactoryNodeEditor::cut(CopyBuffer &copyBuffer) {
 void FactoryNodeEditor::paste(const CopyBuffer &copy_buffer, bool mapExternalConnections) {
     if (copy_buffer.isEmpty()) return;
 
-    if (copy_buffer.gameName != m_graph->getGameData().gameName) {
+    const bool gameIdMismatch = !copy_buffer.gameId.empty() &&
+                                !m_graph->getGameData().game.id.empty() &&
+                                copy_buffer.gameId != m_graph->getGameData().game.id;
+    const bool gameNameMismatch = copy_buffer.gameId.empty() &&
+                                  copy_buffer.gameName != m_graph->getGameData().game.name;
+    if (gameIdMismatch || gameNameMismatch) {
         NotificationManager::instance().addNotification(
             "Paste Failed",
-            "Cannot paste: Game mismatch ('" + copy_buffer.gameName + "' vs '" + m_graph->getGameData().gameName + "')",
+            "Cannot paste: Game mismatch ('" + copy_buffer.gameName + "' vs '" + m_graph->getGameData().game.name + "')",
             NotificationType::Warning
         );
         return;
@@ -308,6 +314,7 @@ void FactoryNodeEditor::paste(const CopyBuffer &copy_buffer, bool mapExternalCon
     }
 
     CopyBuffer filteredBuffer;
+    filteredBuffer.gameId = copy_buffer.gameId;
     filteredBuffer.gameName = copy_buffer.gameName;
     filteredBuffer.sourceEditor = copy_buffer.sourceEditor;
 
@@ -316,19 +323,19 @@ void FactoryNodeEditor::paste(const CopyBuffer &copy_buffer, bool mapExternalCon
     int skippedNodes = 0;
 
     for (const auto& [id, node] : copy_buffer.nodes) {
-        bool recipeValid = gameData.recipes.count(node.selected_recipe_key);
+        const Recipe* recipePtr = gameData.findRecipe(node.selected_recipe_key);
 
-        if (recipeValid) {
-            const Recipe& recipe = gameData.recipes.at(node.selected_recipe_key);
+        if (recipePtr) {
+            const Recipe& recipe = *recipePtr;
             bool machineValid = !node.machine_key.empty() &&
-                                std::find(recipe.produced_in_machines_keys.begin(),
-                                          recipe.produced_in_machines_keys.end(),
-                                          node.machine_key) != recipe.produced_in_machines_keys.end();
+                                std::find(recipe.compatible_machine_ids.begin(),
+                                          recipe.compatible_machine_ids.end(),
+                                          node.machine_key) != recipe.compatible_machine_ids.end();
 
             filteredBuffer.nodes[id] = node;
             if (!machineValid) {
-                if (!recipe.produced_in_machines_keys.empty()) {
-                    filteredBuffer.nodes[id].machine_key = m_graph->resolvePreferredMachine(recipe.produced_in_machines_keys);
+                if (!recipe.compatible_machine_ids.empty()) {
+                    filteredBuffer.nodes[id].machine_key = m_graph->resolvePreferredMachine(recipe.compatible_machine_ids);
                 } else {
                     filteredBuffer.nodes[id].machine_key = "";
                 }
@@ -529,7 +536,7 @@ void FactoryNodeEditor::executeCommand(std::unique_ptr<Command> command) {
 
 void FactoryNodeEditor::updateDebugInfo() {
     m_debugInfo.filePath = m_projectFilePath;
-    m_debugInfo.gameDataPath = m_graph->getGameData().gameDataFilePath;
+    m_debugInfo.gameDataPath = m_graph->getGameData().manifest_path;
     m_debugInfo.totalNodes = static_cast<int>(m_graph->getNodes().size());
     m_debugInfo.totalConnections = static_cast<int>(m_graph->getConnections().size());
     m_debugInfo.totalPorts = static_cast<int>(m_graph->getPorts().size());
@@ -830,11 +837,7 @@ void FactoryNodeEditor::drawNodes() {
 
     m_debugInfo.visibleNodes = static_cast<int>(nodesToRegister.size());
 
-    const auto& gameData = m_graph->getGameData();
-    std::string timeUnit = gameData.time_unit;
-    if (timeUnit == "seconds") timeUnit = "sec";
-    else if (timeUnit == "minutes") timeUnit = "min";
-    else if (timeUnit == "hours") timeUnit = "hour";
+    const std::string timeUnit = gamedata::rateUnitToString(m_graph->getRateUnit());
 
     std::string deferredTooltip;
     // Draw only visible nodes
@@ -855,16 +858,16 @@ void FactoryNodeEditor::drawNodes() {
         float port_line_h = std::max(port_img_h, font_h);  // effective per-pin height
         float spacing_y = style.ItemSpacing.y;             // vertical spacing between items
 
-        // Count only visible ports (skip resource_key == "nothing" or unknown resources)
-        const auto& resources = m_graph->getGameData().resources;
+        // Count only active visible ports
+        const auto& gameData = m_graph->getGameData();
         int visible_inputs = 0, visible_outputs = 0;
         for (uint64_t portId : node->input_ports) {
             Port *p = m_graph->getPort(portId);
-            if (p && p->resource_key != "nothing" && resources.find(p->resource_key) != resources.end()) ++visible_inputs;
+            if (p && p->active && !p->resource_key.empty() && gameData.findResource(p->resource_key) != nullptr) ++visible_inputs;
         }
         for (uint64_t portId : node->output_ports) {
             Port *p = m_graph->getPort(portId);
-            if (p && p->resource_key != "nothing" && resources.find(p->resource_key) != resources.end()) ++visible_outputs;
+            if (p && p->active && !p->resource_key.empty() && gameData.findResource(p->resource_key) != nullptr) ++visible_outputs;
         }
 
         // Heights of each column
@@ -941,11 +944,11 @@ void FactoryNodeEditor::drawNodes() {
             ImGui::BeginGroup();
             for (uint64_t port : node->input_ports) {
                 Port *p = m_graph->getPort(port);
-                if (!p || p->resource_key == "nothing") continue;
+                if (!p || !p->active || p->resource_key.empty()) continue;
 
-                auto resIt = resources.find(p->resource_key);
-                if (resIt == resources.end()) continue;
-                const Resource& res = resIt->second;
+                const Resource* resPtr = gameData.findResource(p->resource_key);
+                if (!resPtr) continue;
+                const Resource& res = *resPtr;
                 ed::BeginPin(IdUtils::toPinId(p->id), ed::PinKind::Input);
                 ImVec2 iconPos = ImGui::GetCursorScreenPos();
                 ImVec2 iconSize(port_img_h, port_img_h);
@@ -988,10 +991,9 @@ void FactoryNodeEditor::drawNodes() {
         // --- MIDDLE (machine) ---
         ImGui::BeginGroup();
         if (machine_offset > 0.0f) ImGui::Dummy(ImVec2(0, machine_offset));
-        const auto& machines = m_graph->getGameData().machines;
-        auto machIt = machines.find(node->machine_key);
-        if (machIt != machines.end()) {
-            ImGui::Image(machIt->second.texture, ImVec2(machine_h, machine_h));
+        const Machine* machPtr = gameData.findMachine(node->machine_key);
+        if (machPtr) {
+            ImGui::Image(machPtr->texture, ImVec2(machine_h, machine_h));
         } else {
             ImGui::Dummy(ImVec2(48, machine_h));
         }
@@ -1015,11 +1017,11 @@ void FactoryNodeEditor::drawNodes() {
             ImGui::BeginGroup();
             for (uint64_t port : node->output_ports) {
                 Port *p = m_graph->getPort(port);
-                if (!p || p->resource_key == "nothing") continue;
+                if (!p || !p->active || p->resource_key.empty()) continue;
 
-                auto resIt = resources.find(p->resource_key);
-                if (resIt == resources.end()) continue;
-                const Resource& res = resIt->second;
+                const Resource* resPtr = gameData.findResource(p->resource_key);
+                if (!resPtr) continue;
+                const Resource& res = *resPtr;
                 ed::BeginPin(IdUtils::toPinId(p->id), ed::PinKind::Output);
                 char rateBuf[64];
                 formatPinRateText(p, rateBuf, sizeof(rateBuf));
@@ -1313,8 +1315,8 @@ void FactoryNodeEditor::handlePopups() {
     if (ImGui::BeginPopup("Node Context Menu")) {
         auto node = m_graph->getNode(IdUtils::fromNodeId(m_contextNodeId));
         if (node) {
-            if (gameData.machines.count(node->machine_key)) {
-                ImTextureID icon = gameData.machines.at(node->machine_key).texture;
+            if (const Machine* nodeMach = gameData.findMachine(node->machine_key)) {
+                ImTextureID icon = nodeMach->texture;
                 ImGui::Image(icon, ImVec2(fontSize, fontSize));
                 ImGui::SameLine();
             }
@@ -1323,8 +1325,8 @@ void FactoryNodeEditor::handlePopups() {
             ImGui::Separator();
 
             std::vector<std::string> allowedMachines;
-            if (gameData.recipes.count(node->selected_recipe_key)) {
-                allowedMachines = gameData.recipes.at(node->selected_recipe_key).produced_in_machines_keys;
+            if (const Recipe* nodeRec = gameData.findRecipe(node->selected_recipe_key)) {
+                allowedMachines = nodeRec->compatible_machine_ids;
             }
 
             bool isCurrentMachineValid = std::find(allowedMachines.begin(), allowedMachines.end(), node->machine_key) != allowedMachines.end();
@@ -1333,9 +1335,8 @@ void FactoryNodeEditor::handlePopups() {
                 ImGui::TextDisabled("Change Machine:");
 
                 std::string currentMachineName = node->machine_key;
-                auto currentMachIt = gameData.machines.find(node->machine_key);
-                if (currentMachIt != gameData.machines.end()) {
-                    currentMachineName = currentMachIt->second.name;
+                if (const Machine* currentMach = gameData.findMachine(node->machine_key)) {
+                    currentMachineName = currentMach->name;
                 } else if (node->machine_key.empty()) {
                     currentMachineName = "None";
                 }
@@ -1343,10 +1344,10 @@ void FactoryNodeEditor::handlePopups() {
                 ImGui::SetNextItemWidth(200.0f);
                 if (ImGui::BeginCombo("##machine_selector", currentMachineName.c_str())) {
                     for (const auto& mKey : allowedMachines) {
-                        auto machIt = gameData.machines.find(mKey);
-                        if (machIt == gameData.machines.end()) continue;
+                        const Machine* machPtr = gameData.findMachine(mKey);
+                        if (!machPtr) continue;
 
-                        const auto& machine = machIt->second;
+                        const auto& machine = *machPtr;
                         bool isSelected = (node->machine_key == mKey);
 
                         ImGui::PushID(mKey.c_str());
@@ -1364,7 +1365,7 @@ void FactoryNodeEditor::handlePopups() {
                         }
 
                         if (ImGui::IsItemHovered()) {
-                            ImGui::SetTooltip("Speed: %.2fx", machine.base_crafting_speed);
+                            ImGui::SetTooltip("Speed: %.2fx", machine.speed);
                         }
 
                         if (isSelected) ImGui::SetItemDefaultFocus();
@@ -1385,50 +1386,96 @@ void FactoryNodeEditor::handlePopups() {
             } else {
                 ImGui::TextDisabled("Machine:");
                 ImGui::SameLine();
-                auto machIt = gameData.machines.find(node->machine_key);
-                ImGui::Text("%s", machIt != gameData.machines.end() ? machIt->second.name.c_str() : node->machine_key.c_str());
+                const Machine* machPtr = gameData.findMachine(node->machine_key);
+                ImGui::Text("%s", machPtr ? machPtr->name.c_str() : node->machine_key.c_str());
             }
 
-            static double s_startClockSpeed = 0.0;
-            float clockSpeedFlt = node->clock_speed;
+            // Schema-defined node parameters (profile)
+            const auto* machinePtr = gameData.findMachine(node->machine_key);
+            const auto* profilePtr = machinePtr ? gameData.findProfile(machinePtr->profile) : gameData.findProfile("default");
 
-            ImGui::SetNextItemWidth(200.0f);
-            if (ImGui::DragFloat("Clock speed (%)", &clockSpeedFlt, 1, 0.0f, 10000.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp)) {
-                clockSpeedFlt = std::clamp(clockSpeedFlt, 0.0f, 10000.0f);
-                node->clock_speed = static_cast<double>(clockSpeedFlt);
-            }
-
-            if (ImGui::IsItemActivated()) {
-                s_startClockSpeed = node->clock_speed;
-            }
-
-            if (ImGui::IsItemDeactivatedAfterEdit()) {
-                if (s_startClockSpeed != node->clock_speed) {
-                    executeCommand(std::make_unique<ChangeClockSpeedCommand>(
-                        node->id, s_startClockSpeed, node->clock_speed
-                    ));
+            std::vector<const gamedata::ParamDef*> paramDefs;
+            if (profilePtr) {
+                for (const auto& pid : profilePtr->params) {
+                    if (const auto* pdef = gameData.findParameter(pid)) {
+                        paramDefs.push_back(pdef);
+                    }
                 }
             }
 
-            static double s_startProductionMultiplier = 0.0;
-            float prodMultFlt = node->production_multiplier;
-
-            ImGui::SetNextItemWidth(200.0f);
-            if (ImGui::DragFloat("Production Multiplier (%)", &prodMultFlt, 1, 0.0f, 10000.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp)) {
-                prodMultFlt = std::clamp(prodMultFlt, 0.0f, 10000.0f);
-                node->production_multiplier = static_cast<double>(prodMultFlt);
-            }
-
-            if (ImGui::IsItemActivated()) {
-                s_startProductionMultiplier = node->production_multiplier;
-            }
-
-            if (ImGui::IsItemDeactivatedAfterEdit()) {
-                if (s_startProductionMultiplier != node->production_multiplier) {
-                    executeCommand(std::make_unique<ChangeProductionMultiplierCommand>(
-                        node->id, s_startProductionMultiplier, node->production_multiplier
-                    ));
+            static std::unordered_map<std::string, gamedata::ParamValue> s_startParamValues;
+            for (const auto* pdef : paramDefs) {
+                ImGui::PushID(pdef->id.c_str());
+                std::string label = pdef->label.empty() ? pdef->id : pdef->label;
+                if (!pdef->unit.empty()) {
+                    label += " (" + pdef->unit + ")";
                 }
+                auto curOpt = m_graph->getNodeParam(node->id, pdef->id);
+
+                if (pdef->type == gamedata::ParamType::Number) {
+                    double curVal = (curOpt && curOpt->isNumber())
+                                        ? curOpt->asNumber()
+                                        : ((pdef->has_default && pdef->default_value.isNumber())
+                                               ? pdef->default_value.asNumber()
+                                               : 0.0);
+                    float valFlt = static_cast<float>(curVal);
+                    float minFlt = (pdef->min.is_present && pdef->min.is_literal) ? static_cast<float>(pdef->min.literal_value) : 0.0f;
+                    float maxFlt = (pdef->max.is_present && pdef->max.is_literal) ? static_cast<float>(pdef->max.literal_value) : 10000.0f;
+                    float stepFlt = (pdef->has_step && pdef->step > 0.0)
+                                        ? static_cast<float>(pdef->step)
+                                        : 1.0f;
+
+                    ImGui::SetNextItemWidth(200.0f);
+                    if (ImGui::DragFloat(label.c_str(), &valFlt, stepFlt, minFlt, maxFlt, "%.2f",
+                                         ImGuiSliderFlags_AlwaysClamp)) {
+                        valFlt = std::clamp(valFlt, minFlt, maxFlt);
+                        m_graph->setNodeParam(node->id, pdef->id, gamedata::ParamValue(static_cast<double>(valFlt)));
+                    }
+                    if (ImGui::IsItemActivated()) {
+                        s_startParamValues[pdef->id] = gamedata::ParamValue(curVal);
+                    }
+                    if (ImGui::IsItemDeactivatedAfterEdit()) {
+                        double startVal = s_startParamValues[pdef->id].isNumber()
+                                              ? s_startParamValues[pdef->id].asNumber()
+                                              : curVal;
+                        double endVal = static_cast<double>(valFlt);
+                        if (startVal != endVal) {
+                            executeCommand(std::make_unique<ChangeNodeParamCommand>(
+                                node->id, pdef->id, gamedata::ParamValue(startVal), gamedata::ParamValue(endVal)
+                            ));
+                        }
+                    }
+                } else if (pdef->type == gamedata::ParamType::Enum) {
+                    std::string curVal = (curOpt && curOpt->isString())
+                                             ? curOpt->asString()
+                                             : ((pdef->has_default && pdef->default_value.isString())
+                                                    ? pdef->default_value.asString()
+                                                    : "");
+                    const auto* optSet = gameData.findOptionSet(pdef->option_set);
+                    std::string previewLabel = curVal;
+                    if (optSet) {
+                        if (const auto* optDef = optSet->findOption(curVal)) {
+                            if (!optDef->label.empty()) previewLabel = optDef->label;
+                        }
+                    }
+                    ImGui::SetNextItemWidth(200.0f);
+                    if (ImGui::BeginCombo(label.c_str(), previewLabel.c_str())) {
+                        if (optSet) {
+                            for (const auto& opt : optSet->options) {
+                                bool selected = (opt.key == curVal);
+                                const std::string& disp = opt.label.empty() ? opt.key : opt.label;
+                                if (ImGui::Selectable(disp.c_str(), selected) && !selected) {
+                                    executeCommand(std::make_unique<ChangeNodeParamCommand>(
+                                        node->id, pdef->id, gamedata::ParamValue(curVal), gamedata::ParamValue(opt.key)
+                                    ));
+                                }
+                                if (selected) ImGui::SetItemDefaultFocus();
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
+                }
+                ImGui::PopID();
             }
             ImGui::Separator();
 
@@ -1459,11 +1506,11 @@ void FactoryNodeEditor::handlePopups() {
                 m_isContextMenuInitialized = true;
             }
 
-            if (gameData.resources.count(port->resource_key)) {
+            if (const Resource* res = gameData.findResource(port->resource_key)) {
                 double imageSize = ImGui::GetFontSize();
-                ImGui::Image(gameData.resources.at(port->resource_key).texture, ImVec2(imageSize, imageSize));
+                ImGui::Image(res->texture, ImVec2(imageSize, imageSize));
                 ImGui::SameLine();
-                ImGui::Text("%s", gameData.resources.at(port->resource_key).name.c_str());
+                ImGui::Text("%s", res->name.c_str());
             } else {
                 ImGui::Text("%s", port->resource_key.c_str());
             }
@@ -1583,19 +1630,16 @@ void FactoryNodeEditor::handlePopups() {
     if (ImGui::BeginPopup("Link Context Menu")) {
         auto connection = m_graph->getConnection(IdUtils::fromLinkId(m_contextLinkId));
         if (connection) {
-            if (gameData.resources.count(connection->resource_key)) {
-                ImGui::Image(gameData.resources.at(connection->resource_key).texture, ImVec2(24, 24));
+            if (const Resource* res = gameData.findResource(connection->resource_key)) {
+                ImGui::Image(res->texture, ImVec2(24, 24));
                 ImGui::SameLine();
-                ImGui::Text("%s Flow", gameData.resources.at(connection->resource_key).name.c_str());
+                ImGui::Text("%s Flow", res->name.c_str());
             } else {
                 ImGui::Text("%s Flow", connection->resource_key.c_str());
             }
             ImGui::Separator();
 
-            std::string timeUnit = gameData.time_unit;
-            if (timeUnit == "seconds") timeUnit = "sec";
-            else if (timeUnit == "minutes") timeUnit = "min";
-            else if (timeUnit == "hours") timeUnit = "hour";
+            const std::string timeUnit = gamedata::rateUnitToString(m_graph->getRateUnit());
 
             ImGui::Text("Current Rate: %.2f / %s", connection->rate, timeUnit.c_str());
 
@@ -1650,16 +1694,13 @@ void FactoryNodeEditor::handlePopups() {
                 }
             }
 
-            const auto& resources = m_graph->getGameData().resources;
-
-            for (const auto& recipePair : m_graph->getGameData().recipes) {
-                const auto& recipe = recipePair.second;
+            for (const auto& recipe : gameData.recipes) {
 
                 if (hasContext) {
                     bool compatible = false;
-                    const auto& targetPorts = portIsInput ? recipe.output_ports : recipe.input_ports;
+                    const auto& targetPorts = portIsInput ? recipe.out : recipe.in;
                     for (const auto& p : targetPorts) {
-                        if (p.resource_key == portResourceKey) {
+                        if (p.res.value_or("") == portResourceKey) {
                             compatible = true;
                             break;
                         }
@@ -1676,9 +1717,10 @@ void FactoryNodeEditor::handlePopups() {
                     if (nameLower.find(filter) != std::string::npos) match = true;
 
                     if (!match) {
-                        for (const auto& p : recipe.input_ports) {
-                            if (resources.count(p.resource_key)) {
-                                std::string resName = resources.at(p.resource_key).name;
+                        for (const auto& p : recipe.in) {
+                            std::string rKey = p.res.value_or("");
+                            if (const Resource* res = gameData.findResource(rKey)) {
+                                std::string resName = res->name;
                                 std::transform(resName.begin(), resName.end(), resName.begin(), ::tolower);
                                 if (resName.find(filter) != std::string::npos) {
                                     match = true;
@@ -1689,9 +1731,10 @@ void FactoryNodeEditor::handlePopups() {
                     }
 
                     if (!match) {
-                        for (const auto& p : recipe.output_ports) {
-                            if (resources.count(p.resource_key)) {
-                                std::string resName = resources.at(p.resource_key).name;
+                        for (const auto& p : recipe.out) {
+                            std::string rKey = p.res.value_or("");
+                            if (const Resource* res = gameData.findResource(rKey)) {
+                                std::string resName = res->name;
                                 std::transform(resName.begin(), resName.end(), resName.begin(), ::tolower);
                                 if (resName.find(filter) != std::string::npos) {
                                     match = true;
@@ -1707,12 +1750,12 @@ void FactoryNodeEditor::handlePopups() {
                 ImGui::TableNextRow();
 
                 ImGui::TableNextColumn();
-                for (const auto& p : recipe.input_ports) {
-                    if (p.resource_key == "nothing") continue;
-                    auto it = resources.find(p.resource_key);
-                    if (it != resources.end()) {
-                        ImGui::Image(it->second.texture, ImVec2(iconSize, iconSize));
-                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", it->second.name.c_str());
+                for (const auto& p : recipe.in) {
+                    std::string rKey = p.res.value_or("");
+                    if (rKey.empty()) continue;
+                    if (const Resource* res = gameData.findResource(rKey)) {
+                        ImGui::Image(res->texture, ImVec2(iconSize, iconSize));
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", res->name.c_str());
                         ImGui::SameLine();
                     }
                 }
@@ -1740,15 +1783,18 @@ void FactoryNodeEditor::handlePopups() {
                             int target_idx = -1;
 
                             for (const auto& p : ports) {
-                                if (p.resource_key == "nothing") continue;
+                                std::string rKey = p.res.value_or("");
+                                if (rKey.empty()) continue;
 
                                 // Track target index
-                                if (p.resource_key == targetKey) target_idx = count;
+                                if (rKey == targetKey) target_idx = count;
 
                                 // Calculate width (Icon + Spacing + Rate + Spacing + Optional Text)
                                 float w = 24.0f + 30.0f + space_x;
-                                if (SettingsManager::instance().getSettings().showResourceNames && resources.count(p.resource_key)) {
-                                    w += space_x + ImGui::CalcTextSize(resources.at(p.resource_key).name.c_str()).x;
+                                if (SettingsManager::instance().getSettings().showResourceNames) {
+                                    if (const Resource* res = gameData.findResource(rKey)) {
+                                        w += space_x + ImGui::CalcTextSize(res->name.c_str()).x;
+                                    }
                                 }
                                 max_w = std::max(max_w, w);
                                 count++;
@@ -1762,8 +1808,8 @@ void FactoryNodeEditor::handlePopups() {
                         // If dragging FROM Input, we connect TO Output (target is output), and vice versa
                         bool is_target_input = !portIsInput;
 
-                        auto [in_h, in_w, in_idx]    = getColMetrics(recipe.input_ports,  is_target_input ? portResourceKey : "");
-                        auto [out_h, out_w, out_idx] = getColMetrics(recipe.output_ports, !is_target_input ? portResourceKey : "");
+                        auto [in_h, in_w, in_idx]    = getColMetrics(recipe.in,  is_target_input ? portResourceKey : "");
+                        auto [out_h, out_w, out_idx] = getColMetrics(recipe.out, !is_target_input ? portResourceKey : "");
 
                         // 4. Apply Offsets
                         int target_idx = is_target_input ? in_idx : out_idx;
@@ -1785,7 +1831,7 @@ void FactoryNodeEditor::handlePopups() {
                             }
                         }
                     }
-                    executeCommand(std::make_unique<AddNodeCommand>(recipe.name, recipePair.first, fromPort, nodePos));
+                    executeCommand(std::make_unique<AddNodeCommand>(recipe.name, recipe.id, fromPort, nodePos));
                     m_selectedPortId = static_cast<uint64_t>(-1);
                     ImGui::CloseCurrentPopup();
                 }
@@ -1794,8 +1840,9 @@ void FactoryNodeEditor::handlePopups() {
                 ImGui::TableNextColumn();
                 float contentWidth = 0.0f;
                 int count = 0;
-                for (const auto& p : recipe.output_ports) {
-                    if (p.resource_key != "nothing" && resources.count(p.resource_key)) count++;
+                for (const auto& p : recipe.out) {
+                    std::string rKey = p.res.value_or("");
+                    if (!rKey.empty() && gameData.findResource(rKey) != nullptr) count++;
                 }
 
                 if (count > 0) {
@@ -1808,14 +1855,14 @@ void FactoryNodeEditor::handlePopups() {
                     }
 
                     bool first = true;
-                    for (auto it = recipe.output_ports.rbegin(); it != recipe.output_ports.rend(); ++it) {
+                    for (auto it = recipe.out.rbegin(); it != recipe.out.rend(); ++it) {
                         const auto& p = *it;
-                        if (p.resource_key == "nothing") continue;
-                        auto resIt = resources.find(p.resource_key);
-                        if (resIt != resources.end()) {
+                        std::string rKey = p.res.value_or("");
+                        if (rKey.empty()) continue;
+                        if (const Resource* res = gameData.findResource(rKey)) {
                             if (!first) ImGui::SameLine();
-                            ImGui::Image(resIt->second.texture, ImVec2(iconSize, iconSize));
-                            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", resIt->second.name.c_str());
+                            ImGui::Image(res->texture, ImVec2(iconSize, iconSize));
+                            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", res->name.c_str());
                             first = false;
                         }
                     }

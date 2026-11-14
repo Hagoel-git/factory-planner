@@ -10,19 +10,22 @@
 #include <vector>
 
 #include "Port.h"
+#include "core/data/GameDataV4.h"
+#include "core/data/NodeEvaluator.h"
 #include "ortools/linear_solver/linear_solver.h"
 
 class FactoryGraph;
 struct Node;
-struct Recipe;
 
 /**
  * Models the factory graph as a Linear Program and solves it via Google OR-Tools (GLOP).
  *
  * Each weakly connected component K of the graph is analyzed and solved independently:
+ *  - Pre-solve node formulas (NodeEvaluator::evaluateNode) determine active ports, port resources,
+ *    effective amounts per craft, and effective craft time t'_n.
  *  - Port constraint modes (AUTO -> LIMIT, TARGET, or PUSH) and the sink-dedicated subgraph S+_K
- *    are resolved locally per component.
- *  - Active goals G_K (ports with user_constraint > 0 and resolved mode TARGET or PUSH) are
+ *    are resolved locally per component on active ports and OK wires.
+ *  - Active goals G_K (active ports with user_constraint > 0 and resolved mode TARGET or PUSH) are
  *    satisfied via max-min water-filling.
  *  - Solved lexicographically in 4 stages per component:
  *      Stage 1:  Iterative max-min water-filling on active goals G_K.
@@ -32,6 +35,7 @@ struct Recipe;
  *      Stage 3a: Minimal machine activity on remaining non-sink nodes N_K \ (T_K U S+_K).
  *      Stage 3b: Minimal port flow on sink-dedicated subgraph S+_K.
  *      Stage 4:  Terminal fair branch splitting across all splitters and mergers.
+ *  - Post-solve node metrics and graph-level metric totals are evaluated after solving.
  *
  * See docs/solver.md for the full formulation.
  */
@@ -77,13 +81,13 @@ public:
     FactorySolver(FactorySolver&&) = default;
     FactorySolver& operator=(FactorySolver&&) = default;
 
-    [[nodiscard]] SolverResult solve(FactoryGraph &factory_graph);
+    [[nodiscard]] SolverResult solve(FactoryGraph& factory_graph);
 
     /// How a user constraint on the given port is interpreted by the solver.
-    static ConstraintKind classifyConstraint(const FactoryGraph &factory_graph, const Port &port);
+    static ConstraintKind classifyConstraint(const FactoryGraph& factory_graph, const Port& port);
 
-    /// Resolves ConstraintMode (AUTO -> LIMIT, TARGET, or PUSH) for all ports in the graph.
-    static std::unordered_map<uint64_t, ConstraintMode> resolveConstraintModes(const FactoryGraph &factory_graph);
+    /// Resolves ConstraintMode (AUTO -> LIMIT, TARGET, or PUSH) for all active ports in the graph.
+    static std::unordered_map<uint64_t, ConstraintMode> resolveConstraintModes(const FactoryGraph& factory_graph);
 
     /// Resolved constraint mode for a port from the most recent solve() call.
     ConstraintMode getResolvedConstraintMode(uint64_t port_id) const;
@@ -101,11 +105,22 @@ public:
     /// True if port_id was an active goal in the last solve() and achieved < 100% of its goal rate.
     bool isGoalBottlenecked(uint64_t port_id) const;
 
+    /// Post-solve evaluated metrics for a node from the most recent solve() call, or nullptr if not available.
+    const gamedata::NodeMetricsResult* getNodeMetrics(uint64_t node_id) const;
+    const std::unordered_map<uint64_t, gamedata::NodeMetricsResult>& getAllNodeMetrics() const {
+        return m_nodeMetrics;
+    }
+
+    /// Graph-level aggregated metric totals from the most recent solve() call.
+    const std::vector<gamedata::MetricTotal>& getTotals() const {
+        return m_totals;
+    }
+
     double getLastSolveTime() const { return m_lastSolveTime; }
     std::string getLastSolverStatus() const { return m_lastSolverStatus; }
 
 private:
-    using Terms = std::vector<std::pair<operations_research::MPVariable *, double>>;
+    using Terms = std::vector<std::pair<operations_research::MPVariable*, double>>;
 
     struct ComponentData {
         std::vector<uint64_t> nodes;
@@ -140,36 +155,43 @@ private:
 
     std::unordered_map<uint64_t, ConstraintMode> m_resolvedModes;
     std::unordered_map<uint64_t, double> m_goalSaturations;
+    std::unordered_map<uint64_t, gamedata::NodeMetricsResult> m_nodeMetrics;
+    std::vector<gamedata::MetricTotal> m_totals;
 
-    std::unordered_map<uint64_t, operations_research::MPVariable *> m_portVariables;
-    std::unordered_map<uint64_t, operations_research::MPVariable *> m_connectionVariables;
-    std::unordered_map<uint64_t, operations_research::MPVariable *> m_excessVariables;
-    std::vector<std::pair<operations_research::MPVariable *, operations_research::MPVariable *>> m_nonSinkBalanceVariables;
-    std::vector<std::pair<operations_research::MPVariable *, operations_research::MPVariable *>> m_balanceVariables;
-    std::vector<operations_research::MPConstraint *> m_constraints;
+    std::unordered_map<uint64_t, operations_research::MPVariable*> m_portVariables;
+    std::unordered_map<uint64_t, operations_research::MPVariable*> m_connectionVariables;
+    std::unordered_map<uint64_t, operations_research::MPVariable*> m_excessVariables;
+    std::vector<std::pair<operations_research::MPVariable*, operations_research::MPVariable*>> m_nonSinkBalanceVariables;
+    std::vector<std::pair<operations_research::MPVariable*, operations_research::MPVariable*>> m_balanceVariables;
+    std::vector<operations_research::MPConstraint*> m_constraints;
     std::vector<double> m_solution;
 
-    static std::vector<ComponentData> partitionComponents(const FactoryGraph &factory_graph);
-    static void analyzeComponent(const FactoryGraph &factory_graph, ComponentData &comp);
+    static bool isNodeActiveInSolver(const FactoryGraph& factory_graph, const Node& node);
+    static bool findReferencePort(const FactoryGraph& factory_graph, const Node& node,
+                                  uint64_t& out_port_id, double& out_amount_per_craft);
+
+    static std::vector<ComponentData> partitionComponents(const FactoryGraph& factory_graph);
+    static void analyzeComponent(const FactoryGraph& factory_graph, ComponentData& comp);
 
     void clearComponentSolverState();
-    void createComponentVariables(const FactoryGraph &factory_graph, const ComponentData &comp);
-    void addComponentConstraints(const FactoryGraph &factory_graph, ComponentData &comp);
-    void addRecipeConstraints(const Node &node, const Recipe &recipe);
-    void addConnectionConstraints(const FactoryGraph &factory_graph, ComponentData &comp);
+    void createComponentVariables(const FactoryGraph& factory_graph, const ComponentData& comp);
+    void addComponentConstraints(const FactoryGraph& factory_graph, ComponentData& comp);
+    void addRecipeConstraints(const FactoryGraph& factory_graph, const Node& node);
+    void addConnectionConstraints(const FactoryGraph& factory_graph, ComponentData& comp);
 
-    Terms buildMachineActivityTerms(const FactoryGraph &factory_graph,
-                                    const std::vector<uint64_t> &candidate_nodes) const;
+    Terms buildMachineActivityTerms(const FactoryGraph& factory_graph,
+                                    const std::vector<uint64_t>& candidate_nodes) const;
 
     operations_research::MPSolver::ResultStatus solveComponentLexicographic(
-        const FactoryGraph &factory_graph, const ComponentData &comp);
-    operations_research::MPSolver::ResultStatus solveStage(const Terms &terms, bool maximize, double &objective_value);
-    void lockStage(const Terms &terms, bool maximize, double objective_value, int stage_step = 1);
+        const FactoryGraph& factory_graph, const ComponentData& comp);
+    operations_research::MPSolver::ResultStatus solveStage(const Terms& terms, bool maximize, double& objective_value);
+    void lockStage(const Terms& terms, bool maximize, double objective_value, int stage_step = 1);
     void storeSolution();
-    double solutionValue(const operations_research::MPVariable *var) const;
+    double solutionValue(const operations_research::MPVariable* var) const;
 
-    void updateComponentGraph(FactoryGraph &factory_graph, const ComponentData &comp);
-    static void zeroComponentGraph(FactoryGraph &factory_graph, const ComponentData &comp);
+    void updateComponentGraph(FactoryGraph& factory_graph, const ComponentData& comp);
+    static void zeroComponentGraph(FactoryGraph& factory_graph, const ComponentData& comp);
+    void evaluatePostSolveMetrics(const FactoryGraph& factory_graph);
     SolverResultStatus convertSolverStatus(operations_research::MPSolver::ResultStatus status) const;
 };
 

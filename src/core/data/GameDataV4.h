@@ -37,7 +37,9 @@ enum class RateUnit {
     PerTick,
     PerSecond,
     PerMinute,
-    PerHour
+    PerHour,
+    PerSec = PerSecond,
+    PerMin = PerMinute
 };
 
 inline std::string rateUnitToString(RateUnit unit) {
@@ -75,6 +77,29 @@ inline double rateDisplayMultiplier(RateUnit unit, double ticks_per_second = 20.
             return 3600.0;
     }
     return 1.0;
+}
+
+inline double toCanonicalRate(double display_rate, RateUnit unit, double ticks_per_second = 20.0) {
+    double mult = rateDisplayMultiplier(unit, ticks_per_second);
+    return (mult > 0.0) ? (display_rate / mult) : display_rate;
+}
+
+inline double fromCanonicalRate(double canonical_rate, RateUnit unit, double ticks_per_second = 20.0) {
+    return canonical_rate * rateDisplayMultiplier(unit, ticks_per_second);
+}
+
+inline std::string rateUnitSuffix(RateUnit unit) {
+    switch (unit) {
+        case RateUnit::PerTick:
+            return "/tick";
+        case RateUnit::PerSecond:
+            return "/s";
+        case RateUnit::PerMinute:
+            return "/min";
+        case RateUnit::PerHour:
+            return "/h";
+    }
+    return "/s";
 }
 
 struct UnitsDef {
@@ -484,6 +509,7 @@ struct Resource {
     std::unordered_set<std::string> tag_set;
     std::unordered_map<std::string, expr::EvalValue> attrs;
     std::string notes;
+    unsigned long long texture = 0;
 };
 
 struct Machine {
@@ -494,6 +520,7 @@ struct Machine {
     double speed = 1.0;
     std::unordered_map<std::string, expr::EvalValue> attrs;
     std::string notes;
+    unsigned long long texture = 0;
 };
 
 struct RecipePort {
@@ -693,6 +720,9 @@ struct GamePackage {
     std::unordered_map<std::string, std::vector<std::string>> category_to_machines;
     std::unordered_map<std::string, std::vector<std::string>> category_to_profiles;
 
+    // Optional ID alias map (old_id -> new_id or prefixed rec@/mac@/res@)
+    std::unordered_map<std::string, std::string> id_aliases;
+
     // Pre-built static evaluation environment shared across all nodes in the package
     expr::EvalEnv base_eval_env;
 
@@ -746,7 +776,83 @@ struct GamePackage {
         auto it = recipe_index.find(std::string(id));
         return (it != recipe_index.end()) ? &recipes[it->second] : nullptr;
     }
+
+    Resource* findResourceMut(std::string_view id) {
+        auto it = resource_index.find(std::string(id));
+        return (it != resource_index.end()) ? &resources[it->second] : nullptr;
+    }
+
+    Machine* findMachineMut(std::string_view id) {
+        auto it = machine_index.find(std::string(id));
+        return (it != machine_index.end()) ? &machines[it->second] : nullptr;
+    }
+
+    Recipe* findRecipeMut(std::string_view id) {
+        auto it = recipe_index.find(std::string(id));
+        return (it != recipe_index.end()) ? &recipes[it->second] : nullptr;
+    }
+
+    Profile* findProfileMut(std::string_view id) {
+        auto it = profile_index.find(std::string(id));
+        return (it != profile_index.end()) ? &profiles[it->second] : nullptr;
+    }
+
+    bool canMachineRunRecipe(std::string_view machine_id, std::string_view recipe_id) const {
+        const Recipe* r = findRecipe(recipe_id);
+        if (r == nullptr || findMachine(machine_id) == nullptr) {
+            return false;
+        }
+        return std::find(r->compatible_machine_ids.begin(),
+                         r->compatible_machine_ids.end(),
+                         machine_id) != r->compatible_machine_ids.end();
+    }
+
+    std::string resolveAliasedId(std::string_view prefix, std::string_view raw_id) const {
+        std::string current(raw_id);
+        for (int depth = 0; depth < 16; ++depth) {
+            std::string prefixed = std::string(prefix) + "@" + current;
+            auto it = id_aliases.find(prefixed);
+            if (it == id_aliases.end()) {
+                it = id_aliases.find(current);
+            }
+            if (it == id_aliases.end() || it->second.empty() || it->second == current) {
+                break;
+            }
+            current = it->second;
+        }
+        return current;
+    }
+
+    std::string resolveRecipeId(std::string_view id) const {
+        if (findRecipe(id) != nullptr) return std::string(id);
+        std::string resolved = resolveAliasedId("rec", id);
+        return (findRecipe(resolved) != nullptr) ? resolved : std::string{};
+    }
+
+    std::string resolveMachineId(std::string_view id) const {
+        if (findMachine(id) != nullptr) return std::string(id);
+        std::string resolved = resolveAliasedId("mac", id);
+        return (findMachine(resolved) != nullptr) ? resolved : std::string{};
+    }
+
+    std::string resolveResourceId(std::string_view id) const {
+        if (findResource(id) != nullptr) return std::string(id);
+        std::string resolved = resolveAliasedId("res", id);
+        return (findResource(resolved) != nullptr) ? resolved : std::string{};
+    }
+
+    double toDisplayRate(double canonical_rate_per_s, RateUnit unit) const {
+        return fromCanonicalRate(canonical_rate_per_s, unit, units.ticks_per_second);
+    }
+
+    double fromDisplayRate(double display_rate, RateUnit unit) const {
+        return toCanonicalRate(display_rate, unit, units.ticks_per_second);
+    }
 };
+
+using ParamDef = ParameterDef;
+using ParamType = ParameterType;
+using MachineProfile = Profile;
 
 // ============================================================================
 // 6. NodeEval & Post-Solve Metric Structures (§4.5, §6, §7.1, §7.6)

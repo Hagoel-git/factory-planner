@@ -1,8 +1,17 @@
 #ifndef UNDOREDOSYSTEM_H
 #define UNDOREDOSYSTEM_H
+#include <cstdint>
+#include <memory>
+#include <optional>
+#include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 #include <imgui.h>
 
 #include "common/CopyBuffer.h"
+#include "core/data/GameDataV4.h"
+
 class FactoryGraph;
 
 struct CommandFlags {
@@ -25,7 +34,8 @@ private:
     std::string description;
     CommandFlags flags;
 public:
-    explicit CompositeCommand(std::string desc, CommandFlags flags = {true, true}) : description(std::move(desc)), flags(flags) {}
+    explicit CompositeCommand(std::string desc, CommandFlags flags = {true, true})
+        : description(std::move(desc)), flags(flags) {}
     void addCommand(std::unique_ptr<Command> command) {
         commands.push_back(std::move(command));
     }
@@ -60,8 +70,14 @@ private:
     Connection connectionData;
     bool executed;
 public:
-    AddNodeCommand(std::string  name, std::string recipeKey, uint64_t fromPort, const ImVec2& pos)
-        : nodeName(std::move(name)), recipeKey(std::move(recipeKey)), fromPort(fromPort), position(pos), nodeData(), connectionData(-1, -1, -1, ""), executed(false) {
+    AddNodeCommand(std::string name, std::string recipeKey, uint64_t fromPort, const ImVec2& pos)
+        : nodeName(std::move(name)),
+          recipeKey(std::move(recipeKey)),
+          fromPort(fromPort),
+          position(pos),
+          nodeData(),
+          connectionData(-1, -1, -1, ""),
+          executed(false) {
     }
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
@@ -89,7 +105,6 @@ public:
     std::string getDescription() const override {
         return "Remove Node: " + (!nodeName.empty() ? nodeName : nodeData.name);
     }
-
 };
 
 class AddConnectionCommand : public Command {
@@ -106,7 +121,9 @@ public:
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
     CommandFlags getFlags() const override { return CommandFlags{true, false}; }
-    std::string getDescription() const override { return "Add Connection: " + std::to_string(fromPort) + " -> " + std::to_string(toPort); }
+    std::string getDescription() const override {
+        return "Add Connection: " + std::to_string(fromPort) + " -> " + std::to_string(toPort);
+    }
 };
 
 class RemoveConnectionCommand : public Command {
@@ -122,7 +139,9 @@ public:
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
     CommandFlags getFlags() const override { return CommandFlags{true, false}; }
-    std::string getDescription() const override { return "Remove Connection: " + std::to_string(fromPort) + " -> " + std::to_string(toPort); }
+    std::string getDescription() const override {
+        return "Remove Connection: " + std::to_string(fromPort) + " -> " + std::to_string(toPort);
+    }
 };
 
 class PasteCommand : public Command {
@@ -138,47 +157,48 @@ private:
 public:
     PasteCommand(CopyBuffer copy_buffer, bool map_external_connections)
         : copy_buffer(std::move(copy_buffer)),
-          mapExternalConnections(map_external_connections), executed(false) {
+          mapExternalConnections(map_external_connections),
+          executed(false) {
     }
 
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
     CommandFlags getFlags() const override { return CommandFlags{true, true}; }
-    std::string getDescription() const override { return "Pasted " + std::to_string(copy_buffer.nodes.size()) + " nodes";}
+    std::string getDescription() const override {
+        return "Pasted " + std::to_string(copy_buffer.nodes.size()) + " nodes";
+    }
 };
 
-class ChangeClockSpeedCommand : public Command {
+class ChangeNodeParamCommand : public Command {
 private:
     uint64_t nodeId;
-    double oldSpeed;
-    double newSpeed;
+    std::string paramId;
+    std::optional<gamedata::ParamValue> oldValue;
+    gamedata::ParamValue newValue;
 public:
-    ChangeClockSpeedCommand(uint64_t nodeId, double oldSpeed, double newSpeed)
-        : nodeId(nodeId), oldSpeed(oldSpeed), newSpeed(newSpeed) {
+    ChangeNodeParamCommand(uint64_t nodeId, std::string paramId,
+                           std::optional<gamedata::ParamValue> oldValue,
+                           gamedata::ParamValue newValue)
+        : nodeId(nodeId),
+          paramId(std::move(paramId)),
+          oldValue(std::move(oldValue)),
+          newValue(std::move(newValue)) {
+    }
+
+    ChangeNodeParamCommand(uint64_t nodeId, std::string paramId,
+                           gamedata::ParamValue oldValue,
+                           gamedata::ParamValue newValue)
+        : nodeId(nodeId),
+          paramId(std::move(paramId)),
+          oldValue(std::move(oldValue)),
+          newValue(std::move(newValue)) {
     }
 
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
     CommandFlags getFlags() const override { return CommandFlags{true, false}; }
     std::string getDescription() const override {
-        return "Change Clock Speed: Node ID " + std::to_string(nodeId) + " from " + std::to_string(oldSpeed) + " to " + std::to_string(newSpeed);
-    }
-};
-
-class ChangeProductionMultiplierCommand : public Command {
-private:
-    uint64_t nodeId;
-    double oldMultiplier;
-    double newMultiplier;
-public:
-    ChangeProductionMultiplierCommand(uint64_t nodeId, double oldMultiplier, double newMultiplier)
-        : nodeId(nodeId), oldMultiplier(oldMultiplier), newMultiplier(newMultiplier) {
-    }
-    void execute(FactoryGraph& graph) override;
-    void undo(FactoryGraph& graph) override;
-    CommandFlags getFlags() const override { return CommandFlags{true, false}; }
-    std::string getDescription() const override {
-        return "Change Production Multiplier: Node ID " + std::to_string(nodeId) + " from " + std::to_string(oldMultiplier) + " to " + std::to_string(newMultiplier);
+        return "Change Node Parameter '" + paramId + "' on Node ID " + std::to_string(nodeId);
     }
 };
 
@@ -196,14 +216,19 @@ public:
     }
     SetPortConstraintCommand(uint64_t portId, double oldConstraint, double newConstraint,
                              ConstraintMode oldMode, ConstraintMode newMode)
-        : portId(portId), oldConstraint(oldConstraint), newConstraint(newConstraint),
-          hasModeChange(true), oldMode(oldMode), newMode(newMode) {
+        : portId(portId),
+          oldConstraint(oldConstraint),
+          newConstraint(newConstraint),
+          hasModeChange(true),
+          oldMode(oldMode),
+          newMode(newMode) {
     }
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
     CommandFlags getFlags() const override { return CommandFlags{true, false}; }
     std::string getDescription() const override {
-        return "Set Port Constraint: Port ID " + std::to_string(portId) + " from " + std::to_string(oldConstraint) + " to " + std::to_string(newConstraint);
+        return "Set Port Constraint: Port ID " + std::to_string(portId) +
+               " from " + std::to_string(oldConstraint) + " to " + std::to_string(newConstraint);
     }
 };
 
@@ -238,7 +263,9 @@ public:
     void undo(FactoryGraph& graph) override;
     CommandFlags getFlags() const override { return CommandFlags{false, true}; }
     std::string getDescription() const override {
-        return "Change Node Position: Node ID " + std::to_string(nodeId) + " from (" + std::to_string(oldPosition.x) + ", " + std::to_string(oldPosition.y) + ") to (" + std::to_string(newPosition.x) + ", " + std::to_string(newPosition.y) + ")";
+        return "Change Node Position: Node ID " + std::to_string(nodeId) +
+               " from (" + std::to_string(oldPosition.x) + ", " + std::to_string(oldPosition.y) +
+               ") to (" + std::to_string(newPosition.x) + ", " + std::to_string(newPosition.y) + ")";
     }
 };
 
@@ -247,6 +274,12 @@ private:
     uint64_t nodeId;
     std::string oldMachine;
     std::string newMachine;
+
+    Node m_beforeNode;
+    std::vector<Port> m_beforePorts;
+    std::vector<Connection> m_beforeConnections;
+    std::unordered_map<std::string, uint64_t> m_addedPortIds;
+    bool m_executed = false;
 public:
     ChangeMachineCommand(uint64_t nodeId, std::string oldMachine, std::string newMachine)
         : nodeId(nodeId), oldMachine(std::move(oldMachine)), newMachine(std::move(newMachine)) {
@@ -256,7 +289,81 @@ public:
     void undo(FactoryGraph& graph) override;
     CommandFlags getFlags() const override { return CommandFlags{true, false}; }
     std::string getDescription() const override {
-        return "Change Machine: Node ID " + std::to_string(nodeId) + " from " + oldMachine + " to " + newMachine;
+        return "Change Machine: Node ID " + std::to_string(nodeId) +
+               " from " + oldMachine + " to " + newMachine;
+    }
+};
+
+class ChangeRecipeCommand : public Command {
+private:
+    uint64_t nodeId;
+    std::string oldRecipe;
+    std::string newRecipe;
+
+    Node m_beforeNode;
+    std::vector<Port> m_beforePorts;
+    std::vector<Connection> m_beforeConnections;
+    std::unordered_map<std::string, uint64_t> m_addedPortIds;
+    bool m_executed = false;
+public:
+    ChangeRecipeCommand(uint64_t nodeId, std::string oldRecipe, std::string newRecipe)
+        : nodeId(nodeId), oldRecipe(std::move(oldRecipe)), newRecipe(std::move(newRecipe)) {
+    }
+
+    void execute(FactoryGraph& graph) override;
+    void undo(FactoryGraph& graph) override;
+    CommandFlags getFlags() const override { return CommandFlags{true, true}; }
+    std::string getDescription() const override {
+        return "Change Recipe: Node ID " + std::to_string(nodeId) +
+               " from " + oldRecipe + " to " + newRecipe;
+    }
+};
+
+class SetGlobalParamCommand : public Command {
+private:
+    std::string paramId;
+    std::optional<gamedata::ParamValue> oldValue;
+    gamedata::ParamValue newValue;
+public:
+    SetGlobalParamCommand(std::string paramId,
+                          std::optional<gamedata::ParamValue> oldValue,
+                          gamedata::ParamValue newValue)
+        : paramId(std::move(paramId)),
+          oldValue(std::move(oldValue)),
+          newValue(std::move(newValue)) {
+    }
+
+    SetGlobalParamCommand(std::string paramId,
+                          gamedata::ParamValue oldValue,
+                          gamedata::ParamValue newValue)
+        : paramId(std::move(paramId)),
+          oldValue(std::move(oldValue)),
+          newValue(std::move(newValue)) {
+    }
+
+    void execute(FactoryGraph& graph) override;
+    void undo(FactoryGraph& graph) override;
+    CommandFlags getFlags() const override { return CommandFlags{true, false}; }
+    std::string getDescription() const override {
+        return "Set Global Parameter '" + paramId + "'";
+    }
+};
+
+class SetRateUnitCommand : public Command {
+private:
+    gamedata::RateUnit oldUnit;
+    gamedata::RateUnit newUnit;
+public:
+    SetRateUnitCommand(gamedata::RateUnit oldUnit, gamedata::RateUnit newUnit)
+        : oldUnit(oldUnit), newUnit(newUnit) {
+    }
+
+    void execute(FactoryGraph& graph) override;
+    void undo(FactoryGraph& graph) override;
+    CommandFlags getFlags() const override { return CommandFlags{false, false}; }
+    std::string getDescription() const override {
+        return std::string("Set Rate Unit: ") + gamedata::rateUnitToString(oldUnit) +
+               " -> " + gamedata::rateUnitToString(newUnit);
     }
 };
 
@@ -266,7 +373,7 @@ private:
     std::vector<std::unique_ptr<Command>> redoStack;
     size_t maxHistorySize;
 public:
-    explicit UndoRedoManager(size_t maxSize = 100) : maxHistorySize(maxSize) {};
+    explicit UndoRedoManager(size_t maxSize = 100) : maxHistorySize(maxSize) {}
 
     void executeCommand(std::unique_ptr<Command> command, FactoryGraph& graph);
     bool canUndo() const { return !undoStack.empty(); }
@@ -275,10 +382,10 @@ public:
     void undo(FactoryGraph& graph);
     void redo(FactoryGraph& graph);
 
-    const Command *getCommandToUndo() const {
+    const Command* getCommandToUndo() const {
         return undoStack.empty() ? nullptr : undoStack.back().get();
     }
-    const Command *getCommandToRedo() const {
+    const Command* getCommandToRedo() const {
         return redoStack.empty() ? nullptr : redoStack.back().get();
     }
 
@@ -293,10 +400,8 @@ public:
     size_t getUndoStackSize() const { return undoStack.size(); }
     size_t getRedoStackSize() const { return redoStack.size(); }
 
-
 private:
     void trimUndoStack();
 };
 
 #endif //UNDOREDOSYSTEM_H
-

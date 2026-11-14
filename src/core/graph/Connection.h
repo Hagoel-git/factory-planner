@@ -5,17 +5,31 @@
 #include <string>
 #include <utility>
 
+enum class WireState {
+    OK,
+    INACTIVE,
+    INVALID
+};
+
 struct Connection {
+    using WireState = ::WireState;
+
     double rate = 0.0;
     uint64_t id = 0;
     uint64_t from_port = 0; // Port number on the originating node
     uint64_t to_port = 0; // Port number on the destination node
     std::string resource_key;
+    WireState state = WireState::OK;
 
     Connection() = default;
 
-    Connection(uint64_t id, uint64_t from_port, uint64_t to_port, std::string resource_key)
-        : id(id), from_port(from_port), to_port(to_port), resource_key(std::move(resource_key)) {
+    Connection(uint64_t id, uint64_t from_port, uint64_t to_port, std::string resource_key,
+               WireState state = WireState::OK)
+        : id(id),
+          from_port(from_port),
+          to_port(to_port),
+          resource_key(std::move(resource_key)),
+          state(state) {
     }
 
     friend bool operator==(const Connection &lhs, const Connection &rhs) {

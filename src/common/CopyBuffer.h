@@ -21,6 +21,7 @@ struct CopyBuffer {
     std::unordered_set<Connection> connections;    // copies of Connection that touch selected nodes
     std::unordered_map<uint64_t, ImVec2> nodePositions; // nodeId -> canvas position (ed::GetNodePosition)
 
+    std::string gameId;
     std::string gameName;
     const FactoryNodeEditor* sourceEditor = nullptr;
 
@@ -33,6 +34,7 @@ struct CopyBuffer {
         ports.clear();
         connections.clear();
         nodePositions.clear();
+        gameId.clear();
         gameName.clear();
         sourceEditor = nullptr;
     }

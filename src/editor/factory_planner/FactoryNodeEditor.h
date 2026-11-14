@@ -24,7 +24,11 @@ struct NodeQuadtreeData {
     NodeQuadtreeData(uint64_t id, const ImVec2& pos, const ImVec2& sz)
         : nodeId(id), position(pos), size(sz) {}
 
-    bool operator==(const NodeQuadtreeData &) const = default;
+    bool operator==(const NodeQuadtreeData& other) const {
+        return nodeId == other.nodeId &&
+               position.x == other.position.x && position.y == other.position.y &&
+               size.x == other.size.x && size.y == other.size.y;
+    }
 };
 
 // Functor to get bounding box for quadtree

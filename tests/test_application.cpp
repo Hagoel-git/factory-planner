@@ -893,17 +893,15 @@ TEST_F(ApplicationLifecycleTest, Issue1_17_UnsavedChanges_EmptyPathEditor_Trigge
 
 TEST_F(ApplicationLifecycleTest, Issue1_1_PinRendering_UnknownResourceDoesNotThrow) {
     GameData gd;
-    gd.gameName = "TestGame";
-    gd.time_unit = "seconds";
-    gd.resources["nothing"] = Resource{"Nothing", 0};
-    gd.resources["iron_ore"] = Resource{"Iron Ore", 1};
-    gd.machines["miner"] = Machine{"Miner", 1, 0};
-    Recipe recipe;
-    recipe.name = "Mine Iron";
-    recipe.produced_in_machines_keys = {"miner"};
-    recipe.input_ports.push_back(RecipePort{1.0, "nothing"});
-    recipe.output_ports.push_back(RecipePort{30.0, "iron_ore"});
-    gd.recipes["mine_iron"] = recipe;
+    gd.game.id = "test_app_pin";
+    gd.game.name = "TestGame";
+    gd.units.recipe_time = gamedata::RecipeTimeUnit::Seconds;
+    gamedata::ensureV3CompatProfile(gd);
+    gamedata::upsertResource(gd, "nothing", "Nothing");
+    gamedata::upsertResource(gd, "iron_ore", "Iron Ore");
+    gamedata::upsertMachine(gd, "miner", "Miner", 1.0, "v3_compat");
+    gamedata::upsertRecipe(gd, "mine_iron", "Mine Iron", 1.0, {"miner"},
+                           {{"nothing", 1.0}}, {{"iron_ore", 30.0}});
 
     fs::path testFile = dirA / "unknown_res.fpp";
     auto editor = std::make_unique<FactoryNodeEditor>(std::move(gd), testFile, "unknown_res");
@@ -937,13 +935,14 @@ TEST_F(ApplicationLifecycleTest, Issue1_1_PinRendering_UnknownResourceDoesNotThr
 
 TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_CutClearsSelection) {
     GameData gd;
-    gd.gameName = "TestGame";
-    gd.machines["miner"] = Machine{"Miner", 1, 0};
-    Recipe mine_ore;
-    mine_ore.name = "Mine Iron Ore";
-    mine_ore.produced_in_machines_keys.push_back("miner");
-    mine_ore.output_ports.push_back(RecipePort{30.0, "iron_ore"});
-    gd.recipes["mine_ore"] = mine_ore;
+    gd.game.id = "test_app_cut";
+    gd.game.name = "TestGame";
+    gd.units.recipe_time = gamedata::RecipeTimeUnit::Seconds;
+    gamedata::ensureV3CompatProfile(gd);
+    gamedata::upsertResource(gd, "iron_ore", "Iron Ore");
+    gamedata::upsertMachine(gd, "miner", "Miner", 1.0, "v3_compat");
+    gamedata::upsertRecipe(gd, "mine_ore", "Mine Iron Ore", 1.0, {"miner"},
+                           {}, {{"iron_ore", 30.0}});
 
     FactoryNodeEditor editor(gd, "", "CutTest");
     ax::NodeEditor::SetCurrentEditor(editor.getContext());
@@ -978,18 +977,15 @@ TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_CutClearsSelection) {
 
 TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_PinContextMenu_EditRateAndClickRadioButtonAndDismiss) {
     GameData gd;
-    gd.gameName = "TestGame";
-    gd.time_unit = "seconds";
-    gd.resources["nothing"] = Resource{"Nothing", 0};
-    gd.resources["iron_ore"] = Resource{"Iron Ore", 1};
-    gd.machines["miner"] = Machine{"Miner", 1, 0};
-    Recipe mine_ore;
-    mine_ore.name = "Mine Iron Ore";
-    mine_ore.produced_in_machines_keys.push_back("miner");
-    mine_ore.input_ports.push_back(RecipePort{1.0, "nothing"});
-    mine_ore.output_ports.push_back(RecipePort{30.0, "iron_ore"});
-    mine_ore.time_seconds = 1.0;
-    gd.recipes["mine_ore"] = mine_ore;
+    gd.game.id = "test_app_popup";
+    gd.game.name = "TestGame";
+    gd.units.recipe_time = gamedata::RecipeTimeUnit::Seconds;
+    gamedata::ensureV3CompatProfile(gd);
+    gamedata::upsertResource(gd, "nothing", "Nothing");
+    gamedata::upsertResource(gd, "iron_ore", "Iron Ore");
+    gamedata::upsertMachine(gd, "miner", "Miner", 1.0, "v3_compat");
+    gamedata::upsertRecipe(gd, "mine_ore", "Mine Iron Ore", 1.0, {"miner"},
+                           {}, {{"iron_ore", 30.0}});
 
     FactoryNodeEditor editor(gd, "", "PinPopupTest");
     uint64_t nodeId = editor.getGraph()->addNode("Mine Iron Ore", "mine_ore");
