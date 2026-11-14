@@ -1,32 +1,31 @@
 #ifndef GAMEDATAMANAGER_H
 #define GAMEDATAMANAGER_H
 
+#include <filesystem>
 #include <string>
 #include <vector>
-#include <filesystem>
-#include <nlohmann/json.hpp>
 
-#include "GameData.h"
+#include "core/data/GameData.h"
 
 class GameDataManager {
 public:
     GameDataManager();
 
-    // Load from file path (reads JSON)
-    bool loadFromFile(const std::filesystem::path &path, std::string &outError);
+    bool loadFromFile(const std::filesystem::path& path, std::string& outError, bool ignoreErrors = false);
 
-    // Validation - returns vector of human readable errors/warnings
-    std::vector<std::string> validate(const GameData &gd);
+    std::vector<std::string> validate(const GameData& gd);
 
-    const GameData &current() const;
-    GameData &current();
+    const GameData& current() const;
+    GameData& current();
 
+    const gamedata::LoadReport& lastReport() const { return m_lastReport; }
+
+    void loadTextures();
     void clear();
 
 private:
     GameData m_data;
-
-    GameData jsonToGameData(const nlohmann::json &j, std::filesystem::path& packageIconRoot, std::string &outError);
+    gamedata::LoadReport m_lastReport;
 };
 
-#endif //GAMEDATAMANAGER_H
+#endif // GAMEDATAMANAGER_H

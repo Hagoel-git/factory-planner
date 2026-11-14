@@ -1,0 +1,183 @@
+{
+  "schema_version": 4,
+  "game": {
+    "id": "satisfactory",
+    "name": "Satisfactory",
+    "data_version": "1.1.0.4"
+  },
+  "units": {
+    "recipe_time": "s",
+    "default_rate": "min"
+  },
+  "parameters": {
+    "clock": {
+      "label": "Clock speed",
+      "type": "number",
+      "default": 100.0,
+      "min": "0",
+      "max": "250",
+      "step": 1.0,
+      "unit": "%"
+    },
+    "output_mult": {
+      "label": "Output multiplier",
+      "type": "number",
+      "default": 100.0,
+      "min": "0",
+      "max": "400",
+      "step": 1.0,
+      "unit": "%"
+    }
+  },
+  "profiles": {
+    "v3_compat": {
+      "params": ["clock", "output_mult"],
+      "craft_time": "recipe.time / (machine.speed * param.clock / 100)",
+      "output_amount": "port.amount * port.chance * param.output_mult / 100"
+    }
+  },
+  "resources": [
+    { "id": "iron-ore", "name": "Iron Ore" },
+    { "id": "iron-ingot", "name": "Iron Ingot" },
+    { "id": "iron-plate", "name": "Iron Plate" },
+    { "id": "iron-rod", "name": "Iron Rod" },
+    { "id": "screw", "name": "Screw" },
+    { "id": "reinforced-iron-plate", "name": "Reinforced Iron Plate" },
+    { "id": "crude-oil", "name": "Crude Oil" },
+    { "id": "plastic", "name": "Plastic" },
+    { "id": "heavy-oil-residue", "name": "Heavy Oil Residue" },
+    { "id": "fuel", "name": "Fuel" },
+    { "id": "bauxite", "name": "Bauxite" },
+    { "id": "water", "name": "Water" },
+    { "id": "coal", "name": "Coal" },
+    { "id": "alumina-solution", "name": "Alumina Solution" },
+    { "id": "silica", "name": "Silica" },
+    { "id": "aluminum-scrap", "name": "Aluminum Scrap" }
+  ],
+  "machines": [
+    { "id": "miner-mk1", "name": "Miner Mk1", "profile": "v3_compat", "speed": 1.0 },
+    { "id": "miner-mk2", "name": "Miner Mk2", "profile": "v3_compat", "speed": 2.0 },
+    { "id": "miner-mk3", "name": "Miner Mk3", "profile": "v3_compat", "speed": 4.0 },
+    { "id": "smelter", "name": "Smelter", "profile": "v3_compat", "speed": 1.0 },
+    { "id": "constructor", "name": "Constructor", "profile": "v3_compat", "speed": 1.0 },
+    { "id": "assembler", "name": "Assembler", "profile": "v3_compat", "speed": 1.0 },
+    { "id": "refinery", "name": "Refinery", "profile": "v3_compat", "speed": 1.0 },
+    { "id": "resource-well", "name": "Resource Well", "profile": "v3_compat", "speed": 1.0 },
+    { "id": "oil-extractor", "name": "Oil Extractor", "profile": "v3_compat", "speed": 1.0 },
+    { "id": "water-extractor", "name": "Water Extractor", "profile": "v3_compat", "speed": 1.0 }
+  ],
+  "recipes": [
+    {
+      "id": "iron-ore",
+      "name": "Iron Ore",
+      "machines": ["miner-mk1", "miner-mk2", "miner-mk3"],
+      "time": 1.0,
+      "in": [],
+      "out": [["iron-ore", 1.0]]
+    },
+    {
+      "id": "iron-ingot",
+      "name": "Iron Ingot",
+      "machines": ["smelter"],
+      "time": 2.0,
+      "in": [["iron-ore", 1.0]],
+      "out": [["iron-ingot", 1.0]]
+    },
+    {
+      "id": "iron-plate",
+      "name": "Iron Plate",
+      "machines": ["constructor"],
+      "time": 6.0,
+      "in": [["iron-ingot", 3.0]],
+      "out": [["iron-plate", 2.0]]
+    },
+    {
+      "id": "iron-rod",
+      "name": "Iron Rod",
+      "machines": ["constructor"],
+      "time": 4.0,
+      "in": [["iron-ingot", 1.0]],
+      "out": [["iron-rod", 1.0]]
+    },
+    {
+      "id": "screw",
+      "name": "Screw",
+      "machines": ["constructor"],
+      "time": 6.0,
+      "in": [["iron-rod", 1.0]],
+      "out": [["screw", 4.0]]
+    },
+    {
+      "id": "reinforced-iron-plate",
+      "name": "Reinforced Iron Plate",
+      "machines": ["assembler"],
+      "time": 12.0,
+      "in": [["iron-plate", 6.0], ["screw", 12.0]],
+      "out": [["reinforced-iron-plate", 1.0]]
+    },
+    {
+      "id": "crude-oil",
+      "name": "Crude Oil",
+      "machines": ["resource-well", "oil-extractor"],
+      "time": 1.0,
+      "in": [],
+      "out": [["crude-oil", 1.0]]
+    },
+    {
+      "id": "plastic",
+      "name": "Plastic",
+      "machines": ["refinery"],
+      "time": 6.0,
+      "in": [["crude-oil", 3.0]],
+      "out": [["plastic", 2.0], ["heavy-oil-residue", 1.0]]
+    },
+    {
+      "id": "residual-fuel",
+      "name": "Residual Fuel",
+      "machines": ["refinery"],
+      "time": 6.0,
+      "in": [["heavy-oil-residue", 6.0]],
+      "out": [["fuel", 4.0]]
+    },
+    {
+      "id": "bauxite",
+      "name": "Bauxite",
+      "machines": ["miner-mk1", "miner-mk2", "miner-mk3"],
+      "time": 1.0,
+      "in": [],
+      "out": [["bauxite", 1.0]]
+    },
+    {
+      "id": "water",
+      "name": "Water",
+      "machines": ["resource-well", "water-extractor"],
+      "time": 1.0,
+      "in": [],
+      "out": [["water", 1.0]]
+    },
+    {
+      "id": "coal",
+      "name": "Coal",
+      "machines": ["miner-mk1", "miner-mk2", "miner-mk3"],
+      "time": 1.0,
+      "in": [],
+      "out": [["coal", 1.0]]
+    },
+    {
+      "id": "alumina-solution",
+      "name": "Alumina Solution",
+      "machines": ["refinery"],
+      "time": 6.0,
+      "in": [["bauxite", 12.0], ["water", 18.0]],
+      "out": [["alumina-solution", 12.0], ["silica", 5.0]]
+    },
+    {
+      "id": "aluminum-scrap",
+      "name": "Aluminum Scrap",
+      "machines": ["refinery"],
+      "time": 1.0,
+      "in": [["alumina-solution", 4.0], ["coal", 2.0]],
+      "out": [["aluminum-scrap", 6.0], ["water", 2.0]]
+    }
+  ]
+}

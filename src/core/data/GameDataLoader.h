@@ -42,6 +42,34 @@ bool loadGamePackageFromMemory(
 // Appends any missing icon warnings to `inOutReport.warnings`.
 void checkMissingIcons(const GamePackage& package, LoadReport& inOutReport);
 
+// Programmatic helpers for building or extending a GamePackage in memory (e.g. unit tests).
+void ensureBuiltInDefaultProfile(GamePackage& pkg);
+void ensureV3CompatProfile(GamePackage& pkg);
+
+void upsertResource(
+    GamePackage& pkg,
+    std::string id,
+    std::string name = {},
+    unsigned long long texture = 0);
+
+void upsertMachine(
+    GamePackage& pkg,
+    std::string id,
+    std::string name = {},
+    double speed = 1.0,
+    std::string profile = "default",
+    std::vector<std::string> categories = {},
+    unsigned long long texture = 0);
+
+void upsertRecipe(
+    GamePackage& pkg,
+    std::string id,
+    std::string name,
+    double timeSeconds,
+    std::vector<std::string> machines,
+    const std::vector<std::pair<std::string, double>>& inputs,
+    const std::vector<std::pair<std::string, double>>& outputs);
+
 } // namespace gamedata
 
 #endif // GAMEDATALOADER_H

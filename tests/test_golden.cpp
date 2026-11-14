@@ -20,7 +20,7 @@
 namespace {
 
 /**
- * Helper to locate the game data root directory and the Satisfactory .gd file.
+ * Helper to locate the v4 test game data directory and the Satisfactory v3_compat game.json file.
  */
 std::pair<std::filesystem::path, std::filesystem::path> locateSatisfactoryGameData() {
     std::vector<std::filesystem::path> roots;
@@ -47,15 +47,11 @@ std::pair<std::filesystem::path, std::filesystem::path> locateSatisfactoryGameDa
 
     for (const auto& base : searchBases) {
         for (const auto& sub : {
+                 base / "tests" / "data",
                  base / "data" / "game_data",
                  base / "game_data",
-                 base / "bin" / "Release" / "game_data",
-                 base / "bin" / "Debug" / "game_data",
-                 base / "bin" / "game_data",
-                 base / "build" / "bin" / "Release" / "game_data",
-                 base / "build" / "bin" / "game_data",
              }) {
-            auto candidateFile = sub / "satisfactory" / "game_datas" / "version-1.1.x.x.gd";
+            auto candidateFile = sub / "satisfactory_v3_compat" / "game.json";
             std::error_code ec;
             if (std::filesystem::exists(candidateFile, ec) && !ec) {
                 return {sub, candidateFile};
@@ -78,7 +74,7 @@ protected:
         origSettings = SettingsManager::instance().getSettings();
 
         auto [dir, file] = locateSatisfactoryGameData();
-        ASSERT_FALSE(file.empty()) << "Could not locate satisfactory/game_datas/version-1.1.x.x.gd";
+        ASSERT_FALSE(file.empty()) << "Could not locate tests/data/satisfactory_v3_compat/game.json";
         gameDataDir = dir;
         gameDataFile = file;
 
@@ -88,19 +84,46 @@ protected:
 
         GameDataManager gdm;
         std::string error;
-        ASSERT_TRUE(gdm.loadFromFile(gameDataFile, error)) << "Failed to load Satisfactory data: " << error;
+        ASSERT_TRUE(gdm.loadFromFile(gameDataFile, error)) << "Failed to load Satisfactory v4 data: " << error;
         satisfactoryGameData = gdm.current();
     }
 
     void TearDown() override {
         SettingsManager::instance().setSettings(origSettings);
     }
+
+    static void setClock(FactoryGraph& graph, uint64_t nodeId, double clockPct) {
+        ASSERT_TRUE(graph.setNodeParam(nodeId, "clock", gamedata::ParamValue::number(clockPct)));
+    }
+
+    static void setOutputMult(FactoryGraph& graph, uint64_t nodeId, double multPct) {
+        ASSERT_TRUE(graph.setNodeParam(nodeId, "output_mult", gamedata::ParamValue::number(multPct)));
+    }
+
+    static void setConstraintPerMin(FactoryGraph& graph, uint64_t portId, double ratePerMin) {
+        ASSERT_TRUE(graph.setPortConstraint(portId, graph.fromDisplayRate(ratePerMin)));
+    }
+
+    static double portRatePerMin(const FactoryGraph& graph, uint64_t portId) {
+        const Port* p = graph.getPort(portId);
+        return p ? graph.toDisplayRate(p->rate) : 0.0;
+    }
+
+    static double portExcessPerMin(const FactoryGraph& graph, uint64_t portId) {
+        const Port* p = graph.getPort(portId);
+        return p ? graph.toDisplayRate(p->excess_rate) : 0.0;
+    }
+
+    static double connRatePerMin(const FactoryGraph& graph, uint64_t connId) {
+        const Connection* c = graph.getConnection(connId);
+        return c ? graph.toDisplayRate(c->rate) : 0.0;
+    }
 };
 
 // =============================================================================
 // Task 1: Project Round-Trip Golden Test
 // Programmatically build graphs (multiple nodes, multi-port recipes, fan-out/fan-in,
-// constraints, custom clock speed & production multiplier, node positions),
+// constraints, custom clock speed & output multiplier parameters, node positions),
 // save with ProjectIO, load again, and assert full equality.
 // =============================================================================
 
@@ -113,79 +136,86 @@ TEST_F(GoldenTest, ProjectRoundTrip_MultiPortFanOutFanInConstraintsParametersPos
 
     FactoryGraph origGraph(satisfactoryGameData);
 
-    // Node 1: Miner 1 ("iron-ore", 1 input "nothing", 1 output "iron-ore")
-    const auto& recOre = satisfactoryGameData.recipes.at("iron-ore");
-    uint64_t n1 = origGraph.addNode(recOre.name, "iron-ore");
-    origGraph.getNode(n1)->clock_speed = 125.0;
-    origGraph.getNode(n1)->production_multiplier = 100.0;
+    // Node 1: Miner 1 ("iron-ore", 0 inputs, 1 output "iron-ore")
+    const auto* recOre = satisfactoryGameData.findRecipe("iron-ore");
+    ASSERT_NE(recOre, nullptr);
+    uint64_t n1 = origGraph.addNode(recOre->name, "iron-ore");
+    setClock(origGraph, n1, 125.0);
+    setOutputMult(origGraph, n1, 100.0);
     ImVec2 pos1(100.0f, 150.0f);
     ax::NodeEditor::SetNodePosition(IdUtils::toNodeId(n1), pos1);
-    origGraph.setPortConstraint(origGraph.getNode(n1)->output_ports[0], 120.0);
+    setConstraintPerMin(origGraph, origGraph.getNode(n1)->output_ports[0], 120.0);
 
     // Node 2: Miner 2 ("iron-ore") - for fan-in into Smelter input port
-    uint64_t n2 = origGraph.addNode(recOre.name, "iron-ore");
-    origGraph.getNode(n2)->clock_speed = 75.0;
-    origGraph.getNode(n2)->production_multiplier = 100.0;
+    uint64_t n2 = origGraph.addNode(recOre->name, "iron-ore");
+    setClock(origGraph, n2, 75.0);
+    setOutputMult(origGraph, n2, 100.0);
     ImVec2 pos2(100.0f, 350.0f);
     ax::NodeEditor::SetNodePosition(IdUtils::toNodeId(n2), pos2);
-    origGraph.setPortConstraint(origGraph.getNode(n2)->output_ports[0], 60.0);
+    setConstraintPerMin(origGraph, origGraph.getNode(n2)->output_ports[0], 60.0);
 
     // Node 3: Smelter ("iron-ingot", 1 in "iron-ore", 1 out "iron-ingot")
     // Receives fan-in from Miner 1 and Miner 2; fans out to Plate and Rod constructors
-    const auto& recIngot = satisfactoryGameData.recipes.at("iron-ingot");
-    uint64_t n3 = origGraph.addNode(recIngot.name, "iron-ingot");
-    origGraph.getNode(n3)->clock_speed = 100.0;
-    origGraph.getNode(n3)->production_multiplier = 150.0;
+    const auto* recIngot = satisfactoryGameData.findRecipe("iron-ingot");
+    ASSERT_NE(recIngot, nullptr);
+    uint64_t n3 = origGraph.addNode(recIngot->name, "iron-ingot");
+    setClock(origGraph, n3, 100.0);
+    setOutputMult(origGraph, n3, 150.0);
     ImVec2 pos3(350.0f, 250.0f);
     ax::NodeEditor::SetNodePosition(IdUtils::toNodeId(n3), pos3);
-    origGraph.setPortConstraint(origGraph.getNode(n3)->input_ports[0], 90.0);
+    setConstraintPerMin(origGraph, origGraph.getNode(n3)->input_ports[0], 90.0);
 
     // Node 4: Plate Constructor ("iron-plate", 1 in "iron-ingot", 1 out "iron-plate")
-    const auto& recPlate = satisfactoryGameData.recipes.at("iron-plate");
-    uint64_t n4 = origGraph.addNode(recPlate.name, "iron-plate");
-    origGraph.getNode(n4)->clock_speed = 110.0;
-    origGraph.getNode(n4)->production_multiplier = 100.0;
+    const auto* recPlate = satisfactoryGameData.findRecipe("iron-plate");
+    ASSERT_NE(recPlate, nullptr);
+    uint64_t n4 = origGraph.addNode(recPlate->name, "iron-plate");
+    setClock(origGraph, n4, 110.0);
+    setOutputMult(origGraph, n4, 100.0);
     ImVec2 pos4(600.0f, 150.0f);
     ax::NodeEditor::SetNodePosition(IdUtils::toNodeId(n4), pos4);
 
     // Node 5: Rod Constructor ("iron-rod", 1 in "iron-ingot", 1 out "iron-rod")
-    const auto& recRod = satisfactoryGameData.recipes.at("iron-rod");
-    uint64_t n5 = origGraph.addNode(recRod.name, "iron-rod");
-    origGraph.getNode(n5)->clock_speed = 90.0;
-    origGraph.getNode(n5)->production_multiplier = 100.0;
+    const auto* recRod = satisfactoryGameData.findRecipe("iron-rod");
+    ASSERT_NE(recRod, nullptr);
+    uint64_t n5 = origGraph.addNode(recRod->name, "iron-rod");
+    setClock(origGraph, n5, 90.0);
+    setOutputMult(origGraph, n5, 100.0);
     ImVec2 pos5(600.0f, 350.0f);
     ax::NodeEditor::SetNodePosition(IdUtils::toNodeId(n5), pos5);
 
     // Node 6: Screw Constructor ("screw", 1 in "iron-rod", 1 out "screw")
-    const auto& recScrew = satisfactoryGameData.recipes.at("screw");
-    uint64_t n6 = origGraph.addNode(recScrew.name, "screw");
-    origGraph.getNode(n6)->clock_speed = 100.0;
-    origGraph.getNode(n6)->production_multiplier = 100.0;
+    const auto* recScrew = satisfactoryGameData.findRecipe("screw");
+    ASSERT_NE(recScrew, nullptr);
+    uint64_t n6 = origGraph.addNode(recScrew->name, "screw");
+    setClock(origGraph, n6, 100.0);
+    setOutputMult(origGraph, n6, 100.0);
     ImVec2 pos6(850.0f, 350.0f);
     ax::NodeEditor::SetNodePosition(IdUtils::toNodeId(n6), pos6);
 
     // Node 7: Multi-port Assembler ("reinforced-iron-plate", 2 inputs, 1 output)
-    const auto& recRfp = satisfactoryGameData.recipes.at("reinforced-iron-plate");
-    uint64_t n7 = origGraph.addNode(recRfp.name, "reinforced-iron-plate");
+    const auto* recRfp = satisfactoryGameData.findRecipe("reinforced-iron-plate");
+    ASSERT_NE(recRfp, nullptr);
+    uint64_t n7 = origGraph.addNode(recRfp->name, "reinforced-iron-plate");
     ASSERT_EQ(origGraph.getNode(n7)->input_ports.size(), 2);
     ASSERT_EQ(origGraph.getNode(n7)->output_ports.size(), 1);
-    origGraph.getNode(n7)->clock_speed = 140.0;
-    origGraph.getNode(n7)->production_multiplier = 200.0;
+    setClock(origGraph, n7, 140.0);
+    setOutputMult(origGraph, n7, 200.0);
     ImVec2 pos7(1100.0f, 250.0f);
     ax::NodeEditor::SetNodePosition(IdUtils::toNodeId(n7), pos7);
-    origGraph.setPortConstraint(origGraph.getNode(n7)->output_ports[0], 25.0);
+    setConstraintPerMin(origGraph, origGraph.getNode(n7)->output_ports[0], 25.0);
 
     // Node 8: Multi-port Refinery ("plastic", 1 input "crude-oil", 2 outputs: "plastic" and "heavy-oil-residue")
-    const auto& recPlastic = satisfactoryGameData.recipes.at("plastic");
-    uint64_t n8 = origGraph.addNode(recPlastic.name, "plastic");
+    const auto* recPlastic = satisfactoryGameData.findRecipe("plastic");
+    ASSERT_NE(recPlastic, nullptr);
+    uint64_t n8 = origGraph.addNode(recPlastic->name, "plastic");
     ASSERT_EQ(origGraph.getNode(n8)->input_ports.size(), 1);
     ASSERT_EQ(origGraph.getNode(n8)->output_ports.size(), 2);
-    origGraph.getNode(n8)->clock_speed = 100.0;
-    origGraph.getNode(n8)->production_multiplier = 100.0;
+    setClock(origGraph, n8, 100.0);
+    setOutputMult(origGraph, n8, 100.0);
     ImVec2 pos8(350.0f, 500.0f);
     ax::NodeEditor::SetNodePosition(IdUtils::toNodeId(n8), pos8);
-    origGraph.setPortConstraint(origGraph.getNode(n8)->output_ports[0], 40.0);
-    origGraph.setPortConstraint(origGraph.getNode(n8)->output_ports[1], 20.0);
+    setConstraintPerMin(origGraph, origGraph.getNode(n8)->output_ports[0], 40.0);
+    setConstraintPerMin(origGraph, origGraph.getNode(n8)->output_ports[1], 20.0);
 
     // Connections:
     // Fan-in: Miner 1 and Miner 2 both connect to Smelter's single input port
@@ -242,8 +272,9 @@ TEST_F(GoldenTest, ProjectRoundTrip_MultiPortFanOutFanInConstraintsParametersPos
         EXPECT_EQ(lNode->name, oNode.name);
         EXPECT_EQ(lNode->selected_recipe_key, oNode.selected_recipe_key);
         EXPECT_EQ(lNode->machine_key, oNode.machine_key);
-        EXPECT_DOUBLE_EQ(lNode->clock_speed, oNode.clock_speed);
-        EXPECT_DOUBLE_EQ(lNode->production_multiplier, oNode.production_multiplier);
+        EXPECT_EQ(lNode->params, oNode.params);
+        EXPECT_DOUBLE_EQ(lNode->params.at("clock").asNumber(), oNode.params.at("clock").asNumber());
+        EXPECT_DOUBLE_EQ(lNode->params.at("output_mult").asNumber(), oNode.params.at("output_mult").asNumber());
         EXPECT_EQ(lNode->input_ports, oNode.input_ports);
         EXPECT_EQ(lNode->output_ports, oNode.output_ports);
 
@@ -286,6 +317,7 @@ TEST_F(GoldenTest, ProjectRoundTrip_MultiPortFanOutFanInConstraintsParametersPos
         ASSERT_NE(lPort, nullptr) << "Port " << oPort.id << " missing after load";
         EXPECT_EQ(lPort->id, oPort.id);
         EXPECT_EQ(lPort->node_id, oPort.node_id);
+        EXPECT_EQ(lPort->slot_key, oPort.slot_key);
         EXPECT_EQ(lPort->resource_key, oPort.resource_key);
         EXPECT_DOUBLE_EQ(lPort->user_constraint, oPort.user_constraint);
     }
@@ -302,6 +334,7 @@ TEST_F(GoldenTest, ProjectRoundTrip_MultiPortFanOutFanInConstraintsParametersPos
         EXPECT_EQ(lConn->from_port, oConn.from_port);
         EXPECT_EQ(lConn->to_port, oConn.to_port);
         EXPECT_EQ(lConn->resource_key, oConn.resource_key);
+        EXPECT_EQ(lConn->state, oConn.state);
     }
 
     // Cleanup
@@ -323,7 +356,7 @@ TEST_F(GoldenTest, ProjectRoundTrip_MultiPortFanOutFanInConstraintsParametersPos
  * Target on iron-plate output: 20.0 items/min.
  *
  * Recipe data & Hand Calculations:
- *  - Time unit U = 60 s/min.
+ *  - Display rate unit U = 60 s/min (canonical LP rates are per second).
  *  - Recipe "iron-plate" (Constructor, base speed = 1.0):
  *      Inputs: [3.0 iron-ingot], Outputs: [2.0 iron-plate], Time: 6.0 s.
  *      Target plate output = 20.0 items/min.
@@ -337,7 +370,7 @@ TEST_F(GoldenTest, ProjectRoundTrip_MultiPortFanOutFanInConstraintsParametersPos
  *      input_per_machine = (1.0 / 2.0) * 1.0 * 60 * 1.0 = 30.0 ore/min.
  *      machine_count = 30.0 / 30.0 = 1.0.
  *  - Recipe "iron-ore" (Miner Mk1, base speed = 1.0, raw producer):
- *      Inputs: [0.0 "nothing"], Outputs: [1.0 iron-ore], Time: 1.0 s.
+ *      Inputs: [], Outputs: [1.0 iron-ore], Time: 1.0 s.
  *      Output rate = 30.0 items/min.
  *      output_per_machine = (1.0 / 1.0) * 1.0 * 60 * 1.0 = 60.0 ore/min.
  *      machine_count = 30.0 / 60.0 = 0.5.
@@ -362,18 +395,18 @@ TEST_F(GoldenTest, SolverGolden_Chain1_IronPlates_LinearProduction) {
     ASSERT_NE(c2, (uint64_t)-1);
 
     // Target 20.0 plates/min
-    graph.setPortConstraint(plate_const->output_ports[0], 20.0);
+    setConstraintPerMin(graph, plate_const->output_ports[0], 20.0);
 
     FactorySolver solver;
     auto result = solver.solve(graph);
     ASSERT_EQ(result.status, FactorySolver::SolverResultStatus::SUCCESS);
 
-    // Port rate assertions
-    EXPECT_NEAR(graph.getPort(plate_const->output_ports[0])->rate, 20.0, 0.001);
-    EXPECT_NEAR(graph.getPort(plate_const->input_ports[0])->rate, 30.0, 0.001);
-    EXPECT_NEAR(graph.getPort(smelter->output_ports[0])->rate, 30.0, 0.001);
-    EXPECT_NEAR(graph.getPort(smelter->input_ports[0])->rate, 30.0, 0.001);
-    EXPECT_NEAR(graph.getPort(miner->output_ports[0])->rate, 30.0, 0.001);
+    // Port rate assertions (in items/min)
+    EXPECT_NEAR(portRatePerMin(graph, plate_const->output_ports[0]), 20.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, plate_const->input_ports[0]), 30.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, smelter->output_ports[0]), 30.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, smelter->input_ports[0]), 30.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, miner->output_ports[0]), 30.0, 0.001);
 
     // Machine count assertions
     EXPECT_NEAR(plate_const->machine_count, 1.0, 0.001);
@@ -381,12 +414,12 @@ TEST_F(GoldenTest, SolverGolden_Chain1_IronPlates_LinearProduction) {
     EXPECT_NEAR(miner->machine_count, 0.5, 0.001);
 
     // Connection flow assertions
-    EXPECT_NEAR(graph.getConnection(c1)->rate, 30.0, 0.001);
-    EXPECT_NEAR(graph.getConnection(c2)->rate, 30.0, 0.001);
+    EXPECT_NEAR(connRatePerMin(graph, c1), 30.0, 0.001);
+    EXPECT_NEAR(connRatePerMin(graph, c2), 30.0, 0.001);
 
     // Excess rate assertions (all zero)
-    EXPECT_NEAR(graph.getPort(miner->output_ports[0])->excess_rate, 0.0, 0.001);
-    EXPECT_NEAR(graph.getPort(smelter->output_ports[0])->excess_rate, 0.0, 0.001);
+    EXPECT_NEAR(portExcessPerMin(graph, miner->output_ports[0]), 0.0, 0.001);
+    EXPECT_NEAR(portExcessPerMin(graph, smelter->output_ports[0]), 0.0, 0.001);
 }
 
 /**
@@ -462,25 +495,25 @@ TEST_F(GoldenTest, SolverGolden_Chain2_ReinforcedIronPlates_MultiInputFanIn) {
     uint64_t c_screw_asm = graph.addConnection(screw_const->output_ports[0], assembler->input_ports[1]);
 
     // Target 10.0 reinforced iron plates/min
-    graph.setPortConstraint(assembler->output_ports[0], 10.0);
+    setConstraintPerMin(graph, assembler->output_ports[0], 10.0);
 
     FactorySolver solver;
     auto result = solver.solve(graph);
     ASSERT_EQ(result.status, FactorySolver::SolverResultStatus::SUCCESS);
 
     // Port rates
-    EXPECT_NEAR(graph.getPort(assembler->output_ports[0])->rate, 10.0, 0.001);
-    EXPECT_NEAR(graph.getPort(assembler->input_ports[0])->rate, 60.0, 0.001);  // iron-plate
-    EXPECT_NEAR(graph.getPort(assembler->input_ports[1])->rate, 120.0, 0.001); // screw
-    EXPECT_NEAR(graph.getPort(screw_const->output_ports[0])->rate, 120.0, 0.001);
-    EXPECT_NEAR(graph.getPort(screw_const->input_ports[0])->rate, 30.0, 0.001);
-    EXPECT_NEAR(graph.getPort(rod_const->output_ports[0])->rate, 30.0, 0.001);
-    EXPECT_NEAR(graph.getPort(rod_const->input_ports[0])->rate, 30.0, 0.001);
-    EXPECT_NEAR(graph.getPort(plate_const->output_ports[0])->rate, 60.0, 0.001);
-    EXPECT_NEAR(graph.getPort(plate_const->input_ports[0])->rate, 90.0, 0.001);
-    EXPECT_NEAR(graph.getPort(smelter->output_ports[0])->rate, 120.0, 0.001);
-    EXPECT_NEAR(graph.getPort(smelter->input_ports[0])->rate, 120.0, 0.001);
-    EXPECT_NEAR(graph.getPort(miner->output_ports[0])->rate, 120.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, assembler->output_ports[0]), 10.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, assembler->input_ports[0]), 60.0, 0.001);  // iron-plate
+    EXPECT_NEAR(portRatePerMin(graph, assembler->input_ports[1]), 120.0, 0.001); // screw
+    EXPECT_NEAR(portRatePerMin(graph, screw_const->output_ports[0]), 120.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, screw_const->input_ports[0]), 30.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, rod_const->output_ports[0]), 30.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, rod_const->input_ports[0]), 30.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, plate_const->output_ports[0]), 60.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, plate_const->input_ports[0]), 90.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, smelter->output_ports[0]), 120.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, smelter->input_ports[0]), 120.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, miner->output_ports[0]), 120.0, 0.001);
 
     // Machine counts
     EXPECT_NEAR(assembler->machine_count, 2.0, 0.001);
@@ -491,12 +524,12 @@ TEST_F(GoldenTest, SolverGolden_Chain2_ReinforcedIronPlates_MultiInputFanIn) {
     EXPECT_NEAR(miner->machine_count, 2.0, 0.001);
 
     // Connection flow rates
-    EXPECT_NEAR(graph.getConnection(c_mine_smelt)->rate, 120.0, 0.001);
-    EXPECT_NEAR(graph.getConnection(c_smelt_plate)->rate, 90.0, 0.001);
-    EXPECT_NEAR(graph.getConnection(c_smelt_rod)->rate, 30.0, 0.001);
-    EXPECT_NEAR(graph.getConnection(c_plate_asm)->rate, 60.0, 0.001);
-    EXPECT_NEAR(graph.getConnection(c_rod_screw)->rate, 30.0, 0.001);
-    EXPECT_NEAR(graph.getConnection(c_screw_asm)->rate, 120.0, 0.001);
+    EXPECT_NEAR(connRatePerMin(graph, c_mine_smelt), 120.0, 0.001);
+    EXPECT_NEAR(connRatePerMin(graph, c_smelt_plate), 90.0, 0.001);
+    EXPECT_NEAR(connRatePerMin(graph, c_smelt_rod), 30.0, 0.001);
+    EXPECT_NEAR(connRatePerMin(graph, c_plate_asm), 60.0, 0.001);
+    EXPECT_NEAR(connRatePerMin(graph, c_rod_screw), 30.0, 0.001);
+    EXPECT_NEAR(connRatePerMin(graph, c_screw_asm), 120.0, 0.001);
 }
 
 /**
@@ -552,24 +585,24 @@ TEST_F(GoldenTest, SolverGolden_Chain3_OilRefining_ByproductAndExcess) {
     ASSERT_NE(c_oil, (uint64_t)-1);
     ASSERT_NE(c_hor, (uint64_t)-1);
 
-    graph.setPortConstraint(plastic->output_ports[0], 60.0);
-    graph.setPortConstraint(fuel->output_ports[0], 10.0);
+    setConstraintPerMin(graph, plastic->output_ports[0], 60.0);
+    setConstraintPerMin(graph, fuel->output_ports[0], 10.0);
 
     FactorySolver solver;
     auto result = solver.solve(graph);
     ASSERT_EQ(result.status, FactorySolver::SolverResultStatus::SUCCESS);
 
     // Port rates
-    EXPECT_NEAR(graph.getPort(plastic->output_ports[0])->rate, 60.0, 0.001); // plastic
-    EXPECT_NEAR(graph.getPort(plastic->output_ports[1])->rate, 30.0, 0.001); // heavy-oil-residue
-    EXPECT_NEAR(graph.getPort(plastic->input_ports[0])->rate, 90.0, 0.001);  // crude-oil
-    EXPECT_NEAR(graph.getPort(fuel->output_ports[0])->rate, 10.0, 0.001);    // fuel
-    EXPECT_NEAR(graph.getPort(fuel->input_ports[0])->rate, 15.0, 0.001);     // heavy-oil-residue
-    EXPECT_NEAR(graph.getPort(oil->output_ports[0])->rate, 90.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, plastic->output_ports[0]), 60.0, 0.001); // plastic
+    EXPECT_NEAR(portRatePerMin(graph, plastic->output_ports[1]), 30.0, 0.001); // heavy-oil-residue
+    EXPECT_NEAR(portRatePerMin(graph, plastic->input_ports[0]), 90.0, 0.001);  // crude-oil
+    EXPECT_NEAR(portRatePerMin(graph, fuel->output_ports[0]), 10.0, 0.001);    // fuel
+    EXPECT_NEAR(portRatePerMin(graph, fuel->input_ports[0]), 15.0, 0.001);     // heavy-oil-residue
+    EXPECT_NEAR(portRatePerMin(graph, oil->output_ports[0]), 90.0, 0.001);
 
     // Excess rate on heavy-oil-residue port
-    EXPECT_NEAR(graph.getPort(plastic->output_ports[1])->excess_rate, 15.0, 0.001);
-    EXPECT_NEAR(graph.getPort(plastic->output_ports[0])->excess_rate, 0.0, 0.001);
+    EXPECT_NEAR(portExcessPerMin(graph, plastic->output_ports[1]), 15.0, 0.001);
+    EXPECT_NEAR(portExcessPerMin(graph, plastic->output_ports[0]), 0.0, 0.001);
 
     // Machine counts
     EXPECT_NEAR(plastic->machine_count, 3.0, 0.001);
@@ -577,8 +610,8 @@ TEST_F(GoldenTest, SolverGolden_Chain3_OilRefining_ByproductAndExcess) {
     EXPECT_NEAR(oil->machine_count, 1.5, 0.001);
 
     // Connection rates
-    EXPECT_NEAR(graph.getConnection(c_oil)->rate, 90.0, 0.001);
-    EXPECT_NEAR(graph.getConnection(c_hor)->rate, 15.0, 0.001);
+    EXPECT_NEAR(connRatePerMin(graph, c_oil), 90.0, 0.001);
+    EXPECT_NEAR(connRatePerMin(graph, c_hor), 15.0, 0.001);
 }
 
 /**
@@ -630,34 +663,34 @@ TEST_F(GoldenTest, SolverGolden_Chain4_SplitAndMerge_FairBalancing) {
     uint64_t c_merge_b = graph.addConnection(smelter_b->output_ports[0], plate_const->input_ports[0]);
 
     // Demand 20.0 plates/min
-    graph.setPortConstraint(plate_const->output_ports[0], 20.0);
+    setConstraintPerMin(graph, plate_const->output_ports[0], 20.0);
 
     FactorySolver solver;
     auto result = solver.solve(graph);
     ASSERT_EQ(result.status, FactorySolver::SolverResultStatus::SUCCESS);
 
     // Constructor rates & machines
-    EXPECT_NEAR(graph.getPort(plate_const->output_ports[0])->rate, 20.0, 0.001);
-    EXPECT_NEAR(graph.getPort(plate_const->input_ports[0])->rate, 30.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, plate_const->output_ports[0]), 20.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, plate_const->input_ports[0]), 30.0, 0.001);
     EXPECT_NEAR(plate_const->machine_count, 1.0, 0.001);
 
     // Symmetrical split and merge branch flow rates
-    EXPECT_NEAR(graph.getConnection(c_split_a)->rate, 15.0, 0.001);
-    EXPECT_NEAR(graph.getConnection(c_split_b)->rate, 15.0, 0.001);
-    EXPECT_NEAR(graph.getConnection(c_merge_a)->rate, 15.0, 0.001);
-    EXPECT_NEAR(graph.getConnection(c_merge_b)->rate, 15.0, 0.001);
+    EXPECT_NEAR(connRatePerMin(graph, c_split_a), 15.0, 0.001);
+    EXPECT_NEAR(connRatePerMin(graph, c_split_b), 15.0, 0.001);
+    EXPECT_NEAR(connRatePerMin(graph, c_merge_a), 15.0, 0.001);
+    EXPECT_NEAR(connRatePerMin(graph, c_merge_b), 15.0, 0.001);
 
     // Smelter rates & machine counts
-    EXPECT_NEAR(graph.getPort(smelter_a->output_ports[0])->rate, 15.0, 0.001);
-    EXPECT_NEAR(graph.getPort(smelter_a->input_ports[0])->rate, 15.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, smelter_a->output_ports[0]), 15.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, smelter_a->input_ports[0]), 15.0, 0.001);
     EXPECT_NEAR(smelter_a->machine_count, 0.5, 0.001);
 
-    EXPECT_NEAR(graph.getPort(smelter_b->output_ports[0])->rate, 15.0, 0.001);
-    EXPECT_NEAR(graph.getPort(smelter_b->input_ports[0])->rate, 15.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, smelter_b->output_ports[0]), 15.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, smelter_b->input_ports[0]), 15.0, 0.001);
     EXPECT_NEAR(smelter_b->machine_count, 0.5, 0.001);
 
     // Miner rates & machine count
-    EXPECT_NEAR(graph.getPort(miner->output_ports[0])->rate, 30.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, miner->output_ports[0]), 30.0, 0.001);
     EXPECT_NEAR(miner->machine_count, 0.5, 0.001);
 }
 
@@ -669,7 +702,7 @@ TEST_F(GoldenTest, SolverGolden_Chain4_SplitAndMerge_FairBalancing) {
  * Smelter input port has LIMIT = 30.0 Iron Ore / min.
  *
  * Recipe data & Hand Calculations:
- *  - Smelter input is bounded by user_constraint <= 30.0.
+ *  - Smelter input is bounded by user_constraint <= 30.0 / min.
  *  - Ingot output cannot exceed 30.0 / min (1:1 recipe).
  *  - Plate Constructor takes 1.5 ingot per plate:
  *      Maximum plate output = 30.0 / 1.5 = 20.0 plates/min.
@@ -695,61 +728,61 @@ TEST_F(GoldenTest, SolverGolden_Chain5_ConstrainedMiddleStage_BottleneckPropagat
     ASSERT_NE(c1, (uint64_t)-1);
     ASSERT_NE(c2, (uint64_t)-1);
 
-    // Middle stage capacity limit: Smelter input <= 30.0
-    graph.setPortConstraint(smelter->input_ports[0], 30.0);
+    // Middle stage capacity limit: Smelter input <= 30.0 / min
+    setConstraintPerMin(graph, smelter->input_ports[0], 30.0);
 
     // High downstream target demand: 40.0 plates/min
-    graph.setPortConstraint(plate_const->output_ports[0], 40.0);
+    setConstraintPerMin(graph, plate_const->output_ports[0], 40.0);
 
     FactorySolver solver;
     auto result = solver.solve(graph);
     ASSERT_EQ(result.status, FactorySolver::SolverResultStatus::SUCCESS);
 
     // Throughput throttled by the 30.0 ingot bottleneck
-    EXPECT_NEAR(graph.getPort(plate_const->output_ports[0])->rate, 20.0, 0.001);
-    EXPECT_NEAR(graph.getPort(plate_const->input_ports[0])->rate, 30.0, 0.001);
-    EXPECT_NEAR(graph.getPort(smelter->output_ports[0])->rate, 30.0, 0.001);
-    EXPECT_NEAR(graph.getPort(smelter->input_ports[0])->rate, 30.0, 0.001);
-    EXPECT_NEAR(graph.getPort(miner->output_ports[0])->rate, 30.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, plate_const->output_ports[0]), 20.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, plate_const->input_ports[0]), 30.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, smelter->output_ports[0]), 30.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, smelter->input_ports[0]), 30.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, miner->output_ports[0]), 30.0, 0.001);
 
     EXPECT_NEAR(plate_const->machine_count, 1.0, 0.001);
     EXPECT_NEAR(smelter->machine_count, 1.0, 0.001);
     EXPECT_NEAR(miner->machine_count, 0.5, 0.001);
 
-    EXPECT_NEAR(graph.getConnection(c1)->rate, 30.0, 0.001);
-    EXPECT_NEAR(graph.getConnection(c2)->rate, 30.0, 0.001);
+    EXPECT_NEAR(connRatePerMin(graph, c1), 30.0, 0.001);
+    EXPECT_NEAR(connRatePerMin(graph, c2), 30.0, 0.001);
 }
 
 /**
  * Chain 6: Overclocking, Somersloop Multiplier, and Disabled (0% Clock) Node
  *
  * Topology:
- *   - Miner ("iron-ore"): clock_speed = 150.0% (overclocked).
- *   - Smelter ("iron-ingot"): production_multiplier = 200.0% (Somersloop doubling).
- *   - Constructor Active ("iron-plate"): clock = 100%, prod = 100%, Target = 20.0 plate/min.
- *   - Constructor Disabled ("iron-plate"): clock_speed = 0.0% (disabled node).
+ *   - Miner ("iron-ore"): clock = 150.0% (overclocked).
+ *   - Smelter ("iron-ingot"): output_mult = 200.0% (Somersloop doubling).
+ *   - Constructor Active ("iron-plate"): clock = 100%, output_mult = 100%, Target = 20.0 plate/min.
+ *   - Constructor Disabled ("iron-plate"): clock = 0.0% (disabled node).
  *     Connected to Smelter output in parallel with Active Constructor.
  *
  * Recipe data & Hand Calculations:
  *  - Disabled Constructor:
- *      clock_speed <= 0.0 forces all port rates to 0.0 in addRecipeConstraints.
+ *      clock <= 0.0 locks all ports inactive and forces all port rates to 0.0.
  *      machine_count = 0.0.
  *      Incoming connection flow = 0.0.
  *  - Active Constructor:
  *      Target plate output = 20.0 / min.
  *      Required ingot input = 20.0 * 1.5 = 30.0 / min.
  *      machine_count = 30.0 / 30.0 = 1.0.
- *  - Smelter (production_multiplier = 200.0%):
+ *  - Smelter (output_mult = 200.0%):
  *      Total ingot output = 30.0 / min.
  *      Recipe ratio with Somersloop:
- *        R_in * (recipe_out * prod_mult / 100) = R_out * recipe_in
+ *        R_in * (recipe_out * output_mult / 100) = R_out * recipe_in
  *        R_in * (1.0 * 2.0) = R_out * 1.0  ==>  R_in = 30.0 / 2.0 = 15.0 ore/min!
- *      Smelter machine count (Section 6.3 Branch 2):
+ *      Smelter machine count:
  *        input_per_machine = (1.0 / 2.0) * 1.0 * 60 * (100 / 100) = 30.0 ore/min.
  *        machine_count = 15.0 / 30.0 = 0.5.
- *  - Miner (clock_speed = 150.0%):
+ *  - Miner (clock = 150.0%):
  *      Output rate = 15.0 ore/min.
- *      Miner machine count (Section 6.3 Branch 1):
+ *      Miner machine count:
  *        output_per_machine = (1.0 / 1.0) * 1.0 * 60 * (150.0 / 100.0) = 90.0 ore/min.
  *        machine_count = 15.0 / 90.0 = 1/6 ~= 0.1666667.
  */
@@ -766,10 +799,6 @@ TEST_F(GoldenTest, SolverGolden_Chain6_OverclockSomersloopAndDisabledNode) {
     Node* active = graph.getNode(n_active);
     Node* disabled = graph.getNode(n_disabled);
 
-    miner->clock_speed = 150.0;
-    smelter->production_multiplier = 200.0;
-    disabled->clock_speed = 0.0;
-
     uint64_t c_mine = graph.addConnection(miner->output_ports[0], smelter->input_ports[0]);
     uint64_t c_active = graph.addConnection(smelter->output_ports[0], active->input_ports[0]);
     uint64_t c_disabled = graph.addConnection(smelter->output_ports[0], disabled->input_ports[0]);
@@ -777,32 +806,36 @@ TEST_F(GoldenTest, SolverGolden_Chain6_OverclockSomersloopAndDisabledNode) {
     ASSERT_NE(c_active, (uint64_t)-1);
     ASSERT_NE(c_disabled, (uint64_t)-1);
 
-    graph.setPortConstraint(active->output_ports[0], 20.0);
+    setClock(graph, n_miner, 150.0);
+    setOutputMult(graph, n_smelter, 200.0);
+    setClock(graph, n_disabled, 0.0);
+
+    setConstraintPerMin(graph, active->output_ports[0], 20.0);
 
     FactorySolver solver;
     auto result = solver.solve(graph);
     ASSERT_EQ(result.status, FactorySolver::SolverResultStatus::SUCCESS);
 
     // Disabled node rates and machine count are strictly zero
-    EXPECT_NEAR(graph.getPort(disabled->input_ports[0])->rate, 0.0, 0.001);
-    EXPECT_NEAR(graph.getPort(disabled->output_ports[0])->rate, 0.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, disabled->input_ports[0]), 0.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, disabled->output_ports[0]), 0.0, 0.001);
     EXPECT_NEAR(disabled->machine_count, 0.0, 0.001);
-    EXPECT_NEAR(graph.getConnection(c_disabled)->rate, 0.0, 0.001);
+    EXPECT_NEAR(connRatePerMin(graph, c_disabled), 0.0, 0.001);
 
     // Active constructor
-    EXPECT_NEAR(graph.getPort(active->output_ports[0])->rate, 20.0, 0.001);
-    EXPECT_NEAR(graph.getPort(active->input_ports[0])->rate, 30.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, active->output_ports[0]), 20.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, active->input_ports[0]), 30.0, 0.001);
     EXPECT_NEAR(active->machine_count, 1.0, 0.001);
-    EXPECT_NEAR(graph.getConnection(c_active)->rate, 30.0, 0.001);
+    EXPECT_NEAR(connRatePerMin(graph, c_active), 30.0, 0.001);
 
     // Smelter with 200% production multiplier takes half the ore (15.0 ore -> 30.0 ingot)
-    EXPECT_NEAR(graph.getPort(smelter->output_ports[0])->rate, 30.0, 0.001);
-    EXPECT_NEAR(graph.getPort(smelter->input_ports[0])->rate, 15.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, smelter->output_ports[0]), 30.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, smelter->input_ports[0]), 15.0, 0.001);
     EXPECT_NEAR(smelter->machine_count, 0.5, 0.001);
-    EXPECT_NEAR(graph.getConnection(c_mine)->rate, 15.0, 0.001);
+    EXPECT_NEAR(connRatePerMin(graph, c_mine), 15.0, 0.001);
 
     // Miner at 150% clock speed
-    EXPECT_NEAR(graph.getPort(miner->output_ports[0])->rate, 15.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, miner->output_ports[0]), 15.0, 0.001);
     EXPECT_NEAR(miner->machine_count, 15.0 / 90.0, 0.001); // 1/6
 }
 
@@ -883,42 +916,42 @@ TEST_F(GoldenTest, SolverGolden_Chain7_Aluminum_ClosedLoopWaterRecycling) {
     ASSERT_NE(c_recycled_water, (uint64_t)-1);
 
     // Target 360.0 aluminum scrap / min
-    graph.setPortConstraint(scrap_ref->output_ports[0], 360.0);
+    setConstraintPerMin(graph, scrap_ref->output_ports[0], 360.0);
 
     FactorySolver solver;
     auto result = solver.solve(graph);
     ASSERT_EQ(result.status, FactorySolver::SolverResultStatus::SUCCESS);
 
     // Scrap refinery rates
-    EXPECT_NEAR(graph.getPort(scrap_ref->output_ports[0])->rate, 360.0, 0.001); // scrap
-    EXPECT_NEAR(graph.getPort(scrap_ref->output_ports[1])->rate, 120.0, 0.001); // byproduct water
-    EXPECT_NEAR(graph.getPort(scrap_ref->input_ports[0])->rate, 240.0, 0.001);  // alumina-solution
-    EXPECT_NEAR(graph.getPort(scrap_ref->input_ports[1])->rate, 120.0, 0.001);  // coal
+    EXPECT_NEAR(portRatePerMin(graph, scrap_ref->output_ports[0]), 360.0, 0.001); // scrap
+    EXPECT_NEAR(portRatePerMin(graph, scrap_ref->output_ports[1]), 120.0, 0.001); // byproduct water
+    EXPECT_NEAR(portRatePerMin(graph, scrap_ref->input_ports[0]), 240.0, 0.001);  // alumina-solution
+    EXPECT_NEAR(portRatePerMin(graph, scrap_ref->input_ports[1]), 120.0, 0.001);  // coal
     EXPECT_NEAR(scrap_ref->machine_count, 1.0, 0.001);
 
     // Alumina refinery rates
-    EXPECT_NEAR(graph.getPort(alumina_ref->output_ports[0])->rate, 240.0, 0.001); // alumina-solution
-    EXPECT_NEAR(graph.getPort(alumina_ref->output_ports[1])->rate, 100.0, 0.001); // byproduct silica
-    EXPECT_NEAR(graph.getPort(alumina_ref->input_ports[0])->rate, 240.0, 0.001);  // bauxite
-    EXPECT_NEAR(graph.getPort(alumina_ref->input_ports[1])->rate, 360.0, 0.001);  // total water
+    EXPECT_NEAR(portRatePerMin(graph, alumina_ref->output_ports[0]), 240.0, 0.001); // alumina-solution
+    EXPECT_NEAR(portRatePerMin(graph, alumina_ref->output_ports[1]), 100.0, 0.001); // byproduct silica
+    EXPECT_NEAR(portRatePerMin(graph, alumina_ref->input_ports[0]), 240.0, 0.001);  // bauxite
+    EXPECT_NEAR(portRatePerMin(graph, alumina_ref->input_ports[1]), 360.0, 0.001);  // total water
     EXPECT_NEAR(alumina_ref->machine_count, 2.0, 0.001);
 
     // Water flow rates: recycled vs fresh
-    EXPECT_NEAR(graph.getConnection(c_recycled_water)->rate, 120.0, 0.001);
-    EXPECT_NEAR(graph.getConnection(c_fresh_water)->rate, 240.0, 0.001);
-    EXPECT_NEAR(graph.getPort(scrap_ref->output_ports[1])->excess_rate, 0.0, 0.001); // 100% recycled
+    EXPECT_NEAR(connRatePerMin(graph, c_recycled_water), 120.0, 0.001);
+    EXPECT_NEAR(connRatePerMin(graph, c_fresh_water), 240.0, 0.001);
+    EXPECT_NEAR(portExcessPerMin(graph, scrap_ref->output_ports[1]), 0.0, 0.001); // 100% recycled
 
     // Upstream raw producers
-    EXPECT_NEAR(graph.getPort(water_ext->output_ports[0])->rate, 240.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, water_ext->output_ports[0]), 240.0, 0.001);
     EXPECT_NEAR(water_ext->machine_count, 4.0, 0.001);
 
-    EXPECT_NEAR(graph.getPort(bauxite_miner->output_ports[0])->rate, 240.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, bauxite_miner->output_ports[0]), 240.0, 0.001);
     EXPECT_NEAR(bauxite_miner->machine_count, 4.0, 0.001);
 
-    EXPECT_NEAR(graph.getPort(coal_miner->output_ports[0])->rate, 120.0, 0.001);
+    EXPECT_NEAR(portRatePerMin(graph, coal_miner->output_ports[0]), 120.0, 0.001);
     EXPECT_NEAR(coal_miner->machine_count, 2.0, 0.001);
 
-    EXPECT_NEAR(graph.getConnection(c_bauxite)->rate, 240.0, 0.001);
-    EXPECT_NEAR(graph.getConnection(c_coal)->rate, 120.0, 0.001);
-    EXPECT_NEAR(graph.getConnection(c_alumina)->rate, 240.0, 0.001);
+    EXPECT_NEAR(connRatePerMin(graph, c_bauxite), 240.0, 0.001);
+    EXPECT_NEAR(connRatePerMin(graph, c_coal), 120.0, 0.001);
+    EXPECT_NEAR(connRatePerMin(graph, c_alumina), 240.0, 0.001);
 }

@@ -5677,4 +5677,232 @@ void checkMissingIcons(const GamePackage& package, LoadReport& inOutReport) {
     }
 }
 
+void ensureBuiltInDefaultProfile(GamePackage& pkg) {
+    if (pkg.findProfile("default") != nullptr) {
+        return;
+    }
+    Profile def;
+    def.id = "default";
+    def.craft_time_expr = "recipe.time / machine.speed";
+    def.input_amount_expr = "port.amount * port.chance";
+    def.output_amount_expr = "port.amount * port.chance";
+
+    expr::CompileEnv cenv;
+    cenv.context = expr::ExprContext::PreSolveCraftTime;
+    auto ctRes = expr::compile(def.craft_time_expr, cenv, expr::ExpectedType::Number);
+    if (ctRes.ok) {
+        def.compiled_craft_time = std::move(ctRes.expr);
+    }
+
+    cenv.context = expr::ExprContext::RecipePortFormula;
+    auto inRes = expr::compile(def.input_amount_expr, cenv, expr::ExpectedType::Number);
+    if (inRes.ok) {
+        def.compiled_input_amount = std::move(inRes.expr);
+    }
+    auto outRes = expr::compile(def.output_amount_expr, cenv, expr::ExpectedType::Number);
+    if (outRes.ok) {
+        def.compiled_output_amount = std::move(outRes.expr);
+    }
+
+    pkg.profile_index["default"] = pkg.profiles.size();
+    pkg.profiles.push_back(std::move(def));
+}
+
+void ensureV3CompatProfile(GamePackage& pkg) {
+    ensureBuiltInDefaultProfile(pkg);
+
+    if (pkg.findParameter("clock") == nullptr) {
+        ParameterDef pClock;
+        pClock.id = "clock";
+        pClock.label = "Clock speed";
+        pClock.type = ParameterType::Number;
+        pClock.has_default = true;
+        pClock.default_value = ParamValue::number(100.0);
+        pClock.unit = "%";
+        pkg.parameter_index["clock"] = pkg.parameters.size();
+        pkg.parameters.push_back(std::move(pClock));
+    }
+
+    if (pkg.findParameter("output_mult") == nullptr) {
+        ParameterDef pMult;
+        pMult.id = "output_mult";
+        pMult.label = "Output multiplier";
+        pMult.type = ParameterType::Number;
+        pMult.has_default = true;
+        pMult.default_value = ParamValue::number(100.0);
+        pMult.unit = "%";
+        pkg.parameter_index["output_mult"] = pkg.parameters.size();
+        pkg.parameters.push_back(std::move(pMult));
+    }
+
+    if (pkg.findProfile("v3_compat") != nullptr) {
+        return;
+    }
+
+    Profile prof;
+    prof.id = "v3_compat";
+    prof.params = {"clock", "output_mult"};
+    prof.craft_time_expr = "recipe.time / (machine.speed * param.clock / 100)";
+    prof.input_amount_expr = "port.amount * port.chance";
+    prof.output_amount_expr = "port.amount * port.chance * param.output_mult / 100";
+
+    expr::CompileEnv cenv;
+    cenv.parameters["clock"] = {expr::ExprType::number(), false};
+    cenv.parameters["output_mult"] = {expr::ExprType::number(), false};
+    cenv.profile_params = {"clock", "output_mult"};
+
+    cenv.context = expr::ExprContext::PreSolveCraftTime;
+    auto ctRes = expr::compile(prof.craft_time_expr, cenv, expr::ExpectedType::Number);
+    if (ctRes.ok) {
+        prof.compiled_craft_time = std::move(ctRes.expr);
+    }
+
+    cenv.context = expr::ExprContext::RecipePortFormula;
+    auto inRes = expr::compile(prof.input_amount_expr, cenv, expr::ExpectedType::Number);
+    if (inRes.ok) {
+        prof.compiled_input_amount = std::move(inRes.expr);
+    }
+    auto outRes = expr::compile(prof.output_amount_expr, cenv, expr::ExpectedType::Number);
+    if (outRes.ok) {
+        prof.compiled_output_amount = std::move(outRes.expr);
+    }
+
+    pkg.profile_index["v3_compat"] = pkg.profiles.size();
+    pkg.profiles.push_back(std::move(prof));
+}
+
+void upsertResource(
+    GamePackage& pkg,
+    std::string id,
+    std::string name,
+    unsigned long long texture) {
+    if (auto* existing = pkg.findResourceMut(id)) {
+        if (!name.empty()) existing->name = std::move(name);
+        if (texture != 0) existing->texture = texture;
+        pkg.base_eval_env.resources[id] = expr::ResourceEvalData{existing->tag_set, existing->attrs};
+        return;
+    }
+    Resource r;
+    r.id = id;
+    r.name = name.empty() ? id : std::move(name);
+    r.texture = texture;
+    pkg.base_eval_env.resources[id] = expr::ResourceEvalData{r.tag_set, r.attrs};
+    pkg.resource_index[id] = pkg.resources.size();
+    pkg.resources.push_back(std::move(r));
+}
+
+void upsertMachine(
+    GamePackage& pkg,
+    std::string id,
+    std::string name,
+    double speed,
+    std::string profile,
+    std::vector<std::string> categories,
+    unsigned long long texture) {
+    if (profile.empty()) {
+        profile = "default";
+    }
+    if (profile == "default") {
+        ensureBuiltInDefaultProfile(pkg);
+    } else if (profile == "v3_compat") {
+        ensureV3CompatProfile(pkg);
+    }
+    if (auto* existing = pkg.findMachineMut(id)) {
+        if (!name.empty()) existing->name = std::move(name);
+        existing->speed = speed;
+        existing->profile = std::move(profile);
+        existing->categories = std::move(categories);
+        if (texture != 0) existing->texture = texture;
+        return;
+    }
+    Machine m;
+    m.id = id;
+    m.name = name.empty() ? id : std::move(name);
+    m.speed = speed;
+    m.profile = std::move(profile);
+    m.categories = std::move(categories);
+    m.texture = texture;
+    pkg.machine_index[id] = pkg.machines.size();
+    pkg.machines.push_back(std::move(m));
+}
+
+void upsertRecipe(
+    GamePackage& pkg,
+    std::string id,
+    std::string name,
+    double timeSeconds,
+    std::vector<std::string> machines,
+    const std::vector<std::pair<std::string, double>>& inputs,
+    const std::vector<std::pair<std::string, double>>& outputs) {
+    ensureBuiltInDefaultProfile(pkg);
+
+    Recipe r;
+    r.id = id;
+    r.name = name.empty() ? id : std::move(name);
+    r.time_raw = timeSeconds;
+    r.time_seconds = (pkg.units.recipe_time == RecipeTimeUnit::Ticks && pkg.units.ticks_per_second > 0.0)
+        ? (timeSeconds / pkg.units.ticks_per_second)
+        : timeSeconds;
+    r.explicit_machines = machines;
+    r.compatible_machine_ids = std::move(machines);
+
+    for (size_t i = 0; i < inputs.size(); ++i) {
+        if (pkg.findResource(inputs[i].first) == nullptr) {
+            upsertResource(pkg, inputs[i].first);
+        }
+        RecipePort rp;
+        rp.dir = "in";
+        rp.index = i;
+        rp.slot_key = "in:" + std::to_string(i);
+        rp.res = inputs[i].first;
+        rp.amount = inputs[i].second;
+        rp.chance = 1.0;
+        r.input_items_total += rp.amount;
+        r.in.push_back(std::move(rp));
+    }
+
+    for (size_t i = 0; i < outputs.size(); ++i) {
+        if (pkg.findResource(outputs[i].first) == nullptr) {
+            upsertResource(pkg, outputs[i].first);
+        }
+        RecipePort rp;
+        rp.dir = "out";
+        rp.index = i;
+        rp.slot_key = "out:" + std::to_string(i);
+        rp.res = outputs[i].first;
+        rp.amount = outputs[i].second;
+        rp.chance = 1.0;
+        r.output_items_total += rp.amount;
+        r.out.push_back(std::move(rp));
+    }
+
+    for (const auto& mid : r.compatible_machine_ids) {
+        const Machine* m = pkg.findMachine(mid);
+        std::string profId = (m != nullptr && !m->profile.empty()) ? m->profile : "default";
+        if (std::find(r.compatible_profile_ids.begin(), r.compatible_profile_ids.end(), profId) ==
+            r.compatible_profile_ids.end()) {
+            r.compatible_profile_ids.push_back(profId);
+        }
+        CompiledRecipeProfile crp;
+        crp.in_ports.resize(r.in.size());
+        crp.out_ports.resize(r.out.size());
+        r.compiled_by_profile[profId] = std::move(crp);
+    }
+
+    if (r.compiled_by_profile.empty()) {
+        r.compatible_profile_ids.push_back("default");
+        CompiledRecipeProfile crp;
+        crp.in_ports.resize(r.in.size());
+        crp.out_ports.resize(r.out.size());
+        r.compiled_by_profile["default"] = std::move(crp);
+    }
+
+    if (auto* existing = pkg.findRecipeMut(id)) {
+        *existing = std::move(r);
+        return;
+    }
+    pkg.recipe_index[id] = pkg.recipes.size();
+    pkg.recipes.push_back(std::move(r));
+}
+
 } // namespace gamedata

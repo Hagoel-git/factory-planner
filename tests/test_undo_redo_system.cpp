@@ -304,37 +304,28 @@ protected:
         m_editorContext = ax::NodeEditor::CreateEditor(&cfg);
         ax::NodeEditor::SetCurrentEditor(m_editorContext);
 
-        testGameData.gameName = "TestGame";
-        testGameData.time_unit = "seconds";
+        testGameData.game.id = "test_game";
+        testGameData.game.name = "TestGame";
+        testGameData.game.data_version = "1.0";
+        testGameData.units.recipe_time = gamedata::RecipeTimeUnit::Seconds;
+        testGameData.units.default_rate = gamedata::RateUnit::PerSecond;
+        gamedata::ensureV3CompatProfile(testGameData);
 
-        testGameData.resources["iron_ore"] = Resource{"Iron Ore", 1};
-        testGameData.resources["iron_ingot"] = Resource{"Iron Ingot", 2};
-        testGameData.resources["iron_plate"] = Resource{"Iron Plate", 3};
-        testGameData.resources["screw"] = Resource{"Screw", 4};
+        gamedata::upsertResource(testGameData, "iron_ore", "Iron Ore");
+        gamedata::upsertResource(testGameData, "iron_ingot", "Iron Ingot");
+        gamedata::upsertResource(testGameData, "iron_plate", "Iron Plate");
+        gamedata::upsertResource(testGameData, "screw", "Screw");
 
-        testGameData.machines["miner"] = Machine{"Miner", 1, 0};
-        testGameData.machines["smelter"] = Machine{"Smelter", 1, 1};
-        testGameData.machines["constructor"] = Machine{"Constructor", 1, 2};
+        gamedata::upsertMachine(testGameData, "miner", "Miner", 1.0, "v3_compat");
+        gamedata::upsertMachine(testGameData, "smelter", "Smelter", 1.0, "v3_compat");
+        gamedata::upsertMachine(testGameData, "constructor", "Constructor", 1.0, "v3_compat");
 
-        Recipe mine_ore;
-        mine_ore.name = "Mine Iron Ore";
-        mine_ore.produced_in_machines_keys.push_back("miner");
-        mine_ore.output_ports.push_back(RecipePort{30.0, "iron_ore"});
-        testGameData.recipes["mine_ore"] = mine_ore;
-
-        Recipe smelt_ingot;
-        smelt_ingot.name = "Smelt Iron Ingot";
-        smelt_ingot.produced_in_machines_keys.push_back("smelter");
-        smelt_ingot.input_ports.push_back(RecipePort{30.0, "iron_ore"});
-        smelt_ingot.output_ports.push_back(RecipePort{30.0, "iron_ingot"});
-        testGameData.recipes["smelt_ingot"] = smelt_ingot;
-
-        Recipe make_plates;
-        make_plates.name = "Make Plates";
-        make_plates.produced_in_machines_keys.push_back("constructor");
-        make_plates.input_ports.push_back(RecipePort{30.0, "iron_ingot"});
-        make_plates.output_ports.push_back(RecipePort{20.0, "iron_plate"});
-        testGameData.recipes["make_plates"] = make_plates;
+        gamedata::upsertRecipe(testGameData, "mine_ore", "Mine Iron Ore", 1.0, {"miner"},
+                               {}, {{"iron_ore", 30.0}});
+        gamedata::upsertRecipe(testGameData, "smelt_ingot", "Smelt Iron Ingot", 1.0, {"smelter"},
+                               {{"iron_ore", 30.0}}, {{"iron_ingot", 30.0}});
+        gamedata::upsertRecipe(testGameData, "make_plates", "Make Plates", 1.0, {"constructor"},
+                               {{"iron_ingot", 30.0}}, {{"iron_plate", 20.0}});
 
         graph = std::make_unique<FactoryGraph>(testGameData);
         manager = std::make_unique<UndoRedoManager>(10);
@@ -835,8 +826,8 @@ TEST_F(ConcreteCommandsTest, PasteCommand_PreservesMachineClockMultiplier_UndoRe
     n.name = "Plates Node";
     n.selected_recipe_key = "make_plates";
     n.machine_key = "constructor";
-    n.clock_speed = 175.0;
-    n.production_multiplier = 250.0;
+    n.params["clock"] = gamedata::ParamValue{175.0};
+    n.params["output_mult"] = gamedata::ParamValue{250.0};
     buffer.nodes[500] = n;
     buffer.nodePositions[500] = ImVec2(100.0f, 150.0f);
 
@@ -846,8 +837,10 @@ TEST_F(ConcreteCommandsTest, PasteCommand_PreservesMachineClockMultiplier_UndoRe
     ASSERT_EQ(graph->getNodes().size(), 1);
     const Node& pasted = graph->getNodes()[0];
     EXPECT_EQ(pasted.machine_key, "constructor");
-    EXPECT_DOUBLE_EQ(pasted.clock_speed, 175.0);
-    EXPECT_DOUBLE_EQ(pasted.production_multiplier, 250.0);
+    ASSERT_TRUE(pasted.params.count("clock"));
+    ASSERT_TRUE(pasted.params.count("output_mult"));
+    EXPECT_DOUBLE_EQ(pasted.params.at("clock").asNumber(), 175.0);
+    EXPECT_DOUBLE_EQ(pasted.params.at("output_mult").asNumber(), 250.0);
 
     // Undo
     manager->undo(*graph);
@@ -858,8 +851,10 @@ TEST_F(ConcreteCommandsTest, PasteCommand_PreservesMachineClockMultiplier_UndoRe
     ASSERT_EQ(graph->getNodes().size(), 1);
     const Node& redone = graph->getNodes()[0];
     EXPECT_EQ(redone.machine_key, "constructor");
-    EXPECT_DOUBLE_EQ(redone.clock_speed, 175.0);
-    EXPECT_DOUBLE_EQ(redone.production_multiplier, 250.0);
+    ASSERT_TRUE(redone.params.count("clock"));
+    ASSERT_TRUE(redone.params.count("output_mult"));
+    EXPECT_DOUBLE_EQ(redone.params.at("clock").asNumber(), 175.0);
+    EXPECT_DOUBLE_EQ(redone.params.at("output_mult").asNumber(), 250.0);
 }
 
 TEST_F(ConcreteCommandsTest, PasteCommand_NodeWithMorePortsThanClipboard_RestoresAllPortsOnRedo) {
@@ -925,29 +920,23 @@ protected:
         // Ensure no active ax::NodeEditor context exists
         ax::NodeEditor::SetCurrentEditor(nullptr);
 
-        testGameData.gameName = "TestGame";
-        testGameData.time_unit = "seconds";
+        testGameData.game.id = "test_headless";
+        testGameData.game.name = "TestGame";
+        testGameData.units.recipe_time = gamedata::RecipeTimeUnit::Seconds;
+        gamedata::ensureV3CompatProfile(testGameData);
 
-        testGameData.resources["iron_ore"] = Resource{"Iron Ore", 1};
-        testGameData.resources["iron_ingot"] = Resource{"Iron Ingot", 2};
-        testGameData.resources["iron_plate"] = Resource{"Iron Plate", 3};
+        gamedata::upsertResource(testGameData, "iron_ore", "Iron Ore");
+        gamedata::upsertResource(testGameData, "iron_ingot", "Iron Ingot");
+        gamedata::upsertResource(testGameData, "iron_plate", "Iron Plate");
 
-        testGameData.machines["miner"] = Machine{"Miner", 1, 0};
-        testGameData.machines["smelter"] = Machine{"Smelter", 1, 1};
-        testGameData.machines["constructor"] = Machine{"Constructor", 1, 2};
+        gamedata::upsertMachine(testGameData, "miner", "Miner", 1.0, "v3_compat");
+        gamedata::upsertMachine(testGameData, "smelter", "Smelter", 1.0, "v3_compat");
+        gamedata::upsertMachine(testGameData, "constructor", "Constructor", 1.0, "v3_compat");
 
-        Recipe mine_ore;
-        mine_ore.name = "Mine Iron Ore";
-        mine_ore.produced_in_machines_keys.push_back("miner");
-        mine_ore.output_ports.push_back(RecipePort{30.0, "iron_ore"});
-        testGameData.recipes["mine_ore"] = mine_ore;
-
-        Recipe smelt_ingot;
-        smelt_ingot.name = "Smelt Iron Ingot";
-        smelt_ingot.produced_in_machines_keys.push_back("smelter");
-        smelt_ingot.input_ports.push_back(RecipePort{30.0, "iron_ore"});
-        smelt_ingot.output_ports.push_back(RecipePort{30.0, "iron_ingot"});
-        testGameData.recipes["smelt_ingot"] = smelt_ingot;
+        gamedata::upsertRecipe(testGameData, "mine_ore", "Mine Iron Ore", 1.0, {"miner"},
+                               {}, {{"iron_ore", 30.0}});
+        gamedata::upsertRecipe(testGameData, "smelt_ingot", "Smelt Iron Ingot", 1.0, {"smelter"},
+                               {{"iron_ore", 30.0}}, {{"iron_ingot", 30.0}});
 
         graph = std::make_unique<FactoryGraph>(testGameData);
         manager = std::make_unique<UndoRedoManager>(10);
@@ -1064,6 +1053,171 @@ TEST_F(ConcreteCommandsTest, PasteCommand_PreservesPortConstraintAndMode_UndoRed
     EXPECT_EQ(graph->getPort(redoneNode.input_ports[0])->constraint_mode, ConstraintMode::PUSH);
     EXPECT_EQ(graph->getPort(redoneNode.output_ports[0])->constraint_mode, ConstraintMode::LIMIT);
 }
+
+// ============================================================================
+// GameData v4 Undo/Redo Command Tests (Params, Machine Extra Ports, Recipe, Globals, RateUnit)
+// ============================================================================
+
+TEST(UndoRedoV4CommandsTest, ChangeNodeParam_ChangeMachine_ChangeRecipe_SetGlobal_SetRateUnit) {
+    const std::string pkg_json = R"json({
+        "schema_version": 4,
+        "game": { "id": "test_undo_v4", "name": "Test Undo V4", "data_version": "1.0" },
+        "units": { "recipe_time": "s", "default_rate": "s" },
+        "resources": [
+            { "id": "iron_ore", "name": "Iron Ore" },
+            { "id": "iron_ingot", "name": "Iron Ingot" },
+            { "id": "coal", "name": "Coal" }
+        ],
+        "globals": {
+            "belt_tier": { "label": "Belt Tier", "type": "int", "default": 1, "min": 1, "max": 5 }
+        },
+        "parameters": {
+            "clock": { "label": "Clock", "type": "number", "default": 100.0, "min": 1.0, "max": 250.0 },
+            "enable_out": { "label": "Enable Out", "type": "bool", "default": true }
+        },
+        "profiles": {
+            "burner_prof": {
+                "params": ["clock", "enable_out"],
+                "craft_time": "recipe.time / (param.clock / 100.0)",
+                "input_amount": "port.amount",
+                "output_amount": "port.amount",
+                "extra_ports": [
+                    { "id": "fuel", "dir": "in", "resource": "coal", "amount": "1.0" }
+                ]
+            },
+            "elec_prof": {
+                "params": ["clock", "enable_out"],
+                "craft_time": "recipe.time / (param.clock / 100.0)",
+                "input_amount": "port.amount",
+                "output_amount": "port.amount"
+            }
+        },
+        "machines": [
+            { "id": "burner_smelter", "name": "Burner Smelter", "profile": "burner_prof" },
+            { "id": "elec_smelter", "name": "Elec Smelter", "profile": "elec_prof" }
+        ],
+        "recipes": [
+            {
+                "id": "mine_coal", "name": "Mine Coal", "time": 1.0, "machines": ["elec_smelter"],
+                "in": [], "out": [{ "res": "coal", "amount": 10.0 }]
+            },
+            {
+                "id": "smelt", "name": "Smelt", "time": 1.0, "machines": ["burner_smelter", "elec_smelter"],
+                "in": [{ "res": "iron_ore", "amount": 1.0 }],
+                "out": [{ "res": "iron_ingot", "amount": 1.0, "enabled": "param.enable_out" }]
+            },
+            {
+                "id": "alt_smelt", "name": "Alt Smelt", "time": 1.0, "machines": ["elec_smelter"],
+                "in": [{ "res": "iron_ore", "amount": 2.0 }],
+                "out": [{ "res": "iron_ingot", "amount": 3.0 }]
+            }
+        ]
+    })json";
+
+    gamedata::LoadReport report;
+    gamedata::GamePackage pkg;
+    ASSERT_TRUE(gamedata::loadGamePackageFromMemory(pkg_json, {}, pkg, report))
+        << (report.errors.empty() ? "" : report.errors[0].message);
+
+    FactoryGraph g(pkg);
+    UndoRedoManager mgr(20);
+
+    uint64_t n_coal = g.addNode("Coal", "mine_coal");
+    uint64_t n_smelt = g.addNode("Smelt", "smelt");
+    uint64_t n_consumer = g.addNode("Consumer", "smelt");
+
+    Port* p_coal_out = g.getPortBySlot(n_coal, "out:0");
+    Port* p_smelt_fuel = g.getPortBySlot(n_smelt, "xin:fuel");
+    Port* p_smelt_out = g.getPortBySlot(n_smelt, "out:0");
+    ASSERT_NE(p_coal_out, nullptr);
+    ASSERT_NE(p_smelt_fuel, nullptr);
+    ASSERT_NE(p_smelt_out, nullptr);
+
+    uint64_t fuel_port_id = p_smelt_fuel->id;
+    g.setPortConstraint(fuel_port_id, 25.0, ConstraintMode::LIMIT);
+    uint64_t c_fuel = g.addConnection(p_coal_out->id, fuel_port_id);
+    ASSERT_NE(c_fuel, static_cast<uint64_t>(-1));
+
+    // 1. ChangeNodeParamCommand: toggle enable_out -> false, then undo/redo
+    auto paramCmd = std::make_unique<ChangeNodeParamCommand>(
+        n_smelt, "enable_out", gamedata::ParamValue{true}, gamedata::ParamValue{false});
+    mgr.executeCommand(std::move(paramCmd), g);
+    EXPECT_FALSE(p_smelt_out->active);
+
+    mgr.undo(g);
+    EXPECT_TRUE(p_smelt_out->active);
+
+    mgr.redo(g);
+    EXPECT_FALSE(p_smelt_out->active);
+
+    mgr.undo(g);
+    EXPECT_TRUE(p_smelt_out->active);
+
+    // 2. ChangeMachineCommand: switch burner_smelter -> elec_smelter (removes xin:fuel and c_fuel),
+    //    then undo (restores xin:fuel with same port ID, constraint 25.0, and c_fuel wire!)
+    auto macCmd = std::make_unique<ChangeMachineCommand>(n_smelt, "burner_smelter", "elec_smelter");
+    mgr.executeCommand(std::move(macCmd), g);
+    EXPECT_EQ(g.getNode(n_smelt)->machine_key, "elec_smelter");
+    EXPECT_EQ(g.getPort(fuel_port_id), nullptr);
+    EXPECT_EQ(g.getConnection(c_fuel), nullptr);
+
+    mgr.undo(g);
+    EXPECT_EQ(g.getNode(n_smelt)->machine_key, "burner_smelter");
+    ASSERT_NE(g.getPort(fuel_port_id), nullptr);
+    EXPECT_DOUBLE_EQ(g.getPort(fuel_port_id)->user_constraint, 25.0);
+    EXPECT_EQ(g.getPort(fuel_port_id)->constraint_mode, ConstraintMode::LIMIT);
+    ASSERT_NE(g.getConnection(c_fuel), nullptr);
+    EXPECT_EQ(g.getConnection(c_fuel)->to_port, fuel_port_id);
+
+    mgr.redo(g);
+    EXPECT_EQ(g.getNode(n_smelt)->machine_key, "elec_smelter");
+    EXPECT_EQ(g.getPort(fuel_port_id), nullptr);
+    EXPECT_EQ(g.getConnection(c_fuel), nullptr);
+
+    mgr.undo(g);
+    ASSERT_NE(g.getPort(fuel_port_id), nullptr);
+    ASSERT_NE(g.getConnection(c_fuel), nullptr);
+
+    // 3. ChangeRecipeCommand: switch smelt -> alt_smelt, then undo/redo
+    auto recCmd = std::make_unique<ChangeRecipeCommand>(n_smelt, "smelt", "alt_smelt");
+    mgr.executeCommand(std::move(recCmd), g);
+    EXPECT_EQ(g.getNode(n_smelt)->selected_recipe_key, "alt_smelt");
+    EXPECT_EQ(g.getConnection(c_fuel), nullptr);
+
+    mgr.undo(g);
+    EXPECT_EQ(g.getNode(n_smelt)->selected_recipe_key, "smelt");
+    ASSERT_NE(g.getPort(fuel_port_id), nullptr);
+    ASSERT_NE(g.getConnection(c_fuel), nullptr);
+
+    // 4. SetGlobalParamCommand: belt_tier 1 -> 4, then undo/redo
+    auto globCmd = std::make_unique<SetGlobalParamCommand>(
+        "belt_tier", gamedata::ParamValue{int64_t(1)}, gamedata::ParamValue{int64_t(4)});
+    mgr.executeCommand(std::move(globCmd), g);
+    ASSERT_TRUE(g.getGlobalParam("belt_tier").has_value());
+    EXPECT_DOUBLE_EQ(g.getGlobalParam("belt_tier")->asNumber(), 4.0);
+
+    mgr.undo(g);
+    ASSERT_TRUE(g.getGlobalParam("belt_tier").has_value());
+    EXPECT_DOUBLE_EQ(g.getGlobalParam("belt_tier")->asNumber(), 1.0);
+
+    mgr.redo(g);
+    ASSERT_TRUE(g.getGlobalParam("belt_tier").has_value());
+    EXPECT_DOUBLE_EQ(g.getGlobalParam("belt_tier")->asNumber(), 4.0);
+
+    // 5. SetRateUnitCommand: PerSecond -> PerMinute, then undo/redo
+    auto unitCmd = std::make_unique<SetRateUnitCommand>(
+        gamedata::RateUnit::PerSecond, gamedata::RateUnit::PerMinute);
+    mgr.executeCommand(std::move(unitCmd), g);
+    EXPECT_EQ(g.getRateUnit(), gamedata::RateUnit::PerMinute);
+
+    mgr.undo(g);
+    EXPECT_EQ(g.getRateUnit(), gamedata::RateUnit::PerSecond);
+
+    mgr.redo(g);
+    EXPECT_EQ(g.getRateUnit(), gamedata::RateUnit::PerMinute);
+    (void)n_consumer;
+}
+
 
 
 
