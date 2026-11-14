@@ -5,6 +5,7 @@ This document holds the user-facing changelog that is also used in release notes
 ## Unreleased
 
 ### Added
+- Added an explicit `format_version` (`1`) to `.fpp` project files and reject missing, unknown, or newer format versions with a clear error notification.
 - Added schema-driven node parameter widgets (`Number`, `Int`, `Bool`, `Enum`, `ResourceChoice`, and `Slots`) generated from GameData v4 parameter definitions, respecting dynamic ranges, `visible_if`, `allowed_if`, and `ui` hints (`widget`, `format`, `group`, `placement`, `unit`, `step`, `tooltip`) with full undo/redo support.
 
 ### Changed

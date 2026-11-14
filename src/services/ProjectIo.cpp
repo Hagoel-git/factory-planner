@@ -1,10 +1,12 @@
 #include "ProjectIo.h"
+#include <cstdint>
 #include <fstream>
 #include <absl/log/log.h>
 
 #include <imgui-node-editor/imgui_node_editor.h>
 
 #include "NotificationManager.h"
+#include "common/FilesystemUtils.h"
 #include "common/IdUtils.h"
 #include "core/graph/FactoryGraph.h"
 #include "core/data/GameDataManager.h"
@@ -15,9 +17,85 @@
 using json = nlohmann::json;
 namespace ed = ax::NodeEditor;
 
+namespace {
+
+bool failProjectLoad(const std::string& logMsg, const std::string& userMsg, std::string* outError) {
+    if (!logMsg.empty()) {
+        LOG(ERROR) << logMsg;
+    }
+    NotificationManager::instance().addNotification(
+        "Error Loading Project",
+        userMsg,
+        NotificationType::Error);
+    if (outError) {
+        *outError = userMsg;
+    }
+    return false;
+}
+
+bool validateProjectFormatVersion(const json& projectData, const std::filesystem::path& path, std::string* outError) {
+    if (!projectData.contains("format_version")) {
+        return failProjectLoad(
+            "Project file is missing required 'format_version': " + pathToUtf8(path),
+            "Unsupported project file: missing 'format_version' (this build supports version " +
+                std::to_string(ProjectIO::kFormatVersion) + ").",
+            outError);
+    }
+
+    const json& verJson = projectData["format_version"];
+    if (!verJson.is_number_integer()) {
+        std::string gotDesc = verJson.is_number_float()
+            ? ("non-integer number " + verJson.dump())
+            : std::string(verJson.type_name());
+        return failProjectLoad(
+            "Invalid project 'format_version' in " + pathToUtf8(path) + ": expected integer " +
+                std::to_string(ProjectIO::kFormatVersion) + ", got " + gotDesc,
+            "Invalid project format version: expected integer " +
+                std::to_string(ProjectIO::kFormatVersion) + ", got " + gotDesc + ".",
+            outError);
+    }
+
+    constexpr auto kExpected = static_cast<uint64_t>(ProjectIO::kFormatVersion);
+    if (verJson.is_number_unsigned()) {
+        const uint64_t version = verJson.get<uint64_t>();
+        if (version > kExpected) {
+            return failProjectLoad(
+                "Unsupported newer project format_version " + std::to_string(version) +
+                    " in " + pathToUtf8(path) + " (supported: " + std::to_string(ProjectIO::kFormatVersion) + ")",
+                "Unsupported project format version " + std::to_string(version) +
+                    " (newer than supported version " + std::to_string(ProjectIO::kFormatVersion) +
+                    "). Please update Factory Planner.",
+                outError);
+        }
+        if (version < kExpected) {
+            return failProjectLoad(
+                "Unsupported project format_version " + std::to_string(version) +
+                    " in " + pathToUtf8(path) + " (supported: " + std::to_string(ProjectIO::kFormatVersion) + ")",
+                "Unsupported project format version " + std::to_string(version) +
+                    " (this build supports version " + std::to_string(ProjectIO::kFormatVersion) + ").",
+                outError);
+        }
+    } else {
+        const int64_t version = verJson.get<int64_t>();
+        if (version != static_cast<int64_t>(ProjectIO::kFormatVersion)) {
+            return failProjectLoad(
+                "Unsupported project format_version " + std::to_string(version) +
+                    " in " + pathToUtf8(path) + " (supported: " + std::to_string(ProjectIO::kFormatVersion) + ")",
+                "Unsupported project format version " + std::to_string(version) +
+                    " (this build supports version " + std::to_string(ProjectIO::kFormatVersion) + ").",
+                outError);
+        }
+    }
+
+    return true;
+}
+
+} // namespace
+
 bool ProjectIO::saveProject(const std::filesystem::path &path, const FactoryGraph &factoryGraph, ax::NodeEditor::EditorContext *context) {
     try {
         json projectData;
+        projectData["format_version"] = kFormatVersion;
 
         // Serialize editor settings only if context is valid
         if (context != nullptr) {
@@ -130,60 +208,57 @@ bool ProjectIO::saveProject(const std::filesystem::path &path, const FactoryGrap
     }
 }
 
-bool ProjectIO::loadProject(const std::filesystem::path &path, FactoryGraph &factoryGraph) {
+bool ProjectIO::loadProject(const std::filesystem::path &path, FactoryGraph &factoryGraph, std::string* outError) {
+    if (outError) {
+        outError->clear();
+    }
+
     try {
         // Check if file exists
         if (!std::filesystem::exists(path)) {
-            LOG(ERROR) << "Project file does not exist: " << path;
-            NotificationManager::instance().addNotification(
-                "Error Loading Project",
+            return failProjectLoad(
                 "Project file does not exist: " + pathToUtf8(path),
-                NotificationType::Error);
-            return false;
+                "Project file does not exist: " + pathToUtf8(path),
+                outError);
         }
 
         std::ifstream ifs(path);
         if (!ifs) {
-            LOG(ERROR) << "Failed to open project file: " << path;
-            NotificationManager::instance().addNotification(
-                "Error Loading Project",
+            return failProjectLoad(
                 "Failed to open project file: " + pathToUtf8(path),
-                NotificationType::Error);
-            return false;
+                "Failed to open project file: " + pathToUtf8(path),
+                outError);
         }
 
         json projectData;
         try {
             ifs >> projectData;
         } catch (const json::parse_error& e) {
-            LOG(ERROR) << "Failed to parse project file: " << e.what();
-            NotificationManager::instance().addNotification(
-                "Error Loading Project",
+            return failProjectLoad(
                 "Failed to parse project file: " + std::string(e.what()),
-                NotificationType::Error);
-            return false;
+                "Failed to parse project file: " + std::string(e.what()),
+                outError);
         }
 
         VLOG(2) << "Project file parsed successfully.";
 
         if (!projectData.is_object()) {
-            LOG(ERROR) << "Invalid project file format: root is not an object.";
-            NotificationManager::instance().addNotification(
-                "Error Loading Project",
+            return failProjectLoad(
+                "Invalid project file format: root is not an object.",
                 "Invalid project file format.",
-                NotificationType::Error);
+                outError);
+        }
+
+        if (!validateProjectFormatVersion(projectData, path, outError)) {
             return false;
         }
 
-
         // Load graph data first
         if (!projectData.contains("graph_data") || !projectData["graph_data"].is_object()) {
-            LOG(ERROR) << "Project file does not contain valid graph_data: " << path;
-            NotificationManager::instance().addNotification(
-                "Error Loading Project",
+            return failProjectLoad(
+                "Project file does not contain valid graph_data: " + pathToUtf8(path),
                 "Project file does not contain valid graph data: " + pathToUtf8(path),
-                NotificationType::Error);
-            return false;
+                outError);
         }
 
         try {
@@ -228,38 +303,32 @@ bool ProjectIO::loadProject(const std::filesystem::path &path, FactoryGraph &fac
                 }
 
                 if (gameDataPath.empty()) {
-                    LOG(ERROR) << "Game data package not found for project: " << path
-                               << " (game.id: " << targetGameId << ")";
-                    NotificationManager::instance().addNotification(
-                        "Error Loading Project",
+                    return failProjectLoad(
                         "Game data package not found for project: " + pathToUtf8(path) +
                             " (game.id: " + targetGameId + ")",
-                        NotificationType::Error);
-                    return false;
+                        "Game data package not found for project: " + pathToUtf8(path) +
+                            " (game.id: " + targetGameId + ")",
+                        outError);
                 }
                 if (!game_data_manager.loadFromFile(gameDataPath, error)) {
-                    LOG(ERROR) << "Failed to load game data from file: " << error;
-                    NotificationManager::instance().addNotification(
-                        "Error Loading Project",
+                    return failProjectLoad(
                         "Failed to load game data from file: " + error,
-                        NotificationType::Error);
-                    return false;
+                        "Failed to load game data from file: " + error,
+                        outError);
                 }
 
                 if (!factoryGraph.deserialize(graphDataJson, game_data_manager.current())) {
-                    NotificationManager::instance().addNotification(
-                        "Error Loading Project",
-                        factoryGraph.getLastLoadError(),
-                        NotificationType::Error);
-                    return false;
+                    const std::string errMsg = factoryGraph.getLastLoadError().empty()
+                        ? "Failed to deserialize graph data."
+                        : factoryGraph.getLastLoadError();
+                    return failProjectLoad("", errMsg, outError);
                 }
             } else {
                 if (!factoryGraph.deserialize(graphDataJson, factoryGraph.getGameData())) {
-                    NotificationManager::instance().addNotification(
-                        "Error Loading Project",
-                        factoryGraph.getLastLoadError(),
-                        NotificationType::Error);
-                    return false;
+                    const std::string errMsg = factoryGraph.getLastLoadError().empty()
+                        ? "Failed to deserialize graph data."
+                        : factoryGraph.getLastLoadError();
+                    return failProjectLoad("", errMsg, outError);
                 }
             }
 
@@ -270,12 +339,10 @@ bool ProjectIO::loadProject(const std::filesystem::path &path, FactoryGraph &fac
                     NotificationType::Warning);
             }
         } catch (const std::exception& e) {
-            LOG(ERROR) << "Failed to deserialize graph data: " << e.what();
-            NotificationManager::instance().addNotification(
-                "Error Loading Project",
+            return failProjectLoad(
                 "Failed to deserialize graph data: " + std::string(e.what()),
-                NotificationType::Error);
-            return false;
+                "Failed to deserialize graph data: " + std::string(e.what()),
+                outError);
         }
         VLOG(2) << "Graph data deserialized successfully.";
 
@@ -354,11 +421,9 @@ bool ProjectIO::loadProject(const std::filesystem::path &path, FactoryGraph &fac
         return true;
 
     } catch (const std::exception& e) {
-        LOG(ERROR) << "Exception during load: " << e.what();
-        NotificationManager::instance().addNotification(
-            "Error Loading Project",
+        return failProjectLoad(
+            "Exception during load: " + std::string(e.what()),
             "An error occurred while loading the project: " + std::string(e.what()),
-            NotificationType::Error);
-        return false;
+            outError);
     }
 }
