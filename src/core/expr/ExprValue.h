@@ -108,19 +108,23 @@ inline std::string expectedTypeDescription(ExpectedType expected) {
 struct OptionValue {
     std::string option_set;
     std::optional<std::string> key; // std::nullopt when allow_none parameter/global is unset
+    bool operator==(const OptionValue&) const = default;
 };
 
 struct ResourceValue {
     std::optional<std::string> id; // std::nullopt when allow_none parameter/global is unset
+    bool operator==(const ResourceValue&) const = default;
 };
 
 struct SlotsValue {
     std::string option_set;
     std::vector<std::optional<std::string>> active_slots; // Active slots in 0 .. count - 1
+    bool operator==(const SlotsValue&) const = default;
 };
 
 struct NumberListValue {
     std::vector<double> values; // Non-empty active slot values
+    bool operator==(const NumberListValue&) const = default;
 };
 
 using EvalValueVariant = std::variant<
@@ -134,6 +138,7 @@ using EvalValueVariant = std::variant<
 
 struct EvalValue {
     EvalValueVariant data = 0.0;
+    bool operator==(const EvalValue&) const = default;
 
     static EvalValue number(double v) {
         if (v == 0.0) {

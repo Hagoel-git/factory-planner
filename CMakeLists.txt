@@ -103,6 +103,11 @@ set(FACTORY_PLANNER_LIB_SRC
         src/core/graph/FactorySolver.cpp
 
         src/core/data/GameData.h
+        src/core/data/GameDataV4.h
+        src/core/data/GameDataLoader.h
+        src/core/data/GameDataLoader.cpp
+        src/core/data/NodeEvaluator.h
+        src/core/data/NodeEvaluator.cpp
         src/core/data/GameDataManager.h
         src/core/data/GameDataManager.cpp
 

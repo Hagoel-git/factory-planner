@@ -177,6 +177,40 @@ struct AstNode {
     ResolvedAccessKind access_kind = ResolvedAccessKind::None;
     std::string resolved_key; // Attribute name, param id, global id, or let name
     BuiltinFunc builtin_func = BuiltinFunc::MinScalar;
+
+    AstNode() = default;
+    AstNode(const AstNode& other)
+        : kind(other.kind),
+          line(other.line),
+          column(other.column),
+          number_value(other.number_value),
+          bool_value(other.bool_value),
+          string_value(other.string_value),
+          name(other.name),
+          unary_op(other.unary_op),
+          binary_op(other.binary_op),
+          left(other.left ? std::make_unique<AstNode>(*other.left) : nullptr),
+          right(other.right ? std::make_unique<AstNode>(*other.right) : nullptr),
+          field_line(other.field_line),
+          field_column(other.field_column),
+          resolved_type(other.resolved_type),
+          access_kind(other.access_kind),
+          resolved_key(other.resolved_key),
+          builtin_func(other.builtin_func) {
+        args.reserve(other.args.size());
+        for (const auto& a : other.args) {
+            args.push_back(a ? std::make_unique<AstNode>(*a) : nullptr);
+        }
+    }
+    AstNode& operator=(const AstNode& other) {
+        if (this != &other) {
+            AstNode tmp(other);
+            *this = std::move(tmp);
+        }
+        return *this;
+    }
+    AstNode(AstNode&&) noexcept = default;
+    AstNode& operator=(AstNode&&) noexcept = default;
 };
 
 struct CompiledExpr {
@@ -196,6 +230,32 @@ struct CompiledExpr {
     std::vector<std::string> referenced_resource_attrs;
     bool references_port = false;
     bool references_port_resource = false;
+
+    CompiledExpr() = default;
+    CompiledExpr(const CompiledExpr& other)
+        : source(other.source),
+          root(other.root ? std::make_unique<AstNode>(*other.root) : nullptr),
+          type(other.type),
+          referenced_lets(other.referenced_lets),
+          referenced_globals(other.referenced_globals),
+          referenced_params(other.referenced_params),
+          referenced_tables(other.referenced_tables),
+          referenced_resources(other.referenced_resources),
+          referenced_machine_attrs(other.referenced_machine_attrs),
+          referenced_recipe_attrs(other.referenced_recipe_attrs),
+          referenced_port_attrs(other.referenced_port_attrs),
+          referenced_resource_attrs(other.referenced_resource_attrs),
+          references_port(other.references_port),
+          references_port_resource(other.references_port_resource) {}
+    CompiledExpr& operator=(const CompiledExpr& other) {
+        if (this != &other) {
+            CompiledExpr tmp(other);
+            *this = std::move(tmp);
+        }
+        return *this;
+    }
+    CompiledExpr(CompiledExpr&&) noexcept = default;
+    CompiledExpr& operator=(CompiledExpr&&) noexcept = default;
 
     bool isValid() const { return root != nullptr; }
 };
