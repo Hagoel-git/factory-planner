@@ -901,6 +901,17 @@ struct EvaluatedMetricCoeff {
     double coeff = 0.0; // Pre-solve coefficient for PerMachine / PerCraft; 0.0 for Value
 };
 
+struct EvaluatedParamUi {
+    bool visible = true;
+    bool has_min = false;
+    bool has_max = false;
+    double min_val = 0.0;
+    double max_val = 0.0;
+    size_t slot_count = 0;
+    std::vector<std::string> allowed_options;
+    std::vector<std::string> allowed_resources;
+};
+
 struct NodeEval {
     EvalStatus status = EvalStatus::OK;
     std::vector<EvalMessage> messages;
@@ -912,6 +923,7 @@ struct NodeEval {
     std::unordered_map<std::string, ParamValue> resolved_params;
     std::unordered_map<std::string, expr::EvalValue> resolved_param_eval_values;
     std::unordered_map<std::string, bool> param_visible;
+    std::unordered_map<std::string, EvaluatedParamUi> param_ui;
     std::unordered_map<std::string, expr::EvalValue> resolved_lets;
 
     const EvaluatedPort* findPort(std::string_view slot_key) const {

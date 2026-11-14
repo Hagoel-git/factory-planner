@@ -12,6 +12,10 @@
 #include <cmath>
 #include <cfloat>
 #include <algorithm>
+#include <cctype>
+#include <cstdio>
+#include <limits>
+#include <unordered_set>
 
 #include "common/IdUtils.h"
 #include "common/CopyBuffer.h"
@@ -24,6 +28,282 @@ namespace ed = ax::NodeEditor;
 namespace {
 constexpr float kMaxCanvasCoord = 500000000.0f;
 constexpr float kMaxNodeDimension = 10000.0f;
+
+std::string sanitizeScalarFormat(std::string_view fmt, bool isInt, bool isS64) {
+    if (fmt.empty()) {
+        return isInt ? (isS64 ? "%lld" : "%d") : "%.3g";
+    }
+
+    int specCount = 0;
+    std::string normalized;
+    normalized.reserve(fmt.size() + 4);
+
+    for (size_t i = 0; i < fmt.size(); ++i) {
+        if (fmt[i] != '%') {
+            normalized.push_back(fmt[i]);
+            continue;
+        }
+        if (i + 1 < fmt.size() && fmt[i + 1] == '%') {
+            normalized += "%%";
+            ++i;
+            continue;
+        }
+
+        // Single format conversion: %[flags][width][.prec][length]spec
+        size_t start = i;
+        ++i;
+        while (i < fmt.size() &&
+               (fmt[i] == '-' || fmt[i] == '+' || fmt[i] == ' ' || fmt[i] == '#' || fmt[i] == '0')) {
+            ++i;
+        }
+        while (i < fmt.size() && std::isdigit(static_cast<unsigned char>(fmt[i]))) {
+            ++i;
+        }
+        if (i < fmt.size() && fmt[i] == '.') {
+            ++i;
+            while (i < fmt.size() && std::isdigit(static_cast<unsigned char>(fmt[i]))) {
+                ++i;
+            }
+        }
+        size_t lenStart = i;
+        while (i < fmt.size() && fmt[i] == 'l') {
+            ++i;
+        }
+        size_t lenCount = i - lenStart;
+        if (i >= fmt.size() || lenCount > 2) {
+            return isInt ? (isS64 ? "%lld" : "%d") : "%.3g";
+        }
+
+        char conv = fmt[i];
+        ++specCount;
+        if (specCount > 1) {
+            return isInt ? (isS64 ? "%lld" : "%d") : "%.3g";
+        }
+
+        if (isInt) {
+            if (conv != 'd' && conv != 'i') {
+                return isS64 ? "%lld" : "%d";
+            }
+            normalized.append(fmt.substr(start, lenStart - start));
+            if (isS64) {
+                normalized += "ll";
+            }
+            normalized.push_back(conv);
+        } else {
+            if (conv != 'f' && conv != 'F' && conv != 'g' && conv != 'G' && conv != 'e' && conv != 'E') {
+                return "%.3g";
+            }
+            if (lenCount > 1) {
+                return "%.3g";
+            }
+            normalized.append(fmt.substr(start, i - start + 1));
+        }
+    }
+
+    if (specCount != 1) {
+        return isInt ? (isS64 ? "%lld" : "%d") : "%.3g";
+    }
+    return normalized;
+}
+
+std::string formatDoubleScalar(std::string_view fmt, double val) {
+    std::string safeFmt = sanitizeScalarFormat(fmt, false, false);
+    char buf[128];
+    snprintf(buf, sizeof(buf), safeFmt.c_str(), val);
+    return std::string(buf);
+}
+
+std::string formatMetricValueString(const gamedata::MetricDef& mdef, double canonicalVal, const FactoryGraph& graph) {
+    double dispVal = mdef.is_rate ? graph.toDisplayRate(canonicalVal) : canonicalVal;
+    std::string out = formatDoubleScalar(mdef.format.empty() ? "%.3g" : mdef.format, dispVal);
+    std::string unitStr = mdef.unit;
+    if (mdef.is_rate) {
+        unitStr += gamedata::rateUnitSuffix(graph.getRateUnit());
+    }
+    if (!unitStr.empty()) {
+        if (unitStr != "%" && unitStr.front() != '/') {
+            out += ' ';
+        }
+        out += unitStr;
+    }
+    return out;
+}
+
+bool metricHasDisplayLocation(const gamedata::MetricDef& mdef, gamedata::MetricDisplayLocation loc) {
+    return std::find(mdef.display.begin(), mdef.display.end(), loc) != mdef.display.end();
+}
+
+const gamedata::Profile* findNodeProfile(const GameData& gameData, const Node& node) {
+    const Machine* machine = gameData.findMachine(node.machine_key);
+    if (machine) {
+        if (const auto* prof = gameData.findProfile(machine->profile)) {
+            return prof;
+        }
+    }
+    return gameData.findProfile("default");
+}
+
+std::vector<const gamedata::ParameterDef*> collectProfileParamDefs(const GameData& gameData, const Node& node) {
+    std::vector<const gamedata::ParameterDef*> result;
+    const gamedata::Profile* profile = findNodeProfile(gameData, node);
+    if (!profile) {
+        return result;
+    }
+    result.reserve(profile->params.size());
+    for (const auto& pid : profile->params) {
+        if (const auto* pdef = gameData.findParameter(pid)) {
+            result.push_back(pdef);
+        }
+    }
+    return result;
+}
+
+gamedata::EvaluatedParamUi resolveEffectiveParamUi(
+    const GameData& gameData,
+    const gamedata::NodeEval* eval,
+    const gamedata::ParameterDef& pdef) {
+    if (eval) {
+        if (auto it = eval->param_ui.find(pdef.id); it != eval->param_ui.end()) {
+            return it->second;
+        }
+    }
+    gamedata::EvaluatedParamUi fallback;
+    if (eval) {
+        if (auto vit = eval->param_visible.find(pdef.id); vit != eval->param_visible.end()) {
+            fallback.visible = vit->second;
+        }
+    } else if (pdef.visible_if.is_present && pdef.visible_if.is_literal) {
+        fallback.visible = pdef.visible_if.literal_value;
+    }
+    if (pdef.min.is_present && pdef.min.is_literal) {
+        fallback.has_min = true;
+        fallback.min_val = pdef.min.literal_value;
+    }
+    if (pdef.max.is_present && pdef.max.is_literal) {
+        fallback.has_max = true;
+        fallback.max_val = pdef.max.literal_value;
+    }
+    if (pdef.type == gamedata::ParameterType::Int) {
+        if (fallback.has_min) fallback.min_val = std::ceil(fallback.min_val - 1e-9);
+        if (fallback.has_max) fallback.max_val = std::floor(fallback.max_val + 1e-9);
+    }
+    if (pdef.type == gamedata::ParameterType::Slots && pdef.count.is_literal) {
+        int64_t c = std::llround(pdef.count.literal_value);
+        fallback.slot_count = static_cast<size_t>(std::clamp<int64_t>(c, 0, 64));
+    }
+    if (pdef.type == gamedata::ParameterType::Enum || pdef.type == gamedata::ParameterType::Slots) {
+        if (const auto* os = gameData.findOptionSet(pdef.option_set)) {
+            for (const auto& opt : os->options) {
+                fallback.allowed_options.push_back(opt.key);
+            }
+        }
+    } else if (pdef.type == gamedata::ParameterType::ResourceChoice) {
+        fallback.allowed_resources = pdef.candidate_resources;
+    }
+    return fallback;
+}
+
+gamedata::ParamValue resolveEffectiveParamValue(
+    const Node& node,
+    const gamedata::NodeEval* eval,
+    const gamedata::ParameterDef& pdef) {
+    if (eval) {
+        if (auto it = eval->resolved_params.find(pdef.id); it != eval->resolved_params.end()) {
+            return it->second;
+        }
+    }
+    if (auto it = node.params.find(pdef.id); it != node.params.end()) {
+        return it->second;
+    }
+    if (pdef.has_default) {
+        return pdef.default_value;
+    }
+    switch (pdef.type) {
+        case gamedata::ParameterType::Number:
+        case gamedata::ParameterType::Int:
+            return gamedata::ParamValue::number(0.0);
+        case gamedata::ParameterType::Bool:
+            return gamedata::ParamValue::boolean(false);
+        case gamedata::ParameterType::Enum:
+        case gamedata::ParameterType::ResourceChoice:
+            return gamedata::ParamValue::null();
+        case gamedata::ParameterType::Slots:
+            return gamedata::ParamValue::slots({});
+    }
+    return gamedata::ParamValue::null();
+}
+
+gamedata::UiWidget normalizeWidgetForType(
+    gamedata::ParameterType type,
+    gamedata::UiWidget requested,
+    bool hasBoundedRange) {
+    switch (type) {
+        case gamedata::ParameterType::Number:
+            if (requested == gamedata::UiWidget::Slider) {
+                return hasBoundedRange ? gamedata::UiWidget::Slider : gamedata::UiWidget::Drag;
+            }
+            if (requested == gamedata::UiWidget::Drag ||
+                requested == gamedata::UiWidget::Input ||
+                requested == gamedata::UiWidget::Stepper) {
+                return requested;
+            }
+            return gamedata::UiWidget::Drag;
+        case gamedata::ParameterType::Int:
+            if (requested == gamedata::UiWidget::Slider) {
+                return hasBoundedRange ? gamedata::UiWidget::Slider : gamedata::UiWidget::Stepper;
+            }
+            if (requested == gamedata::UiWidget::Stepper ||
+                requested == gamedata::UiWidget::Drag ||
+                requested == gamedata::UiWidget::Input) {
+                return requested;
+            }
+            return gamedata::UiWidget::Stepper;
+        case gamedata::ParameterType::Bool:
+            return gamedata::UiWidget::Checkbox;
+        case gamedata::ParameterType::Enum:
+        case gamedata::ParameterType::ResourceChoice:
+            return gamedata::UiWidget::Combo;
+        case gamedata::ParameterType::Slots:
+            return gamedata::UiWidget::SlotRow;
+    }
+    return gamedata::defaultWidgetForParameterType(type);
+}
+
+std::string getOptionDisplayLabel(const gamedata::OptionSet* os, std::string_view key) {
+    if (os) {
+        if (const auto* opt = os->findOption(key)) {
+            if (!opt->label.empty()) return opt->label;
+        }
+    }
+    return std::string(key);
+}
+
+std::string getResourceDisplayName(const GameData& gameData, std::string_view resId) {
+    if (const Resource* res = gameData.findResource(resId)) {
+        if (!res->name.empty()) return res->name;
+    }
+    return std::string(resId);
+}
+
+const char* evalStatusLabel(gamedata::EvalStatus st) {
+    switch (st) {
+        case gamedata::EvalStatus::OK: return "OK";
+        case gamedata::EvalStatus::WARNING: return "WARNING";
+        case gamedata::EvalStatus::BLOCKED: return "BLOCKED";
+        case gamedata::EvalStatus::ERROR: return "ERROR";
+    }
+    return "OK";
+}
+
+ImVec4 evalStatusColor(gamedata::EvalStatus st) {
+    switch (st) {
+        case gamedata::EvalStatus::OK: return ImVec4(0.45f, 0.85f, 0.45f, 1.0f);
+        case gamedata::EvalStatus::WARNING: return ImVec4(0.95f, 0.72f, 0.20f, 1.0f);
+        case gamedata::EvalStatus::BLOCKED: return ImVec4(0.95f, 0.45f, 0.20f, 1.0f);
+        case gamedata::EvalStatus::ERROR: return ImVec4(0.95f, 0.28f, 0.28f, 1.0f);
+    }
+    return ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+}
 }
 
 FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::filesystem::path &projectFilePath, std::string title)
@@ -138,11 +418,18 @@ void FactoryNodeEditor::draw() {
 
     updateDebugInfo();
 
-    // Begin the node editor canvas
-    m_windowPos = ImGui::GetWindowPos();
-    m_windowSize = ImGui::GetWindowSize();
+    // Begin the node editor canvas (and leave room for collapsible side panel when wide enough)
+    ImVec2 avail = ImGui::GetContentRegionAvail();
+    bool canShowSideBar = avail.x > 360.0f;
+    float sideWidth = !canShowSideBar ? 0.0f : (m_showSidePanel ? std::min(265.0f, std::max(210.0f, avail.x * 0.26f)) : 30.0f);
+    float spacingX = canShowSideBar ? ImGui::GetStyle().ItemSpacing.x : 0.0f;
+    ImVec2 canvasSize(canShowSideBar ? std::max(100.0f, avail.x - sideWidth - spacingX) : std::max(4.0f, avail.x),
+                      std::max(4.0f, avail.y));
 
-    ed::Begin(m_editorName.c_str());
+    m_windowPos = ImGui::GetCursorScreenPos();
+    m_windowSize = canvasSize;
+
+    ed::Begin(m_editorName.c_str(), canvasSize);
 
     // Check if any node is placed or dragged outside current quadtree bounds
     if (!m_quadtreeNeedsRebuild && m_nodeQuadtree) {
@@ -184,12 +471,28 @@ void FactoryNodeEditor::draw() {
     }
     handlePopups();
 
+    std::vector<uint64_t> selectedNodeIds;
+    if (int selCount = ed::GetSelectedObjectCount(); selCount > 0) {
+        std::vector<ed::NodeId> selEd(static_cast<size_t>(selCount));
+        int numNodes = ed::GetSelectedNodes(selEd.data(), selCount);
+        selectedNodeIds.reserve(static_cast<size_t>(std::max(0, numNodes)));
+        for (int i = 0; i < numNodes; ++i) {
+            selectedNodeIds.push_back(IdUtils::fromNodeId(selEd[i]));
+        }
+    }
+
     ed::End(); // End node editor
 
     ed::SetCurrentEditor(nullptr);
+
+    if (canShowSideBar) {
+        ImGui::SameLine();
+        drawSidePanel(ImVec2(sideWidth, canvasSize.y), selectedNodeIds);
+    }
 }
 
 bool FactoryNodeEditor::save() {
+    commitActiveParamEdit();
     if (!m_loadedSuccessfully || m_projectFilePath.empty()) {
         LOG(WARNING) << "Save refused: editor was not loaded successfully or path is empty: " << m_projectFilePath;
         return false;
@@ -463,6 +766,7 @@ void FactoryNodeEditor::fitView(bool force) {
 }
 
 void FactoryNodeEditor::undo() {
+    commitActiveParamEdit();
     if (!m_undoRedoManager.canUndo()) return;
 
     const Command *command = m_undoRedoManager.getCommandToUndo();
@@ -487,6 +791,7 @@ void FactoryNodeEditor::undo() {
 }
 
 void FactoryNodeEditor::redo() {
+    commitActiveParamEdit();
     if (!m_undoRedoManager.canRedo()) return;
 
     const Command *command = m_undoRedoManager.getCommandToRedo();
@@ -513,6 +818,7 @@ void FactoryNodeEditor::redo() {
 
 void FactoryNodeEditor::executeCommand(std::unique_ptr<Command> command) {
     if (!command) return;
+    commitActiveParamEdit();
     // check if it is a composite command and if it has no sub-commands, then ignore it
     if (auto compositeCommand = dynamic_cast<CompositeCommand*>(command.get())) {
         if (compositeCommand->isEmpty()) {
@@ -837,16 +1143,30 @@ void FactoryNodeEditor::drawNodes() {
 
     m_debugInfo.visibleNodes = static_cast<int>(nodesToRegister.size());
 
-    const std::string timeUnit = gamedata::rateUnitToString(m_graph->getRateUnit());
-
     std::string deferredTooltip;
     // Draw only visible nodes
     for (const auto& nodeData : nodesToRegister) {
         auto node = m_graph->getNode(nodeData);
         if (!node) continue;
 
+        const auto& gameDataRef = m_graph->getGameData();
+        const gamedata::NodeEval* nodeEval = m_graph->getNodeEval(node->id);
+        const gamedata::NodeMetricsResult* nodeMetrics = m_solver->getNodeMetrics(node->id);
+        const Recipe* recipePtr = gameDataRef.findRecipe(node->selected_recipe_key);
+        const gamedata::Profile* profilePtr = findNodeProfile(gameDataRef, *node);
+
+        gamedata::EvalStatus evalStatus = nodeEval ? nodeEval->status : gamedata::EvalStatus::OK;
+        if (node->is_unresolved) {
+            evalStatus = gamedata::EvalStatus::ERROR;
+        }
+        bool pushedStatusBorder = (evalStatus != gamedata::EvalStatus::OK);
+
         ed::NodeId nodeId = IdUtils::toNodeId(node->id);
+        if (pushedStatusBorder) {
+            ed::PushStyleColor(ed::StyleColor_NodeBorder, evalStatusColor(evalStatus));
+        }
         ed::BeginNode(nodeId);
+        std::string nodeDeferredTip;
 
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0,0));
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(2,0));
@@ -882,59 +1202,6 @@ void FactoryNodeEditor::drawNodes() {
         float machine_offset = (node_h - machine_h) * 0.5f;
         float outputs_offset = (node_h - outputs_h) * 0.5f;
 
-        auto buildPinTooltip = [&](const Port *p, const Resource &res, bool has_excess) {
-            std::string tip = res.name;
-            if (has_excess) {
-                char ex_buf[128];
-                snprintf(ex_buf, sizeof(ex_buf), "\nExcess: %.2f/%s", p->excess_rate, timeUnit.c_str());
-                tip += ex_buf;
-            }
-            const bool hasNumericConstraint = p->user_constraint >= 0.0;
-            const bool hasUnratedPush = (p->user_constraint < 0.0 && p->constraint_mode == ConstraintMode::PUSH);
-            if (hasNumericConstraint || hasUnratedPush || p->constraint_mode != ConstraintMode::AUTO) {
-                const ConstraintMode resolved = m_solver->getResolvedConstraintMode(p->id);
-                const char *modeLabel = constraintModeToString(resolved);
-                char mode_buf[160];
-                if (hasNumericConstraint) {
-                    const double sat = m_solver->getGoalSaturation(p->id);
-                    if (sat >= 0.0) {
-                        const bool bottlenecked = m_solver->isGoalBottlenecked(p->id);
-                        snprintf(mode_buf, sizeof(mode_buf), "\n%s: %.2f/%s (%.1f%%%s)",
-                                 modeLabel, p->user_constraint, timeUnit.c_str(),
-                                 sat * 100.0, bottlenecked ? " - Bottlenecked" : "");
-                    } else {
-                        snprintf(mode_buf, sizeof(mode_buf), "\n%s: %.2f/%s",
-                                 modeLabel, p->user_constraint, timeUnit.c_str());
-                    }
-                } else if (hasUnratedPush) {
-                    snprintf(mode_buf, sizeof(mode_buf), "\nMode: PUSH (Unrated - No Overflow)");
-                } else {
-                    snprintf(mode_buf, sizeof(mode_buf), "\nMode: %s", modeLabel);
-                }
-                tip += mode_buf;
-            }
-            return tip;
-        };
-
-        auto formatPinRateText = [&](const Port *p, char *out_buf, size_t out_size) {
-            const bool hasNumericConstraint = p->user_constraint >= 0.0;
-            const bool hasUnratedPush = (p->user_constraint < 0.0 && p->constraint_mode == ConstraintMode::PUSH);
-            if (hasNumericConstraint) {
-                const ConstraintMode resolved = m_solver->getResolvedConstraintMode(p->id);
-                const char tag = (resolved == ConstraintMode::LIMIT) ? 'L'
-                               : (resolved == ConstraintMode::PUSH)  ? 'P' : 'T';
-                if (m_solver->isGoalBottlenecked(p->id)) {
-                    snprintf(out_buf, out_size, "%.2f [!%c]", p->rate, tag);
-                } else {
-                    snprintf(out_buf, out_size, "%.2f [%c]", p->rate, tag);
-                }
-            } else if (hasUnratedPush) {
-                snprintf(out_buf, out_size, "%.2f [P]", p->rate);
-            } else {
-                snprintf(out_buf, out_size, "%.2f", p->rate);
-            }
-        };
-
         // --- LEFT (inputs) ---
         ImGui::BeginGroup();
         // add vertical offset to center inputs column
@@ -967,14 +1234,13 @@ void FactoryNodeEditor::drawNodes() {
                 }
                 ImGui::SameLine();
                 if (ImGui::IsItemHovered()) {
-                    deferredTooltip = buildPinTooltip(p, res, false);
+                    deferredTooltip = buildPinTooltipText(*p, res, false);
                 }
-                char rateBuf[64];
-                formatPinRateText(p, rateBuf, sizeof(rateBuf));
+                const std::string rateText = formatPinRateText(*p);
                 if (m_solver->isGoalBottlenecked(p->id)) {
-                    ImGui::TextColored(ImVec4(0.95f, 0.45f, 0.2f, 1.0f), "%s", rateBuf);
+                    ImGui::TextColored(ImVec4(0.95f, 0.45f, 0.2f, 1.0f), "%s", rateText.c_str());
                 } else {
-                    ImGui::Text("%s", rateBuf);
+                    ImGui::Text("%s", rateText.c_str());
                 }
                 if (SettingsManager::instance().getSettings().showResourceNames) {
                     ImGui::Text("%s", res.name.c_str());
@@ -988,23 +1254,134 @@ void FactoryNodeEditor::drawNodes() {
 
         ImGui::SameLine();
 
-        // --- MIDDLE (machine) ---
+        // --- MIDDLE (machine, body metrics, body parameters) ---
+        bool hasBodyParams = false;
+        if (profilePtr) {
+            for (const auto& pid : profilePtr->params) {
+                const auto* pdef = gameData.findParameter(pid);
+                if (!pdef || pdef->ui.placement != gamedata::UiPlacement::Body) continue;
+                if (resolveEffectiveParamUi(gameData, nodeEval, *pdef).visible) {
+                    hasBodyParams = true;
+                    break;
+                }
+            }
+        }
+        bool hasBodyMetrics = false;
+        if (nodeMetrics && evalStatus != gamedata::EvalStatus::BLOCKED && evalStatus != gamedata::EvalStatus::ERROR) {
+            for (const auto& mdef : gameData.metrics) {
+                if (!metricHasDisplayLocation(mdef, gamedata::MetricDisplayLocation::Body)) continue;
+                const auto* nm = nodeMetrics->findMetric(mdef.id);
+                if (nm && nm->enabled) {
+                    hasBodyMetrics = true;
+                    break;
+                }
+            }
+        }
+        bool hasMiddleExtras = hasBodyParams || hasBodyMetrics ||
+                               (evalStatus != gamedata::EvalStatus::OK) ||
+                               (recipePtr && !recipePtr->setup.empty());
+
         ImGui::BeginGroup();
-        if (machine_offset > 0.0f) ImGui::Dummy(ImVec2(0, machine_offset));
+        if (!hasMiddleExtras && machine_offset > 0.0f) {
+            ImGui::Dummy(ImVec2(0, machine_offset));
+        }
+        const float middleWidth = hasBodyParams ? std::max(machine_h, 128.0f) : machine_h;
+        float groupStartX = ImGui::GetCursorPosX();
+
         const Machine* machPtr = gameData.findMachine(node->machine_key);
         if (machPtr) {
+            if (middleWidth > machine_h) {
+                ImGui::SetCursorPosX(groupStartX + (middleWidth - machine_h) * 0.5f);
+            }
             ImGui::Image(machPtr->texture, ImVec2(machine_h, machine_h));
+            if (deferredTooltip.empty() && nodeDeferredTip.empty() && ImGui::IsItemHovered()) {
+                nodeDeferredTip = buildNodeTooltipText(*node, nodeEval, nodeMetrics);
+            }
         } else {
+            if (middleWidth > 48.0f) {
+                ImGui::SetCursorPosX(groupStartX + (middleWidth - 48.0f) * 0.5f);
+            }
             ImGui::Dummy(ImVec2(48, machine_h));
         }
+
         const char* countText = "%.2f";
         char buf[32];
         snprintf(buf, sizeof(buf), countText, node->machine_count);
         float textWidth = ImGui::CalcTextSize(buf).x;
-        float imageWidth = machine_h;
-        float groupStartX = ImGui::GetCursorPosX();
-        ImGui::SetCursorPosX(groupStartX + (imageWidth - textWidth) * 0.5f);
+        ImGui::SetCursorPosX(groupStartX + (middleWidth - textWidth) * 0.5f);
         ImGui::Text("%s", buf);
+        if (deferredTooltip.empty() && nodeDeferredTip.empty() && ImGui::IsItemHovered()) {
+            nodeDeferredTip = buildNodeTooltipText(*node, nodeEval, nodeMetrics);
+        }
+
+        if (evalStatus != gamedata::EvalStatus::OK) {
+            const char* statusStr = node->is_unresolved ? "[UNRESOLVED]" :
+                                    (evalStatus == gamedata::EvalStatus::BLOCKED ? "[BLOCKED]" :
+                                     (evalStatus == gamedata::EvalStatus::ERROR ? "[ERROR]" : "[WARN]"));
+            float statusW = ImGui::CalcTextSize(statusStr).x;
+            ImGui::SetCursorPosX(groupStartX + std::max(0.0f, (middleWidth - statusW) * 0.5f));
+            ImGui::TextColored(evalStatusColor(evalStatus), "%s", statusStr);
+            if (deferredTooltip.empty() && nodeDeferredTip.empty() && ImGui::IsItemHovered()) {
+                nodeDeferredTip = buildNodeTooltipText(*node, nodeEval, nodeMetrics);
+            }
+        }
+
+        if (recipePtr && !recipePtr->setup.empty()) {
+            for (const auto& item : recipePtr->setup) {
+                std::string setupStr = getResourceDisplayName(gameData, item.resource) +
+                    " x" + formatDoubleScalar("%.4g", item.amount);
+                ImGui::SetCursorPosX(groupStartX);
+                ImGui::TextDisabled("%s", setupStr.c_str());
+            }
+        }
+
+        if (hasBodyMetrics) {
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4, 2));
+            for (const auto& mdef : gameData.metrics) {
+                if (!metricHasDisplayLocation(mdef, gamedata::MetricDisplayLocation::Body)) continue;
+                const auto* nm = nodeMetrics->findMetric(mdef.id);
+                if (!nm || !nm->enabled) continue;
+                std::string mLabel = mdef.label.empty() ? mdef.id : mdef.label;
+                ImGui::SetCursorPosX(groupStartX);
+                if (nm->status == gamedata::EvalStatus::ERROR) {
+                    ImGui::TextColored(evalStatusColor(gamedata::EvalStatus::ERROR),
+                                       "%s: Error", mLabel.c_str());
+                    if (deferredTooltip.empty() && nodeDeferredTip.empty() && ImGui::IsItemHovered()) {
+                        nodeDeferredTip = !nm->error_message.empty()
+                            ? nm->error_message
+                            : buildNodeTooltipText(*node, nodeEval, nodeMetrics);
+                    }
+                } else {
+                    std::string valStr = formatMetricValueString(mdef, nm->value, *m_graph);
+                    ImGui::Text("%s: %s", mLabel.c_str(), valStr.c_str());
+                    if (deferredTooltip.empty() && nodeDeferredTip.empty() && ImGui::IsItemHovered()) {
+                        nodeDeferredTip = buildNodeTooltipText(*node, nodeEval, nodeMetrics);
+                    }
+                }
+            }
+            ImGui::PopStyleVar();
+        }
+
+        if (hasBodyParams) {
+            char nidBuf[32];
+            snprintf(nidBuf, sizeof(nidBuf), "##nbody_%" PRIu64, node->id);
+            ImGui::PushID(nidBuf);
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4, 2));
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4, 3));
+            ImGui::Dummy(ImVec2(0, 2));
+            ImGui::SetCursorPosX(groupStartX);
+            std::string* tipTarget = (deferredTooltip.empty() && nodeDeferredTip.empty()) ? &nodeDeferredTip : nullptr;
+            drawNodeParameters(node->id, /*onlyBodyPlacement=*/true, /*inNodeBody=*/true,
+                               middleWidth, tipTarget);
+            ImGui::PopStyleVar(2);
+            ImGui::PopID();
+
+            // Parameter edits or live commands inside drawNodeParameters can re-evaluate and re-solve,
+            // invalidating cached NodeEval / NodeMetricsResult pointers.
+            node = m_graph->getNode(nodeData);
+            nodeEval = m_graph->getNodeEval(nodeData);
+            nodeMetrics = m_solver->getNodeMetrics(nodeData);
+        }
         ImGui::EndGroup();
 
         ImGui::SameLine();
@@ -1023,12 +1400,11 @@ void FactoryNodeEditor::drawNodes() {
                 if (!resPtr) continue;
                 const Resource& res = *resPtr;
                 ed::BeginPin(IdUtils::toPinId(p->id), ed::PinKind::Output);
-                char rateBuf[64];
-                formatPinRateText(p, rateBuf, sizeof(rateBuf));
+                const std::string rateText = formatPinRateText(*p);
                 if (m_solver->isGoalBottlenecked(p->id)) {
-                    ImGui::TextColored(ImVec4(0.95f, 0.45f, 0.2f, 1.0f), "%s", rateBuf);
+                    ImGui::TextColored(ImVec4(0.95f, 0.45f, 0.2f, 1.0f), "%s", rateText.c_str());
                 } else {
-                    ImGui::Text("%s", rateBuf);
+                    ImGui::Text("%s", rateText.c_str());
                 }
                 ImGui::SameLine();
                 bool has_excess = p->excess_rate > 1e-4;
@@ -1053,7 +1429,7 @@ void FactoryNodeEditor::drawNodes() {
                         IM_COL32(235, 80, 40, 255), 0.0f, 0, 2.0f);
                 }
                 if (ImGui::IsItemHovered()) {
-                    deferredTooltip = buildPinTooltip(p, res, has_excess);
+                    deferredTooltip = buildPinTooltipText(*p, res, has_excess);
                 }
                 if (SettingsManager::instance().getSettings().showResourceNames) {
                     ImGui::Text("%s", res.name.c_str());
@@ -1067,7 +1443,27 @@ void FactoryNodeEditor::drawNodes() {
 
         ImGui::PopStyleVar(2);
         ed::EndNode();
+        if (pushedStatusBorder) {
+            ed::PopStyleColor();
+        }
+        if (deferredTooltip.empty()) {
+            if (!nodeDeferredTip.empty()) {
+                deferredTooltip = std::move(nodeDeferredTip);
+            } else if (ed::GetHoveredNode() == nodeId && !m_activeParamEdit.active && !ImGui::IsAnyItemActive()) {
+                deferredTooltip = buildNodeTooltipText(*node, nodeEval, nodeMetrics);
+            }
+        }
     }
+
+    if (m_pendingBodyParamPopup.shouldOpen) {
+        m_activeBodyParamPopup = m_pendingBodyParamPopup;
+        m_pendingBodyParamPopup.shouldOpen = false;
+        ed::Suspend();
+        ImGui::SetNextWindowPos(m_activeBodyParamPopup.anchorPos, ImGuiCond_Appearing);
+        ImGui::OpenPopup("##body_param_popup");
+        ed::Resume();
+    }
+    drawDeferredBodyParamPopup();
 
     if (!deferredTooltip.empty()) {
         ed::Suspend();
@@ -1083,7 +1479,7 @@ void FactoryNodeEditor::drawNodes() {
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 4.0f);
 
         ImGui::BeginTooltip();
-        ImGui::Text("%s", deferredTooltip.c_str());
+        ImGui::TextUnformatted(deferredTooltip.c_str());
         ImGui::EndTooltip();
 
         ImGui::PopStyleColor(2);
@@ -1096,6 +1492,11 @@ void FactoryNodeEditor::drawNodes() {
 void FactoryNodeEditor::drawConnections() {
     for (const auto &c: m_graph->getConnections()) {
         ImVec4 color = SettingsManager::instance().getSettings().themeName == "Dark" ? ImVec4(1.0f, 1.0f, 1.0f, 1.0f) : ImVec4(0.0f, 0.0f, 0.0f,  1.0f);
+        if (c.state == WireState::INVALID) {
+            color = ImVec4(0.95f, 0.25f, 0.25f, 1.0f);
+        } else if (c.state == WireState::INACTIVE) {
+            color.w = 0.45f;
+        }
         ed::Link(IdUtils::toLinkId(c.id), IdUtils::toPinId(c.from_port), IdUtils::toPinId(c.to_port), color, 1.5f);
     }
 }
@@ -1250,7 +1651,9 @@ void FactoryNodeEditor::handleUserInteractions() {
 void FactoryNodeEditor::handleContextMenus() {
     ed::Suspend();
     if (ed::ShowNodeContextMenu(&m_contextNodeId)) {
+        commitActiveParamEdit();
         ImGui::OpenPopup("Node Context Menu");
+        m_isNodeContextMenuInitialized = false;
     }
     ed::PinId clickedPinId = 0;
     if (ed::ShowPinContextMenu(&clickedPinId)) {
@@ -1315,6 +1718,7 @@ void FactoryNodeEditor::handlePopups() {
     if (ImGui::BeginPopup("Node Context Menu")) {
         auto node = m_graph->getNode(IdUtils::fromNodeId(m_contextNodeId));
         if (node) {
+            m_isNodeContextMenuInitialized = true;
             if (const Machine* nodeMach = gameData.findMachine(node->machine_key)) {
                 ImTextureID icon = nodeMach->texture;
                 ImGui::Image(icon, ImVec2(fontSize, fontSize));
@@ -1322,7 +1726,36 @@ void FactoryNodeEditor::handlePopups() {
             }
             ImGui::Text("%s", node->name.c_str());
 
+            const gamedata::NodeEval* nodeEval = m_graph->getNodeEval(node->id);
+            const gamedata::NodeMetricsResult* nodeMetrics = m_solver->getNodeMetrics(node->id);
+            gamedata::EvalStatus evalStatus = nodeEval ? nodeEval->status : gamedata::EvalStatus::OK;
+            if (node->is_unresolved) evalStatus = gamedata::EvalStatus::ERROR;
+            if (evalStatus != gamedata::EvalStatus::OK) {
+                ImGui::SameLine();
+                ImGui::TextColored(evalStatusColor(evalStatus), "[%s]",
+                                   node->is_unresolved ? "UNRESOLVED" : evalStatusLabel(evalStatus));
+            }
+
             ImGui::Separator();
+
+            if (nodeEval && !nodeEval->messages.empty()) {
+                for (const auto& msg : nodeEval->messages) {
+                    ImGui::PushTextWrapPos(240.0f);
+                    ImGui::TextColored(evalStatusColor(msg.severity), "%s: %s",
+                                       evalStatusLabel(msg.severity), msg.text.c_str());
+                    ImGui::PopTextWrapPos();
+                }
+                ImGui::Separator();
+            }
+            if (nodeMetrics && !nodeMetrics->messages.empty()) {
+                for (const auto& msg : nodeMetrics->messages) {
+                    ImGui::PushTextWrapPos(240.0f);
+                    ImGui::TextColored(evalStatusColor(msg.severity), "%s: %s",
+                                       evalStatusLabel(msg.severity), msg.text.c_str());
+                    ImGui::PopTextWrapPos();
+                }
+                ImGui::Separator();
+            }
 
             std::vector<std::string> allowedMachines;
             if (const Recipe* nodeRec = gameData.findRecipe(node->selected_recipe_key)) {
@@ -1391,99 +1824,18 @@ void FactoryNodeEditor::handlePopups() {
             }
 
             // Schema-defined node parameters (profile)
-            const auto* machinePtr = gameData.findMachine(node->machine_key);
-            const auto* profilePtr = machinePtr ? gameData.findProfile(machinePtr->profile) : gameData.findProfile("default");
-
-            std::vector<const gamedata::ParamDef*> paramDefs;
-            if (profilePtr) {
-                for (const auto& pid : profilePtr->params) {
-                    if (const auto* pdef = gameData.findParameter(pid)) {
-                        paramDefs.push_back(pdef);
-                    }
-                }
-            }
-
-            static std::unordered_map<std::string, gamedata::ParamValue> s_startParamValues;
-            for (const auto* pdef : paramDefs) {
-                ImGui::PushID(pdef->id.c_str());
-                std::string label = pdef->label.empty() ? pdef->id : pdef->label;
-                if (!pdef->unit.empty()) {
-                    label += " (" + pdef->unit + ")";
-                }
-                auto curOpt = m_graph->getNodeParam(node->id, pdef->id);
-
-                if (pdef->type == gamedata::ParamType::Number) {
-                    double curVal = (curOpt && curOpt->isNumber())
-                                        ? curOpt->asNumber()
-                                        : ((pdef->has_default && pdef->default_value.isNumber())
-                                               ? pdef->default_value.asNumber()
-                                               : 0.0);
-                    float valFlt = static_cast<float>(curVal);
-                    float minFlt = (pdef->min.is_present && pdef->min.is_literal) ? static_cast<float>(pdef->min.literal_value) : 0.0f;
-                    float maxFlt = (pdef->max.is_present && pdef->max.is_literal) ? static_cast<float>(pdef->max.literal_value) : 10000.0f;
-                    float stepFlt = (pdef->has_step && pdef->step > 0.0)
-                                        ? static_cast<float>(pdef->step)
-                                        : 1.0f;
-
-                    ImGui::SetNextItemWidth(200.0f);
-                    if (ImGui::DragFloat(label.c_str(), &valFlt, stepFlt, minFlt, maxFlt, "%.2f",
-                                         ImGuiSliderFlags_AlwaysClamp)) {
-                        valFlt = std::clamp(valFlt, minFlt, maxFlt);
-                        m_graph->setNodeParam(node->id, pdef->id, gamedata::ParamValue(static_cast<double>(valFlt)));
-                    }
-                    if (ImGui::IsItemActivated()) {
-                        s_startParamValues[pdef->id] = gamedata::ParamValue(curVal);
-                    }
-                    if (ImGui::IsItemDeactivatedAfterEdit()) {
-                        double startVal = s_startParamValues[pdef->id].isNumber()
-                                              ? s_startParamValues[pdef->id].asNumber()
-                                              : curVal;
-                        double endVal = static_cast<double>(valFlt);
-                        if (startVal != endVal) {
-                            executeCommand(std::make_unique<ChangeNodeParamCommand>(
-                                node->id, pdef->id, gamedata::ParamValue(startVal), gamedata::ParamValue(endVal)
-                            ));
-                        }
-                    }
-                } else if (pdef->type == gamedata::ParamType::Enum) {
-                    std::string curVal = (curOpt && curOpt->isString())
-                                             ? curOpt->asString()
-                                             : ((pdef->has_default && pdef->default_value.isString())
-                                                    ? pdef->default_value.asString()
-                                                    : "");
-                    const auto* optSet = gameData.findOptionSet(pdef->option_set);
-                    std::string previewLabel = curVal;
-                    if (optSet) {
-                        if (const auto* optDef = optSet->findOption(curVal)) {
-                            if (!optDef->label.empty()) previewLabel = optDef->label;
-                        }
-                    }
-                    ImGui::SetNextItemWidth(200.0f);
-                    if (ImGui::BeginCombo(label.c_str(), previewLabel.c_str())) {
-                        if (optSet) {
-                            for (const auto& opt : optSet->options) {
-                                bool selected = (opt.key == curVal);
-                                const std::string& disp = opt.label.empty() ? opt.key : opt.label;
-                                if (ImGui::Selectable(disp.c_str(), selected) && !selected) {
-                                    executeCommand(std::make_unique<ChangeNodeParamCommand>(
-                                        node->id, pdef->id, gamedata::ParamValue(curVal), gamedata::ParamValue(opt.key)
-                                    ));
-                                }
-                                if (selected) ImGui::SetItemDefaultFocus();
-                            }
-                        }
-                        ImGui::EndCombo();
-                    }
-                }
-                ImGui::PopID();
-            }
+            ImGui::Separator();
+            drawNodeParameters(node->id, /*onlyBodyPlacement=*/false, /*inNodeBody=*/false, 200.0f, nullptr);
             ImGui::Separator();
 
             if (ImGui::MenuItem("Delete Node")) {
-                executeCommand(std::make_unique<RemoveNodeCommand>(node->id));
+                const uint64_t doomedId = node->id;
+                executeCommand(std::make_unique<RemoveNodeCommand>(doomedId));
+                node = nullptr;
             }
 
-            if (showDebug) {
+            node = m_graph->getNode(IdUtils::fromNodeId(m_contextNodeId));
+            if (showDebug && node) {
                 ImGui::Separator();
                 ImGui::TextDisabled("Debug Info");
                 ImGui::Text("Node ID: %" PRIu64, node->id);
@@ -1493,6 +1845,9 @@ void FactoryNodeEditor::handlePopups() {
             }
         }
         ImGui::EndPopup();
+    } else if (m_isNodeContextMenuInitialized) {
+        commitActiveParamEdit();
+        m_isNodeContextMenuInitialized = false;
     }
     if (ImGui::BeginPopup("Pin Context Menu")) {
         auto port = m_graph->getPort(IdUtils::fromPinId(m_contextPinId));
@@ -1501,7 +1856,8 @@ void FactoryNodeEditor::handlePopups() {
                 m_contextPinOriginalConstraint = port->user_constraint;
                 m_contextPinCurrentConstraint = port->user_constraint;
                 if (port->user_constraint < 0.0) m_contextPinConstraintBuf[0] = '\0';
-                else snprintf(m_contextPinConstraintBuf, sizeof(m_contextPinConstraintBuf), "%.15g", port->user_constraint);
+                else snprintf(m_contextPinConstraintBuf, sizeof(m_contextPinConstraintBuf), "%.12g",
+                              m_graph->toDisplayRate(port->user_constraint));
 
                 m_isContextMenuInitialized = true;
             }
@@ -1520,7 +1876,8 @@ void FactoryNodeEditor::handlePopups() {
 
             ImGui::Separator();
 
-            ImGui::Text("Flow Rate Limit:");
+            const std::string rateSuffix = gamedata::rateUnitSuffix(m_graph->getRateUnit());
+            ImGui::Text("Flow Rate Limit (%s):", rateSuffix.c_str());
             ImGui::PushItemWidth(-1);
 
             bool hugeGraph = m_graph->getNodes().size() >= 1000;
@@ -1528,8 +1885,12 @@ void FactoryNodeEditor::handlePopups() {
             if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
             if (ImGui::InputText("##rate", m_contextPinConstraintBuf, sizeof(m_contextPinConstraintBuf), ImGuiInputTextFlags_AutoSelectAll)) {
                 double v = strtod(m_contextPinConstraintBuf, nullptr);
-                if (m_contextPinConstraintBuf[0] == '\0') m_contextPinCurrentConstraint = -1.0;
-                else m_contextPinCurrentConstraint = (!std::isfinite(v) || v < 0.0f) ? 0.0 : v;
+                if (m_contextPinConstraintBuf[0] == '\0') {
+                    m_contextPinCurrentConstraint = -1.0;
+                } else {
+                    const double clampedDisplay = (!std::isfinite(v) || v < 0.0) ? 0.0 : v;
+                    m_contextPinCurrentConstraint = m_graph->fromDisplayRate(clampedDisplay);
+                }
 
                 // Only solve LIVE if graph is small
                 if (!hugeGraph) {
@@ -1583,7 +1944,7 @@ void FactoryNodeEditor::handlePopups() {
 
             ImGui::Separator();
 
-            ImGui::TextDisabled("Current Actual Flow: %.2f", port->rate);
+            ImGui::TextDisabled("Current Actual Flow: %.2f%s", m_graph->toDisplayRate(port->rate), rateSuffix.c_str());
             const double saturation = m_solver->getGoalSaturation(port->id);
             if (saturation >= 0.0) {
                 if (m_solver->isGoalBottlenecked(port->id)) {
@@ -1596,9 +1957,11 @@ void FactoryNodeEditor::handlePopups() {
             }
             if (!m_graph->isInputPort(port->id)) {
                 if (port->excess_rate > 1e-4) {
-                    ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "Excess (Unconsumed): %.2f", port->excess_rate);
+                    ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
+                                       "Excess (Unconsumed): %.2f%s",
+                                       m_graph->toDisplayRate(port->excess_rate), rateSuffix.c_str());
                 } else {
-                    ImGui::TextDisabled("Excess (Unconsumed): 0.00");
+                    ImGui::TextDisabled("Excess (Unconsumed): 0.00%s", rateSuffix.c_str());
                 }
             }
 
@@ -1641,7 +2004,7 @@ void FactoryNodeEditor::handlePopups() {
 
             const std::string timeUnit = gamedata::rateUnitToString(m_graph->getRateUnit());
 
-            ImGui::Text("Current Rate: %.2f / %s", connection->rate, timeUnit.c_str());
+            ImGui::Text("Current Rate: %.2f / %s", m_graph->toDisplayRate(connection->rate), timeUnit.c_str());
 
             ImGui::Separator();
 
@@ -1884,4 +2247,1072 @@ void FactoryNodeEditor::handlePopups() {
     }
     ed::Resume();
 }
+
+void FactoryNodeEditor::commitActiveParamEdit() {
+    if (!m_activeParamEdit.active) {
+        return;
+    }
+    ActiveParamEdit pending = std::move(m_activeParamEdit);
+    m_activeParamEdit = ActiveParamEdit{};
+
+    if (!pending.dirty) {
+        return;
+    }
+    Node* node = m_graph->getNode(pending.nodeId);
+    if (!node) {
+        return;
+    }
+
+    const bool changedFromOriginal =
+        !pending.originalStoredValue.has_value() ||
+        (*pending.originalStoredValue != pending.currentValue);
+    if (changedFromOriginal) {
+        executeCommand(std::make_unique<ChangeNodeParamCommand>(
+            pending.nodeId,
+            pending.paramId,
+            pending.originalStoredValue,
+            pending.currentValue));
+    } else if (m_graph->getNodes().size() >= 1000) {
+        (void)m_solver->solve(*m_graph);
+    }
+}
+
+void FactoryNodeEditor::applyLiveParamValue(
+    uint64_t nodeId,
+    const std::string& paramId,
+    const gamedata::ParamValue& value) {
+    if (!m_graph->setNodeParam(nodeId, paramId, value)) {
+        return;
+    }
+    if (m_graph->getNodes().size() < 1000) {
+        (void)m_solver->solve(*m_graph);
+    }
+}
+
+void FactoryNodeEditor::executeParamChangeCommand(
+    uint64_t nodeId,
+    const std::string& paramId,
+    const gamedata::ParamValue& newValue) {
+    commitActiveParamEdit();
+    Node* node = m_graph->getNode(nodeId);
+    if (!node) {
+        return;
+    }
+    std::optional<gamedata::ParamValue> oldRaw;
+    if (auto it = node->params.find(paramId); it != node->params.end()) {
+        oldRaw = it->second;
+    }
+    if (!oldRaw.has_value() || *oldRaw != newValue) {
+        executeCommand(std::make_unique<ChangeNodeParamCommand>(
+            nodeId, paramId, oldRaw, newValue));
+    }
+}
+
+namespace {
+
+void handleHoverParamTooltip(
+    const gamedata::ParameterDef& pdef,
+    std::string* hoveredTooltipOut,
+    bool inNodeBody) {
+    if (!ImGui::IsItemHovered() || pdef.tooltip.empty()) {
+        return;
+    }
+    if (inNodeBody) {
+        if (hoveredTooltipOut) {
+            *hoveredTooltipOut = pdef.tooltip;
+        }
+    } else {
+        ImGui::SetTooltip("%s", pdef.tooltip.c_str());
+    }
+}
+
+template <typename OnSelectFn>
+void renderChoiceListItems(
+    const GameData& gameData,
+    const gamedata::ParameterDef& pdef,
+    const gamedata::EvaluatedParamUi& ui,
+    const gamedata::ParamValue& currentVal,
+    bool closePopupOnSelect,
+    OnSelectFn&& onSelect) {
+    std::optional<std::string> curKey = currentVal.isString()
+        ? std::optional<std::string>(currentVal.asString())
+        : std::nullopt;
+
+    if (pdef.allow_none) {
+        bool isNoneSelected = !curKey.has_value();
+        if (ImGui::Selectable("(None)", isNoneSelected)) {
+            if (!isNoneSelected) {
+                onSelect(gamedata::ParamValue::null());
+            }
+            if (closePopupOnSelect) {
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        if (isNoneSelected) {
+            ImGui::SetItemDefaultFocus();
+        }
+    }
+
+    if (pdef.type == gamedata::ParameterType::Enum) {
+        const gamedata::OptionSet* os = gameData.findOptionSet(pdef.option_set);
+        if (ui.allowed_options.empty() && !pdef.allow_none) {
+            ImGui::TextDisabled("(No allowed options)");
+        }
+        for (const std::string& key : ui.allowed_options) {
+            bool selected = curKey.has_value() && (*curKey == key);
+            std::string disp = getOptionDisplayLabel(os, key);
+            ImGui::PushID(key.c_str());
+            if (ImGui::Selectable(disp.c_str(), selected)) {
+                if (!selected) {
+                    onSelect(gamedata::ParamValue::string(key));
+                }
+                if (closePopupOnSelect) {
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+            if (os) {
+                if (const auto* optDef = os->findOption(key); optDef && !optDef->notes.empty() && ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("%s", optDef->notes.c_str());
+                }
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+            ImGui::PopID();
+        }
+    } else if (pdef.type == gamedata::ParameterType::ResourceChoice) {
+        if (ui.allowed_resources.empty() && !pdef.allow_none) {
+            ImGui::TextDisabled("(No allowed resources)");
+        }
+        const float iconSz = ImGui::GetFontSize();
+        for (const std::string& resId : ui.allowed_resources) {
+            bool selected = curKey.has_value() && (*curKey == resId);
+            const Resource* res = gameData.findResource(resId);
+            std::string disp = getResourceDisplayName(gameData, resId);
+            ImGui::PushID(resId.c_str());
+            if (res && res->texture != 0) {
+                ImGui::Image(res->texture, ImVec2(iconSz, iconSz));
+                ImGui::SameLine();
+            }
+            if (ImGui::Selectable(disp.c_str(), selected)) {
+                if (!selected) {
+                    onSelect(gamedata::ParamValue::string(resId));
+                }
+                if (closePopupOnSelect) {
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+            ImGui::PopID();
+        }
+    }
+}
+
+template <typename OnSelectFn>
+void renderSlotListItems(
+    const GameData& gameData,
+    const gamedata::ParameterDef& pdef,
+    const gamedata::EvaluatedParamUi& ui,
+    const gamedata::ParamValue::SlotsArray& curSlots,
+    size_t slotIdx,
+    OnSelectFn&& onSelect) {
+    if (slotIdx >= curSlots.size()) {
+        return;
+    }
+    const gamedata::OptionSet* os = gameData.findOptionSet(pdef.option_set);
+    const std::optional<std::string>& curKey = curSlots[slotIdx];
+
+    if (pdef.allow_empty) {
+        bool isEmptySelected = !curKey.has_value() || curKey->empty();
+        if (ImGui::Selectable("(Empty)", isEmptySelected)) {
+            if (!isEmptySelected) {
+                gamedata::ParamValue::SlotsArray next = curSlots;
+                next[slotIdx] = std::nullopt;
+                onSelect(gamedata::ParamValue::slots(std::move(next)));
+            }
+            ImGui::CloseCurrentPopup();
+        }
+        if (isEmptySelected) {
+            ImGui::SetItemDefaultFocus();
+        }
+    }
+
+    if (ui.allowed_options.empty() && !pdef.allow_empty) {
+        ImGui::TextDisabled("(No allowed options)");
+    }
+    for (const std::string& key : ui.allowed_options) {
+        bool selected = curKey.has_value() && (*curKey == key);
+        std::string disp = getOptionDisplayLabel(os, key);
+        ImGui::PushID(key.c_str());
+        if (ImGui::Selectable(disp.c_str(), selected)) {
+            if (!selected) {
+                gamedata::ParamValue::SlotsArray next = curSlots;
+                next[slotIdx] = key;
+                onSelect(gamedata::ParamValue::slots(std::move(next)));
+            }
+            ImGui::CloseCurrentPopup();
+        }
+        if (os) {
+            if (const auto* optDef = os->findOption(key); optDef && !optDef->notes.empty() && ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("%s", optDef->notes.c_str());
+            }
+        }
+        if (selected) {
+            ImGui::SetItemDefaultFocus();
+        }
+        ImGui::PopID();
+    }
+}
+
+} // namespace
+
+void FactoryNodeEditor::drawNodeParameters(
+    uint64_t nodeId,
+    bool onlyBodyPlacement,
+    bool inNodeBody,
+    float itemWidth,
+    std::string* hoveredTooltipOut) {
+    Node* node = m_graph->getNode(nodeId);
+    if (!node || node->is_unresolved) {
+        return;
+    }
+
+    const auto& gameData = m_graph->getGameData();
+    const gamedata::NodeEval* eval = m_graph->getNodeEval(nodeId);
+    std::vector<const gamedata::ParameterDef*> allDefs = collectProfileParamDefs(gameData, *node);
+
+    struct VisibleParamEntry {
+        const gamedata::ParameterDef* def;
+        gamedata::EvaluatedParamUi ui;
+    };
+
+    std::vector<VisibleParamEntry> visibleParams;
+    for (const auto* pdef : allDefs) {
+        if (onlyBodyPlacement && pdef->ui.placement != gamedata::UiPlacement::Body) {
+            continue;
+        }
+        gamedata::EvaluatedParamUi ui = resolveEffectiveParamUi(gameData, eval, *pdef);
+        if (!ui.visible) {
+            continue;
+        }
+        visibleParams.push_back(VisibleParamEntry{pdef, std::move(ui)});
+    }
+
+    if (visibleParams.empty()) {
+        if (!inNodeBody && !onlyBodyPlacement) {
+            ImGui::TextDisabled("No visible parameters.");
+        }
+        return;
+    }
+
+    if (onlyBodyPlacement) {
+        for (const auto& vp : visibleParams) {
+            Node* curNode = m_graph->getNode(nodeId);
+            if (!curNode) break;
+            drawSingleParameterWidget(*curNode, *vp.def, vp.ui, inNodeBody, itemWidth, hoveredTooltipOut);
+        }
+        return;
+    }
+
+    // Group parameters by ui.group in first-appearance order
+    std::vector<std::string> groupOrder;
+    std::unordered_map<std::string, std::vector<size_t>> groupedIndices;
+    for (size_t i = 0; i < visibleParams.size(); ++i) {
+        const std::string& grp = visibleParams[i].def->ui.group;
+        if (!groupedIndices.contains(grp)) {
+            groupOrder.push_back(grp);
+        }
+        groupedIndices[grp].push_back(i);
+    }
+
+    for (size_t gi = 0; gi < groupOrder.size(); ++gi) {
+        const std::string& grp = groupOrder[gi];
+        if (!grp.empty()) {
+            if (gi > 0) {
+                ImGui::Spacing();
+            }
+            ImGui::TextDisabled("%s", grp.c_str());
+            ImGui::Separator();
+        }
+        for (size_t idx : groupedIndices[grp]) {
+            Node* curNode = m_graph->getNode(nodeId);
+            if (!curNode) return;
+            drawSingleParameterWidget(*curNode, *visibleParams[idx].def, visibleParams[idx].ui,
+                                      inNodeBody, itemWidth, hoveredTooltipOut);
+        }
+    }
+}
+
+void FactoryNodeEditor::drawSingleParameterWidget(
+    const Node& node,
+    const gamedata::ParameterDef& pdef,
+    const gamedata::EvaluatedParamUi& ui,
+    bool inNodeBody,
+    float itemWidth,
+    std::string* hoveredTooltipOut) {
+    ImGui::PushID(pdef.id.c_str());
+    const auto& gameData = m_graph->getGameData();
+    const gamedata::NodeEval* eval = m_graph->getNodeEval(node.id);
+    gamedata::ParamValue currentVal = resolveEffectiveParamValue(node, eval, pdef);
+
+    const bool hasBounded = ui.has_min && ui.has_max && (ui.min_val < ui.max_val);
+    const gamedata::UiWidget widget = normalizeWidgetForType(pdef.type, pdef.ui.widget, hasBounded);
+    const std::string baseLabel = pdef.label.empty() ? pdef.id : pdef.label;
+    const std::string fullLabel = pdef.unit.empty() ? baseLabel : (baseLabel + " (" + pdef.unit + ")");
+
+    auto trackContinuousScalar = [&](const gamedata::ParamValue& editedVal, bool edited, bool allowEnter) {
+        if (ImGui::IsItemActivated()) {
+            if (m_activeParamEdit.active &&
+                (m_activeParamEdit.nodeId != node.id || m_activeParamEdit.paramId != pdef.id)) {
+                commitActiveParamEdit();
+            }
+            if (!m_activeParamEdit.active) {
+                m_activeParamEdit.active = true;
+                m_activeParamEdit.nodeId = node.id;
+                m_activeParamEdit.paramId = pdef.id;
+                if (auto it = node.params.find(pdef.id); it != node.params.end()) {
+                    m_activeParamEdit.originalStoredValue = it->second;
+                } else {
+                    m_activeParamEdit.originalStoredValue = std::nullopt;
+                }
+                m_activeParamEdit.currentValue = currentVal;
+                m_activeParamEdit.dirty = false;
+            }
+        }
+        if (edited) {
+            if (!m_activeParamEdit.active ||
+                m_activeParamEdit.nodeId != node.id ||
+                m_activeParamEdit.paramId != pdef.id) {
+                if (m_activeParamEdit.active) {
+                    commitActiveParamEdit();
+                }
+                m_activeParamEdit.active = true;
+                m_activeParamEdit.nodeId = node.id;
+                m_activeParamEdit.paramId = pdef.id;
+                if (auto it = node.params.find(pdef.id); it != node.params.end()) {
+                    m_activeParamEdit.originalStoredValue = it->second;
+                } else {
+                    m_activeParamEdit.originalStoredValue = std::nullopt;
+                }
+            }
+            m_activeParamEdit.currentValue = editedVal;
+            m_activeParamEdit.dirty = true;
+            applyLiveParamValue(node.id, pdef.id, editedVal);
+        }
+        const bool enterPressed = allowEnter && ImGui::IsItemFocused() &&
+            (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter));
+        if (ImGui::IsItemDeactivatedAfterEdit() || enterPressed) {
+            commitActiveParamEdit();
+        }
+    };
+
+    switch (pdef.type) {
+        case gamedata::ParameterType::Number: {
+            ImGui::TextUnformatted(inNodeBody ? baseLabel.c_str() : fullLabel.c_str());
+            handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
+
+            double val = currentVal.isNumber() ? expr::normalizeZero(currentVal.asNumber()) : 0.0;
+            if (ui.has_min && val < ui.min_val) val = ui.min_val;
+            if (ui.has_max && val > ui.max_val) val = ui.max_val;
+
+            std::string fmt = sanitizeScalarFormat(pdef.ui.format.empty() ? "%.4g" : pdef.ui.format, false, false);
+            double stepVal = (pdef.has_step && pdef.step > 0.0) ? pdef.step : 1.0;
+            float dragSpeed = 0.25f;
+            if (hasBounded) {
+                dragSpeed = std::clamp(static_cast<float>((ui.max_val - ui.min_val) * 0.004), 0.001f, 1.0f);
+                if (pdef.has_step && pdef.step >= dragSpeed && pdef.step <= (ui.max_val - ui.min_val) * 0.25) {
+                    dragSpeed = static_cast<float>(pdef.step);
+                }
+            } else if (pdef.has_step && pdef.step > 0.0) {
+                dragSpeed = static_cast<float>(pdef.step);
+            }
+
+            const double* minPtr = (ui.has_min && ui.has_max) ? &ui.min_val : nullptr;
+            const double* maxPtr = (ui.has_min && ui.has_max) ? &ui.max_val : nullptr;
+            const ImGuiSliderFlags sliderFlags = (minPtr && maxPtr) ? ImGuiSliderFlags_AlwaysClamp : 0;
+
+            if (widget == gamedata::UiWidget::Stepper) {
+                const float frameH = ImGui::GetFrameHeight();
+                const float spacing = ImGui::GetStyle().ItemSpacing.x;
+                const float totalW = (itemWidth > 0.0f) ? itemWidth : ImGui::GetContentRegionAvail().x;
+                const float midW = std::max(36.0f, totalW - (frameH + spacing) * 2.0f);
+                const bool atMin = ui.has_min && val <= ui.min_val + 1e-12;
+                const bool atMax = ui.has_max && val >= ui.max_val - 1e-12;
+
+                ImGui::BeginDisabled(atMin);
+                if (ImGui::Button("-##dec", ImVec2(frameH, frameH))) {
+                    double next = val - stepVal;
+                    if (ui.has_min && next < ui.min_val) next = ui.min_val;
+                    if (ui.has_max && next > ui.max_val) next = ui.max_val;
+                    executeParamChangeCommand(node.id, pdef.id, gamedata::ParamValue::number(expr::normalizeZero(next)));
+                }
+                ImGui::EndDisabled();
+                handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
+
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(midW);
+                bool edited = ImGui::DragScalar("##val", ImGuiDataType_Double, &val, dragSpeed,
+                                                minPtr, maxPtr, fmt.c_str(), sliderFlags);
+                if (edited) {
+                    if (ui.has_min && val < ui.min_val) val = ui.min_val;
+                    if (ui.has_max && val > ui.max_val) val = ui.max_val;
+                    val = expr::normalizeZero(val);
+                }
+                trackContinuousScalar(gamedata::ParamValue::number(val), edited, true);
+                handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
+
+                ImGui::SameLine();
+                ImGui::BeginDisabled(atMax);
+                if (ImGui::Button("+##inc", ImVec2(frameH, frameH))) {
+                    double next = val + stepVal;
+                    if (ui.has_min && next < ui.min_val) next = ui.min_val;
+                    if (ui.has_max && next > ui.max_val) next = ui.max_val;
+                    executeParamChangeCommand(node.id, pdef.id, gamedata::ParamValue::number(expr::normalizeZero(next)));
+                }
+                ImGui::EndDisabled();
+                handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
+            } else {
+                ImGui::SetNextItemWidth(itemWidth);
+                bool edited = false;
+                if (widget == gamedata::UiWidget::Slider && hasBounded) {
+                    edited = ImGui::SliderScalar("##val", ImGuiDataType_Double, &val, &ui.min_val, &ui.max_val,
+                                                 fmt.c_str(), ImGuiSliderFlags_AlwaysClamp);
+                } else if (widget == gamedata::UiWidget::Input) {
+                    edited = ImGui::InputScalar("##val", ImGuiDataType_Double, &val, nullptr, nullptr, fmt.c_str(), 0);
+                } else {
+                    edited = ImGui::DragScalar("##val", ImGuiDataType_Double, &val, dragSpeed,
+                                               minPtr, maxPtr, fmt.c_str(), sliderFlags);
+                }
+                if (edited) {
+                    if (!std::isfinite(val)) {
+                        val = currentVal.isNumber() ? currentVal.asNumber() : 0.0;
+                    }
+                    if (ui.has_min && val < ui.min_val) val = ui.min_val;
+                    if (ui.has_max && val > ui.max_val) val = ui.max_val;
+                    val = expr::normalizeZero(val);
+                }
+                trackContinuousScalar(gamedata::ParamValue::number(val), edited, true);
+                handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
+            }
+            break;
+        }
+
+        case gamedata::ParameterType::Int: {
+            ImGui::TextUnformatted(inNodeBody ? baseLabel.c_str() : fullLabel.c_str());
+            handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
+
+            int64_t val64 = currentVal.isNumber() ? std::llround(currentVal.asNumber()) : 0;
+            const int64_t min64 = ui.has_min ? std::llround(ui.min_val) : std::numeric_limits<int64_t>::min();
+            const int64_t max64 = ui.has_max ? std::llround(ui.max_val) : std::numeric_limits<int64_t>::max();
+            val64 = std::clamp(val64, min64, max64);
+            const int64_t step64 = (pdef.has_step && pdef.step >= 1.0)
+                ? std::max<int64_t>(1, std::llround(pdef.step))
+                : 1;
+
+            constexpr int64_t kI32Min = std::numeric_limits<int32_t>::min();
+            constexpr int64_t kI32Max = std::numeric_limits<int32_t>::max();
+            const bool useS32 = (val64 >= kI32Min && val64 <= kI32Max) &&
+                                (!ui.has_min || min64 >= kI32Min) &&
+                                (!ui.has_max || max64 <= kI32Max);
+            std::string fmt = sanitizeScalarFormat(pdef.ui.format, true, !useS32);
+
+            auto runIntScalarWidget = [&](ImGuiDataType dt, void* dataPtr, const void* pMin, const void* pMax,
+                                          bool allowSlider, ImGuiSliderFlags sFlags) -> bool {
+                if (widget == gamedata::UiWidget::Slider && allowSlider && pMin && pMax) {
+                    return ImGui::SliderScalar("##val", dt, dataPtr, pMin, pMax, fmt.c_str(), sFlags);
+                }
+                if (widget == gamedata::UiWidget::Input) {
+                    return ImGui::InputScalar("##val", dt, dataPtr, nullptr, nullptr, fmt.c_str(), 0);
+                }
+                return ImGui::DragScalar("##val", dt, dataPtr, 0.25f, pMin, pMax, fmt.c_str(), sFlags);
+            };
+
+            auto runTypedIntControl = [&](auto dummyTag, ImGuiDataType dt) {
+                using T = decltype(dummyTag);
+                T v = static_cast<T>(val64);
+                T mn = static_cast<T>(min64);
+                T mx = static_cast<T>(max64);
+                const void* pMin = (ui.has_min && ui.has_max) ? &mn : nullptr;
+                const void* pMax = (ui.has_min && ui.has_max) ? &mx : nullptr;
+                const ImGuiSliderFlags sFlags = (pMin && pMax) ? ImGuiSliderFlags_AlwaysClamp : 0;
+
+                if (widget == gamedata::UiWidget::Stepper) {
+                    const float frameH = ImGui::GetFrameHeight();
+                    const float spacing = ImGui::GetStyle().ItemSpacing.x;
+                    const float totalW = (itemWidth > 0.0f) ? itemWidth : ImGui::GetContentRegionAvail().x;
+                    const float midW = std::max(36.0f, totalW - (frameH + spacing) * 2.0f);
+                    const bool atMin = ui.has_min && val64 <= min64;
+                    const bool atMax = ui.has_max && val64 >= max64;
+
+                    ImGui::BeginDisabled(atMin);
+                    if (ImGui::Button("-##dec", ImVec2(frameH, frameH))) {
+                        int64_t next = (val64 > min64 + step64) ? (val64 - step64) : min64;
+                        next = std::clamp(next, min64, max64);
+                        executeParamChangeCommand(node.id, pdef.id, gamedata::ParamValue::number(static_cast<double>(next)));
+                    }
+                    ImGui::EndDisabled();
+                    handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
+
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(midW);
+                    bool edited = ImGui::DragScalar("##val", dt, &v, 0.25f, pMin, pMax, fmt.c_str(), sFlags);
+                    int64_t edited64 = std::clamp<int64_t>(static_cast<int64_t>(v), min64, max64);
+                    trackContinuousScalar(gamedata::ParamValue::number(static_cast<double>(edited64)), edited, true);
+                    handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
+
+                    ImGui::SameLine();
+                    ImGui::BeginDisabled(atMax);
+                    if (ImGui::Button("+##inc", ImVec2(frameH, frameH))) {
+                        int64_t next = (val64 < max64 - step64) ? (val64 + step64) : max64;
+                        next = std::clamp(next, min64, max64);
+                        executeParamChangeCommand(node.id, pdef.id, gamedata::ParamValue::number(static_cast<double>(next)));
+                    }
+                    ImGui::EndDisabled();
+                    handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
+                } else {
+                    ImGui::SetNextItemWidth(itemWidth);
+                    bool edited = runIntScalarWidget(dt, &v, pMin, pMax, hasBounded, sFlags);
+                    int64_t edited64 = std::clamp<int64_t>(static_cast<int64_t>(v), min64, max64);
+                    trackContinuousScalar(gamedata::ParamValue::number(static_cast<double>(edited64)), edited, true);
+                    handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
+                }
+            };
+
+            if (useS32) {
+                runTypedIntControl(int32_t{}, ImGuiDataType_S32);
+            } else {
+                runTypedIntControl(int64_t{}, ImGuiDataType_S64);
+            }
+            break;
+        }
+
+        case gamedata::ParameterType::Bool: {
+            bool bVal = currentVal.isBool() ? currentVal.asBool() : false;
+            const std::string& cbLabel = inNodeBody ? baseLabel : fullLabel;
+            if (ImGui::Checkbox(cbLabel.c_str(), &bVal)) {
+                executeParamChangeCommand(node.id, pdef.id, gamedata::ParamValue::boolean(bVal));
+            }
+            handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
+            break;
+        }
+
+        case gamedata::ParameterType::Enum:
+        case gamedata::ParameterType::ResourceChoice: {
+            ImGui::TextUnformatted(inNodeBody ? baseLabel.c_str() : fullLabel.c_str());
+            handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
+
+            std::optional<std::string> curKey = currentVal.isString()
+                ? std::optional<std::string>(currentVal.asString())
+                : std::nullopt;
+            std::string preview;
+            if (!curKey.has_value()) {
+                preview = "(None)";
+            } else if (pdef.type == gamedata::ParameterType::Enum) {
+                preview = getOptionDisplayLabel(gameData.findOptionSet(pdef.option_set), *curKey);
+            } else {
+                preview = getResourceDisplayName(gameData, *curKey);
+            }
+            if (preview.empty()) {
+                preview = "(None available)";
+            }
+
+            if (inNodeBody) {
+                std::string btnText = preview + "##choice";
+                if (ImGui::Button(btnText.c_str(), ImVec2(itemWidth > 0.0f ? itemWidth : 120.0f, 0.0f))) {
+                    ImVec2 bl(ImGui::GetItemRectMin().x, ImGui::GetItemRectMax().y);
+                    m_pendingBodyParamPopup = PendingParamPopup{
+                        true, node.id, pdef.id, -1, ed::CanvasToScreen(bl)};
+                }
+                handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
+            } else {
+                ImGui::SetNextItemWidth(itemWidth);
+                if (ImGui::BeginCombo("##val", preview.c_str())) {
+                    renderChoiceListItems(
+                        gameData, pdef, ui, currentVal, false,
+                        [&](const gamedata::ParamValue& chosen) {
+                            executeParamChangeCommand(node.id, pdef.id, chosen);
+                        });
+                    ImGui::EndCombo();
+                }
+                handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
+            }
+            break;
+        }
+
+        case gamedata::ParameterType::Slots: {
+            ImGui::TextUnformatted(inNodeBody ? baseLabel.c_str() : fullLabel.c_str());
+            handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
+
+            const size_t slotCount = ui.slot_count;
+            if (slotCount == 0) {
+                ImGui::TextDisabled("(0 slots)");
+                break;
+            }
+
+            gamedata::ParamValue::SlotsArray curSlots;
+            if (currentVal.isSlots()) {
+                curSlots = currentVal.asSlots();
+            }
+            curSlots.resize(slotCount, std::nullopt);
+
+            const gamedata::OptionSet* os = gameData.findOptionSet(pdef.option_set);
+            const ImGuiStyle& style = ImGui::GetStyle();
+            const float availW = (itemWidth > 0.0f) ? itemWidth : ImGui::GetContentRegionAvail().x;
+            float lineUsedW = 0.0f;
+
+            for (size_t i = 0; i < slotCount; ++i) {
+                ImGui::PushID(static_cast<int>(i));
+                std::string slotLabel = (curSlots[i].has_value() && !curSlots[i]->empty())
+                    ? getOptionDisplayLabel(os, *curSlots[i])
+                    : "Empty";
+                std::string btnDisp = "[" + slotLabel + "]";
+                float btnW = ImGui::CalcTextSize(btnDisp.c_str()).x + style.FramePadding.x * 2.0f;
+
+                if (i > 0 && lineUsedW + style.ItemSpacing.x + btnW <= availW) {
+                    ImGui::SameLine();
+                    lineUsedW += style.ItemSpacing.x + btnW;
+                } else {
+                    lineUsedW = btnW;
+                }
+
+                std::string btnId = btnDisp + "##slot";
+                if (ImGui::Button(btnId.c_str())) {
+                    if (inNodeBody) {
+                        ImVec2 bl(ImGui::GetItemRectMin().x, ImGui::GetItemRectMax().y);
+                        m_pendingBodyParamPopup = PendingParamPopup{
+                            true, node.id, pdef.id, static_cast<int>(i), ed::CanvasToScreen(bl)};
+                    } else {
+                        ImGui::OpenPopup("##slot_picker");
+                    }
+                }
+                handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
+
+                if (!inNodeBody && ImGui::BeginPopup("##slot_picker")) {
+                    renderSlotListItems(
+                        gameData, pdef, ui, curSlots, i,
+                        [&](const gamedata::ParamValue& chosenSlots) {
+                            executeParamChangeCommand(node.id, pdef.id, chosenSlots);
+                        });
+                    ImGui::EndPopup();
+                }
+                ImGui::PopID();
+            }
+            break;
+        }
+    }
+
+    ImGui::PopID();
+}
+
+void FactoryNodeEditor::drawDeferredBodyParamPopup() {
+    ed::Suspend();
+    if (ImGui::BeginPopup("##body_param_popup")) {
+        const auto& gameData = m_graph->getGameData();
+        const Node* node = m_graph->getNode(m_activeBodyParamPopup.nodeId);
+        const gamedata::ParameterDef* pdef = gameData.findParameter(m_activeBodyParamPopup.paramId);
+        if (!node || !pdef) {
+            ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+            ed::Resume();
+            return;
+        }
+        const gamedata::NodeEval* eval = m_graph->getNodeEval(node->id);
+        gamedata::EvaluatedParamUi ui = resolveEffectiveParamUi(gameData, eval, *pdef);
+        if (!ui.visible) {
+            ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+            ed::Resume();
+            return;
+        }
+
+        gamedata::ParamValue currentVal = resolveEffectiveParamValue(*node, eval, *pdef);
+        if (pdef->type == gamedata::ParameterType::Slots && m_activeBodyParamPopup.slotIndex >= 0) {
+            size_t slotIdx = static_cast<size_t>(m_activeBodyParamPopup.slotIndex);
+            gamedata::ParamValue::SlotsArray curSlots;
+            if (currentVal.isSlots()) {
+                curSlots = currentVal.asSlots();
+            }
+            curSlots.resize(ui.slot_count, std::nullopt);
+            if (slotIdx < ui.slot_count) {
+                renderSlotListItems(
+                    gameData, *pdef, ui, curSlots, slotIdx,
+                    [&](const gamedata::ParamValue& chosenSlots) {
+                        executeParamChangeCommand(node->id, pdef->id, chosenSlots);
+                    });
+            } else {
+                ImGui::CloseCurrentPopup();
+            }
+        } else if (pdef->type == gamedata::ParameterType::Enum ||
+                   pdef->type == gamedata::ParameterType::ResourceChoice) {
+            renderChoiceListItems(
+                gameData, *pdef, ui, currentVal, true,
+                [&](const gamedata::ParamValue& chosen) {
+                    executeParamChangeCommand(node->id, pdef->id, chosen);
+                });
+        }
+        ImGui::EndPopup();
+    }
+    ed::Resume();
+}
+
+std::string FactoryNodeEditor::formatPinRateText(const Port& port) const {
+    const double displayRate = m_graph->toDisplayRate(port.rate);
+    const bool hasNumericConstraint = port.user_constraint >= 0.0;
+    const bool hasUnratedPush = (port.user_constraint < 0.0 && port.constraint_mode == ConstraintMode::PUSH);
+    char buf[64];
+    if (hasNumericConstraint) {
+        const ConstraintMode resolved = m_solver->getResolvedConstraintMode(port.id);
+        const char tag = (resolved == ConstraintMode::LIMIT) ? 'L'
+                       : (resolved == ConstraintMode::PUSH)  ? 'P' : 'T';
+        if (m_solver->isGoalBottlenecked(port.id)) {
+            snprintf(buf, sizeof(buf), "%.2f [!%c]", displayRate, tag);
+        } else {
+            snprintf(buf, sizeof(buf), "%.2f [%c]", displayRate, tag);
+        }
+    } else if (hasUnratedPush) {
+        snprintf(buf, sizeof(buf), "%.2f [P]", displayRate);
+    } else {
+        snprintf(buf, sizeof(buf), "%.2f", displayRate);
+    }
+    return buf;
+}
+
+std::string FactoryNodeEditor::buildPinTooltipText(
+    const Port& port, const Resource& res, bool hasExcess) const {
+    const std::string timeUnit = gamedata::rateUnitToString(m_graph->getRateUnit());
+    std::string tip = res.name;
+    if (hasExcess) {
+        char ex_buf[128];
+        snprintf(ex_buf, sizeof(ex_buf), "\nExcess: %.2f/%s",
+                 m_graph->toDisplayRate(port.excess_rate), timeUnit.c_str());
+        tip += ex_buf;
+    }
+    const bool hasNumericConstraint = port.user_constraint >= 0.0;
+    const bool hasUnratedPush = (port.user_constraint < 0.0 && port.constraint_mode == ConstraintMode::PUSH);
+    if (hasNumericConstraint || hasUnratedPush || port.constraint_mode != ConstraintMode::AUTO) {
+        const ConstraintMode resolved = m_solver->getResolvedConstraintMode(port.id);
+        const char* modeLabel = constraintModeToString(resolved);
+        char mode_buf[160];
+        if (hasNumericConstraint) {
+            const double displayConstraint = m_graph->toDisplayRate(port.user_constraint);
+            const double sat = m_solver->getGoalSaturation(port.id);
+            if (sat >= 0.0) {
+                const bool bottlenecked = m_solver->isGoalBottlenecked(port.id);
+                snprintf(mode_buf, sizeof(mode_buf), "\n%s: %.2f/%s (%.1f%%%s)",
+                         modeLabel, displayConstraint, timeUnit.c_str(),
+                         sat * 100.0, bottlenecked ? " - Bottlenecked" : "");
+            } else {
+                snprintf(mode_buf, sizeof(mode_buf), "\n%s: %.2f/%s",
+                         modeLabel, displayConstraint, timeUnit.c_str());
+            }
+        } else if (hasUnratedPush) {
+            snprintf(mode_buf, sizeof(mode_buf), "\nMode: PUSH (Unrated - No Overflow)");
+        } else {
+            snprintf(mode_buf, sizeof(mode_buf), "\nMode: %s", modeLabel);
+        }
+        tip += mode_buf;
+    }
+    return tip;
+}
+
+std::string FactoryNodeEditor::buildNodeTooltipText(
+    const Node& node,
+    const gamedata::NodeEval* nodeEval,
+    const gamedata::NodeMetricsResult* nodeMetrics) const {
+    const auto& gameData = m_graph->getGameData();
+    const Machine* mach = gameData.findMachine(node.machine_key);
+    const Recipe* rec = gameData.findRecipe(node.selected_recipe_key);
+
+    std::string tip = node.name;
+    if (mach) {
+        tip += "\nMachine: " + mach->name;
+    } else if (!node.machine_key.empty()) {
+        tip += "\nMachine: " + node.machine_key;
+    }
+    char mBuf[64];
+    snprintf(mBuf, sizeof(mBuf), "\nMachines: %.2f", node.machine_count);
+    tip += mBuf;
+
+    gamedata::EvalStatus evalStatus = nodeEval ? nodeEval->status : gamedata::EvalStatus::OK;
+    if (node.is_unresolved) {
+        evalStatus = gamedata::EvalStatus::ERROR;
+    }
+    if (evalStatus != gamedata::EvalStatus::OK) {
+        tip += "\nStatus: ";
+        tip += node.is_unresolved ? "UNRESOLVED" : evalStatusLabel(evalStatus);
+    }
+    if (node.is_unresolved) {
+        if (!node.selected_recipe_key.empty()) {
+            tip += "\nMissing/unresolved recipe: " + node.selected_recipe_key;
+        }
+        if (!node.machine_key.empty() && !mach) {
+            tip += "\nMissing/unresolved machine: " + node.machine_key;
+        }
+    }
+
+    if (nodeEval) {
+        for (const auto& msg : nodeEval->messages) {
+            tip += "\n[";
+            tip += evalStatusLabel(msg.severity);
+            tip += "] ";
+            tip += msg.text;
+        }
+    }
+    if (nodeMetrics) {
+        for (const auto& msg : nodeMetrics->messages) {
+            tip += "\n[";
+            tip += evalStatusLabel(msg.severity);
+            tip += "] ";
+            tip += msg.text;
+        }
+    }
+
+    if (rec && !rec->setup.empty()) {
+        tip += "\nSetup:";
+        for (const auto& item : rec->setup) {
+            tip += "\n  " + getResourceDisplayName(gameData, item.resource) +
+                   " x" + formatDoubleScalar("%.4g", item.amount);
+        }
+    }
+
+    if (nodeMetrics && evalStatus != gamedata::EvalStatus::BLOCKED && evalStatus != gamedata::EvalStatus::ERROR) {
+        bool headerAdded = false;
+        for (const auto& mdef : gameData.metrics) {
+            if (!metricHasDisplayLocation(mdef, gamedata::MetricDisplayLocation::Tooltip)) continue;
+            const auto* nm = nodeMetrics->findMetric(mdef.id);
+            if (!nm || !nm->enabled) continue;
+            if (!headerAdded) {
+                tip += "\nMetrics:";
+                headerAdded = true;
+            }
+            std::string mLabel = mdef.label.empty() ? mdef.id : mdef.label;
+            tip += "\n  " + mLabel + ": ";
+            if (nm->status == gamedata::EvalStatus::ERROR) {
+                tip += "Error";
+                if (!nm->error_message.empty()) {
+                    tip += " (" + nm->error_message + ")";
+                }
+            } else {
+                tip += formatMetricValueString(mdef, nm->value, *m_graph);
+            }
+        }
+    }
+
+    return tip;
+}
+
+void FactoryNodeEditor::drawGraphTotalsSection() {
+    const auto& gameData = m_graph->getGameData();
+    const auto& totals = m_solver->getTotals();
+
+    bool anyShown = false;
+    for (const auto& tot : totals) {
+        const gamedata::MetricDef* mdef = gameData.findMetric(tot.metric_id);
+        if (!mdef || !metricHasDisplayLocation(*mdef, gamedata::MetricDisplayLocation::Totals)) {
+            continue;
+        }
+        anyShown = true;
+        std::string mLabel = mdef->label.empty() ? mdef->id : mdef->label;
+        ImGui::PushID(mdef->id.c_str());
+
+        if (!tot.has_value) {
+            ImGui::Text("%s:", mLabel.c_str());
+            ImGui::SameLine();
+            ImGui::TextDisabled("-");
+        } else if (tot.split_sign) {
+            ImGui::Text("%s:", mLabel.c_str());
+            std::string posStr = formatMetricValueString(*mdef, tot.positive_sum, *m_graph);
+            std::string negStr = formatMetricValueString(*mdef, tot.negative_sum, *m_graph);
+            std::string netStr = formatMetricValueString(*mdef, tot.net_sum, *m_graph);
+            ImGui::Indent(10.0f);
+            ImGui::Text("Consumed (+): %s", posStr.c_str());
+            ImGui::Text("Generated (-): %s", negStr.c_str());
+            ImGui::Text("Net: %s", netStr.c_str());
+            ImGui::Unindent(10.0f);
+        } else {
+            std::string valStr = formatMetricValueString(*mdef, tot.value, *m_graph);
+            ImGui::Text("%s: %s", mLabel.c_str(), valStr.c_str());
+        }
+
+        if (ImGui::IsItemHovered()) {
+            const char* aggStr = "Sum";
+            if (tot.aggregate == gamedata::MetricAggregate::Max) aggStr = "Max";
+            else if (tot.aggregate == gamedata::MetricAggregate::Min) aggStr = "Min";
+            ImGui::SetTooltip("Aggregate: %s (%zu active nodes)", aggStr, tot.contributing_nodes);
+        }
+        ImGui::PopID();
+    }
+
+    if (!anyShown) {
+        ImGui::TextDisabled("No totals metrics.");
+    }
+}
+
+void FactoryNodeEditor::drawNodePropertiesSection(uint64_t nodeId) {
+    const Node* node = m_graph->getNode(nodeId);
+    if (!node) {
+        ImGui::TextDisabled("Node not found.");
+        return;
+    }
+
+    const auto& gameData = m_graph->getGameData();
+    const Machine* mach = gameData.findMachine(node->machine_key);
+    const Recipe* rec = gameData.findRecipe(node->selected_recipe_key);
+    const gamedata::NodeEval* nodeEval = m_graph->getNodeEval(nodeId);
+    const gamedata::NodeMetricsResult* nodeMetrics = m_solver->getNodeMetrics(nodeId);
+
+    ImGui::PushID("##props_node");
+    ImGui::Text("%s", node->name.c_str());
+    if (mach) {
+        ImGui::TextDisabled("Machine: %s", mach->name.c_str());
+    } else if (!node->machine_key.empty()) {
+        ImGui::TextDisabled("Machine: %s", node->machine_key.c_str());
+    }
+    ImGui::Text("Count: %.2f", node->machine_count);
+
+    gamedata::EvalStatus evalStatus = nodeEval ? nodeEval->status : gamedata::EvalStatus::OK;
+    if (node->is_unresolved) evalStatus = gamedata::EvalStatus::ERROR;
+    if (evalStatus != gamedata::EvalStatus::OK) {
+        ImGui::TextColored(evalStatusColor(evalStatus), "Status: %s",
+                           node->is_unresolved ? "UNRESOLVED" : evalStatusLabel(evalStatus));
+    }
+    if (nodeEval && !nodeEval->messages.empty()) {
+        for (const auto& msg : nodeEval->messages) {
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextColored(evalStatusColor(msg.severity), "%s: %s",
+                               evalStatusLabel(msg.severity), msg.text.c_str());
+            ImGui::PopTextWrapPos();
+        }
+    }
+
+    if (rec && !rec->setup.empty()) {
+        ImGui::Spacing();
+        ImGui::TextDisabled("Setup:");
+        for (const auto& item : rec->setup) {
+            std::string setupStr = getResourceDisplayName(gameData, item.resource) +
+                " x" + formatDoubleScalar("%.4g", item.amount);
+            ImGui::Text("  %s", setupStr.c_str());
+        }
+    }
+
+    ImGui::Spacing();
+    drawNodeParameters(nodeId, /*onlyBodyPlacement=*/false, /*inNodeBody=*/false, -FLT_MIN, nullptr);
+
+    // Parameter edits inside drawNodeParameters can re-evaluate and re-solve, invalidating cached pointers.
+    node = m_graph->getNode(nodeId);
+    nodeEval = m_graph->getNodeEval(nodeId);
+    nodeMetrics = m_solver->getNodeMetrics(nodeId);
+    evalStatus = nodeEval ? nodeEval->status : gamedata::EvalStatus::OK;
+    if (node && node->is_unresolved) evalStatus = gamedata::EvalStatus::ERROR;
+
+    if (node && nodeMetrics && evalStatus != gamedata::EvalStatus::BLOCKED && evalStatus != gamedata::EvalStatus::ERROR) {
+        bool anyMetrics = false;
+        for (const auto& mdef : gameData.metrics) {
+            const auto* nm = nodeMetrics->findMetric(mdef.id);
+            if (!nm || !nm->enabled) continue;
+            if (!anyMetrics) {
+                ImGui::Spacing();
+                ImGui::TextDisabled("Node Metrics");
+                ImGui::Separator();
+                anyMetrics = true;
+            }
+            std::string mLabel = mdef.label.empty() ? mdef.id : mdef.label;
+            if (nm->status == gamedata::EvalStatus::ERROR) {
+                ImGui::TextColored(evalStatusColor(gamedata::EvalStatus::ERROR),
+                                   "%s: Error", mLabel.c_str());
+                if (!nm->error_message.empty() && ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("%s", nm->error_message.c_str());
+                }
+            } else {
+                std::string valStr = formatMetricValueString(mdef, nm->value, *m_graph);
+                ImGui::Text("%s: %s", mLabel.c_str(), valStr.c_str());
+            }
+        }
+    }
+
+    ImGui::PopID();
+}
+
+void FactoryNodeEditor::drawSidePanel(
+    const ImVec2& panelSize,
+    const std::vector<uint64_t>& selectedNodeIds) {
+    uint64_t nextSelId = (selectedNodeIds.size() == 1) ? selectedNodeIds[0] : static_cast<uint64_t>(-1);
+    if (nextSelId != m_lastInspectedNodeId) {
+        commitActiveParamEdit();
+        m_lastInspectedNodeId = nextSelId;
+    }
+
+    ImGui::BeginChild("##EditorSidePanel", panelSize, ImGuiChildFlags_Borders);
+    if (!m_showSidePanel) {
+        if (ImGui::SmallButton("<##expand_side_panel")) {
+            m_showSidePanel = true;
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Show Totals & Properties");
+        }
+        ImGui::EndChild();
+        return;
+    }
+
+    if (ImGui::SmallButton(">##collapse_side_panel")) {
+        commitActiveParamEdit();
+        m_showSidePanel = false;
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Collapse panel");
+    }
+    ImGui::SameLine();
+    ImGui::TextUnformatted("Summary & Inspector");
+
+    ImGui::Separator();
+
+    const auto& gameData = m_graph->getGameData();
+    const gamedata::RateUnit curUnit = m_graph->getRateUnit();
+    std::string curUnitStr = gamedata::rateUnitSuffix(curUnit);
+    ImGui::TextUnformatted("Rate unit:");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if (ImGui::BeginCombo("##rate_unit", curUnitStr.c_str())) {
+        const gamedata::RateUnit candidates[] = {
+            gamedata::RateUnit::PerTick,
+            gamedata::RateUnit::PerSecond,
+            gamedata::RateUnit::PerMinute,
+            gamedata::RateUnit::PerHour
+        };
+        for (gamedata::RateUnit u : candidates) {
+            if (u == gamedata::RateUnit::PerTick &&
+                (!gameData.units.has_ticks_per_second || gameData.units.ticks_per_second <= 0.0)) {
+                continue;
+            }
+            bool sel = (u == curUnit);
+            std::string uDisp = gamedata::rateUnitSuffix(u);
+            if (ImGui::Selectable(uDisp.c_str(), sel) && !sel) {
+                executeCommand(std::make_unique<SetRateUnitCommand>(curUnit, u));
+            }
+            if (sel) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+
+    ImGui::Separator();
+    if (ImGui::CollapsingHeader("Graph Totals", ImGuiTreeNodeFlags_DefaultOpen)) {
+        drawGraphTotalsSection();
+    }
+
+    ImGui::Separator();
+    if (ImGui::CollapsingHeader("Node Properties", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (selectedNodeIds.empty()) {
+            ImGui::TextDisabled("Select a node to edit properties.");
+        } else if (selectedNodeIds.size() > 1) {
+            ImGui::TextDisabled("%zu nodes selected.", selectedNodeIds.size());
+        } else {
+            drawNodePropertiesSection(selectedNodeIds[0]);
+        }
+    }
+
+    ImGui::EndChild();
+}
+
 
