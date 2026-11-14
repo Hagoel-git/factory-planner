@@ -11,6 +11,7 @@ add_executable(
         test_application.cpp
         test_golden.cpp
         test_expr.cpp
+        test_gamedata_v4.cpp
 )
 
 target_link_libraries(

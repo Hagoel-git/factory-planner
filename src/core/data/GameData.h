@@ -6,6 +6,49 @@
 #include <filesystem>
 #include <map>
 
+#include "core/data/GameDataV4.h"
+
+// Expose non-colliding GameData v4 types at global scope while v3 Resource/Machine/Recipe/GameData
+// remain in place until Step 3e.
+using gamedata::AttributeDecl;
+using gamedata::DiagnosticSeverity;
+using gamedata::EvalMessage;
+using gamedata::EvalStatus;
+using gamedata::EvaluatedMetricCoeff;
+using gamedata::EvaluatedNodeMetric;
+using gamedata::EvaluatedPort;
+using gamedata::ExtraPortDef;
+using gamedata::GameMetadata;
+using gamedata::GamePackage;
+using gamedata::LoadDiagnostic;
+using gamedata::LoadReport;
+using gamedata::MetricAggregate;
+using gamedata::MetricDef;
+using gamedata::MetricDisplayLocation;
+using gamedata::MetricFormKind;
+using gamedata::MetricTotal;
+using gamedata::NodeEval;
+using gamedata::NodeMetricsResult;
+using gamedata::OptionDef;
+using gamedata::OptionSet;
+using gamedata::ParameterDef;
+using gamedata::ParameterType;
+using gamedata::ParameterUiDef;
+using gamedata::ParamValue;
+using gamedata::Profile;
+using gamedata::ProfileMetricEntry;
+using gamedata::RateUnit;
+using gamedata::RecipeOverrides;
+using gamedata::RecipeTimeUnit;
+using gamedata::RequireRule;
+using gamedata::ResolvedGlobals;
+using gamedata::ResourceKindDef;
+using gamedata::SetupItem;
+using gamedata::TableDef;
+using gamedata::UiPlacement;
+using gamedata::UiWidget;
+using gamedata::UnitsDef;
+
 using ImTextureID = unsigned long long; // Placeholder for ImTextureID type from ImGui
 
 struct Resource {
