@@ -5,6 +5,7 @@
 #include "core/data/GameDataManager.h"
 #include "services/SettingsManager.h"
 #include "services/RecentFiles.h"
+#include "services/ProjectIo.h"
 #include "common/FilesystemUtils.h"
 #include "common/FramePacer.h"
 #include "common/IdUtils.h"
@@ -1318,6 +1319,43 @@ TEST_F(ApplicationLifecycleTest, Issue1_16_CorruptedProjectFile_AbortsLoadAndDoe
     std::ifstream in2(corruptedFile);
     std::string contentAfterSave((std::istreambuf_iterator<char>(in2)), std::istreambuf_iterator<char>());
     EXPECT_EQ(contentAfterSave, badContent);
+}
+
+TEST_F(ApplicationLifecycleTest, ProjectFormatVersion_RejectsNewerAndMissingVersionsWithoutClobberingDisk) {
+    Application app;
+
+    auto verifyRejected = [&](const fs::path& filePath, const std::string& content, const std::string& expectedErrorSubstr) {
+        {
+            std::ofstream out(filePath);
+            ASSERT_TRUE(out.is_open());
+            out << content;
+        }
+
+        NotificationManager::instance().clearNotifications();
+        app.createNewEditor("", filePath, filePath.stem().string(), false);
+        EXPECT_EQ(app.getEditorCount(), 0);
+
+        const auto& notifications = NotificationManager::instance().getNotifications();
+        ASSERT_FALSE(notifications.empty());
+        EXPECT_EQ(notifications.back().type, NotificationType::Error);
+        EXPECT_EQ(notifications.back().title, "Error Loading Project");
+        EXPECT_NE(notifications.back().message.find(expectedErrorSubstr), std::string::npos)
+            << "Actual notification: " << notifications.back().message;
+
+        std::ifstream in(filePath);
+        std::string currentContent((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        EXPECT_EQ(currentContent, content);
+    };
+
+    const int newerVersion = ProjectIO::kFormatVersion + 1;
+    const std::string newerContent =
+        "{\n  \"format_version\": " + std::to_string(newerVersion) +
+        ",\n  \"editor_settings\": {},\n  \"graph_data\": {\"nodes\": [], \"connections\": []}\n}\n";
+    verifyRejected(dirA / "newer_format.fpp", newerContent, "newer than supported version");
+
+    const std::string unversionedContent =
+        "{\n  \"editor_settings\": {},\n  \"graph_data\": {\"nodes\": [], \"connections\": []}\n}\n";
+    verifyRejected(dirA / "unversioned.fpp", unversionedContent, "missing 'format_version'");
 }
 
 TEST_F(ApplicationLifecycleTest, Issue1_9_1_20_SaveActiveEditor_EmptyPathOpensSaveDialog) {

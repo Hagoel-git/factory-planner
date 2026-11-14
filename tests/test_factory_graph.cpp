@@ -1325,6 +1325,9 @@ TEST_F(FactoryGraphTest, ProjectIOSaveHeadlessDoesNotCrash) {
     ASSERT_TRUE(ifs.is_open());
     nlohmann::json j;
     EXPECT_NO_THROW(ifs >> j);
+    EXPECT_TRUE(j.contains("format_version"));
+    EXPECT_TRUE(j["format_version"].is_number_integer());
+    EXPECT_EQ(j["format_version"].get<int>(), ProjectIO::kFormatVersion);
     EXPECT_TRUE(j.contains("graph_data"));
     EXPECT_TRUE(j.contains("editor_settings"));
     ifs.close();
@@ -1357,12 +1360,131 @@ TEST_F(FactoryGraphTest, ProjectIOLoadProjectErrorHandling) {
 TEST_F(FactoryGraphTest, ProjectIOLoadProjectFailsWhenGraphDataMissing) {
     std::filesystem::path tempPath = std::filesystem::temp_directory_path() / "test_no_graph_data.fpp";
     std::ofstream ofs(tempPath);
-    ofs << "{\n  \"version\": 1,\n  \"editor_settings\": {}\n}\n";
+    ofs << "{\n  \"format_version\": " << ProjectIO::kFormatVersion << ",\n  \"editor_settings\": {}\n}\n";
     ofs.close();
 
     FactoryGraph targetGraph(testGameData);
-    EXPECT_FALSE(ProjectIO::loadProject(tempPath.string(), targetGraph));
+    std::string err;
+    EXPECT_FALSE(ProjectIO::loadProject(tempPath.string(), targetGraph, &err));
+    EXPECT_NE(err.find("graph data"), std::string::npos);
     std::filesystem::remove(tempPath);
+}
+
+TEST_F(FactoryGraphTest, ProjectIOLoadProject_ValidatesFormatVersion) {
+    uint64_t n1 = addNode("mine_ore");
+    (void)n1;
+
+    std::filesystem::path tempPath = std::filesystem::temp_directory_path() / "test_format_version.fpp";
+    std::error_code ec;
+    std::filesystem::remove(tempPath, ec);
+
+    ASSERT_TRUE(ProjectIO::saveProject(tempPath, *graph));
+
+    nlohmann::json baseProject;
+    {
+        std::ifstream ifs(tempPath);
+        ASSERT_TRUE(ifs.is_open());
+        ifs >> baseProject;
+    }
+    ASSERT_TRUE(baseProject.contains("format_version"));
+    EXPECT_EQ(baseProject["format_version"].get<int>(), ProjectIO::kFormatVersion);
+
+    // 1. Valid current format version loads cleanly
+    {
+        FactoryGraph targetGraph(testGameData);
+        std::string err = "stale";
+        EXPECT_TRUE(ProjectIO::loadProject(tempPath, targetGraph, &err));
+        EXPECT_TRUE(err.empty());
+        EXPECT_EQ(targetGraph.getNodes().size(), 1u);
+    }
+
+    auto assertRejected = [&](const std::string& rawJson, const std::string& expectedSubstring) {
+        {
+            std::ofstream ofs(tempPath);
+            ASSERT_TRUE(ofs.is_open());
+            ofs << rawJson;
+        }
+
+        FactoryGraph targetGraph(testGameData);
+        uint64_t sentinelNodeId = targetGraph.addNode("Sentinel", "smelt_ingot");
+        ASSERT_EQ(targetGraph.getNodes().size(), 1u);
+
+        NotificationManager::instance().clearNotifications();
+        std::string err;
+        EXPECT_FALSE(ProjectIO::loadProject(tempPath, targetGraph, &err)) << "JSON: " << rawJson;
+        EXPECT_FALSE(err.empty()) << "JSON: " << rawJson;
+        EXPECT_NE(err.find(expectedSubstring), std::string::npos) << "Actual error: " << err;
+
+        // Version rejection must fail before touching the target graph
+        ASSERT_EQ(targetGraph.getNodes().size(), 1u);
+        EXPECT_NE(targetGraph.getNode(sentinelNodeId), nullptr);
+
+        const auto& notifications = NotificationManager::instance().getNotifications();
+        ASSERT_FALSE(notifications.empty()) << "JSON: " << rawJson;
+        EXPECT_EQ(notifications.back().type, NotificationType::Error);
+        EXPECT_EQ(notifications.back().title, "Error Loading Project");
+        EXPECT_EQ(notifications.back().message, err);
+    };
+
+    // 2. Missing format_version (e.g. unversioned legacy file)
+    {
+        nlohmann::json missingVer = baseProject;
+        missingVer.erase("format_version");
+        assertRejected(missingVer.dump(), "missing 'format_version'");
+    }
+
+    // 3. Newer versions (including > INT32_MAX)
+    {
+        nlohmann::json newerVer = baseProject;
+        newerVer["format_version"] = ProjectIO::kFormatVersion + 1;
+        assertRejected(newerVer.dump(), "newer than supported version");
+
+        newerVer["format_version"] = 99;
+        assertRejected(newerVer.dump(), "99");
+
+        newerVer["format_version"] = 5000000000ULL;
+        assertRejected(newerVer.dump(), "5000000000");
+    }
+
+    // 4. Unknown / older versions
+    {
+        nlohmann::json zeroVer = baseProject;
+        zeroVer["format_version"] = 0;
+        assertRejected(zeroVer.dump(), "Unsupported project format version 0");
+
+        nlohmann::json negVer = baseProject;
+        negVer["format_version"] = -1;
+        assertRejected(negVer.dump(), "Unsupported project format version -1");
+    }
+
+    // 5. Non-integer format_version types
+    {
+        nlohmann::json strVer = baseProject;
+        strVer["format_version"] = "1";
+        assertRejected(strVer.dump(), "expected integer");
+
+        nlohmann::json floatVer = baseProject;
+        floatVer["format_version"] = 1.5;
+        assertRejected(floatVer.dump(), "expected integer");
+
+        nlohmann::json boolVer = baseProject;
+        boolVer["format_version"] = true;
+        assertRejected(boolVer.dump(), "expected integer");
+
+        nlohmann::json nullVer = baseProject;
+        nullVer["format_version"] = nullptr;
+        assertRejected(nullVer.dump(), "expected integer");
+
+        // Explicit floating-point literal 1.0 in raw JSON
+        nlohmann::json noVer = baseProject;
+        noVer.erase("format_version");
+        std::string rawWithFloatOne = noVer.dump();
+        rawWithFloatOne.insert(1, "\"format_version\": 1.0, ");
+        assertRejected(rawWithFloatOne, "expected integer");
+    }
+
+    NotificationManager::instance().clearNotifications();
+    std::filesystem::remove(tempPath, ec);
 }
 
 TEST_F(FactoryGraphTest, ProjectIOSaveProjectFailsWhenDiskFull) {
@@ -1450,6 +1572,7 @@ TEST_F(FactoryGraphTest, ProjectIOLoadProject_Supports64BitNodeIds) {
     uintptr_t rawId = reinterpret_cast<uintptr_t>(savedEdNodeId.AsPointer());
 
     nlohmann::json projectJson = {
+        {"format_version", ProjectIO::kFormatVersion},
         {"graph_data", {
             {"game", {{"id", "test_game"}, {"data_version", "1.0"}}},
             {"nodes", {{
