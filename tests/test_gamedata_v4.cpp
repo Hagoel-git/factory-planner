@@ -2,6 +2,7 @@
 
 #include "core/data/GameData.h"
 #include "core/data/GameDataLoader.h"
+#include "core/data/GameDataScanner.h"
 #include "core/data/NodeEvaluator.h"
 
 #include <cmath>
@@ -1505,6 +1506,226 @@ TEST(GameDataV4ValidationTest, FilesystemPackageLoadAndGlobDeduplication) {
     EXPECT_NE(pkg.findRecipe("r2"), nullptr);
 
     fs::remove_all(tempRoot, ec);
+}
+
+namespace fs = std::filesystem;
+
+static fs::path locateRepoGameDataDir() {
+    std::error_code ec;
+    fs::path cur = fs::current_path(ec);
+    for (int i = 0; i < 6 && !cur.empty(); ++i) {
+        fs::path cand = cur / "data" / "game_data";
+        if (fs::exists(cand / "satisfactory" / "game.json", ec) &&
+            fs::exists(cand / "mindustry" / "game.json", ec)) {
+            return cand;
+        }
+        cand = cur / "game_data";
+        if (fs::exists(cand / "satisfactory" / "game.json", ec) &&
+            fs::exists(cand / "mindustry" / "game.json", ec)) {
+            return cand;
+        }
+        if (!cur.has_parent_path() || cur == cur.parent_path()) break;
+        cur = cur.parent_path();
+    }
+    return {};
+}
+
+TEST(GameDataV4ValidationTest, ProductionPackagesScanWithoutLegacyGdFiles) {
+    const fs::path gameDataDir = locateRepoGameDataDir();
+    ASSERT_FALSE(gameDataDir.empty()) << "Could not locate data/game_data directory";
+
+    std::error_code ec;
+    EXPECT_FALSE(fs::exists(gameDataDir / "satisfactory" / "game_datas", ec));
+    EXPECT_FALSE(fs::exists(gameDataDir / "mindustry" / "game_datas", ec));
+
+    const auto scanned = scanForGameData(gameDataDir);
+    bool foundSatisfactory = false;
+    bool foundMindustry = false;
+    for (const auto& pkg : scanned) {
+        if (pkg.uuid == "satisfactory") {
+            foundSatisfactory = true;
+            EXPECT_EQ(pkg.gameName, "Satisfactory");
+            EXPECT_EQ(pkg.dataVersion, "1.1");
+        } else if (pkg.uuid == "mindustry") {
+            foundMindustry = true;
+            EXPECT_EQ(pkg.gameName, "Mindustry");
+            EXPECT_EQ(pkg.dataVersion, "build-154-3");
+        }
+    }
+    EXPECT_TRUE(foundSatisfactory);
+    EXPECT_TRUE(foundMindustry);
+}
+
+TEST(GameDataV4ValidationTest, SatisfactoryProductionPackageValidatesAndEvaluates) {
+    const fs::path gameDataDir = locateRepoGameDataDir();
+    ASSERT_FALSE(gameDataDir.empty());
+
+    GamePackage pkg;
+    LoadReport report;
+    ASSERT_TRUE(loadGamePackage(gameDataDir / "satisfactory", pkg, report))
+        << (report.errors.empty() ? "" : report.errors.front().formatted);
+    EXPECT_TRUE(report.ok());
+    EXPECT_TRUE(report.errors.empty());
+    EXPECT_TRUE(report.warnings.empty())
+        << (report.warnings.empty() ? "" : report.warnings.front().formatted);
+
+    checkMissingIcons(pkg, report);
+    EXPECT_TRUE(report.warnings.empty())
+        << (report.warnings.empty() ? "" : report.warnings.front().formatted);
+
+    EXPECT_EQ(pkg.game.id, "satisfactory");
+    EXPECT_EQ(pkg.units.default_rate, RateUnit::PerMinute);
+    EXPECT_EQ(pkg.resources.size(), 152u);
+    EXPECT_EQ(pkg.machines.size(), 22u);
+    EXPECT_EQ(pkg.recipes.size(), 308u);
+
+    const Resource* water = pkg.findResource("water");
+    ASSERT_NE(water, nullptr);
+    EXPECT_EQ(water->kind, "fluid");
+    const Resource* plate = pkg.findResource("iron-plate");
+    ASSERT_NE(plate, nullptr);
+    EXPECT_EQ(plate->kind, "item");
+
+    // Production machine with clock speed & somersloops (spec section 10.1 formulas)
+    {
+        const std::unordered_map<std::string, ParamValue> params = {
+            {"clock", ParamValue::number(150.0)},
+            {"somersloops", ParamValue::number(1.0)},
+        };
+        NodeEval ne = evaluateNode(pkg, "constructor", "iron-plate", params, "Constructor");
+        EXPECT_EQ(ne.status, EvalStatus::OK);
+        EXPECT_NEAR(ne.craft_time_s, 4.0, 1e-9);
+        const EvaluatedPort* in0 = ne.findPort("in:0");
+        const EvaluatedPort* out0 = ne.findPort("out:0");
+        ASSERT_NE(in0, nullptr);
+        ASSERT_NE(out0, nullptr);
+        EXPECT_NEAR(in0->amount_per_craft, 3.0, 1e-9);
+        EXPECT_NEAR(out0->amount_per_craft, 4.0, 1e-9);
+
+        NodeMetricsResult mr = evaluateNodeMetrics(pkg, "constructor", "iron-plate", ne, 1.5, 1.5 / 4.0);
+        const EvaluatedNodeMetric* power = mr.findMetric("power");
+        const EvaluatedNodeMetric* shards = mr.findMetric("shards");
+        const EvaluatedNodeMetric* sloops = mr.findMetric("sloops");
+        ASSERT_NE(power, nullptr);
+        ASSERT_NE(shards, nullptr);
+        ASSERT_NE(sloops, nullptr);
+        EXPECT_TRUE(power->enabled);
+        EXPECT_NEAR(power->value, 1.5 * 16.0 * std::pow(1.5, 1.321928), 1e-6);
+        EXPECT_TRUE(shards->enabled);
+        EXPECT_DOUBLE_EQ(shards->value, 2.0);
+        EXPECT_TRUE(sloops->enabled);
+        EXPECT_DOUBLE_EQ(sloops->value, 2.0);
+    }
+
+    // Extractor (miner-mk2: somersloop_slots == 0 hides somersloops & disables sloops metric)
+    {
+        const std::unordered_map<std::string, ParamValue> params = {
+            {"clock", ParamValue::number(200.0)},
+        };
+        NodeEval ne = evaluateNode(pkg, "miner-mk2", "iron-ore", params, "Miner");
+        EXPECT_EQ(ne.status, EvalStatus::OK);
+        EXPECT_FALSE(ne.param_visible.at("somersloops"));
+        EXPECT_NEAR(ne.craft_time_s, 0.25, 1e-9);
+
+        NodeMetricsResult mr = evaluateNodeMetrics(pkg, "miner-mk2", "iron-ore", ne, 1.0, 4.0);
+        const EvaluatedNodeMetric* power = mr.findMetric("power");
+        const EvaluatedNodeMetric* shards = mr.findMetric("shards");
+        const EvaluatedNodeMetric* sloops = mr.findMetric("sloops");
+        ASSERT_NE(power, nullptr);
+        ASSERT_NE(shards, nullptr);
+        ASSERT_NE(sloops, nullptr);
+        EXPECT_NEAR(power->value, 15.0 * std::pow(2.0, 1.321928), 1e-6);
+        EXPECT_DOUBLE_EQ(shards->value, 2.0);
+        EXPECT_FALSE(sloops->enabled);
+    }
+
+    // Generator (linear clock power & fuel scaling, negative power output)
+    {
+        const std::unordered_map<std::string, ParamValue> params = {
+            {"clock", ParamValue::number(200.0)},
+        };
+        NodeEval ne = evaluateNode(pkg, "coal-powered-generator", "burn-coal", params, "CoalGen");
+        EXPECT_EQ(ne.status, EvalStatus::OK);
+        EXPECT_NEAR(ne.craft_time_s, 2.0, 1e-9);
+
+        NodeMetricsResult mr = evaluateNodeMetrics(pkg, "coal-powered-generator", "burn-coal", ne, 1.0, 0.5);
+        const EvaluatedNodeMetric* power = mr.findMetric("power");
+        const EvaluatedNodeMetric* shards = mr.findMetric("shards");
+        ASSERT_NE(power, nullptr);
+        ASSERT_NE(shards, nullptr);
+        EXPECT_NEAR(power->value, -150.0, 1e-6);
+        EXPECT_DOUBLE_EQ(shards->value, 2.0);
+    }
+
+    // Variable-power Particle Accelerator recipes (Diamonds 500 MW avg vs Nuclear Pasta 1000 MW avg)
+    {
+        NodeEval neDiam = evaluateNode(pkg, "particle-accelerator", "diamonds");
+        EXPECT_EQ(neDiam.status, EvalStatus::OK);
+        NodeMetricsResult mrDiam = evaluateNodeMetrics(pkg, "particle-accelerator", "diamonds", neDiam, 1.0, 0.5);
+        ASSERT_NE(mrDiam.findMetric("power"), nullptr);
+        EXPECT_NEAR(mrDiam.findMetric("power")->value, 500.0, 1e-6);
+
+        NodeEval nePasta = evaluateNode(pkg, "particle-accelerator", "nuclear-pasta");
+        EXPECT_EQ(nePasta.status, EvalStatus::OK);
+        NodeMetricsResult mrPasta = evaluateNodeMetrics(pkg, "particle-accelerator", "nuclear-pasta", nePasta, 1.0, 1.0 / 120.0);
+        ASSERT_NE(mrPasta.findMetric("power"), nullptr);
+        EXPECT_NEAR(mrPasta.findMetric("power")->value, 1000.0, 1e-6);
+    }
+
+    // Space Elevator uses default profile (no power / clock / somersloops)
+    {
+        NodeEval neElev = evaluateNode(pkg, "space-elevator", "phase-1-distribution-platform");
+        EXPECT_EQ(neElev.status, EvalStatus::OK);
+        EXPECT_TRUE(neElev.metric_coeffs.empty());
+    }
+}
+
+TEST(GameDataV4ValidationTest, MindustryProductionPackageValidatesAndEvaluates) {
+    const fs::path gameDataDir = locateRepoGameDataDir();
+    ASSERT_FALSE(gameDataDir.empty());
+
+    GamePackage pkg;
+    LoadReport report;
+    ASSERT_TRUE(loadGamePackage(gameDataDir / "mindustry", pkg, report))
+        << (report.errors.empty() ? "" : report.errors.front().formatted);
+    EXPECT_TRUE(report.ok());
+    EXPECT_TRUE(report.errors.empty());
+    EXPECT_TRUE(report.warnings.empty())
+        << (report.warnings.empty() ? "" : report.warnings.front().formatted);
+
+    checkMissingIcons(pkg, report);
+    EXPECT_TRUE(report.warnings.empty())
+        << (report.warnings.empty() ? "" : report.warnings.front().formatted);
+
+    EXPECT_EQ(pkg.game.id, "mindustry");
+    EXPECT_EQ(pkg.units.default_rate, RateUnit::PerSecond);
+    EXPECT_EQ(pkg.resources.size(), 84u);
+    EXPECT_EQ(pkg.machines.size(), 75u);
+    EXPECT_EQ(pkg.recipes.size(), 119u);
+
+    const Resource* cryo = pkg.findResource("cryofluid");
+    ASSERT_NE(cryo, nullptr);
+    EXPECT_EQ(cryo->kind, "fluid");
+    const Resource* silicon = pkg.findResource("silicon");
+    ASSERT_NE(silicon, nullptr);
+    EXPECT_EQ(silicon->kind, "item");
+
+    const Recipe* smelterRec = pkg.findRecipe("silicon-smelter");
+    ASSERT_NE(smelterRec, nullptr);
+    ASSERT_EQ(smelterRec->compatible_machine_ids.size(), 1u);
+    EXPECT_EQ(smelterRec->compatible_machine_ids[0], "silicon-smelter");
+
+    NodeEval neDefault = evaluateNode(pkg, "silicon-smelter", "silicon-smelter");
+    EXPECT_EQ(neDefault.status, EvalStatus::OK);
+    EXPECT_NEAR(neDefault.craft_time_s, 0.6666, 1e-9);
+
+    const std::unordered_map<std::string, ParamValue> boostedParams = {
+        {"overdrive", ParamValue::number(250.0)},
+        {"efficiency", ParamValue::number(200.0)},
+    };
+    NodeEval neBoosted = evaluateNode(pkg, "silicon-smelter", "silicon-smelter", boostedParams);
+    EXPECT_EQ(neBoosted.status, EvalStatus::OK);
+    EXPECT_NEAR(neBoosted.craft_time_s, 0.6666 / (2.5 * 2.0), 1e-9);
 }
 
 } // namespace
