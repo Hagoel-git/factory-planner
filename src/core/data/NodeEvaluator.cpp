@@ -215,9 +215,44 @@ struct SingleParamResolution {
     EvalStatus status = EvalStatus::OK;
     std::vector<EvalMessage> messages;
     bool visible = true;
+    EvaluatedParamUi ui;
     ParamValue resolved_param;
     expr::EvalValue eval_value;
 };
+
+template <typename Items, typename KeyGetter, typename Predicate>
+bool collectAllowedUiKeys(
+    const Items& items,
+    const BoolOrExpr& allowedIf,
+    bool alwaysCheckPredicate,
+    KeyGetter&& getKey,
+    Predicate&& predicate,
+    const bool& fatalSubExpr,
+    std::vector<std::string>& outKeys) {
+    outKeys.clear();
+    if (!allowedIf.is_present || (allowedIf.is_literal && allowedIf.literal_value)) {
+        if (!alwaysCheckPredicate) {
+            outKeys.reserve(items.size());
+            for (const auto& item : items) {
+                outKeys.push_back(getKey(item));
+            }
+            return true;
+        }
+    } else if (allowedIf.is_literal && !allowedIf.literal_value) {
+        return true;
+    }
+
+    for (const auto& item : items) {
+        const std::string& key = getKey(item);
+        if (predicate(key)) {
+            outKeys.push_back(key);
+        } else if (fatalSubExpr) {
+            outKeys.clear();
+            return false;
+        }
+    }
+    return true;
+}
 
 SingleParamResolution resolveSingleParamOrGlobal(
     const GamePackage& pkg,
@@ -255,6 +290,7 @@ SingleParamResolution resolveSingleParamOrGlobal(
         if (rport == nullptr) {
             // Automatically treated as hidden when unused by the current recipe
             out.visible = false;
+            out.ui.visible = false;
             bindHiddenDefault(pkg, pdef, out.resolved_param, out.eval_value);
             return out;
         }
@@ -292,6 +328,7 @@ SingleParamResolution resolveSingleParamOrGlobal(
         }
     }
 
+    out.ui.visible = out.visible;
     if (!out.visible) {
         bindHiddenDefault(pkg, pdef, out.resolved_param, out.eval_value);
         return out;
@@ -357,6 +394,11 @@ SingleParamResolution resolveSingleParamOrGlobal(
                 addRuntimeError(oss.str(), "min");
                 return out;
             }
+
+            out.ui.has_min = hasMin;
+            out.ui.has_max = hasMax;
+            out.ui.min_val = hasMin ? minVal : 0.0;
+            out.ui.max_val = hasMax ? maxVal : 0.0;
 
             double defVal = (pdef.has_default && pdef.default_value.isNumber())
                 ? pdef.default_value.asNumber()
@@ -524,6 +566,17 @@ SingleParamResolution resolveSingleParamOrGlobal(
                            "' is not allowed; using fallback value");
             }
 
+            if (os != nullptr && !collectAllowedUiKeys(
+                    os->options,
+                    pdef.allowed_if,
+                    false,
+                    [](const auto& opt) -> const std::string& { return opt.key; },
+                    [&](std::string_view key) { return isOptionAllowed(key); },
+                    fatalSubExpr,
+                    out.ui.allowed_options)) {
+                return out;
+            }
+
             if (chosenKey.has_value()) {
                 out.resolved_param = ParamValue::string(*chosenKey);
             } else {
@@ -650,6 +703,17 @@ SingleParamResolution resolveSingleParamOrGlobal(
                            "' is not allowed; using fallback value");
             }
 
+            if (!collectAllowedUiKeys(
+                    pdef.candidate_resources,
+                    pdef.allowed_if,
+                    true,
+                    [](const std::string& cand) -> const std::string& { return cand; },
+                    [&](std::string_view resId) { return isResourceAllowed(resId); },
+                    fatalSubExpr,
+                    out.ui.allowed_resources)) {
+                return out;
+            }
+
             if (chosenRes.has_value()) {
                 out.resolved_param = ParamValue::string(*chosenRes);
             } else {
@@ -689,6 +753,7 @@ SingleParamResolution resolveSingleParamOrGlobal(
                 return out;
             }
             const size_t activeCount = static_cast<size_t>(countInt);
+            out.ui.slot_count = activeCount;
 
             ParamValue::SlotsArray inputSlots;
             if (hasStored) {
@@ -761,6 +826,17 @@ SingleParamResolution resolveSingleParamOrGlobal(
                            "Option '" + skey + "' in slot " + std::to_string(i) +
                                " is not allowed for parameter '" + displayLabel + "'; cleared to empty");
                 }
+            }
+
+            if (os != nullptr && !collectAllowedUiKeys(
+                    os->options,
+                    pdef.allowed_if,
+                    false,
+                    [](const auto& opt) -> const std::string& { return opt.key; },
+                    [&](std::string_view key) { return isSlotOptionAllowed(key); },
+                    fatalSubExpr,
+                    out.ui.allowed_options)) {
+                return out;
             }
 
             if (!pdef.allow_empty) {
@@ -1040,12 +1116,14 @@ NodeEval evaluateNode(
         }
         upgradeStatus(nodeEval.status, pres.status);
 
+        nodeEval.param_visible[pid] = pres.visible;
+        nodeEval.param_ui[pid] = std::move(pres.ui);
+
         if (pres.status == EvalStatus::BLOCKED || pres.status == EvalStatus::ERROR) {
             lockAllPortsInactive(nodeEval);
             return nodeEval;
         }
 
-        nodeEval.param_visible[pid] = pres.visible;
         nodeEval.resolved_params[pid] = pres.resolved_param;
         nodeEval.resolved_param_eval_values[pid] = pres.eval_value;
         env.params[pid] = std::move(pres.eval_value);

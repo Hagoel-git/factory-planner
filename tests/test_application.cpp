@@ -182,7 +182,602 @@ protected:
     std::shared_ptr<std::atomic<bool>> getAppAlive(const Application& app) const {
         return app.m_appAlive;
     }
+
+    FactoryGraph& getEditorGraph(FactoryNodeEditor& editor) {
+        return *editor.m_graph;
+    }
+
+    const FactoryGraph& getEditorGraph(const FactoryNodeEditor& editor) const {
+        return *editor.m_graph;
+    }
+
+    void executeEditorCommand(FactoryNodeEditor& editor, std::unique_ptr<Command> cmd) {
+        editor.executeCommand(std::move(cmd));
+    }
+
+    void openEditorNodeContextMenu(FactoryNodeEditor& editor, uint64_t nodeId) {
+        editor.m_contextNodeId = IdUtils::toNodeId(nodeId);
+        editor.m_isNodeContextMenuInitialized = false;
+    }
+
+    ImGuiWindow* findEditorWindowContaining(const char* needle) const {
+        ImGuiContext* ctx = ImGui::GetCurrentContext();
+        if (!ctx) return nullptr;
+        for (ImGuiWindow* w : ctx->Windows) {
+            if (w && std::string(w->Name).find(needle) != std::string::npos) {
+                return w;
+            }
+        }
+        return nullptr;
+    }
+
+    ImGuiWindow* findOpenPopupWindow(const char* nameNeedle = nullptr) const {
+        ImGuiContext* ctx = ImGui::GetCurrentContext();
+        if (!ctx) return nullptr;
+        for (int i = ctx->OpenPopupStack.Size - 1; i >= 0; --i) {
+            ImGuiWindow* w = ctx->OpenPopupStack[i].Window;
+            if (w && (!nameNeedle || std::string(w->Name).find(nameNeedle) != std::string::npos)) {
+                return w;
+            }
+        }
+        return nullptr;
+    }
+
+    void renderEditorFrame(FactoryNodeEditor& editor,
+                           bool openNodeContextMenu = false,
+                           uint64_t contextNodeId = 0) {
+        ImGui::NewFrame();
+        ImGui::SetNextWindowPos(ImVec2(0, 0));
+        ImGui::SetNextWindowSize(ImVec2(1280, 720));
+        ImGui::Begin("EditorHost", nullptr, ImGuiWindowFlags_NoDecoration);
+        if (openNodeContextMenu) {
+            ImGui::PushID(editor.getName().c_str());
+            openEditorNodeContextMenu(editor, contextNodeId);
+            ImGui::OpenPopup("Node Context Menu");
+            ImGui::PopID();
+        }
+        editor.draw();
+        ImGui::End();
+        ImGui::Render();
+    }
+
+    void selectComboNextItem(FactoryNodeEditor& editor) {
+        ImGuiIO& io = ImGui::GetIO();
+        const ImGuiConfigFlags prevFlags = io.ConfigFlags;
+        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+        renderEditorFrame(editor); // settle appearing popup
+        io.AddKeyEvent(ImGuiKey_DownArrow, true);
+        renderEditorFrame(editor);
+        io.AddKeyEvent(ImGuiKey_DownArrow, false);
+        renderEditorFrame(editor);
+        io.AddKeyEvent(ImGuiKey_Enter, true);
+        renderEditorFrame(editor);
+        io.AddKeyEvent(ImGuiKey_Enter, false);
+        renderEditorFrame(editor);
+        io.ConfigFlags = prevFlags;
+    }
+
+    ImVec2 getNodeCenterScreenPos(FactoryNodeEditor& editor, uint64_t nodeId) const {
+        ax::NodeEditor::SetCurrentEditor(editor.getContext());
+        const ax::NodeEditor::NodeId edId = IdUtils::toNodeId(nodeId);
+        ImVec2 pos = ax::NodeEditor::GetNodePosition(edId);
+        ImVec2 sz = ax::NodeEditor::GetNodeSize(edId);
+        return ax::NodeEditor::CanvasToScreen(ImVec2(pos.x + sz.x * 0.5f, pos.y + sz.y * 0.5f));
+    }
+
+    std::string formatEditorPinRateText(const FactoryNodeEditor& editor, const Port& port) const {
+        return editor.formatPinRateText(port);
+    }
+
+    std::string buildEditorPinTooltipText(const FactoryNodeEditor& editor, const Port& port,
+                                          const Resource& res, bool hasExcess) const {
+        return editor.buildPinTooltipText(port, res, hasExcess);
+    }
+
+    std::string getPinConstraintBuffer(const FactoryNodeEditor& editor) const {
+        return editor.m_contextPinConstraintBuf;
+    }
 };
+
+// -----------------------------------------------------------------------------
+// GameData v4 Node UI Tests (Step 3f)
+// -----------------------------------------------------------------------------
+
+TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_V4Parameters_WidgetsVisibilityAndUndoRedo) {
+    const std::string manifest = R"JSON({
+      "schema_version": 4,
+      "game": { "id": "ui_step3f_test", "name": "UI Step3f Test" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "attributes": {
+        "machine": {
+          "somersloop_slots": { "type": "number", "default": 0 },
+          "module_slots": { "type": "number", "default": 2 }
+        },
+        "port": {
+          "required_tag": { "type": "string", "default": "" }
+        }
+      },
+      "resources": [
+        { "id": "iron_ore", "name": "Iron Ore" },
+        { "id": "iron_plate", "name": "Iron Plate" },
+        { "id": "sand", "name": "Sand", "tags": ["filtration"] },
+        { "id": "regolith", "name": "Regolith", "tags": ["filtration"] },
+        { "id": "water", "name": "Water" }
+      ],
+      "option_sets": {
+        "prolif_levels": {
+          "options": [
+            { "key": "none", "label": "None" },
+            { "key": "mk1", "label": "Mk1" }
+          ]
+        },
+        "prolif_modes": {
+          "attrs": {
+            "is_prod": { "type": "bool", "default": false }
+          },
+          "options": [
+            { "key": "speed", "label": "Speed", "attrs": { "is_prod": false } },
+            { "key": "extra", "label": "Extra", "attrs": { "is_prod": true } }
+          ]
+        },
+        "modules": {
+          "attrs": {
+            "is_prod": { "type": "bool", "default": false }
+          },
+          "options": [
+            { "key": "speed1", "label": "Speed 1", "attrs": { "is_prod": false } },
+            { "key": "prod1", "label": "Prod 1", "attrs": { "is_prod": true } }
+          ]
+        }
+      },
+      "parameters": {
+        "overclock": {
+          "label": "Overclock", "type": "number", "min": "1", "max": "250",
+          "default": 100, "step": 5, "unit": "%",
+          "ui": { "widget": "slider", "format": "%.1f", "group": "Tuning", "placement": "body" }
+        },
+        "input_scale": {
+          "label": "Input Scale", "type": "number", "min": "0.5", "max": "4.0",
+          "default": 1.0, "tooltip": "Scales input speed",
+          "ui": { "widget": "input", "format": "%.2f", "group": "Tuning", "placement": "panel" }
+        },
+        "somersloops": {
+          "label": "Somersloops", "type": "int", "min": "0", "max": "machine.somersloop_slots",
+          "default": 0,
+          "ui": { "widget": "stepper", "group": "Tuning", "placement": "body" }
+        },
+        "boost_on": {
+          "label": "Boost", "type": "bool", "default": false,
+          "ui": { "widget": "checkbox", "group": "Boost", "placement": "body" }
+        },
+        "prolif_level": {
+          "label": "Proliferator", "type": "enum", "option_set": "prolif_levels",
+          "default": "none",
+          "ui": { "widget": "combo", "group": "Boost", "placement": "body" }
+        },
+        "prolif_mode": {
+          "label": "Prolif Mode", "type": "enum", "option_set": "prolif_modes",
+          "default": "speed", "visible_if": "param.prolif_level != 'none'",
+          "ui": { "widget": "combo", "group": "Boost", "placement": "panel" }
+        },
+        "filter_medium": {
+          "label": "Filter Medium", "type": "resource_choice",
+          "resources": ["sand", "regolith", "water"], "default": "sand",
+          "allowed_if": "has_tag(option, port.required_tag)",
+          "ui": { "widget": "combo", "group": "Medium", "placement": "panel" }
+        },
+        "modules": {
+          "label": "Modules", "type": "slots", "option_set": "modules",
+          "count": "machine.module_slots", "allow_empty": true,
+          "ui": { "widget": "slot_row", "group": "Modules", "placement": "body" }
+        }
+      },
+      "metrics": {
+        "power": {
+          "label": "Power", "unit": "MW", "display": ["body", "tooltip", "totals"],
+          "aggregate": "sum", "split_sign": true, "format": "%.1f"
+        }
+      },
+      "profiles": {
+        "prof": {
+          "params": [
+            "overclock", "input_scale", "somersloops", "boost_on",
+            "prolif_level", "prolif_mode", "filter_medium", "modules"
+          ],
+          "craft_time": "recipe.time / ((param.overclock / 100) * param.input_scale)",
+          "output_amount": "port.amount * if(param.boost_on, 2, 1)",
+          "metrics": {
+            "power": { "per_machine": "10 * (param.overclock / 100) + param.somersloops * 5" }
+          }
+        }
+      },
+      "machines": [
+        {
+          "id": "assembler", "name": "Assembler", "profile": "prof",
+          "categories": ["craft"],
+          "attrs": { "somersloop_slots": 2, "module_slots": 2 }
+        }
+      ],
+      "recipes": [
+        {
+          "id": "smelt", "name": "Smelt", "category": "craft", "time": 1,
+          "in": [
+            ["iron_ore", 1],
+            { "res": "sand", "resource_param": "filter_medium", "amount": 1, "attrs": { "required_tag": "filtration" } }
+          ],
+          "out": [["iron_plate", 1]]
+        }
+      ]
+    })JSON";
+
+    gamedata::GamePackage pkg;
+    gamedata::LoadReport report;
+    ASSERT_TRUE(gamedata::loadGamePackageFromMemory(manifest, {}, pkg, report))
+        << (report.errors.empty() ? "" : report.errors.front().formatted);
+
+    FactoryNodeEditor editor(pkg, tempRoot / "params_ui.fpp", "V4ParamsUI");
+    ASSERT_TRUE(editor.isSidePanelOpen());
+
+    executeEditorCommand(
+        editor, std::make_unique<AddNodeCommand>("Smelt", "smelt", static_cast<uint64_t>(-1), ImVec2(100, 100)));
+    auto& graph = getEditorGraph(editor);
+    ASSERT_EQ(graph.getNodes().size(), 1u);
+    const uint64_t nodeId = graph.getNodes().front().id;
+
+    // Set output target constraint to 10/s so post-solve machine_count and power metrics are non-zero.
+    ASSERT_FALSE(graph.getNodes().front().output_ports.empty());
+    const uint64_t outPortId = graph.getNodes().front().output_ports.front();
+    executeEditorCommand(
+        editor, std::make_unique<SetPortConstraintCommand>(outPortId, 0.0, 10.0));
+    const double initialMachines = graph.getNode(nodeId)->machine_count;
+    EXPECT_NEAR(initialMachines, 10.0, 1e-6);
+
+    // Select node so side panel displays "Node Properties", then draw initial frames.
+    renderEditorFrame(editor);
+    ax::NodeEditor::SetCurrentEditor(editor.getContext());
+    ax::NodeEditor::SelectNode(IdUtils::toNodeId(nodeId));
+    ax::NodeEditor::SetCurrentEditor(nullptr);
+    renderEditorFrame(editor);
+
+    ImGuiWindow* sidePanel = findEditorWindowContaining("##EditorSidePanel");
+    ASSERT_NE(sidePanel, nullptr);
+    EXPECT_TRUE(sidePanel->Active);
+    EXPECT_GT(sidePanel->ContentSize.y, 0.0f);
+
+    const size_t undoBeforeEdits = getEditorUndoStackSize(editor);
+    const ImGuiID panelParamsRoot = ImHashStr("##props_node", 0, sidePanel->ID);
+
+    // 1. Int stepper (`+##inc` / `-##dec`) in side panel + clamping at dynamic max (2) + undo/redo.
+    const ImGuiID sloopScope = ImHashStr("somersloops", 0, panelParamsRoot);
+    const ImGuiID incId = ImHashStr("+##inc", 0, sloopScope);
+    const ImGuiID decId = ImHashStr("-##dec", 0, sloopScope);
+
+    ImGui::ActivateItemByID(incId);
+    renderEditorFrame(editor);
+    ASSERT_TRUE(graph.getNode(nodeId)->params.contains("somersloops"));
+    EXPECT_DOUBLE_EQ(graph.getNode(nodeId)->params.at("somersloops").asNumber(), 1.0);
+    EXPECT_EQ(getEditorUndoStackSize(editor), undoBeforeEdits + 1);
+    ASSERT_NE(editor.getSolver()->getNodeMetrics(nodeId), nullptr);
+    EXPECT_NEAR(editor.getSolver()->getNodeMetrics(nodeId)->findMetric("power")->value, 150.0, 1e-4);
+
+    ImGui::ActivateItemByID(incId);
+    renderEditorFrame(editor);
+    EXPECT_DOUBLE_EQ(graph.getNode(nodeId)->params.at("somersloops").asNumber(), 2.0);
+    EXPECT_EQ(getEditorUndoStackSize(editor), undoBeforeEdits + 2);
+
+    // Clicking `+` past dynamic max (`machine.somersloop_slots = 2`) clamps and creates no extra undo entry.
+    ImGui::ActivateItemByID(incId);
+    renderEditorFrame(editor);
+    EXPECT_DOUBLE_EQ(graph.getNode(nodeId)->params.at("somersloops").asNumber(), 2.0);
+    EXPECT_EQ(getEditorUndoStackSize(editor), undoBeforeEdits + 2);
+
+    ImGui::ActivateItemByID(decId);
+    renderEditorFrame(editor);
+    EXPECT_DOUBLE_EQ(graph.getNode(nodeId)->params.at("somersloops").asNumber(), 1.0);
+
+    editor.undo();
+    renderEditorFrame(editor);
+    EXPECT_DOUBLE_EQ(graph.getNode(nodeId)->params.at("somersloops").asNumber(), 2.0);
+    editor.redo();
+    renderEditorFrame(editor);
+    EXPECT_DOUBLE_EQ(graph.getNode(nodeId)->params.at("somersloops").asNumber(), 1.0);
+
+    // 2. Bool checkbox (`boost_on`, label "Boost") toggles output multiplier & halves machine count + undo/redo.
+    const ImGuiID boostScope = ImHashStr("boost_on", 0, panelParamsRoot);
+    const ImGuiID boostCheckId = ImHashStr("Boost", 0, boostScope);
+    ImGui::ActivateItemByID(boostCheckId);
+    renderEditorFrame(editor);
+    ASSERT_TRUE(graph.getNode(nodeId)->params.contains("boost_on"));
+    EXPECT_TRUE(graph.getNode(nodeId)->params.at("boost_on").asBool());
+    EXPECT_NEAR(graph.getNode(nodeId)->machine_count, 5.0, 1e-6);
+
+    editor.undo();
+    renderEditorFrame(editor);
+    EXPECT_NEAR(graph.getNode(nodeId)->machine_count, 10.0, 1e-6);
+    editor.redo();
+    renderEditorFrame(editor);
+    EXPECT_NEAR(graph.getNode(nodeId)->machine_count, 5.0, 1e-6);
+
+    // 3. Number Input (`input_scale`) via ImGui text entry + Enter -> commits ChangeNodeParamCommand.
+    const ImGuiID scaleScope = ImHashStr("input_scale", 0, panelParamsRoot);
+    const ImGuiID scaleInputId = ImHashStr("##val", 0, scaleScope);
+    ImGui::ActivateItemByID(scaleInputId);
+    renderEditorFrame(editor);
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddInputCharactersUTF8("2.5");
+    io.AddKeyEvent(ImGuiKey_Enter, true);
+    io.AddKeyEvent(ImGuiKey_Enter, false);
+    renderEditorFrame(editor);
+    renderEditorFrame(editor);
+    ASSERT_TRUE(graph.getNode(nodeId)->params.contains("input_scale"));
+    EXPECT_NEAR(graph.getNode(nodeId)->params.at("input_scale").asNumber(), 2.5, 1e-6);
+    EXPECT_NEAR(graph.getNode(nodeId)->machine_count, 2.0, 1e-6);
+
+    // 4. Enum combo (`prolif_level`) + `visible_if` cascading parameter reveal (`prolif_mode`).
+    EXPECT_FALSE(graph.getNodeEval(nodeId)->param_ui.at("prolif_mode").visible);
+
+    const ImGuiID prolifScope = ImHashStr("prolif_level", 0, panelParamsRoot);
+    const ImGuiID prolifComboId = ImHashStr("##val", 0, prolifScope);
+    ImGui::ActivateItemByID(prolifComboId);
+    renderEditorFrame(editor);
+    ASSERT_NE(findOpenPopupWindow("##Combo"), nullptr);
+    selectComboNextItem(editor);
+
+    ASSERT_TRUE(graph.getNode(nodeId)->params.contains("prolif_level"));
+    EXPECT_EQ(graph.getNode(nodeId)->params.at("prolif_level").asString(), "mk1");
+    EXPECT_TRUE(graph.getNodeEval(nodeId)->param_ui.at("prolif_mode").visible);
+
+    // Now that `prolif_mode` is visible, opening its combo works and changes value to "extra".
+    const ImGuiID modeScope = ImHashStr("prolif_mode", 0, panelParamsRoot);
+    const ImGuiID modeComboId = ImHashStr("##val", 0, modeScope);
+    ImGui::ActivateItemByID(modeComboId);
+    renderEditorFrame(editor);
+    ASSERT_NE(findOpenPopupWindow("##Combo"), nullptr);
+    selectComboNextItem(editor);
+    EXPECT_EQ(graph.getNode(nodeId)->params.at("prolif_mode").asString(), "extra");
+
+    // Undoing twice reverts prolif_mode and hides it again when prolif_level reverts to "none".
+    editor.undo();
+    editor.undo();
+    renderEditorFrame(editor);
+    EXPECT_FALSE(graph.getNodeEval(nodeId)->param_ui.at("prolif_mode").visible);
+
+    // 5. Slots parameter (`modules`) via side panel "##slot_picker" popup + undo/redo.
+    const ImGuiID modulesScope = ImHashStr("modules", 0, panelParamsRoot);
+    const int slotIdx0 = 0;
+    const ImGuiID slot0Scope = ImHashData(&slotIdx0, sizeof(slotIdx0), modulesScope);
+    const ImGuiID slot0BtnId = ImHashStr("[Empty]##slot", 0, slot0Scope);
+    ImGui::ActivateItemByID(slot0BtnId);
+    renderEditorFrame(editor);
+    ImGuiWindow* slotPopup = findOpenPopupWindow();
+    ASSERT_NE(slotPopup, nullptr);
+    const ImGuiID prodOptScope = ImHashStr("prod1", 0, slotPopup->ID);
+    const ImGuiID prodSelectableId = ImHashStr("Prod 1", 0, prodOptScope);
+    ImGui::ActivateItemByID(prodSelectableId);
+    renderEditorFrame(editor);
+    ASSERT_TRUE(graph.getNode(nodeId)->params.contains("modules"));
+    ASSERT_TRUE(graph.getNode(nodeId)->params.at("modules").isSlots());
+    ASSERT_FALSE(graph.getNode(nodeId)->params.at("modules").asSlots().empty());
+    EXPECT_EQ(graph.getNode(nodeId)->params.at("modules").asSlots()[0], std::optional<std::string>("prod1"));
+    editor.undo();
+    renderEditorFrame(editor);
+    if (graph.getNode(nodeId)->params.contains("modules")) {
+        const auto& slotsAfterUndo = graph.getNode(nodeId)->params.at("modules").asSlots();
+        EXPECT_TRUE(slotsAfterUndo.empty() || !slotsAfterUndo[0].has_value());
+    }
+
+    // 6. Body deferred popup (`##body_param_popup`) triggered from NodeBody "##choice" button.
+    ImGuiWindow* hostWin = findEditorWindowContaining("EditorHost");
+    ASSERT_NE(hostWin, nullptr);
+    const ImGuiID editorScope = ImHashStr(editor.getName().c_str(), 0, hostWin->ID);
+    const std::string bodyScopeName = "##nbody_" + std::to_string(nodeId);
+    const ImGuiID bodyNodeScope = ImHashStr(bodyScopeName.c_str(), 0, editorScope);
+    const ImGuiID bodyProlifScope = ImHashStr("prolif_level", 0, bodyNodeScope);
+    const ImGuiID bodyProlifBtnId = ImHashStr("None##choice", 0, bodyProlifScope);
+    ImGui::ActivateItemByID(bodyProlifBtnId);
+    renderEditorFrame(editor); // triggers button -> schedules m_pendingBodyParamPopup
+    renderEditorFrame(editor); // opens "##body_param_popup" inside ed::Suspend()
+    ImGuiWindow* bodyPopup = findOpenPopupWindow();
+    ASSERT_NE(bodyPopup, nullptr);
+    const ImGuiID mk1OptScope = ImHashStr("mk1", 0, bodyPopup->ID);
+    ImGui::ActivateItemByID(ImHashStr("Mk1", 0, mk1OptScope));
+    renderEditorFrame(editor);
+    EXPECT_EQ(graph.getNode(nodeId)->params.at("prolif_level").asString(), "mk1");
+    editor.undo();
+    renderEditorFrame(editor);
+    EXPECT_EQ(graph.getNode(nodeId)->params.at("prolif_level").asString(), "none");
+
+    // 7. Open "Node Context Menu" and edit Slider `overclock` via TempInputText (PreferInput + Enter).
+    renderEditorFrame(editor, true, nodeId);
+    ImGuiWindow* nodeCtxPopup = findOpenPopupWindow();
+    ASSERT_NE(nodeCtxPopup, nullptr);
+    const ImGuiID ocPopupScope = ImHashStr("overclock", 0, nodeCtxPopup->ID);
+    const ImGuiID ocPopupValId = ImHashStr("##val", 0, ocPopupScope);
+    ImGui::GetCurrentContext()->NavNextActivateId = ocPopupValId;
+    ImGui::GetCurrentContext()->NavNextActivateFlags = ImGuiActivateFlags_PreferInput;
+    renderEditorFrame(editor);
+    io.AddInputCharactersUTF8("200");
+    io.AddKeyEvent(ImGuiKey_Enter, true);
+    io.AddKeyEvent(ImGuiKey_Enter, false);
+    renderEditorFrame(editor);
+    renderEditorFrame(editor);
+    ASSERT_TRUE(graph.getNode(nodeId)->params.contains("overclock"));
+    EXPECT_NEAR(graph.getNode(nodeId)->params.at("overclock").asNumber(), 200.0, 1e-6);
+
+    // Undo overclock change restores default 100.0.
+    editor.undo();
+    renderEditorFrame(editor);
+    if (graph.getNode(nodeId)->params.contains("overclock")) {
+        EXPECT_NEAR(graph.getNode(nodeId)->params.at("overclock").asNumber(), 100.0, 1e-6);
+    }
+    EXPECT_NEAR(graph.getNodeEval(nodeId)->resolved_params.at("overclock").asNumber(), 100.0, 1e-6);
+
+    // 8. ResourceChoice combo (`filter_medium`, placement=panel, allowed_if filtered) + undo/redo.
+    const ImGuiID filterScope = ImHashStr("filter_medium", 0, panelParamsRoot);
+    const ImGuiID filterComboId = ImHashStr("##val", 0, filterScope);
+    EXPECT_EQ(graph.getNodeEval(nodeId)->param_ui.at("filter_medium").allowed_resources,
+              (std::vector<std::string>{"sand", "regolith"}));
+    ImGui::ActivateItemByID(filterComboId);
+    renderEditorFrame(editor);
+    ASSERT_NE(findOpenPopupWindow("##Combo"), nullptr);
+    selectComboNextItem(editor);
+    ASSERT_TRUE(graph.getNode(nodeId)->params.contains("filter_medium"));
+    EXPECT_EQ(graph.getNode(nodeId)->params.at("filter_medium").asString(), "regolith");
+    EXPECT_EQ(graph.getPort(graph.getNode(nodeId)->input_ports[1])->resource_key, "regolith");
+    editor.undo();
+    renderEditorFrame(editor);
+    EXPECT_EQ(graph.getPort(graph.getNode(nodeId)->input_ports[1])->resource_key, "sand");
+}
+
+TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_V4MetricsAndTotalsPanel_SplitSignRateScalingAndErrors) {
+    const std::string manifest = R"JSON({
+      "schema_version": 4,
+      "game": { "id": "metrics_step3f_test", "name": "Metrics Step3f Test" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "attributes": {
+        "machine": {
+          "power": { "type": "number", "default": 0 }
+        }
+      },
+      "resources": [
+        { "id": "coal", "name": "Coal" },
+        { "id": "plate", "name": "Plate" }
+      ],
+      "metrics": {
+        "power": {
+          "label": "Power", "unit": "MW",
+          "display": ["body", "tooltip", "totals"],
+          "aggregate": "sum", "split_sign": true, "format": "%.2f"
+        },
+        "throughput": {
+          "label": "Throughput", "unit": "", "is_rate": true,
+          "display": ["body", "totals"],
+          "aggregate": "sum", "format": "%.1f"
+        },
+        "efficiency": {
+          "label": "Efficiency", "unit": "%",
+          "display": ["tooltip", "totals"],
+          "aggregate": "min", "format": "%.1f"
+        },
+        "peak_only": {
+          "label": "Peak", "unit": "",
+          "display": ["totals"],
+          "aggregate": "max", "format": "%.0f"
+        }
+      },
+      "profiles": {
+        "prod": {
+          "metrics": {
+            "power": { "per_machine": "machine.power" },
+            "throughput": { "per_machine": "1" },
+            "efficiency": { "value": "100 / node.machines" }
+          }
+        },
+        "gen": {
+          "metrics": {
+            "power": { "per_machine": "-machine.power" }
+          }
+        }
+      },
+      "machines": [
+        { "id": "smelter", "name": "Smelter", "profile": "prod", "categories": ["smelt"], "attrs": { "power": 100 } },
+        { "id": "burner", "name": "Burner", "profile": "gen", "categories": ["burn"], "attrs": { "power": 40 } }
+      ],
+      "recipes": [
+        {
+          "id": "smelt_plate", "name": "Smelt Plate", "category": "smelt", "time": 1,
+          "setup": [["coal", 1]],
+          "in": [["coal", 1]], "out": [["plate", 1]]
+        },
+        {
+          "id": "burn_coal", "name": "Burn Coal", "category": "burn", "time": 1,
+          "in": [["coal", 1]], "out": [["plate", 1]]
+        }
+      ]
+    })JSON";
+
+    gamedata::GamePackage pkg;
+    gamedata::LoadReport report;
+    ASSERT_TRUE(gamedata::loadGamePackageFromMemory(manifest, {}, pkg, report))
+        << (report.errors.empty() ? "" : report.errors.front().formatted);
+
+    FactoryNodeEditor editor(pkg, tempRoot / "metrics_ui.fpp", "V4MetricsUI");
+
+    // Node 1: zero-machine producer -> `efficiency` runtime ERROR ("100 / node.machines"), `peak_only` unset.
+    executeEditorCommand(
+        editor, std::make_unique<AddNodeCommand>("ZeroSmelt", "smelt_plate", static_cast<uint64_t>(-1), ImVec2(50, 50)));
+    // Node 2: active smelter at 1.0 machine -> +100 MW, 1/s throughput, 100% eff.
+    executeEditorCommand(
+        editor, std::make_unique<AddNodeCommand>("ActiveSmelt", "smelt_plate", static_cast<uint64_t>(-1), ImVec2(300, 50)));
+    // Node 3: active burner at 1.0 machine -> -40 MW (tests `split_sign`).
+    executeEditorCommand(
+        editor, std::make_unique<AddNodeCommand>("ActiveBurn", "burn_coal", static_cast<uint64_t>(-1), ImVec2(550, 50)));
+
+    auto& graph = getEditorGraph(editor);
+    ASSERT_EQ(graph.getNodes().size(), 3u);
+    const uint64_t zeroNodeId = graph.getNodes()[0].id;
+    const uint64_t activeSmeltId = graph.getNodes()[1].id;
+    const uint64_t activeBurnId = graph.getNodes()[2].id;
+
+    executeEditorCommand(
+        editor, std::make_unique<SetPortConstraintCommand>(graph.getNode(activeSmeltId)->output_ports.front(), 0.0, 1.0));
+    executeEditorCommand(
+        editor, std::make_unique<SetPortConstraintCommand>(graph.getNode(activeBurnId)->output_ports.front(), 0.0, 1.0));
+
+    // Verify solved metrics and totals match expectations prior to rendering.
+    ASSERT_NE(editor.getSolver()->getNodeMetrics(zeroNodeId), nullptr);
+    EXPECT_EQ(editor.getSolver()->getNodeMetrics(zeroNodeId)->findMetric("efficiency")->status, gamedata::EvalStatus::ERROR);
+    EXPECT_EQ(editor.getSolver()->getNodeMetrics(zeroNodeId)->findMetric("power")->status, gamedata::EvalStatus::OK);
+
+    const auto& totals = editor.getSolver()->getTotals();
+    ASSERT_EQ(totals.size(), 4u);
+    EXPECT_EQ(totals[0].metric_id, "power");
+    EXPECT_NEAR(totals[0].positive_sum, 100.0, 1e-6);
+    EXPECT_NEAR(totals[0].negative_sum, -40.0, 1e-6);
+    EXPECT_NEAR(totals[0].value, 60.0, 1e-6);
+    EXPECT_EQ(totals[1].metric_id, "throughput");
+    EXPECT_NEAR(totals[1].value, 1.0, 1e-6);
+    EXPECT_EQ(totals[2].metric_id, "efficiency");
+    EXPECT_TRUE(totals[2].has_value);
+    EXPECT_NEAR(totals[2].value, 100.0, 1e-6);
+    EXPECT_EQ(totals[3].metric_id, "peak_only");
+    EXPECT_FALSE(totals[3].has_value); // renders empty dash cleanly
+
+    // Render full UI with side panel open, Graph Totals + Node Properties + hover tooltip on zeroNodeId.
+    renderEditorFrame(editor);
+    const ImVec2 hoverPos = getNodeCenterScreenPos(editor, zeroNodeId);
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddMousePosEvent(hoverPos.x, hoverPos.y);
+    renderEditorFrame(editor);
+
+    ImGuiWindow* sidePanel = findEditorWindowContaining("##EditorSidePanel");
+    ASSERT_NE(sidePanel, nullptr);
+    EXPECT_TRUE(sidePanel->Active);
+
+    // Switch rate unit via `##rate_unit` combo in side panel (PerSecond -> PerMinute).
+    EXPECT_EQ(graph.getRateUnit(), gamedata::RateUnit::PerSecond);
+    EXPECT_NEAR(graph.toDisplayRate(totals[1].value), 1.0, 1e-6);
+    const ImGuiID rateComboId = ImHashStr("##rate_unit", 0, sidePanel->ID);
+    ImGui::ActivateItemByID(rateComboId);
+    renderEditorFrame(editor);
+    ASSERT_NE(findOpenPopupWindow("##Combo"), nullptr);
+    selectComboNextItem(editor);
+    EXPECT_EQ(graph.getRateUnit(), gamedata::RateUnit::PerMinute);
+    EXPECT_NEAR(graph.toDisplayRate(totals[1].value), 60.0, 1e-6);
+
+    // Undo / Redo on rate unit change works cleanly.
+    editor.undo();
+    renderEditorFrame(editor);
+    EXPECT_EQ(graph.getRateUnit(), gamedata::RateUnit::PerSecond);
+    editor.redo();
+    renderEditorFrame(editor);
+    EXPECT_EQ(graph.getRateUnit(), gamedata::RateUnit::PerMinute);
+
+    // Side panel collapse toggle hides "##EditorSidePanel".
+    editor.setSidePanelOpen(false);
+    renderEditorFrame(editor);
+    EXPECT_FALSE(editor.isSidePanelOpen());
+}
 
 // -----------------------------------------------------------------------------
 // User Issue 1 Tests: Canonical path matching & title disambiguation
@@ -1081,6 +1676,191 @@ TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_PinContextMenu_EditRateAndCli
     editor.undo();
     EXPECT_DOUBLE_EQ(editor.getGraph()->getPort(portId)->user_constraint, -1.0);
     EXPECT_FALSE(editor.canUndo());
+}
+
+TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_PinDisplayTooltipAndInput_FollowRateUnitAndUndoRedo) {
+    GameData gd;
+    gd.game.id = "test_pin_rate_unit";
+    gd.game.name = "TestPinRateUnit";
+    gd.units.recipe_time = gamedata::RecipeTimeUnit::Seconds;
+    gd.units.default_rate = gamedata::RateUnit::PerSecond;
+    gamedata::ensureV3CompatProfile(gd);
+    gamedata::upsertResource(gd, "iron_ore", "Iron Ore");
+    gamedata::upsertResource(gd, "byproduct", "Byproduct");
+    gamedata::upsertResource(gd, "slag", "Slag");
+    gamedata::upsertResource(gd, "iron_plate", "Iron Plate");
+    gamedata::upsertMachine(gd, "miner", "Miner", 1.0, "v3_compat");
+    gamedata::upsertMachine(gd, "smelter", "Smelter", 1.0, "v3_compat");
+    gamedata::upsertRecipe(gd, "extract_ore", "Extract Ore", 1.0, {"miner"},
+                           {}, {{"iron_ore", 1.0}, {"byproduct", 1.0}});
+    gamedata::upsertRecipe(gd, "smelt_plate", "Smelt Plate", 1.0, {"smelter"},
+                           {{"iron_ore", 1.0}}, {{"iron_plate", 1.0}});
+    gamedata::upsertRecipe(gd, "process_byproduct", "Process Byproduct", 1.0, {"smelter"},
+                           {{"byproduct", 1.0}}, {{"slag", 1.0}});
+
+    FactoryNodeEditor editor(gd, dirA / "pin_rate_unit.fpp", "PinRateUnit");
+    FactoryGraph* graph = editor.getGraph();
+    ASSERT_NE(graph, nullptr);
+
+    const uint64_t prodNodeId = graph->addNode("Extract Ore", "extract_ore");
+    const uint64_t consNodeId = graph->addNode("Smelt Plate", "smelt_plate");
+    const uint64_t bypConsNodeId = graph->addNode("Process Byproduct", "process_byproduct");
+    const Node* prodNode = graph->getNode(prodNodeId);
+    const Node* consNode = graph->getNode(consNodeId);
+    const Node* bypConsNode = graph->getNode(bypConsNodeId);
+    ASSERT_NE(prodNode, nullptr);
+    ASSERT_NE(consNode, nullptr);
+    ASSERT_NE(bypConsNode, nullptr);
+
+    std::optional<uint64_t> outOrePortOpt;
+    std::optional<uint64_t> outByproductPortOpt;
+    for (uint64_t pid : prodNode->output_ports) {
+        const Port* p = graph->getPort(pid);
+        ASSERT_NE(p, nullptr);
+        if (p->resource_key == "iron_ore") outOrePortOpt = pid;
+        else if (p->resource_key == "byproduct") outByproductPortOpt = pid;
+    }
+    ASSERT_TRUE(outOrePortOpt.has_value());
+    ASSERT_TRUE(outByproductPortOpt.has_value());
+    const uint64_t outOrePortId = *outOrePortOpt;
+    const uint64_t outByproductPortId = *outByproductPortOpt;
+    ASSERT_FALSE(consNode->input_ports.empty());
+    ASSERT_FALSE(consNode->output_ports.empty());
+    ASSERT_FALSE(bypConsNode->input_ports.empty());
+    const uint64_t inOrePortId = consNode->input_ports[0];
+    const uint64_t outPlatePortId = consNode->output_ports[0];
+    const uint64_t inByproductPortId = bypConsNode->input_ports[0];
+
+    graph->addConnection(outOrePortId, inOrePortId);
+    graph->addConnection(outByproductPortId, inByproductPortId);
+    ASSERT_TRUE(graph->connectionExists(outOrePortId, inOrePortId));
+    ASSERT_TRUE(graph->connectionExists(outByproductPortId, inByproductPortId));
+    graph->setPortConstraint(inByproductPortId, 0.0);
+    executeEditorCommand(editor, std::make_unique<SetPortConstraintCommand>(outPlatePortId, -1.0, 1.0));
+
+    const Resource* plateRes = graph->getGameData().findResource("iron_plate");
+    const Resource* byproductRes = graph->getGameData().findResource("byproduct");
+    ASSERT_NE(plateRes, nullptr);
+    ASSERT_NE(byproductRes, nullptr);
+
+    const Port* outPlatePort = graph->getPort(outPlatePortId);
+    const Port* inOrePort = graph->getPort(inOrePortId);
+    const Port* outByproductPort = graph->getPort(outByproductPortId);
+    ASSERT_NE(outPlatePort, nullptr);
+    ASSERT_NE(inOrePort, nullptr);
+    ASSERT_NE(outByproductPort, nullptr);
+
+    // 1. Baseline in PerSecond (canonical /s)
+    ASSERT_EQ(graph->getRateUnit(), gamedata::RateUnit::PerSecond);
+    EXPECT_DOUBLE_EQ(outPlatePort->user_constraint, 1.0);
+    EXPECT_NEAR(outPlatePort->rate, 1.0, 1e-6);
+    EXPECT_NEAR(inOrePort->rate, 1.0, 1e-6);
+    EXPECT_NEAR(outByproductPort->excess_rate, 1.0, 1e-6);
+    EXPECT_EQ(formatEditorPinRateText(editor, *outPlatePort), "1.00 [T]");
+    EXPECT_EQ(formatEditorPinRateText(editor, *inOrePort), "1.00");
+    EXPECT_NE(buildEditorPinTooltipText(editor, *outPlatePort, *plateRes, false)
+                  .find("target: 1.00/s (100.0%)"),
+              std::string::npos);
+    EXPECT_NE(buildEditorPinTooltipText(editor, *outByproductPort, *byproductRes, true)
+                  .find("Excess: 1.00/s"),
+              std::string::npos);
+
+    // Opening Pin Context Menu in PerSecond populates display rate "1"
+    drawEditorPinPopupFrame(editor, outPlatePortId, true);
+    EXPECT_EQ(getPinConstraintBuffer(editor), "1");
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddKeyEvent(ImGuiKey_Escape, true);
+    drawEditorPinPopupFrame(editor, outPlatePortId, false);
+    io.AddKeyEvent(ImGuiKey_Escape, false);
+    drawEditorPinPopupFrame(editor, outPlatePortId, false);
+
+    // 2. Switch RateUnit to PerMinute (60x display scale)
+    executeEditorCommand(editor, std::make_unique<SetRateUnitCommand>(
+        gamedata::RateUnit::PerSecond, gamedata::RateUnit::PerMinute));
+    EXPECT_EQ(graph->getRateUnit(), gamedata::RateUnit::PerMinute);
+    EXPECT_DOUBLE_EQ(outPlatePort->user_constraint, 1.0);
+    EXPECT_EQ(formatEditorPinRateText(editor, *outPlatePort), "60.00 [T]");
+    EXPECT_EQ(formatEditorPinRateText(editor, *inOrePort), "60.00");
+    EXPECT_NE(buildEditorPinTooltipText(editor, *outPlatePort, *plateRes, false)
+                  .find("target: 60.00/min (100.0%)"),
+              std::string::npos);
+    EXPECT_NE(buildEditorPinTooltipText(editor, *outByproductPort, *byproductRes, true)
+                  .find("Excess: 60.00/min"),
+              std::string::npos);
+
+    // 3. Open Pin Context Menu in PerMinute: buffer initializes to "60"; typing "120" stores 2.0/s
+    drawEditorPinPopupFrame(editor, outPlatePortId, true);
+    EXPECT_EQ(getPinConstraintBuffer(editor), "60");
+    drawEditorPinPopupFrame(editor, outPlatePortId, false); // settle appearing focus onto InputText
+
+    io.AddInputCharactersUTF8("120");
+    drawEditorPinPopupFrame(editor, outPlatePortId, false);
+    EXPECT_EQ(getPinConstraintBuffer(editor), "120");
+    EXPECT_NEAR(outPlatePort->user_constraint, 2.0, 1e-9);
+    EXPECT_NEAR(outPlatePort->rate, 2.0, 1e-6);
+    EXPECT_NEAR(outByproductPort->excess_rate, 2.0, 1e-6);
+    EXPECT_EQ(formatEditorPinRateText(editor, *outPlatePort), "120.00 [T]");
+    EXPECT_EQ(formatEditorPinRateText(editor, *inOrePort), "120.00");
+    EXPECT_NE(buildEditorPinTooltipText(editor, *outPlatePort, *plateRes, false)
+                  .find("target: 120.00/min (100.0%)"),
+              std::string::npos);
+    EXPECT_NE(buildEditorPinTooltipText(editor, *outByproductPort, *byproductRes, true)
+                  .find("Excess: 120.00/min"),
+              std::string::npos);
+
+    // Dismiss popup by clicking outside to commit SetPortConstraintCommand (1.0/s -> 2.0/s)
+    io.AddMousePosEvent(1200.0f, 700.0f);
+    io.AddMouseButtonEvent(0, true);
+    drawEditorPinPopupFrame(editor, outPlatePortId, false);
+    io.AddMouseButtonEvent(0, false);
+    drawEditorPinPopupFrame(editor, outPlatePortId, false);
+    ASSERT_EQ(getEditorUndoStackSize(editor), 3u);
+    EXPECT_DOUBLE_EQ(outPlatePort->user_constraint, 2.0);
+    renderEditorFrame(editor);
+
+    // 4. Switch RateUnit to PerHour (3600x display scale)
+    executeEditorCommand(editor, std::make_unique<SetRateUnitCommand>(
+        gamedata::RateUnit::PerMinute, gamedata::RateUnit::PerHour));
+    EXPECT_EQ(formatEditorPinRateText(editor, *outPlatePort), "7200.00 [T]");
+    EXPECT_NE(buildEditorPinTooltipText(editor, *outPlatePort, *plateRes, false)
+                  .find("target: 7200.00/h (100.0%)"),
+              std::string::npos);
+    drawEditorPinPopupFrame(editor, outPlatePortId, true);
+    EXPECT_EQ(getPinConstraintBuffer(editor), "7200");
+    io.AddKeyEvent(ImGuiKey_Escape, true);
+    drawEditorPinPopupFrame(editor, outPlatePortId, false);
+    io.AddKeyEvent(ImGuiKey_Escape, false);
+    drawEditorPinPopupFrame(editor, outPlatePortId, false);
+
+    // 5. Undo/Redo across RateUnit and SetPortConstraint transitions
+    editor.undo(); // PerHour -> PerMinute
+    EXPECT_EQ(graph->getRateUnit(), gamedata::RateUnit::PerMinute);
+    EXPECT_EQ(formatEditorPinRateText(editor, *outPlatePort), "120.00 [T]");
+
+    editor.undo(); // constraint 2.0/s -> 1.0/s (still PerMinute)
+    EXPECT_DOUBLE_EQ(outPlatePort->user_constraint, 1.0);
+    EXPECT_EQ(formatEditorPinRateText(editor, *outPlatePort), "60.00 [T]");
+
+    editor.undo(); // PerMinute -> PerSecond
+    EXPECT_EQ(graph->getRateUnit(), gamedata::RateUnit::PerSecond);
+    EXPECT_EQ(formatEditorPinRateText(editor, *outPlatePort), "1.00 [T]");
+    drawEditorPinPopupFrame(editor, outPlatePortId, true);
+    EXPECT_EQ(getPinConstraintBuffer(editor), "1");
+    io.AddKeyEvent(ImGuiKey_Escape, true);
+    drawEditorPinPopupFrame(editor, outPlatePortId, false);
+    io.AddKeyEvent(ImGuiKey_Escape, false);
+    drawEditorPinPopupFrame(editor, outPlatePortId, false);
+
+    editor.redo(); // PerSecond -> PerMinute
+    EXPECT_EQ(formatEditorPinRateText(editor, *outPlatePort), "60.00 [T]");
+
+    editor.redo(); // constraint 1.0/s -> 2.0/s
+    EXPECT_DOUBLE_EQ(outPlatePort->user_constraint, 2.0);
+    EXPECT_EQ(formatEditorPinRateText(editor, *outPlatePort), "120.00 [T]");
+
+    editor.redo(); // PerMinute -> PerHour
+    EXPECT_EQ(graph->getRateUnit(), gamedata::RateUnit::PerHour);
+    EXPECT_EQ(formatEditorPinRateText(editor, *outPlatePort), "7200.00 [T]");
 }
 
 TEST_F(ApplicationLifecycleTest, Issue23_Shortcuts_DoNotModifyGraphWhenWantTextInputIsTrue) {

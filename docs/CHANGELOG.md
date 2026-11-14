@@ -2,6 +2,17 @@
 
 This document holds the user-facing changelog that is also used in release notes.
 
+## Unreleased
+
+### Added
+- Added schema-driven node parameter widgets (`Number`, `Int`, `Bool`, `Enum`, `ResourceChoice`, and `Slots`) generated from GameData v4 parameter definitions, respecting dynamic ranges, `visible_if`, `allowed_if`, and `ui` hints (`widget`, `format`, `group`, `placement`, `unit`, `step`, `tooltip`) with full undo/redo support.
+- Added post-solve GameData v4 metric rendering on node cards (`body`), in node hover tooltips (`tooltip`), and in a collapsible side panel (`Graph Totals` and `Node Properties`) featuring `split_sign` breakdowns (`+` / `-` / `Net`) and a project rate-unit selector.
+- Added node evaluation status borders and badges (`WARNING`, `BLOCKED`, `ERROR`, `UNRESOLVED`), recipe `setup` item display, diagnostic hover tooltips, and connection state coloring (`INVALID`, `INACTIVE`).
+
+### Changed
+- Replaced the hardcoded node context menu parameters with dynamic GameData v4 profile parameter controls supporting live editing and undoable commits.
+- Updated pin rate labels, pin/link hover tooltips, and Pin Context Menu constraint input and flow readouts to display and parse values in the active project rate unit (`/tick`, `/s`, `/min`, `/h`).
+
 ## v0.11-alpha 2026-Nov-1
 
 ### Added

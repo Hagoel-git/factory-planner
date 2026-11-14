@@ -864,6 +864,180 @@ TEST(GameDataV4EvaluationTest, GlobalStatusIsolationAndPostSolveMetricErrorIsola
     EXPECT_DOUBLE_EQ(totals[2].value, 50.0);
 }
 
+TEST(GameDataV4EvaluationTest, EvaluatedParamUiMetadataAndBlockedVisibility) {
+    const std::string manifest = R"JSON({
+      "schema_version": 4,
+      "game": { "id": "ui_meta_test", "name": "UI Meta Test" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "attributes": {
+        "machine": {
+          "somersloop_slots": { "type": "number", "default": 0 },
+          "module_slots": { "type": "number", "default": 2 }
+        },
+        "recipe": {
+          "allow_prod": { "type": "bool", "default": true }
+        },
+        "port": {
+          "required_tag": { "type": "string", "default": "" }
+        }
+      },
+      "resources": [
+        { "id": "iron_ore", "name": "Iron Ore" },
+        { "id": "iron_plate", "name": "Iron Plate" },
+        { "id": "sand", "name": "Sand", "tags": ["filtration"] },
+        { "id": "regolith", "name": "Regolith", "tags": ["filtration"] },
+        { "id": "water", "name": "Water" }
+      ],
+      "option_sets": {
+        "modules": {
+          "attrs": {
+            "is_prod": { "type": "bool", "default": false },
+            "tier": { "type": "number", "default": 1 }
+          },
+          "options": [
+            { "key": "speed1", "label": "Speed 1", "attrs": { "is_prod": false, "tier": 1 } },
+            { "key": "prod1", "label": "Prod 1", "attrs": { "is_prod": true, "tier": 1 } },
+            { "key": "speed2", "label": "Speed 2", "attrs": { "is_prod": false, "tier": 2 } }
+          ]
+        },
+        "prolif_levels": {
+          "options": [
+            { "key": "none", "label": "None" },
+            { "key": "mk1", "label": "Mk1" }
+          ]
+        },
+        "prolif_modes": {
+          "attrs": {
+            "is_prod": { "type": "bool", "default": false }
+          },
+          "options": [
+            { "key": "extra", "label": "Extra", "attrs": { "is_prod": true } },
+            { "key": "speed", "label": "Speed", "attrs": { "is_prod": false } }
+          ]
+        }
+      },
+      "parameters": {
+        "overclock": { "label": "Overclock", "type": "number", "min": 1, "max": 250, "default": 100 },
+        "somersloops": { "label": "Somersloops", "type": "int", "min": 0, "max": "machine.somersloop_slots", "default": 0 },
+        "prolif_level": {
+          "label": "Proliferator", "type": "enum",
+          "option_set": "prolif_levels",
+          "default": "none"
+        },
+        "prolif_mode": {
+          "label": "Prolif Mode", "type": "enum",
+          "option_set": "prolif_modes",
+          "default": "speed",
+          "visible_if": "param.prolif_level != 'none'",
+          "allowed_if": "recipe.allow_prod || !option.is_prod"
+        },
+        "modules": {
+          "label": "Modules", "type": "slots",
+          "option_set": "modules",
+          "count": "machine.module_slots",
+          "allow_empty": false,
+          "allowed_if": "recipe.allow_prod || !option.is_prod"
+        },
+        "filter_medium": {
+          "label": "Filter Medium", "type": "resource_choice",
+          "resources": ["sand", "regolith", "water"],
+          "allow_none": true, "default": "sand",
+          "allowed_if": "has_tag(option, port.required_tag)"
+        }
+      },
+      "profiles": {
+        "main_prof": {
+          "params": ["overclock", "somersloops", "prolif_level", "prolif_mode", "filter_medium", "modules"]
+        }
+      },
+      "machines": [
+        { "id": "m_basic", "name": "Basic", "profile": "main_prof", "categories": ["craft"], "attrs": { "somersloop_slots": 0, "module_slots": 1 } },
+        { "id": "m_adv", "name": "Advanced", "profile": "main_prof", "categories": ["craft"], "attrs": { "somersloop_slots": 2, "module_slots": 3 } }
+      ],
+      "recipes": [
+        {
+          "id": "r_no_filter", "category": "craft", "time": 1,
+          "attrs": { "allow_prod": false },
+          "in": [["iron_ore", 1]], "out": [["iron_plate", 1]]
+        },
+        {
+          "id": "r_with_filter", "category": "craft", "time": 1,
+          "attrs": { "allow_prod": true },
+          "in": [{ "res": "sand", "resource_param": "filter_medium", "amount": 1, "attrs": { "required_tag": "filtration" } }],
+          "out": [["water", 1]]
+        }
+      ]
+    })JSON";
+
+    GamePackage pkg;
+    LoadReport report;
+    ASSERT_TRUE(loadGamePackageFromMemory(manifest, {}, pkg, report))
+        << (report.errors.empty() ? "" : report.errors.front().formatted);
+
+    // 1. Blocked node (modules allow_empty=false with empty slots) still populates param_ui & param_visible!
+    NodeEval blockedEval = evaluateNode(pkg, "m_basic", "r_no_filter", {});
+    EXPECT_EQ(blockedEval.status, EvalStatus::BLOCKED);
+    ASSERT_TRUE(blockedEval.param_ui.contains("modules"));
+    ASSERT_TRUE(blockedEval.param_visible.contains("modules"));
+    EXPECT_TRUE(blockedEval.param_visible.at("modules"));
+    EXPECT_EQ(blockedEval.param_ui.at("modules").slot_count, 1u);
+    EXPECT_EQ(blockedEval.param_ui.at("modules").allowed_options,
+              (std::vector<std::string>{"speed1", "speed2"})); // prod1 filtered by allow_prod=false
+
+    // Dynamic bounds on static/dynamic number & int params
+    ASSERT_TRUE(blockedEval.param_ui.contains("overclock"));
+    ASSERT_TRUE(blockedEval.param_ui.contains("somersloops"));
+    EXPECT_TRUE(blockedEval.param_ui.at("overclock").has_min);
+    EXPECT_TRUE(blockedEval.param_ui.at("overclock").has_max);
+    EXPECT_DOUBLE_EQ(blockedEval.param_ui.at("overclock").min_val, 1.0);
+    EXPECT_DOUBLE_EQ(blockedEval.param_ui.at("overclock").max_val, 250.0);
+    EXPECT_DOUBLE_EQ(blockedEval.param_ui.at("somersloops").max_val, 0.0);
+
+    // visible_if hides prolif_mode when prolif_level == 'none'
+    ASSERT_TRUE(blockedEval.param_visible.contains("prolif_mode"));
+    ASSERT_TRUE(blockedEval.param_ui.contains("prolif_mode"));
+    EXPECT_FALSE(blockedEval.param_visible.at("prolif_mode"));
+    EXPECT_FALSE(blockedEval.param_ui.at("prolif_mode").visible);
+
+    // Port-bound resource_choice auto-hides on recipe not referencing it
+    ASSERT_TRUE(blockedEval.param_visible.contains("filter_medium"));
+    ASSERT_TRUE(blockedEval.param_ui.contains("filter_medium"));
+    EXPECT_FALSE(blockedEval.param_visible.at("filter_medium"));
+    EXPECT_FALSE(blockedEval.param_ui.at("filter_medium").visible);
+
+    // 2. Partial empty slots on allow_empty=false still BLOCKS
+    NodeEval partialEmptyEval = evaluateNode(
+        pkg, "m_adv", "r_with_filter",
+        {
+            {"prolif_level", std::string("mk1")},
+            {"modules", ParamValue::slots({"prod1", "speed2", std::nullopt})}
+        });
+    EXPECT_EQ(partialEmptyEval.status, EvalStatus::BLOCKED);
+
+    // 3. Active node with m_adv + r_with_filter + full non-empty modules + prolif_level=mk1
+    NodeEval okEval = evaluateNode(
+        pkg, "m_adv", "r_with_filter",
+        {
+            {"prolif_level", std::string("mk1")},
+            {"modules", ParamValue::slots({"prod1", "speed2", "speed1"})}
+        });
+    EXPECT_EQ(okEval.status, EvalStatus::OK);
+    ASSERT_TRUE(okEval.param_ui.contains("somersloops"));
+    ASSERT_TRUE(okEval.param_ui.contains("prolif_mode"));
+    ASSERT_TRUE(okEval.param_ui.contains("modules"));
+    ASSERT_TRUE(okEval.param_ui.contains("filter_medium"));
+    EXPECT_DOUBLE_EQ(okEval.param_ui.at("somersloops").max_val, 2.0);
+    EXPECT_TRUE(okEval.param_ui.at("prolif_mode").visible);
+    EXPECT_EQ(okEval.param_ui.at("prolif_mode").allowed_options,
+              (std::vector<std::string>{"extra", "speed"}));
+    EXPECT_EQ(okEval.param_ui.at("modules").slot_count, 3u);
+    EXPECT_EQ(okEval.param_ui.at("modules").allowed_options,
+              (std::vector<std::string>{"speed1", "prod1", "speed2"}));
+    EXPECT_TRUE(okEval.param_ui.at("filter_medium").visible);
+    EXPECT_EQ(okEval.param_ui.at("filter_medium").allowed_resources,
+              (std::vector<std::string>{"sand", "regolith"}));
+}
+
 // ============================================================================
 // Part 3: Validation Rules (F-1..F-5, V-*) & Cascade Entity Dropping (§9.1–§9.2)
 // ============================================================================

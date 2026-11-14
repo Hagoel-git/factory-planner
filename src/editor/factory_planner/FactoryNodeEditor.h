@@ -6,6 +6,9 @@
 #include "core/graph/FactorySolver.h"
 #include "core/graph/FactoryGraph.h"
 #include <GLFW/glfw3.h>
+#include <optional>
+#include <string>
+#include <vector>
 
 struct CopyBuffer;
 namespace ed = ax::NodeEditor;
@@ -120,6 +123,10 @@ public:
     bool getQuadtreeNeedsRebuild() const { return m_quadtreeNeedsRebuild; }
     FactoryGraph* getGraph() { return m_graph.get(); }
     const FactoryGraph* getGraph() const { return m_graph.get(); }
+    FactorySolver* getSolver() { return m_solver.get(); }
+    const FactorySolver* getSolver() const { return m_solver.get(); }
+    bool isSidePanelOpen() const { return m_showSidePanel; }
+    void setSidePanelOpen(bool open) { m_showSidePanel = open; }
     std::chrono::time_point<std::chrono::steady_clock> getNextAutosaveTime() const { return m_nextAutosaveTime; }
     void setNextAutosaveTime(std::chrono::time_point<std::chrono::steady_clock> t) { m_nextAutosaveTime = t; }
 
@@ -172,6 +179,47 @@ private:
     bool m_quadtreeNeedsRebuild = true;
 
     void updateDebugInfo();
+
+    struct ActiveParamEdit {
+        bool active = false;
+        uint64_t nodeId = 0;
+        std::string paramId;
+        std::optional<gamedata::ParamValue> originalStoredValue;
+        gamedata::ParamValue currentValue;
+        bool dirty = false;
+    };
+
+    struct PendingParamPopup {
+        bool shouldOpen = false;
+        uint64_t nodeId = 0;
+        std::string paramId;
+        int slotIndex = -1;
+        ImVec2 anchorPos = ImVec2(0, 0);
+    };
+
+    ActiveParamEdit m_activeParamEdit;
+    PendingParamPopup m_pendingBodyParamPopup;
+    PendingParamPopup m_activeBodyParamPopup;
+    bool m_isNodeContextMenuInitialized = false;
+    bool m_showSidePanel = true;
+    uint64_t m_lastInspectedNodeId = static_cast<uint64_t>(-1);
+
+    void commitActiveParamEdit();
+    void applyLiveParamValue(uint64_t nodeId, const std::string& paramId, const gamedata::ParamValue& value);
+    void executeParamChangeCommand(uint64_t nodeId, const std::string& paramId, const gamedata::ParamValue& newValue);
+
+    void drawNodeParameters(uint64_t nodeId, bool onlyBodyPlacement, bool inNodeBody, float itemWidth, std::string* hoveredTooltipOut);
+    void drawSingleParameterWidget(const Node& node, const gamedata::ParameterDef& pdef,
+                                   const gamedata::EvaluatedParamUi& ui, bool inNodeBody,
+                                   float itemWidth, std::string* hoveredTooltipOut);
+    void drawDeferredBodyParamPopup();
+    void drawSidePanel(const ImVec2& panelSize, const std::vector<uint64_t>& selectedNodeIds);
+    void drawGraphTotalsSection();
+    void drawNodePropertiesSection(uint64_t nodeId);
+    std::string buildNodeTooltipText(const Node& node, const gamedata::NodeEval* nodeEval,
+                                     const gamedata::NodeMetricsResult* nodeMetrics) const;
+    std::string formatPinRateText(const Port& port) const;
+    std::string buildPinTooltipText(const Port& port, const Resource& res, bool hasExcess) const;
 
     void drawNodes();
     void drawConnections();
