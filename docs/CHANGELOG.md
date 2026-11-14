@@ -6,6 +6,12 @@ This document holds the user-facing changelog that is also used in release notes
 
 ### Added
 - Added schema-driven node parameter widgets (`Number`, `Int`, `Bool`, `Enum`, `ResourceChoice`, and `Slots`) generated from GameData v4 parameter definitions, respecting dynamic ranges, `visible_if`, `allowed_if`, and `ui` hints (`widget`, `format`, `group`, `placement`, `unit`, `step`, `tooltip`) with full undo/redo support.
+
+### Changed
+- Converted the bundled Satisfactory (`1.1`) and Mindustry (`build-154-3`) game data packages to GameData v4 (`game.json`), adding fluid unit formatting (`m³`), Satisfactory Clock Speed (`1–250%`), Somersloops amplification, Power Shards, and Power (`MW`) metrics, plus Mindustry Overdrive and Efficiency speed parameters.
+
+### Fixed
+- Fixed the Mindustry `silicon-smelter` recipe machine mapping to reference `silicon-smelter` instead of `silicon-crucible`.
 - Added post-solve GameData v4 metric rendering on node cards (`body`), in node hover tooltips (`tooltip`), and in a collapsible side panel (`Graph Totals` and `Node Properties`) featuring `split_sign` breakdowns (`+` / `-` / `Net`) and a project rate-unit selector.
 - Added node evaluation status borders and badges (`WARNING`, `BLOCKED`, `ERROR`, `UNRESOLVED`), recipe `setup` item display, diagnostic hover tooltips, and connection state coloring (`INVALID`, `INACTIVE`).
 

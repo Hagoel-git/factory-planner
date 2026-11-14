@@ -1,0 +1,8444 @@
+{
+  "schema_version": 4,
+  "game": {
+    "id": "satisfactory",
+    "name": "Satisfactory",
+    "data_version": "1.1"
+  },
+  "icon_root": "icons",
+  "units": {
+    "recipe_time": "s",
+    "default_rate": "min"
+  },
+  "resource_kinds": {
+    "item": {
+      "label": "Item",
+      "display_unit": "",
+      "display_scale": 1
+    },
+    "fluid": {
+      "label": "Fluid",
+      "display_unit": "m³",
+      "display_scale": 1
+    }
+  },
+  "attributes": {
+    "machine": {
+      "power": {
+        "type": "number",
+        "default": 0
+      },
+      "somersloop_slots": {
+        "type": "number",
+        "default": 0
+      }
+    },
+    "recipe": {
+      "power": {
+        "type": "number",
+        "default": 0
+      }
+    }
+  },
+  "parameters": {
+    "clock": {
+      "label": "Clock Speed",
+      "type": "number",
+      "default": 100,
+      "min": 1,
+      "max": 250,
+      "unit": "%",
+      "step": 5,
+      "tooltip": "Clock speed from 1% to 250% (overclocking requires Power Shards).",
+      "ui": {
+        "widget": "slider",
+        "format": "%.0f%%",
+        "group": "Overclocking",
+        "placement": "panel"
+      }
+    },
+    "somersloops": {
+      "label": "Somersloops",
+      "type": "int",
+      "default": 0,
+      "min": 0,
+      "max": "machine.somersloop_slots",
+      "visible_if": "machine.somersloop_slots > 0",
+      "tooltip": "Somersloops installed in production amplification slots.",
+      "ui": {
+        "widget": "stepper",
+        "group": "Overclocking",
+        "placement": "panel"
+      }
+    }
+  },
+  "metrics": {
+    "power": {
+      "label": "Power",
+      "unit": "MW",
+      "format": "%.1f",
+      "aggregate": "sum",
+      "split_sign": true,
+      "display": [
+        "tooltip",
+        "totals"
+      ]
+    },
+    "shards": {
+      "label": "Power Shards",
+      "unit": "",
+      "format": "%.0f",
+      "aggregate": "sum",
+      "display": [
+        "tooltip",
+        "totals"
+      ]
+    },
+    "sloops": {
+      "label": "Somersloops",
+      "unit": "",
+      "format": "%.0f",
+      "aggregate": "sum",
+      "display": [
+        "tooltip",
+        "totals"
+      ]
+    }
+  },
+  "profiles": {
+    "sf_production": {
+      "params": [
+        "clock",
+        "somersloops"
+      ],
+      "let": {
+        "c": "param.clock / 100",
+        "amp": "if(machine.somersloop_slots > 0, 1 + param.somersloops / machine.somersloop_slots, 1)",
+        "base_power": "if(recipe.power > 0, recipe.power, machine.power)"
+      },
+      "craft_time": "recipe.time / (machine.speed * c)",
+      "output_amount": "port.amount * port.chance * amp",
+      "metrics": {
+        "power": {
+          "per_machine": "base_power * amp ^ 2 * c ^ 1.321928"
+        },
+        "shards": {
+          "value": "ceil(node.machines) * max(0, ceil((param.clock - 100) / 50))"
+        },
+        "sloops": {
+          "value": "ceil(node.machines) * param.somersloops",
+          "enabled": "machine.somersloop_slots > 0"
+        }
+      }
+    },
+    "sf_generator": {
+      "params": [
+        "clock"
+      ],
+      "let": {
+        "c": "param.clock / 100"
+      },
+      "craft_time": "recipe.time / (machine.speed * c)",
+      "metrics": {
+        "power": {
+          "per_machine": "-machine.power * c"
+        },
+        "shards": {
+          "value": "ceil(node.machines) * max(0, ceil((param.clock - 100) / 50))"
+        }
+      }
+    }
+  },
+  "resources": [
+    {
+      "id": "adaptive-control-unit",
+      "name": "Adaptive Control Unit",
+      "kind": "item"
+    },
+    {
+      "id": "ai-expansion-server",
+      "name": "AI Expansion Server",
+      "kind": "item"
+    },
+    {
+      "id": "ai-limiter",
+      "name": "AI Limiter",
+      "kind": "item"
+    },
+    {
+      "id": "alclad-aluminum-sheet",
+      "name": "Alclad Aluminum Sheet",
+      "kind": "item"
+    },
+    {
+      "id": "alien-dna-capsule",
+      "name": "Alien DNA Capsule",
+      "kind": "item"
+    },
+    {
+      "id": "alien-power-matrix",
+      "name": "Alien Power Matrix",
+      "kind": "item"
+    },
+    {
+      "id": "alien-protein",
+      "name": "Alien Protein",
+      "kind": "item"
+    },
+    {
+      "id": "alumina-solution",
+      "name": "Alumina Solution",
+      "kind": "fluid"
+    },
+    {
+      "id": "aluminum-casing",
+      "name": "Aluminum Casing",
+      "kind": "item"
+    },
+    {
+      "id": "aluminum-ingot",
+      "name": "Aluminum Ingot",
+      "kind": "item"
+    },
+    {
+      "id": "aluminum-scrap",
+      "name": "Aluminum Scrap",
+      "kind": "item"
+    },
+    {
+      "id": "assembly-director-system",
+      "name": "Assembly Director System",
+      "kind": "item"
+    },
+    {
+      "id": "automated-wiring",
+      "name": "Automated Wiring",
+      "kind": "item"
+    },
+    {
+      "id": "ballistic-warp-drive",
+      "name": "Ballistic Warp Drive",
+      "kind": "item"
+    },
+    {
+      "id": "battery",
+      "name": "Battery",
+      "kind": "item"
+    },
+    {
+      "id": "bauxite",
+      "name": "Bauxite",
+      "kind": "item"
+    },
+    {
+      "id": "biochemical-sculptor",
+      "name": "Biochemical Sculptor",
+      "kind": "item"
+    },
+    {
+      "id": "biomass",
+      "name": "Biomass",
+      "kind": "item"
+    },
+    {
+      "id": "black-powder",
+      "name": "Black Powder",
+      "kind": "item"
+    },
+    {
+      "id": "blue-power-slug",
+      "name": "Blue Power Slug",
+      "kind": "item"
+    },
+    {
+      "id": "cable",
+      "name": "Cable",
+      "kind": "item"
+    },
+    {
+      "id": "caterium-ingot",
+      "name": "Caterium Ingot",
+      "kind": "item"
+    },
+    {
+      "id": "caterium-ore",
+      "name": "Caterium Ore",
+      "kind": "item"
+    },
+    {
+      "id": "circuit-board",
+      "name": "Circuit Board",
+      "kind": "item"
+    },
+    {
+      "id": "cluster-nobelisk",
+      "name": "Cluster Nobelisk",
+      "kind": "item"
+    },
+    {
+      "id": "coal",
+      "name": "Coal",
+      "kind": "item"
+    },
+    {
+      "id": "compacted-coal",
+      "name": "Compacted Coal",
+      "kind": "item"
+    },
+    {
+      "id": "computer",
+      "name": "Computer",
+      "kind": "item"
+    },
+    {
+      "id": "concrete",
+      "name": "Concrete",
+      "kind": "item"
+    },
+    {
+      "id": "cooling-system",
+      "name": "Cooling System",
+      "kind": "item"
+    },
+    {
+      "id": "copper-ingot",
+      "name": "Copper Ingot",
+      "kind": "item"
+    },
+    {
+      "id": "copper-ore",
+      "name": "Copper Ore",
+      "kind": "item"
+    },
+    {
+      "id": "copper-powder",
+      "name": "Copper Powder",
+      "kind": "item"
+    },
+    {
+      "id": "copper-sheet",
+      "name": "Copper Sheet",
+      "kind": "item"
+    },
+    {
+      "id": "crude-oil",
+      "name": "Crude Oil",
+      "kind": "fluid"
+    },
+    {
+      "id": "crystal-oscillator",
+      "name": "Crystal Oscillator",
+      "kind": "item"
+    },
+    {
+      "id": "dark-matter-crystal",
+      "name": "Dark Matter Crystal",
+      "kind": "item"
+    },
+    {
+      "id": "dark-matter-residue",
+      "name": "Dark Matter Residue",
+      "kind": "fluid"
+    },
+    {
+      "id": "diamonds",
+      "name": "Diamonds",
+      "kind": "item"
+    },
+    {
+      "id": "dissolved-silica",
+      "name": "Dissolved Silica",
+      "kind": "fluid"
+    },
+    {
+      "id": "electromagnetic-control-rod",
+      "name": "Electromagnetic Control Rod",
+      "kind": "item"
+    },
+    {
+      "id": "empty-canister",
+      "name": "Empty Canister",
+      "kind": "item"
+    },
+    {
+      "id": "empty-fluid-tank",
+      "name": "Empty Fluid Tank",
+      "kind": "item"
+    },
+    {
+      "id": "encased-industrial-beam",
+      "name": "Encased Industrial Beam",
+      "kind": "item"
+    },
+    {
+      "id": "encased-plutonium-cell",
+      "name": "Encased Plutonium Cell",
+      "kind": "item"
+    },
+    {
+      "id": "encased-uranium-cell",
+      "name": "Encased Uranium Cell",
+      "kind": "item"
+    },
+    {
+      "id": "excited-photonic-matter",
+      "name": "Excited Photonic Matter",
+      "kind": "fluid"
+    },
+    {
+      "id": "explosive-rebar",
+      "name": "Explosive Rebar",
+      "kind": "item"
+    },
+    {
+      "id": "fabric",
+      "name": "Fabric",
+      "kind": "item"
+    },
+    {
+      "id": "ficsite-ingot",
+      "name": "Ficsite Ingot",
+      "kind": "item"
+    },
+    {
+      "id": "ficsite-trigon",
+      "name": "Ficsite Trigon",
+      "kind": "item"
+    },
+    {
+      "id": "ficsonium",
+      "name": "Ficsonium",
+      "kind": "item"
+    },
+    {
+      "id": "ficsonium-fuel-rod",
+      "name": "Ficsonium Fuel Rod",
+      "kind": "item"
+    },
+    {
+      "id": "fuel",
+      "name": "Fuel",
+      "kind": "fluid"
+    },
+    {
+      "id": "fused-modular-frame",
+      "name": "Fused Modular Frame",
+      "kind": "item"
+    },
+    {
+      "id": "gas-filter",
+      "name": "Gas Filter",
+      "kind": "item"
+    },
+    {
+      "id": "gas-nobelisk",
+      "name": "Gas Nobelisk",
+      "kind": "item"
+    },
+    {
+      "id": "hatcher-remains",
+      "name": "Hatcher Remains",
+      "kind": "item"
+    },
+    {
+      "id": "heat-sink",
+      "name": "Heat Sink",
+      "kind": "item"
+    },
+    {
+      "id": "heavy-modular-frame",
+      "name": "Heavy Modular Frame",
+      "kind": "item"
+    },
+    {
+      "id": "heavy-oil-residue",
+      "name": "Heavy Oil Residue",
+      "kind": "fluid"
+    },
+    {
+      "id": "high-speed-connector",
+      "name": "High-Speed Connector",
+      "kind": "item"
+    },
+    {
+      "id": "hog-remains",
+      "name": "Hog Remains",
+      "kind": "item"
+    },
+    {
+      "id": "homing-rifle-ammo",
+      "name": "Homing Rifle Ammo",
+      "kind": "item"
+    },
+    {
+      "id": "iodine-infused-filter",
+      "name": "Iodine Infused Filter",
+      "kind": "item"
+    },
+    {
+      "id": "ionized-fuel",
+      "name": "Ionized Fuel",
+      "kind": "fluid"
+    },
+    {
+      "id": "iron-ingot",
+      "name": "Iron Ingot",
+      "kind": "item"
+    },
+    {
+      "id": "iron-ore",
+      "name": "Iron Ore",
+      "kind": "item"
+    },
+    {
+      "id": "iron-plate",
+      "name": "Iron Plate",
+      "kind": "item"
+    },
+    {
+      "id": "iron-rebar",
+      "name": "Iron Rebar",
+      "kind": "item"
+    },
+    {
+      "id": "iron-rod",
+      "name": "Iron Rod",
+      "kind": "item"
+    },
+    {
+      "id": "leaves",
+      "name": "Leaves",
+      "kind": "item"
+    },
+    {
+      "id": "limestone",
+      "name": "Limestone",
+      "kind": "item"
+    },
+    {
+      "id": "liquid-biofuel",
+      "name": "Liquid Biofuel",
+      "kind": "fluid"
+    },
+    {
+      "id": "magnetic-field-generator",
+      "name": "Magnetic Field Generator",
+      "kind": "item"
+    },
+    {
+      "id": "modular-engine",
+      "name": "Modular Engine",
+      "kind": "item"
+    },
+    {
+      "id": "modular-frame",
+      "name": "Modular Frame",
+      "kind": "item"
+    },
+    {
+      "id": "motor",
+      "name": "Motor",
+      "kind": "item"
+    },
+    {
+      "id": "mycelia",
+      "name": "Mycelia",
+      "kind": "item"
+    },
+    {
+      "id": "neural-quantum-processor",
+      "name": "Neural-Quantum Processor",
+      "kind": "item"
+    },
+    {
+      "id": "nitric-acid",
+      "name": "Nitric Acid",
+      "kind": "fluid"
+    },
+    {
+      "id": "nitrogen-gas",
+      "name": "Nitrogen Gas",
+      "kind": "fluid"
+    },
+    {
+      "id": "nobelisk",
+      "name": "Nobelisk",
+      "kind": "item"
+    },
+    {
+      "id": "non-fissile-uranium",
+      "name": "Non-fissile Uranium",
+      "kind": "item"
+    },
+    {
+      "id": "nuclear-pasta",
+      "name": "Nuclear Pasta",
+      "kind": "item"
+    },
+    {
+      "id": "nuke-nobelisk",
+      "name": "Nuke Nobelisk",
+      "kind": "item"
+    },
+    {
+      "id": "packaged-alumina-solution",
+      "name": "Packaged Alumina Solution",
+      "kind": "item"
+    },
+    {
+      "id": "packaged-fuel",
+      "name": "Packaged Fuel",
+      "kind": "item"
+    },
+    {
+      "id": "packaged-heavy-oil-residue",
+      "name": "Packaged Heavy Oil Residue",
+      "kind": "item"
+    },
+    {
+      "id": "packaged-ionized-fuel",
+      "name": "Packaged Ionized Fuel",
+      "kind": "item"
+    },
+    {
+      "id": "packaged-liquid-biofuel",
+      "name": "Packaged Liquid Biofuel",
+      "kind": "item"
+    },
+    {
+      "id": "packaged-nitric-acid",
+      "name": "Packaged Nitric Acid",
+      "kind": "item"
+    },
+    {
+      "id": "packaged-nitrogen-gas",
+      "name": "Packaged Nitrogen Gas",
+      "kind": "item"
+    },
+    {
+      "id": "packaged-oil",
+      "name": "Packaged Oil",
+      "kind": "item"
+    },
+    {
+      "id": "packaged-rocket-fuel",
+      "name": "Packaged Rocket Fuel",
+      "kind": "item"
+    },
+    {
+      "id": "packaged-sulfuric-acid",
+      "name": "Packaged Sulfuric Acid",
+      "kind": "item"
+    },
+    {
+      "id": "packaged-turbofuel",
+      "name": "Packaged Turbofuel",
+      "kind": "item"
+    },
+    {
+      "id": "packaged-water",
+      "name": "Packaged Water",
+      "kind": "item"
+    },
+    {
+      "id": "petroleum-coke",
+      "name": "Petroleum Coke",
+      "kind": "item"
+    },
+    {
+      "id": "plastic",
+      "name": "Plastic",
+      "kind": "item"
+    },
+    {
+      "id": "plutonium-fuel-rod",
+      "name": "Plutonium Fuel Rod",
+      "kind": "item"
+    },
+    {
+      "id": "plutonium-pellet",
+      "name": "Plutonium Pellet",
+      "kind": "item"
+    },
+    {
+      "id": "plutonium-waste",
+      "name": "Plutonium Waste",
+      "kind": "item"
+    },
+    {
+      "id": "polymer-resin",
+      "name": "Polymer Resin",
+      "kind": "item"
+    },
+    {
+      "id": "portable-miner",
+      "name": "Portable Miner",
+      "kind": "item"
+    },
+    {
+      "id": "power-shard",
+      "name": "Power Shard",
+      "kind": "item"
+    },
+    {
+      "id": "pressure-conversion-cube",
+      "name": "Pressure Conversion Cube",
+      "kind": "item"
+    },
+    {
+      "id": "pulse-nobelisk",
+      "name": "Pulse Nobelisk",
+      "kind": "item"
+    },
+    {
+      "id": "purple-power-slug",
+      "name": "Purple Power Slug",
+      "kind": "item"
+    },
+    {
+      "id": "quartz-crystal",
+      "name": "Quartz Crystal",
+      "kind": "item"
+    },
+    {
+      "id": "quickwire",
+      "name": "Quickwire",
+      "kind": "item"
+    },
+    {
+      "id": "radio-control-unit",
+      "name": "Radio Control Unit",
+      "kind": "item"
+    },
+    {
+      "id": "raw-quartz",
+      "name": "Raw Quartz",
+      "kind": "item"
+    },
+    {
+      "id": "reanimated-sam",
+      "name": "Reanimated SAM",
+      "kind": "item"
+    },
+    {
+      "id": "reinforced-iron-plate",
+      "name": "Reinforced Iron Plate",
+      "kind": "item"
+    },
+    {
+      "id": "rifle-ammo",
+      "name": "Rifle Ammo",
+      "kind": "item"
+    },
+    {
+      "id": "rocket-fuel",
+      "name": "Rocket Fuel",
+      "kind": "fluid"
+    },
+    {
+      "id": "rotor",
+      "name": "Rotor",
+      "kind": "item"
+    },
+    {
+      "id": "rubber",
+      "name": "Rubber",
+      "kind": "item"
+    },
+    {
+      "id": "sam",
+      "name": "SAM",
+      "kind": "item"
+    },
+    {
+      "id": "sam-fluctuator",
+      "name": "SAM Fluctuator",
+      "kind": "item"
+    },
+    {
+      "id": "screw",
+      "name": "Screw",
+      "kind": "item"
+    },
+    {
+      "id": "shatter-rebar",
+      "name": "Shatter Rebar",
+      "kind": "item"
+    },
+    {
+      "id": "silica",
+      "name": "Silica",
+      "kind": "item"
+    },
+    {
+      "id": "singularity-cell",
+      "name": "Singularity Cell",
+      "kind": "item"
+    },
+    {
+      "id": "smart-plating",
+      "name": "Smart Plating",
+      "kind": "item"
+    },
+    {
+      "id": "smokeless-powder",
+      "name": "Smokeless Powder",
+      "kind": "item"
+    },
+    {
+      "id": "solid-biofuel",
+      "name": "Solid Biofuel",
+      "kind": "item"
+    },
+    {
+      "id": "spitter-remains",
+      "name": "Spitter Remains",
+      "kind": "item"
+    },
+    {
+      "id": "stator",
+      "name": "Stator",
+      "kind": "item"
+    },
+    {
+      "id": "steel-beam",
+      "name": "Steel Beam",
+      "kind": "item"
+    },
+    {
+      "id": "steel-ingot",
+      "name": "Steel Ingot",
+      "kind": "item"
+    },
+    {
+      "id": "steel-pipe",
+      "name": "Steel Pipe",
+      "kind": "item"
+    },
+    {
+      "id": "stinger-remains",
+      "name": "Stinger Remains",
+      "kind": "item"
+    },
+    {
+      "id": "stun-rebar",
+      "name": "Stun Rebar",
+      "kind": "item"
+    },
+    {
+      "id": "sulfur",
+      "name": "Sulfur",
+      "kind": "item"
+    },
+    {
+      "id": "sulfuric-acid",
+      "name": "Sulfuric Acid",
+      "kind": "fluid"
+    },
+    {
+      "id": "supercomputer",
+      "name": "Supercomputer",
+      "kind": "item"
+    },
+    {
+      "id": "superposition-oscillator",
+      "name": "Superposition Oscillator",
+      "kind": "item"
+    },
+    {
+      "id": "thermal-propulsion-rocket",
+      "name": "Thermal Propulsion Rocket",
+      "kind": "item"
+    },
+    {
+      "id": "time-crystal",
+      "name": "Time Crystal",
+      "kind": "item"
+    },
+    {
+      "id": "turbo-motor",
+      "name": "Turbo Motor",
+      "kind": "item"
+    },
+    {
+      "id": "turbo-rifle-ammo",
+      "name": "Turbo Rifle Ammo",
+      "kind": "item"
+    },
+    {
+      "id": "turbofuel",
+      "name": "Turbofuel",
+      "kind": "fluid"
+    },
+    {
+      "id": "uranium",
+      "name": "Uranium",
+      "kind": "item"
+    },
+    {
+      "id": "uranium-fuel-rod",
+      "name": "Uranium Fuel Rod",
+      "kind": "item"
+    },
+    {
+      "id": "uranium-waste",
+      "name": "Uranium Waste",
+      "kind": "item"
+    },
+    {
+      "id": "versatile-framework",
+      "name": "Versatile Framework",
+      "kind": "item"
+    },
+    {
+      "id": "water",
+      "name": "Water",
+      "kind": "fluid"
+    },
+    {
+      "id": "wire",
+      "name": "Wire",
+      "kind": "item"
+    },
+    {
+      "id": "wood",
+      "name": "Wood",
+      "kind": "item"
+    },
+    {
+      "id": "yellow-power-slug",
+      "name": "Yellow Power Slug",
+      "kind": "item"
+    }
+  ],
+  "machines": [
+    {
+      "id": "assembler",
+      "name": "Assembler",
+      "profile": "sf_production",
+      "attrs": {
+        "power": 15,
+        "somersloop_slots": 2
+      }
+    },
+    {
+      "id": "biomass-burner",
+      "name": "Biomass Burner",
+      "profile": "sf_generator",
+      "attrs": {
+        "power": 30
+      }
+    },
+    {
+      "id": "blender",
+      "name": "Blender",
+      "profile": "sf_production",
+      "attrs": {
+        "power": 75,
+        "somersloop_slots": 4
+      }
+    },
+    {
+      "id": "coal-powered-generator",
+      "name": "Coal-Powered Generator",
+      "profile": "sf_generator",
+      "attrs": {
+        "power": 75
+      }
+    },
+    {
+      "id": "constructor",
+      "name": "Constructor",
+      "profile": "sf_production",
+      "attrs": {
+        "power": 4,
+        "somersloop_slots": 1
+      }
+    },
+    {
+      "id": "converter",
+      "name": "Converter",
+      "profile": "sf_production",
+      "attrs": {
+        "power": 250,
+        "somersloop_slots": 2
+      }
+    },
+    {
+      "id": "foundry",
+      "name": "Foundry",
+      "profile": "sf_production",
+      "attrs": {
+        "power": 16,
+        "somersloop_slots": 2
+      }
+    },
+    {
+      "id": "fuel-powered-generator",
+      "name": "Fuel-Powered Generator",
+      "profile": "sf_generator",
+      "attrs": {
+        "power": 250
+      }
+    },
+    {
+      "id": "manufacturer",
+      "name": "Manufacturer",
+      "profile": "sf_production",
+      "attrs": {
+        "power": 55,
+        "somersloop_slots": 4
+      }
+    },
+    {
+      "id": "miner-mk1",
+      "name": "Miner Mk1",
+      "profile": "sf_production",
+      "attrs": {
+        "power": 5
+      }
+    },
+    {
+      "id": "miner-mk2",
+      "name": "Miner Mk2",
+      "profile": "sf_production",
+      "speed": 2.0,
+      "attrs": {
+        "power": 15
+      }
+    },
+    {
+      "id": "miner-mk3",
+      "name": "Miner Mk3",
+      "profile": "sf_production",
+      "speed": 4.0,
+      "attrs": {
+        "power": 45
+      }
+    },
+    {
+      "id": "nuclear-power-plant",
+      "name": "Nuclear Power Plant",
+      "profile": "sf_generator",
+      "attrs": {
+        "power": 2500
+      }
+    },
+    {
+      "id": "oil-extractor",
+      "name": "Oil Extractor",
+      "profile": "sf_production",
+      "attrs": {
+        "power": 40
+      }
+    },
+    {
+      "id": "packager",
+      "name": "Packager",
+      "profile": "sf_production",
+      "attrs": {
+        "power": 10
+      }
+    },
+    {
+      "id": "particle-accelerator",
+      "name": "Particle Accelerator",
+      "profile": "sf_production",
+      "attrs": {
+        "power": 500,
+        "somersloop_slots": 4
+      }
+    },
+    {
+      "id": "quantum-encoder",
+      "name": "Quantum Encoder",
+      "profile": "sf_production",
+      "attrs": {
+        "power": 1000,
+        "somersloop_slots": 4
+      }
+    },
+    {
+      "id": "refinery",
+      "name": "Refinery",
+      "profile": "sf_production",
+      "attrs": {
+        "power": 30,
+        "somersloop_slots": 2
+      }
+    },
+    {
+      "id": "resource-well",
+      "name": "Resource Well",
+      "profile": "sf_production",
+      "attrs": {
+        "power": 150
+      }
+    },
+    {
+      "id": "smelter",
+      "name": "Smelter",
+      "profile": "sf_production",
+      "attrs": {
+        "power": 4,
+        "somersloop_slots": 1
+      }
+    },
+    {
+      "id": "space-elevator",
+      "name": "Space Elevator",
+      "profile": "default"
+    },
+    {
+      "id": "water-extractor",
+      "name": "Water Extractor",
+      "profile": "sf_production",
+      "attrs": {
+        "power": 20
+      }
+    }
+  ],
+  "recipes": [
+    {
+      "id": "adaptive-control-unit",
+      "name": "Adaptive Control Unit",
+      "time": 60.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "automated-wiring",
+          5.0
+        ],
+        [
+          "circuit-board",
+          5.0
+        ],
+        [
+          "heavy-modular-frame",
+          1.0
+        ],
+        [
+          "computer",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "adaptive-control-unit",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "ai-expansion-server",
+      "name": "AI Expansion Server",
+      "time": 15.0,
+      "machines": [
+        "quantum-encoder"
+      ],
+      "in": [
+        [
+          "magnetic-field-generator",
+          1.0
+        ],
+        [
+          "neural-quantum-processor",
+          1.0
+        ],
+        [
+          "superposition-oscillator",
+          1.0
+        ],
+        [
+          "excited-photonic-matter",
+          25.0
+        ]
+      ],
+      "out": [
+        [
+          "ai-expansion-server",
+          1.0
+        ],
+        [
+          "dark-matter-residue",
+          25.0
+        ]
+      ]
+    },
+    {
+      "id": "ai-limiter",
+      "name": "AI Limiter",
+      "time": 12.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "copper-sheet",
+          5.0
+        ],
+        [
+          "quickwire",
+          20.0
+        ]
+      ],
+      "out": [
+        [
+          "ai-limiter",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "alclad-aluminum-sheet",
+      "name": "Alclad Aluminum Sheet",
+      "time": 6.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "aluminum-ingot",
+          3.0
+        ],
+        [
+          "copper-ingot",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "alclad-aluminum-sheet",
+          3.0
+        ]
+      ]
+    },
+    {
+      "id": "alien-dna-capsule",
+      "name": "Alien DNA Capsule",
+      "time": 6.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "alien-protein",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "alien-dna-capsule",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "alien-power-matrix",
+      "name": "Alien Power Matrix",
+      "time": 24.0,
+      "machines": [
+        "quantum-encoder"
+      ],
+      "in": [
+        [
+          "sam-fluctuator",
+          5.0
+        ],
+        [
+          "power-shard",
+          3.0
+        ],
+        [
+          "superposition-oscillator",
+          3.0
+        ],
+        [
+          "excited-photonic-matter",
+          24.0
+        ]
+      ],
+      "out": [
+        [
+          "alien-power-matrix",
+          1.0
+        ],
+        [
+          "dark-matter-residue",
+          24.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-adhered-iron-plate",
+      "name": "Alternate: Adhered Iron Plate",
+      "time": 16.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "iron-plate",
+          3.0
+        ],
+        [
+          "rubber",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "reinforced-iron-plate",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-alclad-casing",
+      "name": "Alternate: Alclad Casing",
+      "time": 8.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "aluminum-ingot",
+          20.0
+        ],
+        [
+          "copper-ingot",
+          10.0
+        ]
+      ],
+      "out": [
+        [
+          "aluminum-casing",
+          15.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-aluminum-beam",
+      "name": "Alternate: Aluminum Beam",
+      "time": 8.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "aluminum-ingot",
+          3.0
+        ]
+      ],
+      "out": [
+        [
+          "steel-beam",
+          3.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-aluminum-rod",
+      "name": "Alternate: Aluminum Rod",
+      "time": 8.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "aluminum-ingot",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "iron-rod",
+          7.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-automated-miner",
+      "name": "Alternate: Automated Miner",
+      "time": 60.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "steel-pipe",
+          4.0
+        ],
+        [
+          "iron-plate",
+          4.0
+        ]
+      ],
+      "out": [
+        [
+          "portable-miner",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-automated-speed-wiring",
+      "name": "Alternate: Automated Speed Wiring",
+      "time": 32.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "stator",
+          2.0
+        ],
+        [
+          "wire",
+          40.0
+        ],
+        [
+          "high-speed-connector",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "automated-wiring",
+          4.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-biocoal",
+      "name": "Alternate: Biocoal",
+      "time": 8.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "biomass",
+          5.0
+        ]
+      ],
+      "out": [
+        [
+          "coal",
+          6.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-bolted-frame",
+      "name": "Alternate: Bolted Frame",
+      "time": 24.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "reinforced-iron-plate",
+          3.0
+        ],
+        [
+          "screw",
+          56.0
+        ]
+      ],
+      "out": [
+        [
+          "modular-frame",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-bolted-iron-plate",
+      "name": "Alternate: Bolted Iron Plate",
+      "time": 12.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "iron-plate",
+          18.0
+        ],
+        [
+          "screw",
+          50.0
+        ]
+      ],
+      "out": [
+        [
+          "reinforced-iron-plate",
+          3.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-cast-screw",
+      "name": "Alternate: Cast Screw",
+      "time": 24.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "iron-ingot",
+          5.0
+        ]
+      ],
+      "out": [
+        [
+          "screw",
+          20.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-caterium-circuit-board",
+      "name": "Alternate: Caterium Circuit Board",
+      "time": 48.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "plastic",
+          10.0
+        ],
+        [
+          "quickwire",
+          30.0
+        ]
+      ],
+      "out": [
+        [
+          "circuit-board",
+          7.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-caterium-computer",
+      "name": "Alternate: Caterium Computer",
+      "time": 16.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "circuit-board",
+          4.0
+        ],
+        [
+          "quickwire",
+          14.0
+        ],
+        [
+          "rubber",
+          6.0
+        ]
+      ],
+      "out": [
+        [
+          "computer",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-caterium-wire",
+      "name": "Alternate: Caterium Wire",
+      "time": 4.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "caterium-ingot",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "wire",
+          8.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-charcoal",
+      "name": "Alternate: Charcoal",
+      "time": 4.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "wood",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "coal",
+          10.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-cheap-silica",
+      "name": "Alternate: Cheap Silica",
+      "time": 8.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "raw-quartz",
+          3.0
+        ],
+        [
+          "limestone",
+          5.0
+        ]
+      ],
+      "out": [
+        [
+          "silica",
+          7.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-classic-battery",
+      "name": "Alternate: Classic Battery",
+      "time": 8.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "sulfur",
+          6.0
+        ],
+        [
+          "alclad-aluminum-sheet",
+          7.0
+        ],
+        [
+          "plastic",
+          8.0
+        ],
+        [
+          "wire",
+          12.0
+        ]
+      ],
+      "out": [
+        [
+          "battery",
+          4.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-cloudy-diamonds",
+      "name": "Alternate: Cloudy Diamonds",
+      "time": 3.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "coal",
+          12.0
+        ],
+        [
+          "limestone",
+          24.0
+        ]
+      ],
+      "out": [
+        [
+          "diamonds",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-coated-cable",
+      "name": "Alternate: Coated Cable",
+      "time": 8.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "wire",
+          5.0
+        ],
+        [
+          "heavy-oil-residue",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "cable",
+          9.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-coated-iron-canister",
+      "name": "Alternate: Coated Iron Canister",
+      "time": 4.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "iron-plate",
+          2.0
+        ],
+        [
+          "copper-sheet",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "empty-canister",
+          4.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-coated-iron-plate",
+      "name": "Alternate: Coated Iron Plate",
+      "time": 8.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "iron-ingot",
+          5.0
+        ],
+        [
+          "plastic",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "iron-plate",
+          10.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-coke-steel-ingot",
+      "name": "Alternate: Coke Steel Ingot",
+      "time": 12.0,
+      "machines": [
+        "foundry"
+      ],
+      "in": [
+        [
+          "iron-ore",
+          15.0
+        ],
+        [
+          "petroleum-coke",
+          15.0
+        ]
+      ],
+      "out": [
+        [
+          "steel-ingot",
+          20.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-compacted-coal",
+      "name": "Alternate: Compacted Coal",
+      "time": 12.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "coal",
+          5.0
+        ],
+        [
+          "sulfur",
+          5.0
+        ]
+      ],
+      "out": [
+        [
+          "compacted-coal",
+          5.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-compacted-steel-ingot",
+      "name": "Alternate: Compacted Steel Ingot",
+      "time": 16.0,
+      "machines": [
+        "foundry"
+      ],
+      "in": [
+        [
+          "iron-ore",
+          6.0
+        ],
+        [
+          "compacted-coal",
+          3.0
+        ]
+      ],
+      "out": [
+        [
+          "steel-ingot",
+          10.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-cooling-device",
+      "name": "Alternate: Cooling Device",
+      "time": 24.0,
+      "machines": [
+        "blender"
+      ],
+      "in": [
+        [
+          "heat-sink",
+          4.0
+        ],
+        [
+          "motor",
+          1.0
+        ],
+        [
+          "nitrogen-gas",
+          24.0
+        ]
+      ],
+      "out": [
+        [
+          "cooling-system",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-copper-alloy-ingot",
+      "name": "Alternate: Copper Alloy Ingot",
+      "time": 6.0,
+      "machines": [
+        "foundry"
+      ],
+      "in": [
+        [
+          "copper-ore",
+          5.0
+        ],
+        [
+          "iron-ore",
+          5.0
+        ]
+      ],
+      "out": [
+        [
+          "copper-ingot",
+          10.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-copper-rotor",
+      "name": "Alternate: Copper Rotor",
+      "time": 16.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "copper-sheet",
+          6.0
+        ],
+        [
+          "screw",
+          52.0
+        ]
+      ],
+      "out": [
+        [
+          "rotor",
+          3.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-crystal-computer",
+      "name": "Alternate: Crystal Computer",
+      "time": 36.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "circuit-board",
+          3.0
+        ],
+        [
+          "crystal-oscillator",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "computer",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-dark-ion-fuel",
+      "name": "Alternate: Dark-Ion Fuel",
+      "time": 3.0,
+      "machines": [
+        "converter"
+      ],
+      "in": [
+        [
+          "packaged-rocket-fuel",
+          12.0
+        ],
+        [
+          "dark-matter-crystal",
+          4.0
+        ]
+      ],
+      "out": [
+        [
+          "ionized-fuel",
+          10.0
+        ],
+        [
+          "compacted-coal",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-dark-matter-crystallization",
+      "name": "Alternate: Dark Matter Crystallization",
+      "time": 3.0,
+      "machines": [
+        "particle-accelerator"
+      ],
+      "attrs": {
+        "power": 1000
+      },
+      "in": [
+        [
+          "dark-matter-residue",
+          10.0
+        ]
+      ],
+      "out": [
+        [
+          "dark-matter-crystal",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-dark-matter-trap",
+      "name": "Alternate: Dark Matter Trap",
+      "time": 2.0,
+      "machines": [
+        "particle-accelerator"
+      ],
+      "attrs": {
+        "power": 1000
+      },
+      "in": [
+        [
+          "time-crystal",
+          1.0
+        ],
+        [
+          "dark-matter-residue",
+          5.0
+        ]
+      ],
+      "out": [
+        [
+          "dark-matter-crystal",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-diluted-fuel",
+      "name": "Alternate: Diluted Fuel",
+      "time": 6.0,
+      "machines": [
+        "blender"
+      ],
+      "in": [
+        [
+          "heavy-oil-residue",
+          5.0
+        ],
+        [
+          "water",
+          10.0
+        ]
+      ],
+      "out": [
+        [
+          "fuel",
+          10.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-diluted-packaged-fuel",
+      "name": "Alternate: Diluted Packaged Fuel",
+      "time": 2.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "heavy-oil-residue",
+          1.0
+        ],
+        [
+          "packaged-water",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "packaged-fuel",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-distilled-silica",
+      "name": "Alternate: Distilled Silica",
+      "time": 6.0,
+      "machines": [
+        "blender"
+      ],
+      "in": [
+        [
+          "dissolved-silica",
+          12.0
+        ],
+        [
+          "limestone",
+          5.0
+        ],
+        [
+          "water",
+          10.0
+        ]
+      ],
+      "out": [
+        [
+          "silica",
+          27.0
+        ],
+        [
+          "water",
+          8.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-electric-motor",
+      "name": "Alternate: Electric Motor",
+      "time": 16.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "electromagnetic-control-rod",
+          1.0
+        ],
+        [
+          "rotor",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "motor",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-electrode-aluminum-scrap",
+      "name": "Alternate: Electrode Aluminum Scrap",
+      "time": 4.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "alumina-solution",
+          12.0
+        ],
+        [
+          "petroleum-coke",
+          4.0
+        ]
+      ],
+      "out": [
+        [
+          "aluminum-scrap",
+          20.0
+        ],
+        [
+          "water",
+          7.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-electrode-circuit-board",
+      "name": "Alternate: Electrode Circuit Board",
+      "time": 12.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "rubber",
+          4.0
+        ],
+        [
+          "petroleum-coke",
+          8.0
+        ]
+      ],
+      "out": [
+        [
+          "circuit-board",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-electromagnetic-connection-rod",
+      "name": "Alternate: Electromagnetic Connection Rod",
+      "time": 15.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "stator",
+          2.0
+        ],
+        [
+          "high-speed-connector",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "electromagnetic-control-rod",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-encased-industrial-pipe",
+      "name": "Alternate: Encased Industrial Pipe",
+      "time": 15.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "steel-pipe",
+          6.0
+        ],
+        [
+          "concrete",
+          5.0
+        ]
+      ],
+      "out": [
+        [
+          "encased-industrial-beam",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-fertile-uranium",
+      "name": "Alternate: Fertile Uranium",
+      "time": 12.0,
+      "machines": [
+        "blender"
+      ],
+      "in": [
+        [
+          "uranium",
+          5.0
+        ],
+        [
+          "uranium-waste",
+          5.0
+        ],
+        [
+          "nitric-acid",
+          3.0
+        ],
+        [
+          "sulfuric-acid",
+          5.0
+        ]
+      ],
+      "out": [
+        [
+          "non-fissile-uranium",
+          20.0
+        ],
+        [
+          "water",
+          8.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-fine-black-powder",
+      "name": "Alternate: Fine Black Powder",
+      "time": 8.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "sulfur",
+          1.0
+        ],
+        [
+          "compacted-coal",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "black-powder",
+          6.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-fine-concrete",
+      "name": "Alternate: Fine Concrete",
+      "time": 12.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "silica",
+          3.0
+        ],
+        [
+          "limestone",
+          12.0
+        ]
+      ],
+      "out": [
+        [
+          "concrete",
+          10.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-flexible-framework",
+      "name": "Alternate: Flexible Framework",
+      "time": 16.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "modular-frame",
+          1.0
+        ],
+        [
+          "steel-beam",
+          6.0
+        ],
+        [
+          "rubber",
+          8.0
+        ]
+      ],
+      "out": [
+        [
+          "versatile-framework",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-fused-quickwire",
+      "name": "Alternate: Fused Quickwire",
+      "time": 8.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "caterium-ingot",
+          1.0
+        ],
+        [
+          "copper-ingot",
+          5.0
+        ]
+      ],
+      "out": [
+        [
+          "quickwire",
+          12.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-fused-wire",
+      "name": "Alternate: Fused Wire",
+      "time": 20.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "copper-ingot",
+          4.0
+        ],
+        [
+          "caterium-ingot",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "wire",
+          30.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-heat-exchanger",
+      "name": "Alternate: Heat Exchanger",
+      "time": 6.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "aluminum-casing",
+          3.0
+        ],
+        [
+          "rubber",
+          3.0
+        ]
+      ],
+      "out": [
+        [
+          "heat-sink",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-heat-fused-frame",
+      "name": "Alternate: Heat-Fused Frame",
+      "time": 20.0,
+      "machines": [
+        "blender"
+      ],
+      "in": [
+        [
+          "heavy-modular-frame",
+          1.0
+        ],
+        [
+          "aluminum-ingot",
+          50.0
+        ],
+        [
+          "nitric-acid",
+          8.0
+        ],
+        [
+          "fuel",
+          10.0
+        ]
+      ],
+      "out": [
+        [
+          "fused-modular-frame",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-heavy-encased-frame",
+      "name": "Alternate: Heavy Encased Frame",
+      "time": 64.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "modular-frame",
+          8.0
+        ],
+        [
+          "encased-industrial-beam",
+          10.0
+        ],
+        [
+          "steel-pipe",
+          36.0
+        ],
+        [
+          "concrete",
+          22.0
+        ]
+      ],
+      "out": [
+        [
+          "heavy-modular-frame",
+          3.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-heavy-flexible-frame",
+      "name": "Alternate: Heavy Flexible Frame",
+      "time": 16.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "modular-frame",
+          5.0
+        ],
+        [
+          "encased-industrial-beam",
+          3.0
+        ],
+        [
+          "rubber",
+          20.0
+        ],
+        [
+          "screw",
+          104.0
+        ]
+      ],
+      "out": [
+        [
+          "heavy-modular-frame",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-heavy-oil-residue",
+      "name": "Alternate: Heavy Oil Residue",
+      "time": 6.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "crude-oil",
+          3.0
+        ]
+      ],
+      "out": [
+        [
+          "heavy-oil-residue",
+          4.0
+        ],
+        [
+          "polymer-resin",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-infused-uranium-cell",
+      "name": "Alternate: Infused Uranium Cell",
+      "time": 12.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "uranium",
+          5.0
+        ],
+        [
+          "silica",
+          3.0
+        ],
+        [
+          "sulfur",
+          5.0
+        ],
+        [
+          "quickwire",
+          15.0
+        ]
+      ],
+      "out": [
+        [
+          "encased-uranium-cell",
+          4.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-instant-plutonium-cell",
+      "name": "Alternate: Instant Plutonium Cell",
+      "time": 120.0,
+      "machines": [
+        "particle-accelerator"
+      ],
+      "in": [
+        [
+          "non-fissile-uranium",
+          150.0
+        ],
+        [
+          "aluminum-casing",
+          20.0
+        ]
+      ],
+      "out": [
+        [
+          "encased-plutonium-cell",
+          20.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-instant-scrap",
+      "name": "Alternate: Instant Scrap",
+      "time": 6.0,
+      "machines": [
+        "blender"
+      ],
+      "in": [
+        [
+          "bauxite",
+          15.0
+        ],
+        [
+          "coal",
+          10.0
+        ],
+        [
+          "sulfuric-acid",
+          5.0
+        ],
+        [
+          "water",
+          6.0
+        ]
+      ],
+      "out": [
+        [
+          "aluminum-scrap",
+          30.0
+        ],
+        [
+          "water",
+          5.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-insulated-cable",
+      "name": "Alternate: Insulated Cable",
+      "time": 12.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "wire",
+          9.0
+        ],
+        [
+          "rubber",
+          6.0
+        ]
+      ],
+      "out": [
+        [
+          "cable",
+          20.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-insulated-crystal-oscillator",
+      "name": "Alternate: Insulated Crystal Oscillator",
+      "time": 32.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "quartz-crystal",
+          10.0
+        ],
+        [
+          "rubber",
+          7.0
+        ],
+        [
+          "ai-limiter",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "crystal-oscillator",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-iron-alloy-ingot",
+      "name": "Alternate: Iron Alloy Ingot",
+      "time": 12.0,
+      "machines": [
+        "foundry"
+      ],
+      "in": [
+        [
+          "iron-ore",
+          8.0
+        ],
+        [
+          "copper-ore",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "iron-ingot",
+          15.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-iron-pipe",
+      "name": "Alternate: Iron Pipe",
+      "time": 12.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "iron-ingot",
+          20.0
+        ]
+      ],
+      "out": [
+        [
+          "steel-pipe",
+          5.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-iron-wire",
+      "name": "Alternate: Iron Wire",
+      "time": 24.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "iron-ingot",
+          5.0
+        ]
+      ],
+      "out": [
+        [
+          "wire",
+          9.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-leached-caterium-ingot",
+      "name": "Alternate: Leached Caterium Ingot",
+      "time": 10.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "caterium-ore",
+          9.0
+        ],
+        [
+          "sulfuric-acid",
+          5.0
+        ]
+      ],
+      "out": [
+        [
+          "caterium-ingot",
+          6.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-leached-copper-ingot",
+      "name": "Alternate: Leached Copper Ingot",
+      "time": 12.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "copper-ore",
+          9.0
+        ],
+        [
+          "sulfuric-acid",
+          5.0
+        ]
+      ],
+      "out": [
+        [
+          "copper-ingot",
+          22.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-leached-iron-ingot",
+      "name": "Alternate: Leached Iron Ingot",
+      "time": 6.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "iron-ore",
+          5.0
+        ],
+        [
+          "sulfuric-acid",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "iron-ingot",
+          10.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-molded-steel-pipe",
+      "name": "Alternate: Molded Steel Pipe",
+      "time": 6.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "steel-ingot",
+          5.0
+        ],
+        [
+          "concrete",
+          3.0
+        ]
+      ],
+      "out": [
+        [
+          "steel-pipe",
+          5.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-nitro-rocket-fuel",
+      "name": "Alternate: Nitro Rocket Fuel",
+      "time": 2.4,
+      "machines": [
+        "blender"
+      ],
+      "in": [
+        [
+          "fuel",
+          4.0
+        ],
+        [
+          "nitrogen-gas",
+          3.0
+        ],
+        [
+          "sulfur",
+          4.0
+        ],
+        [
+          "coal",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "rocket-fuel",
+          6.0
+        ],
+        [
+          "compacted-coal",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-oc-supercomputer",
+      "name": "Alternate: OC Supercomputer",
+      "time": 20.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "radio-control-unit",
+          2.0
+        ],
+        [
+          "cooling-system",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "supercomputer",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-oil-based-diamonds",
+      "name": "Alternate: Oil-Based Diamonds",
+      "time": 3.0,
+      "machines": [
+        "particle-accelerator"
+      ],
+      "in": [
+        [
+          "crude-oil",
+          10.0
+        ]
+      ],
+      "out": [
+        [
+          "diamonds",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-petroleum-diamonds",
+      "name": "Alternate: Petroleum Diamonds",
+      "time": 2.0,
+      "machines": [
+        "particle-accelerator"
+      ],
+      "in": [
+        [
+          "petroleum-coke",
+          24.0
+        ]
+      ],
+      "out": [
+        [
+          "diamonds",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-pink-diamonds",
+      "name": "Alternate: Pink Diamonds",
+      "time": 4.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "coal",
+          8.0
+        ],
+        [
+          "quartz-crystal",
+          3.0
+        ]
+      ],
+      "out": [
+        [
+          "diamonds",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-plastic-ai-limiter",
+      "name": "Alternate: Plastic AI Limiter",
+      "time": 15.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "quickwire",
+          30.0
+        ],
+        [
+          "plastic",
+          7.0
+        ]
+      ],
+      "out": [
+        [
+          "ai-limiter",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-plastic-smart-plating",
+      "name": "Alternate: Plastic Smart Plating",
+      "time": 24.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "reinforced-iron-plate",
+          1.0
+        ],
+        [
+          "rotor",
+          1.0
+        ],
+        [
+          "plastic",
+          3.0
+        ]
+      ],
+      "out": [
+        [
+          "smart-plating",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-plutonium-fuel-unit",
+      "name": "Alternate: Plutonium Fuel Unit",
+      "time": 120.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "encased-plutonium-cell",
+          20.0
+        ],
+        [
+          "pressure-conversion-cube",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "plutonium-fuel-rod",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-polyester-fabric",
+      "name": "Alternate: Polyester Fabric",
+      "time": 2.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "polymer-resin",
+          1.0
+        ],
+        [
+          "water",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "fabric",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-polymer-resin",
+      "name": "Alternate: Polymer Resin",
+      "time": 6.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "crude-oil",
+          6.0
+        ]
+      ],
+      "out": [
+        [
+          "polymer-resin",
+          13.0
+        ],
+        [
+          "heavy-oil-residue",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-pure-aluminum-ingot",
+      "name": "Alternate: Pure Aluminum Ingot",
+      "time": 2.0,
+      "machines": [
+        "smelter"
+      ],
+      "in": [
+        [
+          "aluminum-scrap",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "aluminum-ingot",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-pure-caterium-ingot",
+      "name": "Alternate: Pure Caterium Ingot",
+      "time": 5.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "caterium-ore",
+          2.0
+        ],
+        [
+          "water",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "caterium-ingot",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-pure-copper-ingot",
+      "name": "Alternate: Pure Copper Ingot",
+      "time": 24.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "copper-ore",
+          6.0
+        ],
+        [
+          "water",
+          4.0
+        ]
+      ],
+      "out": [
+        [
+          "copper-ingot",
+          15.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-pure-iron-ingot",
+      "name": "Alternate: Pure Iron Ingot",
+      "time": 12.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "iron-ore",
+          7.0
+        ],
+        [
+          "water",
+          4.0
+        ]
+      ],
+      "out": [
+        [
+          "iron-ingot",
+          13.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-pure-quartz-crystal",
+      "name": "Alternate: Pure Quartz Crystal",
+      "time": 8.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "raw-quartz",
+          9.0
+        ],
+        [
+          "water",
+          5.0
+        ]
+      ],
+      "out": [
+        [
+          "quartz-crystal",
+          7.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-quartz-purification",
+      "name": "Alternate: Quartz Purification",
+      "time": 12.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "raw-quartz",
+          24.0
+        ],
+        [
+          "nitric-acid",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "quartz-crystal",
+          15.0
+        ],
+        [
+          "dissolved-silica",
+          12.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-quickwire-cable",
+      "name": "Alternate: Quickwire Cable",
+      "time": 24.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "quickwire",
+          3.0
+        ],
+        [
+          "rubber",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "cable",
+          11.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-quickwire-stator",
+      "name": "Alternate: Quickwire Stator",
+      "time": 15.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "steel-pipe",
+          4.0
+        ],
+        [
+          "quickwire",
+          15.0
+        ]
+      ],
+      "out": [
+        [
+          "stator",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-radio-connection-unit",
+      "name": "Alternate: Radio Connection Unit",
+      "time": 16.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "heat-sink",
+          4.0
+        ],
+        [
+          "high-speed-connector",
+          2.0
+        ],
+        [
+          "quartz-crystal",
+          12.0
+        ]
+      ],
+      "out": [
+        [
+          "radio-control-unit",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-radio-control-system",
+      "name": "Alternate: Radio Control System",
+      "time": 40.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "crystal-oscillator",
+          1.0
+        ],
+        [
+          "circuit-board",
+          10.0
+        ],
+        [
+          "aluminum-casing",
+          60.0
+        ],
+        [
+          "rubber",
+          30.0
+        ]
+      ],
+      "out": [
+        [
+          "radio-control-unit",
+          3.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-recycled-plastic",
+      "name": "Alternate: Recycled Plastic",
+      "time": 12.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "rubber",
+          6.0
+        ],
+        [
+          "fuel",
+          6.0
+        ]
+      ],
+      "out": [
+        [
+          "plastic",
+          12.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-recycled-rubber",
+      "name": "Alternate: Recycled Rubber",
+      "time": 12.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "plastic",
+          6.0
+        ],
+        [
+          "fuel",
+          6.0
+        ]
+      ],
+      "out": [
+        [
+          "rubber",
+          12.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-rigor-motor",
+      "name": "Alternate: Rigor Motor",
+      "time": 48.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "rotor",
+          3.0
+        ],
+        [
+          "stator",
+          3.0
+        ],
+        [
+          "crystal-oscillator",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "motor",
+          6.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-rubber-concrete",
+      "name": "Alternate: Rubber Concrete",
+      "time": 6.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "limestone",
+          10.0
+        ],
+        [
+          "rubber",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "concrete",
+          9.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-silicon-circuit-board",
+      "name": "Alternate: Silicon Circuit Board",
+      "time": 24.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "copper-sheet",
+          11.0
+        ],
+        [
+          "silica",
+          11.0
+        ]
+      ],
+      "out": [
+        [
+          "circuit-board",
+          5.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-silicone-high-speed-connector",
+      "name": "Alternate: Silicone High-Speed Connector",
+      "time": 40.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "quickwire",
+          60.0
+        ],
+        [
+          "silica",
+          25.0
+        ],
+        [
+          "circuit-board",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "high-speed-connector",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-sloppy-alumina",
+      "name": "Alternate: Sloppy Alumina",
+      "time": 3.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "bauxite",
+          10.0
+        ],
+        [
+          "water",
+          10.0
+        ]
+      ],
+      "out": [
+        [
+          "alumina-solution",
+          12.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-solid-steel-ingot",
+      "name": "Alternate: Solid Steel Ingot",
+      "time": 3.0,
+      "machines": [
+        "foundry"
+      ],
+      "in": [
+        [
+          "iron-ingot",
+          2.0
+        ],
+        [
+          "coal",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "steel-ingot",
+          3.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-steamed-copper-sheet",
+      "name": "Alternate: Steamed Copper Sheet",
+      "time": 8.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "copper-ingot",
+          3.0
+        ],
+        [
+          "water",
+          3.0
+        ]
+      ],
+      "out": [
+        [
+          "copper-sheet",
+          3.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-steel-canister",
+      "name": "Alternate: Steel Canister",
+      "time": 6.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "steel-ingot",
+          4.0
+        ]
+      ],
+      "out": [
+        [
+          "empty-canister",
+          4.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-steel-cast-plate",
+      "name": "Alternate: Steel Cast Plate",
+      "time": 4.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "iron-ingot",
+          1.0
+        ],
+        [
+          "steel-ingot",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "iron-plate",
+          3.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-steel-rod",
+      "name": "Alternate: Steel Rod",
+      "time": 5.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "steel-ingot",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "iron-rod",
+          4.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-steel-rotor",
+      "name": "Alternate: Steel Rotor",
+      "time": 12.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "steel-pipe",
+          2.0
+        ],
+        [
+          "wire",
+          6.0
+        ]
+      ],
+      "out": [
+        [
+          "rotor",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-steel-screw",
+      "name": "Alternate: Steel Screw",
+      "time": 12.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "steel-beam",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "screw",
+          52.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-steeled-frame",
+      "name": "Alternate: Steeled Frame",
+      "time": 60.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "reinforced-iron-plate",
+          2.0
+        ],
+        [
+          "steel-pipe",
+          10.0
+        ]
+      ],
+      "out": [
+        [
+          "modular-frame",
+          3.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-stitched-iron-plate",
+      "name": "Alternate: Stitched Iron Plate",
+      "time": 32.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "iron-plate",
+          10.0
+        ],
+        [
+          "wire",
+          20.0
+        ]
+      ],
+      "out": [
+        [
+          "reinforced-iron-plate",
+          3.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-super-state-computer",
+      "name": "Alternate: Super-State Computer",
+      "time": 25.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "computer",
+          3.0
+        ],
+        [
+          "electromagnetic-control-rod",
+          1.0
+        ],
+        [
+          "battery",
+          10.0
+        ],
+        [
+          "wire",
+          25.0
+        ]
+      ],
+      "out": [
+        [
+          "supercomputer",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-turbo-blend-fuel",
+      "name": "Alternate: Turbo Blend Fuel",
+      "time": 8.0,
+      "machines": [
+        "blender"
+      ],
+      "in": [
+        [
+          "fuel",
+          2.0
+        ],
+        [
+          "heavy-oil-residue",
+          4.0
+        ],
+        [
+          "sulfur",
+          3.0
+        ],
+        [
+          "petroleum-coke",
+          3.0
+        ]
+      ],
+      "out": [
+        [
+          "turbofuel",
+          6.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-turbo-diamonds",
+      "name": "Alternate: Turbo Diamonds",
+      "time": 3.0,
+      "machines": [
+        "particle-accelerator"
+      ],
+      "in": [
+        [
+          "coal",
+          30.0
+        ],
+        [
+          "packaged-turbofuel",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "diamonds",
+          3.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-turbo-electric-motor",
+      "name": "Alternate: Turbo Electric Motor",
+      "time": 64.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "motor",
+          7.0
+        ],
+        [
+          "radio-control-unit",
+          9.0
+        ],
+        [
+          "electromagnetic-control-rod",
+          5.0
+        ],
+        [
+          "rotor",
+          7.0
+        ]
+      ],
+      "out": [
+        [
+          "turbo-motor",
+          3.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-turbo-heavy-fuel",
+      "name": "Alternate: Turbo Heavy Fuel",
+      "time": 8.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "heavy-oil-residue",
+          5.0
+        ],
+        [
+          "compacted-coal",
+          4.0
+        ]
+      ],
+      "out": [
+        [
+          "turbofuel",
+          4.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-turbo-pressure-motor",
+      "name": "Alternate: Turbo Pressure Motor",
+      "time": 32.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "motor",
+          4.0
+        ],
+        [
+          "pressure-conversion-cube",
+          1.0
+        ],
+        [
+          "packaged-nitrogen-gas",
+          24.0
+        ],
+        [
+          "stator",
+          8.0
+        ]
+      ],
+      "out": [
+        [
+          "turbo-motor",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-uranium-fuel-unit",
+      "name": "Alternate: Uranium Fuel Unit",
+      "time": 300.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "encased-uranium-cell",
+          100.0
+        ],
+        [
+          "electromagnetic-control-rod",
+          10.0
+        ],
+        [
+          "crystal-oscillator",
+          3.0
+        ],
+        [
+          "rotor",
+          10.0
+        ]
+      ],
+      "out": [
+        [
+          "uranium-fuel-rod",
+          3.0
+        ]
+      ]
+    },
+    {
+      "id": "alternate-wet-concrete",
+      "name": "Alternate: Wet Concrete",
+      "time": 3.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "limestone",
+          6.0
+        ],
+        [
+          "water",
+          5.0
+        ]
+      ],
+      "out": [
+        [
+          "concrete",
+          4.0
+        ]
+      ]
+    },
+    {
+      "id": "alumina-solution",
+      "name": "Alumina Solution",
+      "time": 6.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "bauxite",
+          12.0
+        ],
+        [
+          "water",
+          18.0
+        ]
+      ],
+      "out": [
+        [
+          "alumina-solution",
+          12.0
+        ],
+        [
+          "silica",
+          5.0
+        ]
+      ]
+    },
+    {
+      "id": "aluminum-casing",
+      "name": "Aluminum Casing",
+      "time": 2.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "aluminum-ingot",
+          3.0
+        ]
+      ],
+      "out": [
+        [
+          "aluminum-casing",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "aluminum-ingot",
+      "name": "Aluminum Ingot",
+      "time": 4.0,
+      "machines": [
+        "foundry"
+      ],
+      "in": [
+        [
+          "aluminum-scrap",
+          6.0
+        ],
+        [
+          "silica",
+          5.0
+        ]
+      ],
+      "out": [
+        [
+          "aluminum-ingot",
+          4.0
+        ]
+      ]
+    },
+    {
+      "id": "aluminum-scrap",
+      "name": "Aluminum Scrap",
+      "time": 1.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "alumina-solution",
+          4.0
+        ],
+        [
+          "coal",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "aluminum-scrap",
+          6.0
+        ],
+        [
+          "water",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "assembly-director-system",
+      "name": "Assembly Director System",
+      "time": 80.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "adaptive-control-unit",
+          2.0
+        ],
+        [
+          "supercomputer",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "assembly-director-system",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "automated-wiring",
+      "name": "Automated Wiring",
+      "time": 24.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "stator",
+          1.0
+        ],
+        [
+          "cable",
+          20.0
+        ]
+      ],
+      "out": [
+        [
+          "automated-wiring",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "ballistic-warp-drive",
+      "name": "Ballistic Warp Drive",
+      "time": 60.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "thermal-propulsion-rocket",
+          1.0
+        ],
+        [
+          "singularity-cell",
+          5.0
+        ],
+        [
+          "superposition-oscillator",
+          2.0
+        ],
+        [
+          "dark-matter-crystal",
+          40.0
+        ]
+      ],
+      "out": [
+        [
+          "ballistic-warp-drive",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "battery",
+      "name": "Battery",
+      "time": 3.0,
+      "machines": [
+        "blender"
+      ],
+      "in": [
+        [
+          "sulfuric-acid",
+          2.5
+        ],
+        [
+          "alumina-solution",
+          2.0
+        ],
+        [
+          "aluminum-casing",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "battery",
+          1.0
+        ],
+        [
+          "water",
+          1.5
+        ]
+      ]
+    },
+    {
+      "id": "bauxite",
+      "name": "Bauxite",
+      "time": 1.0,
+      "machines": [
+        "miner-mk1",
+        "miner-mk2",
+        "miner-mk3"
+      ],
+      "out": [
+        [
+          "bauxite",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "bauxite-caterium",
+      "name": "Bauxite (Caterium)",
+      "time": 6.0,
+      "machines": [
+        "converter"
+      ],
+      "in": [
+        [
+          "reanimated-sam",
+          1.0
+        ],
+        [
+          "caterium-ore",
+          15.0
+        ]
+      ],
+      "out": [
+        [
+          "bauxite",
+          12.0
+        ]
+      ]
+    },
+    {
+      "id": "bauxite-copper",
+      "name": "Bauxite (Copper)",
+      "time": 6.0,
+      "machines": [
+        "converter"
+      ],
+      "in": [
+        [
+          "reanimated-sam",
+          1.0
+        ],
+        [
+          "copper-ore",
+          18.0
+        ]
+      ],
+      "out": [
+        [
+          "bauxite",
+          12.0
+        ]
+      ]
+    },
+    {
+      "id": "biochemical-sculptor",
+      "name": "Biochemical Sculptor",
+      "time": 120.0,
+      "machines": [
+        "blender"
+      ],
+      "in": [
+        [
+          "assembly-director-system",
+          1.0
+        ],
+        [
+          "ficsite-trigon",
+          80.0
+        ],
+        [
+          "water",
+          20.0
+        ]
+      ],
+      "out": [
+        [
+          "biochemical-sculptor",
+          4.0
+        ]
+      ]
+    },
+    {
+      "id": "biomass-alien-protein",
+      "name": "Biomass (Alien Protein)",
+      "time": 4.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "alien-protein",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "biomass",
+          100.0
+        ]
+      ]
+    },
+    {
+      "id": "biomass-leaves",
+      "name": "Biomass (Leaves)",
+      "time": 5.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "leaves",
+          10.0
+        ]
+      ],
+      "out": [
+        [
+          "biomass",
+          5.0
+        ]
+      ]
+    },
+    {
+      "id": "biomass-mycelia",
+      "name": "Biomass (Mycelia)",
+      "time": 4.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "mycelia",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "biomass",
+          10.0
+        ]
+      ]
+    },
+    {
+      "id": "biomass-wood",
+      "name": "Biomass (Wood)",
+      "time": 4.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "wood",
+          4.0
+        ]
+      ],
+      "out": [
+        [
+          "biomass",
+          20.0
+        ]
+      ]
+    },
+    {
+      "id": "black-powder",
+      "name": "Black Powder",
+      "time": 4.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "coal",
+          1.0
+        ],
+        [
+          "sulfur",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "black-powder",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "burn-biomass",
+      "name": "Burn Biomass",
+      "time": 6.0,
+      "machines": [
+        "biomass-burner"
+      ],
+      "in": [
+        [
+          "biomass",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "burn-coal",
+      "name": "Burn Coal",
+      "time": 4.0,
+      "machines": [
+        "coal-powered-generator"
+      ],
+      "in": [
+        [
+          "coal",
+          1.0
+        ],
+        [
+          "water",
+          3.0
+        ]
+      ]
+    },
+    {
+      "id": "burn-compacted-coal",
+      "name": "Burn Compacted Coal",
+      "time": 8.4,
+      "machines": [
+        "coal-powered-generator"
+      ],
+      "in": [
+        [
+          "compacted-coal",
+          1.0
+        ],
+        [
+          "water",
+          6.3
+        ]
+      ]
+    },
+    {
+      "id": "burn-fuel",
+      "name": "Burn Fuel",
+      "time": 3.0,
+      "machines": [
+        "fuel-powered-generator"
+      ],
+      "in": [
+        [
+          "fuel",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "burn-hog-remains",
+      "name": "Burn Hog Remains",
+      "time": 8.33333,
+      "machines": [
+        "biomass-burner"
+      ],
+      "in": [
+        [
+          "hog-remains",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "burn-ionized-fuel",
+      "name": "Burn Ionized Fuel",
+      "time": 20.0,
+      "machines": [
+        "fuel-powered-generator"
+      ],
+      "in": [
+        [
+          "ionized-fuel",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "burn-leaves",
+      "name": "Burn Leaves",
+      "time": 0.5,
+      "machines": [
+        "biomass-burner"
+      ],
+      "in": [
+        [
+          "leaves",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "burn-liquid-biofuel",
+      "name": "Burn Liquid Biofuel",
+      "time": 3.0,
+      "machines": [
+        "fuel-powered-generator"
+      ],
+      "in": [
+        [
+          "liquid-biofuel",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "burn-mycelia",
+      "name": "Burn Mycelia",
+      "time": 0.666667,
+      "machines": [
+        "biomass-burner"
+      ],
+      "in": [
+        [
+          "mycelia",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "burn-packaged-liquid-biofuel",
+      "name": "Burn Packaged Liquid Biofuel",
+      "time": 25.0,
+      "machines": [
+        "biomass-burner"
+      ],
+      "in": [
+        [
+          "packaged-liquid-biofuel",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "burn-petroleum-coke",
+      "name": "Burn Petroleum Coke",
+      "time": 2.4,
+      "machines": [
+        "coal-powered-generator"
+      ],
+      "in": [
+        [
+          "petroleum-coke",
+          1.0
+        ],
+        [
+          "water",
+          1.8
+        ]
+      ]
+    },
+    {
+      "id": "burn-rocket-fuel",
+      "name": "Burn Rocket Fuel",
+      "time": 14.4,
+      "machines": [
+        "fuel-powered-generator"
+      ],
+      "in": [
+        [
+          "rocket-fuel",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "burn-solid-biofuel",
+      "name": "Burn Solid Biofuel",
+      "time": 15.0,
+      "machines": [
+        "biomass-burner"
+      ],
+      "in": [
+        [
+          "solid-biofuel",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "burn-spitter-remains",
+      "name": "Burn Spitter Remains",
+      "time": 8.3333,
+      "machines": [
+        "biomass-burner"
+      ],
+      "in": [
+        [
+          "spitter-remains",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "burn-stinger-remains",
+      "name": "Burn Stinger Remains",
+      "time": 8.3333,
+      "machines": [
+        "biomass-burner"
+      ],
+      "in": [
+        [
+          "stinger-remains",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "burn-turbofuel",
+      "name": "Burn Turbofuel",
+      "time": 8.0,
+      "machines": [
+        "fuel-powered-generator"
+      ],
+      "in": [
+        [
+          "turbofuel",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "burn-wood",
+      "name": "Burn Wood",
+      "time": 3.3333,
+      "machines": [
+        "biomass-burner"
+      ],
+      "in": [
+        [
+          "wood",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "cable",
+      "name": "Cable",
+      "time": 2.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "wire",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "cable",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "caterium-ingot",
+      "name": "Caterium Ingot",
+      "time": 4.0,
+      "machines": [
+        "smelter"
+      ],
+      "in": [
+        [
+          "caterium-ore",
+          3.0
+        ]
+      ],
+      "out": [
+        [
+          "caterium-ingot",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "caterium-ore",
+      "name": "Caterium Ore",
+      "time": 1.0,
+      "machines": [
+        "miner-mk1",
+        "miner-mk2",
+        "miner-mk3"
+      ],
+      "out": [
+        [
+          "caterium-ore",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "caterium-ore-copper",
+      "name": "Caterium Ore (Copper)",
+      "time": 6.0,
+      "machines": [
+        "converter"
+      ],
+      "in": [
+        [
+          "reanimated-sam",
+          1.0
+        ],
+        [
+          "copper-ore",
+          15.0
+        ]
+      ],
+      "out": [
+        [
+          "caterium-ore",
+          12.0
+        ]
+      ]
+    },
+    {
+      "id": "caterium-ore-quartz",
+      "name": "Caterium Ore (Quartz)",
+      "time": 6.0,
+      "machines": [
+        "converter"
+      ],
+      "in": [
+        [
+          "reanimated-sam",
+          1.0
+        ],
+        [
+          "raw-quartz",
+          12.0
+        ]
+      ],
+      "out": [
+        [
+          "caterium-ore",
+          12.0
+        ]
+      ]
+    },
+    {
+      "id": "circuit-board",
+      "name": "Circuit Board",
+      "time": 8.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "copper-sheet",
+          2.0
+        ],
+        [
+          "plastic",
+          4.0
+        ]
+      ],
+      "out": [
+        [
+          "circuit-board",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "cluster-nobelisk",
+      "name": "Cluster Nobelisk",
+      "time": 24.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "nobelisk",
+          3.0
+        ],
+        [
+          "smokeless-powder",
+          4.0
+        ]
+      ],
+      "out": [
+        [
+          "cluster-nobelisk",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "coal",
+      "name": "Coal",
+      "time": 1.0,
+      "machines": [
+        "miner-mk1",
+        "miner-mk2",
+        "miner-mk3"
+      ],
+      "out": [
+        [
+          "coal",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "coal-iron",
+      "name": "Coal (Iron)",
+      "time": 6.0,
+      "machines": [
+        "converter"
+      ],
+      "in": [
+        [
+          "reanimated-sam",
+          1.0
+        ],
+        [
+          "iron-ore",
+          18.0
+        ]
+      ],
+      "out": [
+        [
+          "coal",
+          12.0
+        ]
+      ]
+    },
+    {
+      "id": "coal-limestone",
+      "name": "Coal (Limestone)",
+      "time": 6.0,
+      "machines": [
+        "converter"
+      ],
+      "in": [
+        [
+          "reanimated-sam",
+          1.0
+        ],
+        [
+          "limestone",
+          36.0
+        ]
+      ],
+      "out": [
+        [
+          "coal",
+          12.0
+        ]
+      ]
+    },
+    {
+      "id": "computer",
+      "name": "Computer",
+      "time": 24.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "circuit-board",
+          4.0
+        ],
+        [
+          "cable",
+          8.0
+        ],
+        [
+          "plastic",
+          16.0
+        ]
+      ],
+      "out": [
+        [
+          "computer",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "concrete",
+      "name": "Concrete",
+      "time": 4.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "limestone",
+          3.0
+        ]
+      ],
+      "out": [
+        [
+          "concrete",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "cooling-system",
+      "name": "Cooling System",
+      "time": 10.0,
+      "machines": [
+        "blender"
+      ],
+      "in": [
+        [
+          "heat-sink",
+          2.0
+        ],
+        [
+          "rubber",
+          2.0
+        ],
+        [
+          "water",
+          5.0
+        ],
+        [
+          "nitrogen-gas",
+          25.0
+        ]
+      ],
+      "out": [
+        [
+          "cooling-system",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "copper-ingot",
+      "name": "Copper Ingot",
+      "time": 2.0,
+      "machines": [
+        "smelter"
+      ],
+      "in": [
+        [
+          "copper-ore",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "copper-ingot",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "copper-ore",
+      "name": "Copper Ore",
+      "time": 1.0,
+      "machines": [
+        "miner-mk1",
+        "miner-mk2",
+        "miner-mk3"
+      ],
+      "out": [
+        [
+          "copper-ore",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "copper-ore-quartz",
+      "name": "Copper Ore (Quartz)",
+      "time": 6.0,
+      "machines": [
+        "converter"
+      ],
+      "in": [
+        [
+          "reanimated-sam",
+          1.0
+        ],
+        [
+          "raw-quartz",
+          10.0
+        ]
+      ],
+      "out": [
+        [
+          "copper-ore",
+          12.0
+        ]
+      ]
+    },
+    {
+      "id": "copper-ore-sulfur",
+      "name": "Copper Ore (Sulfur)",
+      "time": 6.0,
+      "machines": [
+        "converter"
+      ],
+      "in": [
+        [
+          "reanimated-sam",
+          1.0
+        ],
+        [
+          "sulfur",
+          12.0
+        ]
+      ],
+      "out": [
+        [
+          "copper-ore",
+          12.0
+        ]
+      ]
+    },
+    {
+      "id": "copper-powder",
+      "name": "Copper Powder",
+      "time": 6.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "copper-ingot",
+          30.0
+        ]
+      ],
+      "out": [
+        [
+          "copper-powder",
+          5.0
+        ]
+      ]
+    },
+    {
+      "id": "copper-sheet",
+      "name": "Copper Sheet",
+      "time": 6.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "copper-ingot",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "copper-sheet",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "crude-oil",
+      "name": "Crude Oil",
+      "time": 1.0,
+      "machines": [
+        "resource-well",
+        "oil-extractor"
+      ],
+      "out": [
+        [
+          "crude-oil",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "crystal-oscillator",
+      "name": "Crystal Oscillator",
+      "time": 120.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "quartz-crystal",
+          36.0
+        ],
+        [
+          "cable",
+          28.0
+        ],
+        [
+          "reinforced-iron-plate",
+          5.0
+        ]
+      ],
+      "out": [
+        [
+          "crystal-oscillator",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "dark-matter-crystal",
+      "name": "Dark Matter Crystal",
+      "time": 2.0,
+      "machines": [
+        "particle-accelerator"
+      ],
+      "attrs": {
+        "power": 1000
+      },
+      "in": [
+        [
+          "diamonds",
+          1.0
+        ],
+        [
+          "dark-matter-residue",
+          5.0
+        ]
+      ],
+      "out": [
+        [
+          "dark-matter-crystal",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "dark-matter-residue",
+      "name": "Dark Matter Residue",
+      "time": 6.0,
+      "machines": [
+        "converter"
+      ],
+      "in": [
+        [
+          "reanimated-sam",
+          5.0
+        ]
+      ],
+      "out": [
+        [
+          "dark-matter-residue",
+          10.0
+        ]
+      ]
+    },
+    {
+      "id": "diamonds",
+      "name": "Diamonds",
+      "time": 2.0,
+      "machines": [
+        "particle-accelerator"
+      ],
+      "in": [
+        [
+          "coal",
+          20.0
+        ]
+      ],
+      "out": [
+        [
+          "diamonds",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "electromagnetic-control-rod",
+      "name": "Electromagnetic Control Rod",
+      "time": 30.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "stator",
+          3.0
+        ],
+        [
+          "ai-limiter",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "electromagnetic-control-rod",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "empty-canister",
+      "name": "Empty Canister",
+      "time": 4.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "plastic",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "empty-canister",
+          4.0
+        ]
+      ]
+    },
+    {
+      "id": "empty-fluid-tank",
+      "name": "Empty Fluid Tank",
+      "time": 1.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "aluminum-ingot",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "empty-fluid-tank",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "encased-industrial-beam",
+      "name": "Encased Industrial Beam",
+      "time": 10.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "steel-beam",
+          3.0
+        ],
+        [
+          "concrete",
+          6.0
+        ]
+      ],
+      "out": [
+        [
+          "encased-industrial-beam",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "encased-plutonium-cell",
+      "name": "Encased Plutonium Cell",
+      "time": 12.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "plutonium-pellet",
+          2.0
+        ],
+        [
+          "concrete",
+          4.0
+        ]
+      ],
+      "out": [
+        [
+          "encased-plutonium-cell",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "encased-uranium-cell",
+      "name": "Encased Uranium Cell",
+      "time": 12.0,
+      "machines": [
+        "blender"
+      ],
+      "in": [
+        [
+          "uranium",
+          10.0
+        ],
+        [
+          "concrete",
+          3.0
+        ],
+        [
+          "sulfuric-acid",
+          8.0
+        ]
+      ],
+      "out": [
+        [
+          "encased-uranium-cell",
+          5.0
+        ],
+        [
+          "sulfuric-acid",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "excited-photonic-matter",
+      "name": "Excited Photonic Matter",
+      "time": 3.0,
+      "machines": [
+        "converter"
+      ],
+      "out": [
+        [
+          "excited-photonic-matter",
+          10.0
+        ]
+      ]
+    },
+    {
+      "id": "explosive-rebar",
+      "name": "Explosive Rebar",
+      "time": 12.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "iron-rebar",
+          2.0
+        ],
+        [
+          "smokeless-powder",
+          2.0
+        ],
+        [
+          "steel-pipe",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "explosive-rebar",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "fabric",
+      "name": "Fabric",
+      "time": 4.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "mycelia",
+          1.0
+        ],
+        [
+          "biomass",
+          5.0
+        ]
+      ],
+      "out": [
+        [
+          "fabric",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "ficsite-ingot-aluminum",
+      "name": "Ficsite Ingot (Aluminum)",
+      "time": 2.0,
+      "machines": [
+        "converter"
+      ],
+      "in": [
+        [
+          "reanimated-sam",
+          2.0
+        ],
+        [
+          "aluminum-ingot",
+          4.0
+        ]
+      ],
+      "out": [
+        [
+          "ficsite-ingot",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "ficsite-ingot-caterium",
+      "name": "Ficsite Ingot (Caterium)",
+      "time": 4.0,
+      "machines": [
+        "converter"
+      ],
+      "in": [
+        [
+          "reanimated-sam",
+          3.0
+        ],
+        [
+          "caterium-ingot",
+          4.0
+        ]
+      ],
+      "out": [
+        [
+          "ficsite-ingot",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "ficsite-ingot-iron",
+      "name": "Ficsite Ingot (Iron)",
+      "time": 6.0,
+      "machines": [
+        "converter"
+      ],
+      "in": [
+        [
+          "reanimated-sam",
+          4.0
+        ],
+        [
+          "iron-ingot",
+          24.0
+        ]
+      ],
+      "out": [
+        [
+          "ficsite-ingot",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "ficsite-trigon",
+      "name": "Ficsite Trigon",
+      "time": 6.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "ficsite-ingot",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "ficsite-trigon",
+          3.0
+        ]
+      ]
+    },
+    {
+      "id": "ficsonium",
+      "name": "Ficsonium",
+      "time": 6.0,
+      "machines": [
+        "particle-accelerator"
+      ],
+      "attrs": {
+        "power": 1000
+      },
+      "in": [
+        [
+          "plutonium-waste",
+          1.0
+        ],
+        [
+          "singularity-cell",
+          1.0
+        ],
+        [
+          "dark-matter-residue",
+          20.0
+        ]
+      ],
+      "out": [
+        [
+          "ficsonium",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "ficsonium-fuel-rod",
+      "name": "Ficsonium Fuel Rod",
+      "time": 24.0,
+      "machines": [
+        "quantum-encoder"
+      ],
+      "in": [
+        [
+          "ficsonium",
+          2.0
+        ],
+        [
+          "electromagnetic-control-rod",
+          2.0
+        ],
+        [
+          "ficsite-trigon",
+          40.0
+        ],
+        [
+          "excited-photonic-matter",
+          20.0
+        ]
+      ],
+      "out": [
+        [
+          "ficsonium-fuel-rod",
+          1.0
+        ],
+        [
+          "dark-matter-residue",
+          20.0
+        ]
+      ]
+    },
+    {
+      "id": "fuel",
+      "name": "Fuel",
+      "time": 6.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "crude-oil",
+          6.0
+        ]
+      ],
+      "out": [
+        [
+          "fuel",
+          4.0
+        ],
+        [
+          "polymer-resin",
+          3.0
+        ]
+      ]
+    },
+    {
+      "id": "fused-modular-frame",
+      "name": "Fused Modular Frame",
+      "time": 40.0,
+      "machines": [
+        "blender"
+      ],
+      "in": [
+        [
+          "heavy-modular-frame",
+          1.0
+        ],
+        [
+          "aluminum-casing",
+          50.0
+        ],
+        [
+          "nitrogen-gas",
+          25.0
+        ]
+      ],
+      "out": [
+        [
+          "fused-modular-frame",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "gas-filter",
+      "name": "Gas Filter",
+      "time": 8.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "fabric",
+          2.0
+        ],
+        [
+          "coal",
+          4.0
+        ],
+        [
+          "iron-plate",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "gas-filter",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "gas-nobelisk",
+      "name": "Gas Nobelisk",
+      "time": 12.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "nobelisk",
+          1.0
+        ],
+        [
+          "biomass",
+          10.0
+        ]
+      ],
+      "out": [
+        [
+          "gas-nobelisk",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "hatcher-protein",
+      "name": "Hatcher Protein",
+      "time": 3.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "hatcher-remains",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "alien-protein",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "heat-sink",
+      "name": "Heat Sink",
+      "time": 8.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "alclad-aluminum-sheet",
+          5.0
+        ],
+        [
+          "copper-sheet",
+          3.0
+        ]
+      ],
+      "out": [
+        [
+          "heat-sink",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "heavy-modular-frame",
+      "name": "Heavy Modular Frame",
+      "time": 30.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "modular-frame",
+          5.0
+        ],
+        [
+          "steel-pipe",
+          20.0
+        ],
+        [
+          "encased-industrial-beam",
+          5.0
+        ],
+        [
+          "screw",
+          120.0
+        ]
+      ],
+      "out": [
+        [
+          "heavy-modular-frame",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "high-speed-connector",
+      "name": "High-Speed Connector",
+      "time": 16.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "quickwire",
+          56.0
+        ],
+        [
+          "cable",
+          10.0
+        ],
+        [
+          "circuit-board",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "high-speed-connector",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "hog-protein",
+      "name": "Hog Protein",
+      "time": 3.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "hog-remains",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "alien-protein",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "homing-rifle-ammo",
+      "name": "Homing Rifle Ammo",
+      "time": 24.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "rifle-ammo",
+          20.0
+        ],
+        [
+          "high-speed-connector",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "homing-rifle-ammo",
+          10.0
+        ]
+      ]
+    },
+    {
+      "id": "iodine-infused-filter",
+      "name": "Iodine-Infused Filter",
+      "time": 16.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "gas-filter",
+          1.0
+        ],
+        [
+          "quickwire",
+          8.0
+        ],
+        [
+          "aluminum-casing",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "iodine-infused-filter",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "ionized-fuel",
+      "name": "Ionized Fuel",
+      "time": 24.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "rocket-fuel",
+          16.0
+        ],
+        [
+          "power-shard",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "ionized-fuel",
+          16.0
+        ],
+        [
+          "compacted-coal",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "iron-ingot",
+      "name": "Iron Ingot",
+      "time": 2.0,
+      "machines": [
+        "smelter"
+      ],
+      "in": [
+        [
+          "iron-ore",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "iron-ingot",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "iron-ore",
+      "name": "Iron Ore",
+      "time": 1.0,
+      "machines": [
+        "miner-mk1",
+        "miner-mk2",
+        "miner-mk3"
+      ],
+      "out": [
+        [
+          "iron-ore",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "iron-ore-limestone",
+      "name": "Iron Ore (Limestone)",
+      "time": 6.0,
+      "machines": [
+        "converter"
+      ],
+      "in": [
+        [
+          "reanimated-sam",
+          1.0
+        ],
+        [
+          "limestone",
+          24.0
+        ]
+      ],
+      "out": [
+        [
+          "iron-ore",
+          12.0
+        ]
+      ]
+    },
+    {
+      "id": "iron-plate",
+      "name": "Iron Plate",
+      "time": 6.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "iron-ingot",
+          3.0
+        ]
+      ],
+      "out": [
+        [
+          "iron-plate",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "iron-rebar",
+      "name": "Iron Rebar",
+      "time": 4.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "iron-rod",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "iron-rebar",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "iron-rod",
+      "name": "Iron Rod",
+      "time": 4.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "iron-ingot",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "iron-rod",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "limestone",
+      "name": "Limestone",
+      "time": 1.0,
+      "machines": [
+        "miner-mk1",
+        "miner-mk2",
+        "miner-mk3"
+      ],
+      "out": [
+        [
+          "limestone",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "limestone-sulfur",
+      "name": "Limestone (Sulfur)",
+      "time": 6.0,
+      "machines": [
+        "converter"
+      ],
+      "in": [
+        [
+          "reanimated-sam",
+          1.0
+        ],
+        [
+          "sulfur",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "limestone",
+          12.0
+        ]
+      ]
+    },
+    {
+      "id": "liquid-biofuel",
+      "name": "Liquid Biofuel",
+      "time": 4.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "solid-biofuel",
+          6.0
+        ],
+        [
+          "water",
+          3.0
+        ]
+      ],
+      "out": [
+        [
+          "liquid-biofuel",
+          4.0
+        ]
+      ]
+    },
+    {
+      "id": "magnetic-field-generator",
+      "name": "Magnetic Field Generator",
+      "time": 120.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "versatile-framework",
+          5.0
+        ],
+        [
+          "electromagnetic-control-rod",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "magnetic-field-generator",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "modular-engine",
+      "name": "Modular Engine",
+      "time": 60.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "motor",
+          2.0
+        ],
+        [
+          "rubber",
+          15.0
+        ],
+        [
+          "smart-plating",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "modular-engine",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "modular-frame",
+      "name": "Modular Frame",
+      "time": 60.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "reinforced-iron-plate",
+          3.0
+        ],
+        [
+          "iron-rod",
+          12.0
+        ]
+      ],
+      "out": [
+        [
+          "modular-frame",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "motor",
+      "name": "Motor",
+      "time": 12.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "rotor",
+          2.0
+        ],
+        [
+          "stator",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "motor",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "neural-quantum-processor",
+      "name": "Neural-Quantum Processor",
+      "time": 20.0,
+      "machines": [
+        "quantum-encoder"
+      ],
+      "in": [
+        [
+          "time-crystal",
+          5.0
+        ],
+        [
+          "supercomputer",
+          1.0
+        ],
+        [
+          "ficsite-trigon",
+          15.0
+        ],
+        [
+          "excited-photonic-matter",
+          25.0
+        ]
+      ],
+      "out": [
+        [
+          "neural-quantum-processor",
+          1.0
+        ],
+        [
+          "dark-matter-residue",
+          25.0
+        ]
+      ]
+    },
+    {
+      "id": "nitric-acid",
+      "name": "Nitric Acid",
+      "time": 6.0,
+      "machines": [
+        "blender"
+      ],
+      "in": [
+        [
+          "nitrogen-gas",
+          12.0
+        ],
+        [
+          "water",
+          3.0
+        ],
+        [
+          "iron-plate",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "nitric-acid",
+          3.0
+        ]
+      ]
+    },
+    {
+      "id": "nitrogen-gas",
+      "name": "Nitrogen Gas",
+      "time": 1.0,
+      "machines": [
+        "resource-well"
+      ],
+      "out": [
+        [
+          "nitrogen-gas",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "nitrogen-gas-bauxite",
+      "name": "Nitrogen Gas (Bauxite)",
+      "time": 6.0,
+      "machines": [
+        "converter"
+      ],
+      "in": [
+        [
+          "reanimated-sam",
+          1.0
+        ],
+        [
+          "bauxite",
+          10.0
+        ]
+      ],
+      "out": [
+        [
+          "nitrogen-gas",
+          12.0
+        ]
+      ]
+    },
+    {
+      "id": "nitrogen-gas-caterium",
+      "name": "Nitrogen Gas (Caterium)",
+      "time": 6.0,
+      "machines": [
+        "converter"
+      ],
+      "in": [
+        [
+          "reanimated-sam",
+          1.0
+        ],
+        [
+          "caterium-ore",
+          12.0
+        ]
+      ],
+      "out": [
+        [
+          "nitrogen-gas",
+          12.0
+        ]
+      ]
+    },
+    {
+      "id": "nobelisk",
+      "name": "Nobelisk",
+      "time": 6.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "black-powder",
+          2.0
+        ],
+        [
+          "steel-pipe",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "nobelisk",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "non-fissile-uranium",
+      "name": "Non-Fissile Uranium",
+      "time": 24.0,
+      "machines": [
+        "blender"
+      ],
+      "in": [
+        [
+          "uranium-waste",
+          15.0
+        ],
+        [
+          "silica",
+          10.0
+        ],
+        [
+          "nitric-acid",
+          6.0
+        ],
+        [
+          "sulfuric-acid",
+          6.0
+        ]
+      ],
+      "out": [
+        [
+          "non-fissile-uranium",
+          20.0
+        ],
+        [
+          "water",
+          6.0
+        ]
+      ]
+    },
+    {
+      "id": "nuclear-pasta",
+      "name": "Nuclear Pasta",
+      "time": 120.0,
+      "machines": [
+        "particle-accelerator"
+      ],
+      "attrs": {
+        "power": 1000
+      },
+      "in": [
+        [
+          "copper-powder",
+          200.0
+        ],
+        [
+          "pressure-conversion-cube",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "nuclear-pasta",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "nuke-nobelisk",
+      "name": "Nuke Nobelisk",
+      "time": 120.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "nobelisk",
+          5.0
+        ],
+        [
+          "encased-uranium-cell",
+          20.0
+        ],
+        [
+          "smokeless-powder",
+          10.0
+        ],
+        [
+          "ai-limiter",
+          6.0
+        ]
+      ],
+      "out": [
+        [
+          "nuke-nobelisk",
+          5.0
+        ]
+      ]
+    },
+    {
+      "id": "packaged-alumina-solution",
+      "name": "Packaged Alumina Solution",
+      "time": 1.0,
+      "machines": [
+        "packager"
+      ],
+      "in": [
+        [
+          "alumina-solution",
+          2.0
+        ],
+        [
+          "empty-canister",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "packaged-alumina-solution",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "packaged-fuel",
+      "name": "Packaged Fuel",
+      "time": 3.0,
+      "machines": [
+        "packager"
+      ],
+      "in": [
+        [
+          "fuel",
+          2.0
+        ],
+        [
+          "empty-canister",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "packaged-fuel",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "packaged-heavy-oil-residue",
+      "name": "Packaged Heavy Oil Residue",
+      "time": 4.0,
+      "machines": [
+        "packager"
+      ],
+      "in": [
+        [
+          "heavy-oil-residue",
+          2.0
+        ],
+        [
+          "empty-canister",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "packaged-heavy-oil-residue",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "packaged-ionized-fuel",
+      "name": "Packaged Ionized Fuel",
+      "time": 3.0,
+      "machines": [
+        "packager"
+      ],
+      "in": [
+        [
+          "ionized-fuel",
+          4.0
+        ],
+        [
+          "empty-fluid-tank",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "packaged-ionized-fuel",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "packaged-liquid-biofuel",
+      "name": "Packaged Liquid Biofuel",
+      "time": 3.0,
+      "machines": [
+        "packager"
+      ],
+      "in": [
+        [
+          "liquid-biofuel",
+          2.0
+        ],
+        [
+          "empty-canister",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "packaged-liquid-biofuel",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "packaged-nitric-acid",
+      "name": "Packaged Nitric Acid",
+      "time": 2.0,
+      "machines": [
+        "packager"
+      ],
+      "in": [
+        [
+          "nitric-acid",
+          1.0
+        ],
+        [
+          "empty-fluid-tank",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "packaged-nitric-acid",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "packaged-nitrogen-gas",
+      "name": "Packaged Nitrogen Gas",
+      "time": 1.0,
+      "machines": [
+        "packager"
+      ],
+      "in": [
+        [
+          "nitrogen-gas",
+          4.0
+        ],
+        [
+          "empty-fluid-tank",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "packaged-nitrogen-gas",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "packaged-oil",
+      "name": "Packaged Oil",
+      "time": 4.0,
+      "machines": [
+        "packager"
+      ],
+      "in": [
+        [
+          "crude-oil",
+          2.0
+        ],
+        [
+          "empty-canister",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "packaged-oil",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "packaged-rocket-fuel",
+      "name": "Packaged Rocket Fuel",
+      "time": 1.0,
+      "machines": [
+        "packager"
+      ],
+      "in": [
+        [
+          "rocket-fuel",
+          2.0
+        ],
+        [
+          "empty-fluid-tank",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "packaged-rocket-fuel",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "packaged-sulfuric-acid",
+      "name": "Packaged Sulfuric Acid",
+      "time": 3.0,
+      "machines": [
+        "packager"
+      ],
+      "in": [
+        [
+          "sulfuric-acid",
+          2.0
+        ],
+        [
+          "empty-canister",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "packaged-sulfuric-acid",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "packaged-turbofuel",
+      "name": "Packaged Turbofuel",
+      "time": 6.0,
+      "machines": [
+        "packager"
+      ],
+      "in": [
+        [
+          "turbofuel",
+          2.0
+        ],
+        [
+          "empty-canister",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "packaged-turbofuel",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "packaged-water",
+      "name": "Packaged Water",
+      "time": 2.0,
+      "machines": [
+        "packager"
+      ],
+      "in": [
+        [
+          "water",
+          2.0
+        ],
+        [
+          "empty-canister",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "packaged-water",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "petroleum-coke",
+      "name": "Petroleum Coke",
+      "time": 6.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "heavy-oil-residue",
+          4.0
+        ]
+      ],
+      "out": [
+        [
+          "petroleum-coke",
+          12.0
+        ]
+      ]
+    },
+    {
+      "id": "phase-1-distribution-platform",
+      "name": "Phase 1 (Distribution Platform)",
+      "time": 1.0,
+      "machines": [
+        "space-elevator"
+      ],
+      "in": [
+        [
+          "smart-plating",
+          50.0
+        ]
+      ]
+    },
+    {
+      "id": "phase-2-construction-dock",
+      "name": "Phase 2 (Construction Dock)",
+      "time": 1.0,
+      "machines": [
+        "space-elevator"
+      ],
+      "in": [
+        [
+          "smart-plating",
+          1000.0
+        ],
+        [
+          "versatile-framework",
+          1000.0
+        ],
+        [
+          "automated-wiring",
+          100.0
+        ]
+      ]
+    },
+    {
+      "id": "phase-3-main-body",
+      "name": "Phase 3 (Main Body)",
+      "time": 1.0,
+      "machines": [
+        "space-elevator"
+      ],
+      "in": [
+        [
+          "versatile-framework",
+          2500.0
+        ],
+        [
+          "modular-engine",
+          500.0
+        ],
+        [
+          "adaptive-control-unit",
+          100.0
+        ]
+      ]
+    },
+    {
+      "id": "phase-4-propulsion",
+      "name": "Phase 4 (Propulsion)",
+      "time": 1.0,
+      "machines": [
+        "space-elevator"
+      ],
+      "in": [
+        [
+          "assembly-director-system",
+          500.0
+        ],
+        [
+          "magnetic-field-generator",
+          500.0
+        ],
+        [
+          "thermal-propulsion-rocket",
+          250.0
+        ],
+        [
+          "nuclear-pasta",
+          100.0
+        ]
+      ]
+    },
+    {
+      "id": "phase-5-assembly",
+      "name": "Phase 5 (Assembly)",
+      "time": 1.0,
+      "machines": [
+        "space-elevator"
+      ],
+      "in": [
+        [
+          "nuclear-pasta",
+          1000.0
+        ],
+        [
+          "biochemical-sculptor",
+          1000.0
+        ],
+        [
+          "ai-expansion-server",
+          256.0
+        ],
+        [
+          "ballistic-warp-drive",
+          200.0
+        ]
+      ]
+    },
+    {
+      "id": "plastic",
+      "name": "Plastic",
+      "time": 6.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "crude-oil",
+          3.0
+        ]
+      ],
+      "out": [
+        [
+          "plastic",
+          2.0
+        ],
+        [
+          "heavy-oil-residue",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "plutonium-fuel-rod",
+      "name": "Plutonium Fuel Rod",
+      "time": 240.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "encased-plutonium-cell",
+          30.0
+        ],
+        [
+          "steel-beam",
+          18.0
+        ],
+        [
+          "electromagnetic-control-rod",
+          6.0
+        ],
+        [
+          "heat-sink",
+          10.0
+        ]
+      ],
+      "out": [
+        [
+          "plutonium-fuel-rod",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "plutonium-pellet",
+      "name": "Plutonium Pellet",
+      "time": 60.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "non-fissile-uranium",
+          100.0
+        ],
+        [
+          "uranium-waste",
+          25.0
+        ]
+      ],
+      "out": [
+        [
+          "plutonium-pellet",
+          30.0
+        ]
+      ]
+    },
+    {
+      "id": "power-shard-1",
+      "name": "Power Shard (1)",
+      "time": 8.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "blue-power-slug",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "power-shard",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "power-shard-2",
+      "name": "Power Shard (2)",
+      "time": 12.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "yellow-power-slug",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "power-shard",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "power-shard-5",
+      "name": "Power Shard (5)",
+      "time": 24.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "purple-power-slug",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "power-shard",
+          5.0
+        ]
+      ]
+    },
+    {
+      "id": "pressure-conversion-cube",
+      "name": "Pressure Conversion Cube",
+      "time": 60.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "fused-modular-frame",
+          1.0
+        ],
+        [
+          "radio-control-unit",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "pressure-conversion-cube",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "pulse-nobelisk",
+      "name": "Pulse Nobelisk",
+      "time": 60.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "nobelisk",
+          5.0
+        ],
+        [
+          "crystal-oscillator",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "pulse-nobelisk",
+          5.0
+        ]
+      ]
+    },
+    {
+      "id": "quartz-crystal",
+      "name": "Quartz Crystal",
+      "time": 8.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "raw-quartz",
+          5.0
+        ]
+      ],
+      "out": [
+        [
+          "quartz-crystal",
+          3.0
+        ]
+      ]
+    },
+    {
+      "id": "quickwire",
+      "name": "Quickwire",
+      "time": 5.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "caterium-ingot",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "quickwire",
+          5.0
+        ]
+      ]
+    },
+    {
+      "id": "radio-control-unit",
+      "name": "Radio Control Unit",
+      "time": 48.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "aluminum-casing",
+          32.0
+        ],
+        [
+          "crystal-oscillator",
+          1.0
+        ],
+        [
+          "computer",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "radio-control-unit",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "raw-quartz",
+      "name": "Raw Quartz",
+      "time": 1.0,
+      "machines": [
+        "miner-mk1",
+        "miner-mk2",
+        "miner-mk3"
+      ],
+      "out": [
+        [
+          "raw-quartz",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "raw-quartz-bauxite",
+      "name": "Raw Quartz (Bauxite)",
+      "time": 6.0,
+      "machines": [
+        "converter"
+      ],
+      "in": [
+        [
+          "reanimated-sam",
+          1.0
+        ],
+        [
+          "bauxite",
+          10.0
+        ]
+      ],
+      "out": [
+        [
+          "raw-quartz",
+          12.0
+        ]
+      ]
+    },
+    {
+      "id": "raw-quartz-coal",
+      "name": "Raw Quartz (Coal)",
+      "time": 6.0,
+      "machines": [
+        "converter"
+      ],
+      "in": [
+        [
+          "reanimated-sam",
+          1.0
+        ],
+        [
+          "coal",
+          24.0
+        ]
+      ],
+      "out": [
+        [
+          "raw-quartz",
+          12.0
+        ]
+      ]
+    },
+    {
+      "id": "reactor-cycle-plutonium",
+      "name": "Reactor Cycle (Plutonium)",
+      "time": 600.0,
+      "machines": [
+        "nuclear-power-plant"
+      ],
+      "in": [
+        [
+          "plutonium-fuel-rod",
+          1.0
+        ],
+        [
+          "water",
+          2400.0
+        ]
+      ],
+      "out": [
+        [
+          "plutonium-waste",
+          10.0
+        ]
+      ]
+    },
+    {
+      "id": "reactor-cycle-uranium",
+      "name": "Reactor Cycle (Uranium)",
+      "time": 300.0,
+      "machines": [
+        "nuclear-power-plant"
+      ],
+      "in": [
+        [
+          "uranium-fuel-rod",
+          1.0
+        ],
+        [
+          "water",
+          1200.0
+        ]
+      ],
+      "out": [
+        [
+          "uranium-waste",
+          50.0
+        ]
+      ]
+    },
+    {
+      "id": "reanimated-sam",
+      "name": "Reanimated SAM",
+      "time": 2.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "sam",
+          4.0
+        ]
+      ],
+      "out": [
+        [
+          "reanimated-sam",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "reinforced-iron-plate",
+      "name": "Reinforced Iron Plate",
+      "time": 12.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "iron-plate",
+          6.0
+        ],
+        [
+          "screw",
+          12.0
+        ]
+      ],
+      "out": [
+        [
+          "reinforced-iron-plate",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "residual-fuel",
+      "name": "Residual Fuel",
+      "time": 6.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "heavy-oil-residue",
+          6.0
+        ]
+      ],
+      "out": [
+        [
+          "fuel",
+          4.0
+        ]
+      ]
+    },
+    {
+      "id": "residual-plastic",
+      "name": "Residual Plastic",
+      "time": 6.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "polymer-resin",
+          6.0
+        ],
+        [
+          "water",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "plastic",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "residual-rubber",
+      "name": "Residual Rubber",
+      "time": 6.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "polymer-resin",
+          4.0
+        ],
+        [
+          "water",
+          4.0
+        ]
+      ],
+      "out": [
+        [
+          "rubber",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "rifle-ammo",
+      "name": "Rifle Ammo",
+      "time": 12.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "copper-sheet",
+          3.0
+        ],
+        [
+          "smokeless-powder",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "rifle-ammo",
+          15.0
+        ]
+      ]
+    },
+    {
+      "id": "rocket-fuel",
+      "name": "Rocket Fuel",
+      "time": 6.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "turbofuel",
+          6.0
+        ],
+        [
+          "nitric-acid",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "rocket-fuel",
+          10.0
+        ],
+        [
+          "compacted-coal",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "rotor",
+      "name": "Rotor",
+      "time": 15.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "iron-rod",
+          5.0
+        ],
+        [
+          "screw",
+          25.0
+        ]
+      ],
+      "out": [
+        [
+          "rotor",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "rubber",
+      "name": "Rubber",
+      "time": 6.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "crude-oil",
+          3.0
+        ]
+      ],
+      "out": [
+        [
+          "rubber",
+          2.0
+        ],
+        [
+          "heavy-oil-residue",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "sam",
+      "name": "SAM",
+      "time": 1.0,
+      "machines": [
+        "miner-mk1",
+        "miner-mk2",
+        "miner-mk3"
+      ],
+      "out": [
+        [
+          "sam",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "sam-fluctuator",
+      "name": "SAM Fluctuator",
+      "time": 6.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "reanimated-sam",
+          6.0
+        ],
+        [
+          "wire",
+          5.0
+        ],
+        [
+          "steel-pipe",
+          3.0
+        ]
+      ],
+      "out": [
+        [
+          "sam-fluctuator",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "screw",
+      "name": "Screw",
+      "time": 6.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "iron-rod",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "screw",
+          4.0
+        ]
+      ]
+    },
+    {
+      "id": "shatter-rebar",
+      "name": "Shatter Rebar",
+      "time": 12.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "iron-rebar",
+          2.0
+        ],
+        [
+          "quartz-crystal",
+          3.0
+        ]
+      ],
+      "out": [
+        [
+          "shatter-rebar",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "silica",
+      "name": "Silica",
+      "time": 8.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "raw-quartz",
+          3.0
+        ]
+      ],
+      "out": [
+        [
+          "silica",
+          5.0
+        ]
+      ]
+    },
+    {
+      "id": "singularity-cell",
+      "name": "Singularity Cell",
+      "time": 60.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "nuclear-pasta",
+          1.0
+        ],
+        [
+          "dark-matter-crystal",
+          20.0
+        ],
+        [
+          "iron-plate",
+          100.0
+        ],
+        [
+          "concrete",
+          200.0
+        ]
+      ],
+      "out": [
+        [
+          "singularity-cell",
+          10.0
+        ]
+      ]
+    },
+    {
+      "id": "smart-plating",
+      "name": "Smart Plating",
+      "time": 30.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "reinforced-iron-plate",
+          1.0
+        ],
+        [
+          "rotor",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "smart-plating",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "smokeless-powder",
+      "name": "Smokeless Powder",
+      "time": 6.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "black-powder",
+          2.0
+        ],
+        [
+          "heavy-oil-residue",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "smokeless-powder",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "solid-biofuel",
+      "name": "Solid Biofuel",
+      "time": 4.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "biomass",
+          8.0
+        ]
+      ],
+      "out": [
+        [
+          "solid-biofuel",
+          4.0
+        ]
+      ]
+    },
+    {
+      "id": "spitter-protein",
+      "name": "Spitter Protein",
+      "time": 3.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "spitter-remains",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "alien-protein",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "stator",
+      "name": "Stator",
+      "time": 12.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "steel-pipe",
+          3.0
+        ],
+        [
+          "wire",
+          8.0
+        ]
+      ],
+      "out": [
+        [
+          "stator",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "steel-beam",
+      "name": "Steel Beam",
+      "time": 4.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "steel-ingot",
+          4.0
+        ]
+      ],
+      "out": [
+        [
+          "steel-beam",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "steel-ingot",
+      "name": "Steel Ingot",
+      "time": 4.0,
+      "machines": [
+        "foundry"
+      ],
+      "in": [
+        [
+          "iron-ore",
+          3.0
+        ],
+        [
+          "coal",
+          3.0
+        ]
+      ],
+      "out": [
+        [
+          "steel-ingot",
+          3.0
+        ]
+      ]
+    },
+    {
+      "id": "steel-pipe",
+      "name": "Steel Pipe",
+      "time": 6.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "steel-ingot",
+          3.0
+        ]
+      ],
+      "out": [
+        [
+          "steel-pipe",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "stinger-protein",
+      "name": "Stinger Protein",
+      "time": 3.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "stinger-remains",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "alien-protein",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "stun-rebar",
+      "name": "Stun Rebar",
+      "time": 6.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "iron-rebar",
+          1.0
+        ],
+        [
+          "quickwire",
+          5.0
+        ]
+      ],
+      "out": [
+        [
+          "stun-rebar",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "sulfur",
+      "name": "Sulfur",
+      "time": 1.0,
+      "machines": [
+        "miner-mk1",
+        "miner-mk2",
+        "miner-mk3"
+      ],
+      "out": [
+        [
+          "sulfur",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "sulfur-coal",
+      "name": "Sulfur (Coal)",
+      "time": 6.0,
+      "machines": [
+        "converter"
+      ],
+      "in": [
+        [
+          "reanimated-sam",
+          1.0
+        ],
+        [
+          "coal",
+          20.0
+        ]
+      ],
+      "out": [
+        [
+          "sulfur",
+          12.0
+        ]
+      ]
+    },
+    {
+      "id": "sulfur-iron",
+      "name": "Sulfur (Iron)",
+      "time": 6.0,
+      "machines": [
+        "converter"
+      ],
+      "in": [
+        [
+          "reanimated-sam",
+          1.0
+        ],
+        [
+          "iron-ore",
+          30.0
+        ]
+      ],
+      "out": [
+        [
+          "sulfur",
+          12.0
+        ]
+      ]
+    },
+    {
+      "id": "sulfuric-acid",
+      "name": "Sulfuric Acid",
+      "time": 6.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "sulfur",
+          5.0
+        ],
+        [
+          "water",
+          5.0
+        ]
+      ],
+      "out": [
+        [
+          "sulfuric-acid",
+          5.0
+        ]
+      ]
+    },
+    {
+      "id": "supercomputer",
+      "name": "Supercomputer",
+      "time": 32.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "computer",
+          4.0
+        ],
+        [
+          "ai-limiter",
+          2.0
+        ],
+        [
+          "high-speed-connector",
+          3.0
+        ],
+        [
+          "plastic",
+          28.0
+        ]
+      ],
+      "out": [
+        [
+          "supercomputer",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "superposition-oscillator",
+      "name": "Superposition Oscillator",
+      "time": 12.0,
+      "machines": [
+        "quantum-encoder"
+      ],
+      "in": [
+        [
+          "dark-matter-crystal",
+          6.0
+        ],
+        [
+          "crystal-oscillator",
+          1.0
+        ],
+        [
+          "alclad-aluminum-sheet",
+          9.0
+        ],
+        [
+          "excited-photonic-matter",
+          10.0
+        ]
+      ],
+      "out": [
+        [
+          "superposition-oscillator",
+          1.0
+        ],
+        [
+          "dark-matter-residue",
+          25.0
+        ]
+      ]
+    },
+    {
+      "id": "synthetic-power-shard",
+      "name": "Synthetic Power Shard",
+      "time": 12.0,
+      "machines": [
+        "quantum-encoder"
+      ],
+      "in": [
+        [
+          "time-crystal",
+          2.0
+        ],
+        [
+          "dark-matter-crystal",
+          2.0
+        ],
+        [
+          "quartz-crystal",
+          12.0
+        ],
+        [
+          "excited-photonic-matter",
+          12.0
+        ]
+      ],
+      "out": [
+        [
+          "power-shard",
+          1.0
+        ],
+        [
+          "dark-matter-residue",
+          12.0
+        ]
+      ]
+    },
+    {
+      "id": "thermal-propulsion-rocket",
+      "name": "Thermal Propulsion Rocket",
+      "time": 120.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "modular-engine",
+          5.0
+        ],
+        [
+          "turbo-motor",
+          2.0
+        ],
+        [
+          "cooling-system",
+          6.0
+        ],
+        [
+          "fused-modular-frame",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "thermal-propulsion-rocket",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "time-crystal",
+      "name": "Time Crystal",
+      "time": 10.0,
+      "machines": [
+        "converter"
+      ],
+      "in": [
+        [
+          "diamonds",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "time-crystal",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "turbo-motor",
+      "name": "Turbo Motor",
+      "time": 32.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "cooling-system",
+          4.0
+        ],
+        [
+          "radio-control-unit",
+          2.0
+        ],
+        [
+          "motor",
+          4.0
+        ],
+        [
+          "rubber",
+          24.0
+        ]
+      ],
+      "out": [
+        [
+          "turbo-motor",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "turbo-rifle-ammo",
+      "name": "Turbo Rifle Ammo",
+      "time": 12.0,
+      "machines": [
+        "blender"
+      ],
+      "in": [
+        [
+          "rifle-ammo",
+          25.0
+        ],
+        [
+          "aluminum-casing",
+          3.0
+        ],
+        [
+          "turbofuel",
+          3.0
+        ]
+      ],
+      "out": [
+        [
+          "turbo-rifle-ammo",
+          50.0
+        ]
+      ]
+    },
+    {
+      "id": "turbo-rifle-ammo-packeged",
+      "name": "Turbo Rifle Ammo (packeged)",
+      "time": 12.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "rifle-ammo",
+          25.0
+        ],
+        [
+          "aluminum-casing",
+          3.0
+        ],
+        [
+          "packaged-turbofuel",
+          3.0
+        ]
+      ],
+      "out": [
+        [
+          "turbo-rifle-ammo",
+          50.0
+        ]
+      ]
+    },
+    {
+      "id": "turbofuel",
+      "name": "Turbofuel",
+      "time": 16.0,
+      "machines": [
+        "refinery"
+      ],
+      "in": [
+        [
+          "fuel",
+          6.0
+        ],
+        [
+          "compacted-coal",
+          4.0
+        ]
+      ],
+      "out": [
+        [
+          "turbofuel",
+          5.0
+        ]
+      ]
+    },
+    {
+      "id": "unpackage-alumina-solution",
+      "name": "Unpackage Alumina Solution",
+      "time": 1.0,
+      "machines": [
+        "packager"
+      ],
+      "in": [
+        [
+          "packaged-alumina-solution",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "alumina-solution",
+          2.0
+        ],
+        [
+          "empty-canister",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "unpackage-fuel",
+      "name": "Unpackage Fuel",
+      "time": 2.0,
+      "machines": [
+        "packager"
+      ],
+      "in": [
+        [
+          "packaged-fuel",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "fuel",
+          2.0
+        ],
+        [
+          "empty-canister",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "unpackage-heavy-oil-residue",
+      "name": "Unpackage Heavy Oil Residue",
+      "time": 6.0,
+      "machines": [
+        "packager"
+      ],
+      "in": [
+        [
+          "packaged-heavy-oil-residue",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "heavy-oil-residue",
+          2.0
+        ],
+        [
+          "empty-canister",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "unpackage-ionized-fuel",
+      "name": "Unpackage Ionized Fuel",
+      "time": 3.0,
+      "machines": [
+        "packager"
+      ],
+      "in": [
+        [
+          "packaged-ionized-fuel",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "ionized-fuel",
+          4.0
+        ],
+        [
+          "empty-fluid-tank",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "unpackage-liquid-biofuel",
+      "name": "Unpackage Liquid Biofuel",
+      "time": 2.0,
+      "machines": [
+        "packager"
+      ],
+      "in": [
+        [
+          "packaged-liquid-biofuel",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "liquid-biofuel",
+          2.0
+        ],
+        [
+          "empty-canister",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "unpackage-nitric-acid",
+      "name": "Unpackage Nitric Acid",
+      "time": 3.0,
+      "machines": [
+        "packager"
+      ],
+      "in": [
+        [
+          "packaged-nitric-acid",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "nitric-acid",
+          1.0
+        ],
+        [
+          "empty-fluid-tank",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "unpackage-nitrogen-gas",
+      "name": "Unpackage Nitrogen Gas",
+      "time": 1.0,
+      "machines": [
+        "packager"
+      ],
+      "in": [
+        [
+          "packaged-nitrogen-gas",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "nitrogen-gas",
+          4.0
+        ],
+        [
+          "empty-fluid-tank",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "unpackage-oil",
+      "name": "Unpackage Oil",
+      "time": 2.0,
+      "machines": [
+        "packager"
+      ],
+      "in": [
+        [
+          "packaged-oil",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "crude-oil",
+          2.0
+        ],
+        [
+          "empty-canister",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "unpackage-rocket-fuel",
+      "name": "Unpackage Rocket Fuel",
+      "time": 1.0,
+      "machines": [
+        "packager"
+      ],
+      "in": [
+        [
+          "packaged-rocket-fuel",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "rocket-fuel",
+          2.0
+        ],
+        [
+          "empty-fluid-tank",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "unpackage-sulfuric-acid",
+      "name": "Unpackage Sulfuric Acid",
+      "time": 1.0,
+      "machines": [
+        "packager"
+      ],
+      "in": [
+        [
+          "packaged-sulfuric-acid",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "sulfuric-acid",
+          1.0
+        ],
+        [
+          "empty-canister",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "unpackage-turbo-fuel",
+      "name": "Unpackage Turbo Fuel",
+      "time": 6.0,
+      "machines": [
+        "packager"
+      ],
+      "in": [
+        [
+          "packaged-turbofuel",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "turbofuel",
+          2.0
+        ],
+        [
+          "empty-canister",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "unpackage-water",
+      "name": "Unpackage Water",
+      "time": 1.0,
+      "machines": [
+        "packager"
+      ],
+      "in": [
+        [
+          "packaged-water",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "water",
+          2.0
+        ],
+        [
+          "empty-canister",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "uranium-fuel-rod",
+      "name": "Uranium Fuel Rod",
+      "time": 150.0,
+      "machines": [
+        "manufacturer"
+      ],
+      "in": [
+        [
+          "encased-uranium-cell",
+          50.0
+        ],
+        [
+          "encased-industrial-beam",
+          3.0
+        ],
+        [
+          "electromagnetic-control-rod",
+          5.0
+        ]
+      ],
+      "out": [
+        [
+          "uranium-fuel-rod",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "uranium-ore",
+      "name": "Uranium Ore",
+      "time": 1.0,
+      "machines": [
+        "miner-mk1",
+        "miner-mk2",
+        "miner-mk3"
+      ],
+      "out": [
+        [
+          "uranium",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "uranium-ore-bauxite",
+      "name": "Uranium Ore (Bauxite)",
+      "time": 6.0,
+      "machines": [
+        "converter"
+      ],
+      "in": [
+        [
+          "reanimated-sam",
+          1.0
+        ],
+        [
+          "bauxite",
+          48.0
+        ]
+      ],
+      "out": [
+        [
+          "uranium",
+          12.0
+        ]
+      ]
+    },
+    {
+      "id": "versatile-framework",
+      "name": "Versatile Framework",
+      "time": 24.0,
+      "machines": [
+        "assembler"
+      ],
+      "in": [
+        [
+          "modular-frame",
+          1.0
+        ],
+        [
+          "steel-beam",
+          12.0
+        ]
+      ],
+      "out": [
+        [
+          "versatile-framework",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "water",
+      "name": "Water",
+      "time": 1.0,
+      "machines": [
+        "resource-well",
+        "water-extractor"
+      ],
+      "out": [
+        [
+          "water",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "wire",
+      "name": "Wire",
+      "time": 4.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "copper-ingot",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "wire",
+          2.0
+        ]
+      ]
+    }
+  ]
+}

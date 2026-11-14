@@ -1,0 +1,3860 @@
+{
+  "schema_version": 4,
+  "game": {
+    "id": "mindustry",
+    "name": "Mindustry",
+    "data_version": "build-154-3"
+  },
+  "icon_root": "icons",
+  "units": {
+    "recipe_time": "s",
+    "default_rate": "s"
+  },
+  "resource_kinds": {
+    "item": {
+      "label": "Item",
+      "display_unit": "",
+      "display_scale": 1
+    },
+    "fluid": {
+      "label": "Fluid",
+      "display_unit": "",
+      "display_scale": 1
+    }
+  },
+  "parameters": {
+    "overdrive": {
+      "label": "Overdrive",
+      "type": "number",
+      "default": 100,
+      "min": 100,
+      "max": 250,
+      "unit": "%",
+      "step": 50,
+      "tooltip": "Overdrive speed multiplier (100% = None, 150% = Projector, 250% = Dome).",
+      "ui": {
+        "widget": "slider",
+        "format": "%.0f%%",
+        "group": "Speed",
+        "placement": "panel"
+      }
+    },
+    "efficiency": {
+      "label": "Efficiency",
+      "type": "number",
+      "default": 100,
+      "min": 1,
+      "max": 300,
+      "unit": "%",
+      "step": 5,
+      "tooltip": "Building efficiency (tile yield, water boost, or heat input ratio).",
+      "ui": {
+        "widget": "slider",
+        "format": "%.0f%%",
+        "group": "Speed",
+        "placement": "panel"
+      }
+    }
+  },
+  "profiles": {
+    "mindustry_production": {
+      "params": [
+        "overdrive",
+        "efficiency"
+      ],
+      "craft_time": "recipe.time / (machine.speed * (param.overdrive / 100) * (param.efficiency / 100))"
+    }
+  },
+  "resources": [
+    {
+      "id": "aegires",
+      "name": "Aegires",
+      "kind": "item"
+    },
+    {
+      "id": "anthicus",
+      "name": "Anthicus",
+      "kind": "item"
+    },
+    {
+      "id": "antumbra",
+      "name": "Antumbra",
+      "kind": "item"
+    },
+    {
+      "id": "arkycite",
+      "name": "Arkycite",
+      "kind": "fluid"
+    },
+    {
+      "id": "arkyid",
+      "name": "Arkyid",
+      "kind": "item"
+    },
+    {
+      "id": "atrax",
+      "name": "Atrax",
+      "kind": "item"
+    },
+    {
+      "id": "avert",
+      "name": "Avert",
+      "kind": "item"
+    },
+    {
+      "id": "beryllium",
+      "name": "Beryllium",
+      "kind": "item"
+    },
+    {
+      "id": "blast-compound",
+      "name": "Blast Compound",
+      "kind": "item"
+    },
+    {
+      "id": "bryde",
+      "name": "Bryde",
+      "kind": "item"
+    },
+    {
+      "id": "carbide",
+      "name": "Carbide",
+      "kind": "item"
+    },
+    {
+      "id": "cleroi",
+      "name": "Cleroi",
+      "kind": "item"
+    },
+    {
+      "id": "coal",
+      "name": "Coal",
+      "kind": "item"
+    },
+    {
+      "id": "collaris",
+      "name": "Collaris",
+      "kind": "item"
+    },
+    {
+      "id": "conquer",
+      "name": "Conquer",
+      "kind": "item"
+    },
+    {
+      "id": "copper",
+      "name": "Copper",
+      "kind": "item"
+    },
+    {
+      "id": "corvus",
+      "name": "Corvus",
+      "kind": "item"
+    },
+    {
+      "id": "crawler",
+      "name": "Crawler",
+      "kind": "item"
+    },
+    {
+      "id": "cryofluid",
+      "name": "Cryofluid",
+      "kind": "fluid"
+    },
+    {
+      "id": "cyanogen",
+      "name": "Cyanogen",
+      "kind": "fluid"
+    },
+    {
+      "id": "cyerce",
+      "name": "Cyerce",
+      "kind": "item"
+    },
+    {
+      "id": "dagger",
+      "name": "Dagger",
+      "kind": "item"
+    },
+    {
+      "id": "disrupt",
+      "name": "Disrupt",
+      "kind": "item"
+    },
+    {
+      "id": "eclipse",
+      "name": "Eclipse",
+      "kind": "item"
+    },
+    {
+      "id": "elude",
+      "name": "Elude",
+      "kind": "item"
+    },
+    {
+      "id": "flare",
+      "name": "Flare",
+      "kind": "item"
+    },
+    {
+      "id": "fortress",
+      "name": "Fortress",
+      "kind": "item"
+    },
+    {
+      "id": "graphite",
+      "name": "Graphite",
+      "kind": "item"
+    },
+    {
+      "id": "heat-unit",
+      "name": "Heat Unit",
+      "kind": "item"
+    },
+    {
+      "id": "horizon",
+      "name": "Horizon",
+      "kind": "item"
+    },
+    {
+      "id": "hydrogen",
+      "name": "Hydrogen",
+      "kind": "fluid"
+    },
+    {
+      "id": "large-beryllium-wall",
+      "name": "Large Beryllium Wall",
+      "kind": "item"
+    },
+    {
+      "id": "large-carbide-wall",
+      "name": "Large Carbide Wall",
+      "kind": "item"
+    },
+    {
+      "id": "large-tungsten-wall",
+      "name": "Large Tungsten Wall",
+      "kind": "item"
+    },
+    {
+      "id": "lead",
+      "name": "Lead",
+      "kind": "item"
+    },
+    {
+      "id": "locus",
+      "name": "Locus",
+      "kind": "item"
+    },
+    {
+      "id": "mace",
+      "name": "Mace",
+      "kind": "item"
+    },
+    {
+      "id": "mega",
+      "name": "Mega",
+      "kind": "item"
+    },
+    {
+      "id": "merui",
+      "name": "Merui",
+      "kind": "item"
+    },
+    {
+      "id": "metaglass",
+      "name": "Metaglass",
+      "kind": "item"
+    },
+    {
+      "id": "minke",
+      "name": "Minke",
+      "kind": "item"
+    },
+    {
+      "id": "mono",
+      "name": "Mono",
+      "kind": "item"
+    },
+    {
+      "id": "navanax",
+      "name": "Navanax",
+      "kind": "item"
+    },
+    {
+      "id": "neoplasm",
+      "name": "Neoplasm",
+      "kind": "fluid"
+    },
+    {
+      "id": "nitrogen",
+      "name": "Nitrogen",
+      "kind": "fluid"
+    },
+    {
+      "id": "nova",
+      "name": "Nova",
+      "kind": "item"
+    },
+    {
+      "id": "obviate",
+      "name": "Obviate",
+      "kind": "item"
+    },
+    {
+      "id": "oct",
+      "name": "Oct",
+      "kind": "item"
+    },
+    {
+      "id": "oil",
+      "name": "Oil",
+      "kind": "fluid"
+    },
+    {
+      "id": "omura",
+      "name": "Omura",
+      "kind": "item"
+    },
+    {
+      "id": "oxide",
+      "name": "Oxide",
+      "kind": "item"
+    },
+    {
+      "id": "oxynoe",
+      "name": "Oxynoe",
+      "kind": "item"
+    },
+    {
+      "id": "ozone",
+      "name": "Ozone",
+      "kind": "fluid"
+    },
+    {
+      "id": "phase-fabric",
+      "name": "Phase Fabric",
+      "kind": "item"
+    },
+    {
+      "id": "plastanium",
+      "name": "Plastanium",
+      "kind": "item"
+    },
+    {
+      "id": "poly",
+      "name": "Poly",
+      "kind": "item"
+    },
+    {
+      "id": "precept",
+      "name": "Precept",
+      "kind": "item"
+    },
+    {
+      "id": "pulsar",
+      "name": "Pulsar",
+      "kind": "item"
+    },
+    {
+      "id": "pyratite",
+      "name": "Pyratite",
+      "kind": "item"
+    },
+    {
+      "id": "quad",
+      "name": "Quad",
+      "kind": "item"
+    },
+    {
+      "id": "quasar",
+      "name": "Quasar",
+      "kind": "item"
+    },
+    {
+      "id": "quell",
+      "name": "Quell",
+      "kind": "item"
+    },
+    {
+      "id": "reign",
+      "name": "Reign",
+      "kind": "item"
+    },
+    {
+      "id": "retusa",
+      "name": "Retusa",
+      "kind": "item"
+    },
+    {
+      "id": "risso",
+      "name": "Risso",
+      "kind": "item"
+    },
+    {
+      "id": "sand",
+      "name": "Sand",
+      "kind": "item"
+    },
+    {
+      "id": "scepter",
+      "name": "Scepter",
+      "kind": "item"
+    },
+    {
+      "id": "scrap",
+      "name": "Scrap",
+      "kind": "item"
+    },
+    {
+      "id": "sei",
+      "name": "Sei",
+      "kind": "item"
+    },
+    {
+      "id": "silicon",
+      "name": "Silicon",
+      "kind": "item"
+    },
+    {
+      "id": "slag",
+      "name": "Slag",
+      "kind": "fluid"
+    },
+    {
+      "id": "spiroct",
+      "name": "Spiroct",
+      "kind": "item"
+    },
+    {
+      "id": "spore-pod",
+      "name": "Spore Pod",
+      "kind": "item"
+    },
+    {
+      "id": "stell",
+      "name": "Stell",
+      "kind": "item"
+    },
+    {
+      "id": "surge-alloy",
+      "name": "Surge Alloy",
+      "kind": "item"
+    },
+    {
+      "id": "tecta",
+      "name": "Tecta",
+      "kind": "item"
+    },
+    {
+      "id": "thorium",
+      "name": "Thorium",
+      "kind": "item"
+    },
+    {
+      "id": "titanium",
+      "name": "Titanium",
+      "kind": "item"
+    },
+    {
+      "id": "toxopid",
+      "name": "Toxopid",
+      "kind": "item"
+    },
+    {
+      "id": "tungsten",
+      "name": "Tungsten",
+      "kind": "item"
+    },
+    {
+      "id": "vanquish",
+      "name": "Vanquish",
+      "kind": "item"
+    },
+    {
+      "id": "vela",
+      "name": "Vela",
+      "kind": "item"
+    },
+    {
+      "id": "water",
+      "name": "Water",
+      "kind": "fluid"
+    },
+    {
+      "id": "zenith",
+      "name": "Zenith",
+      "kind": "item"
+    }
+  ],
+  "machines": [
+    {
+      "id": "additive-reconstructor",
+      "name": "Additive Reconstructor",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "advanced-cliff-crusher",
+      "name": "Advanced Cliff Crusher",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "advanced-plasma-bore",
+      "name": "Advanced Plasma Bore",
+      "profile": "mindustry_production",
+      "speed": 0.75
+    },
+    {
+      "id": "air-factory",
+      "name": "Air Factory",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "airblast-drill",
+      "name": "Airblast Drill",
+      "profile": "mindustry_production",
+      "speed": 3.428
+    },
+    {
+      "id": "atmospheric-concentrator",
+      "name": "Atmospheric Concentrator",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "blast-mixer",
+      "name": "Blast Mixer",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "carbide-crucible",
+      "name": "Carbide Crucible",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "chemical-combustion-chamber",
+      "name": "Chemical Combustion Chamber",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "cliff-crusher",
+      "name": "Cliff Crusher",
+      "profile": "mindustry_production",
+      "speed": 1.09
+    },
+    {
+      "id": "coal-centrifuge",
+      "name": "Coal Centrifuge",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "combustion-generator",
+      "name": "Combustion Generator",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "constructor",
+      "name": "Constructor",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "cryofluid-mixer",
+      "name": "Cryofluid Mixer",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "cultivator",
+      "name": "Cultivator",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "cyanogen-synthesizer",
+      "name": "Cyanogen Synthesizer",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "differential-generator",
+      "name": "Differential Generator",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "disassembler",
+      "name": "Disassembler",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "electric-heater",
+      "name": "Electric Heater",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "electrolyzer",
+      "name": "Electrolyzer",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "eruption-drill",
+      "name": "Eruption Drill",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "exponential-reconstructor",
+      "name": "Exponential Reconstructor",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "flux-reactor",
+      "name": "Flux Reactor",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "graphite-press",
+      "name": "Graphite Press",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "ground-factory",
+      "name": "Ground Factory",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "impact-drill",
+      "name": "Impact Drill",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "impact-reactor",
+      "name": "Impact Reactor",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "impulse-pump",
+      "name": "Impulse Pump",
+      "profile": "mindustry_production",
+      "speed": 118.799
+    },
+    {
+      "id": "kiln",
+      "name": "Kiln",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "laser-drill",
+      "name": "Laser Drill",
+      "profile": "mindustry_production",
+      "speed": 1.928
+    },
+    {
+      "id": "mech-assembler",
+      "name": "Mech Assembler",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "mech-fabricator",
+      "name": "Mech Fabricator",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "mech-refabricator",
+      "name": "Mech Refabricator",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "mechanical-drill",
+      "name": "Mechanical Drill",
+      "profile": "mindustry_production",
+      "speed": 0.4
+    },
+    {
+      "id": "mechanical-pump",
+      "name": "Mechanical Pump",
+      "profile": "mindustry_production",
+      "speed": 7.0
+    },
+    {
+      "id": "melter",
+      "name": "Melter",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "multi-press",
+      "name": "Multi-Press",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "multiplicative-reconstructor",
+      "name": "Multiplicative Reconstructor",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "naval-factory",
+      "name": "Naval Factory",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "neoplasia-reactor",
+      "name": "Neoplasia Reactor",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "oil-extractor",
+      "name": "Oil Extractor",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "oxidation-chamber",
+      "name": "Oxidation Chamber",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "phase-heater",
+      "name": "Phase Heater",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "phase-synthesizer",
+      "name": "Phase Synthesizer",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "phase-weaver",
+      "name": "Phase Weaver",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "plasma-bore",
+      "name": "Plasma Bore",
+      "profile": "mindustry_production",
+      "speed": 1.8
+    },
+    {
+      "id": "plastanium-compressor",
+      "name": "Plastanium Compressor",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "pneumatic-drill",
+      "name": "Pneumatic Drill",
+      "profile": "mindustry_production",
+      "speed": 0.6
+    },
+    {
+      "id": "prime-refabricator",
+      "name": "Prime Refabricator",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "pulverizer",
+      "name": "Pulverizer",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "pyratite-mixer",
+      "name": "Pyratite Mixer",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "pyrolysis-generator",
+      "name": "Pyrolysis Generator",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "reinforced-pump",
+      "name": "Reinforced Pump",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "rotary-pump",
+      "name": "Rotary Pump",
+      "profile": "mindustry_production",
+      "speed": 48.0
+    },
+    {
+      "id": "rtg-generator",
+      "name": "RTG Generator",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "separator",
+      "name": "Separator",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "ship-assembler",
+      "name": "Ship Assembler",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "ship-fabricator",
+      "name": "Ship Fabricator",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "ship-refabricator",
+      "name": "Ship Refabricator",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "silicon-arc-furnace",
+      "name": "Silicon Arc Furnace",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "silicon-crucible",
+      "name": "Silicon Crucible",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "silicon-smelter",
+      "name": "Silicon Smelter",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "slag-heater",
+      "name": "Slag Heater",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "spore-press",
+      "name": "Spore Press",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "steam-generator",
+      "name": "Steam Generator",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "surge-crucible",
+      "name": "Surge Crucible",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "surge-smelter",
+      "name": "Surge Smelter",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "tank-assembler",
+      "name": "Tank Assembler",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "tank-fabricator",
+      "name": "Tank Fabricator",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "tank-refabricator",
+      "name": "Tank Refabricator",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "tetrative-reconstructor",
+      "name": "Tetrative Reconstructor",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "thorium-reactor",
+      "name": "Thorium Reactor",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "turbine-condenser",
+      "name": "Turbine Condenser",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "vent-condenser",
+      "name": "Vent Condenser",
+      "profile": "mindustry_production"
+    },
+    {
+      "id": "water-extractor",
+      "name": "Water Extractor",
+      "profile": "mindustry_production",
+      "speed": 6.6
+    }
+  ],
+  "recipes": [
+    {
+      "id": "aegires",
+      "name": "Aegires",
+      "time": 90.0,
+      "machines": [
+        "exponential-reconstructor"
+      ],
+      "in": [
+        [
+          "silicon",
+          850.0
+        ],
+        [
+          "titanium",
+          750.0
+        ],
+        [
+          "plastanium",
+          650.0
+        ],
+        [
+          "cryofluid",
+          5400.0
+        ],
+        [
+          "cyerce",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "aegires",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "anthicus",
+      "name": "Anthicus",
+      "time": 60.0,
+      "machines": [
+        "prime-refabricator"
+      ],
+      "in": [
+        [
+          "nitrogen",
+          600.0
+        ],
+        [
+          "thorium",
+          80.0
+        ],
+        [
+          "silicon",
+          100.0
+        ],
+        [
+          "cleroi",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "anthicus",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "antumbra",
+      "name": "Antumbra",
+      "time": 90.0,
+      "machines": [
+        "exponential-reconstructor"
+      ],
+      "in": [
+        [
+          "silicon",
+          850.0
+        ],
+        [
+          "titanium",
+          750.0
+        ],
+        [
+          "plastanium",
+          650.0
+        ],
+        [
+          "cryofluid",
+          5400.0
+        ],
+        [
+          "zenith",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "antumbra",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "arkycite",
+      "name": "Arkycite",
+      "time": 1.0,
+      "machines": [
+        "reinforced-pump"
+      ],
+      "in": [
+        [
+          "hydrogen",
+          1.5
+        ]
+      ],
+      "out": [
+        [
+          "arkycite",
+          80.0
+        ]
+      ]
+    },
+    {
+      "id": "arkyid",
+      "name": "Arkyid",
+      "time": 90.0,
+      "machines": [
+        "exponential-reconstructor"
+      ],
+      "in": [
+        [
+          "silicon",
+          850.0
+        ],
+        [
+          "titanium",
+          750.0
+        ],
+        [
+          "plastanium",
+          650.0
+        ],
+        [
+          "cryofluid",
+          5400.0
+        ],
+        [
+          "spiroct",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "arkyid",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "atmospheric-concentrator",
+      "name": "Atmospheric Concentrator",
+      "time": 1.0,
+      "machines": [
+        "atmospheric-concentrator"
+      ],
+      "in": [
+        [
+          "heat-unit",
+          6.0
+        ]
+      ],
+      "out": [
+        [
+          "nitrogen",
+          4.0
+        ]
+      ]
+    },
+    {
+      "id": "atrax",
+      "name": "Atrax",
+      "time": 10.0,
+      "machines": [
+        "additive-reconstructor"
+      ],
+      "in": [
+        [
+          "silicon",
+          40.0
+        ],
+        [
+          "graphite",
+          40.0
+        ],
+        [
+          "crawler",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "atrax",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "avert",
+      "name": "Avert",
+      "time": 50.0,
+      "machines": [
+        "ship-refabricator"
+      ],
+      "in": [
+        [
+          "hydrogen",
+          150.0
+        ],
+        [
+          "silicon",
+          60.0
+        ],
+        [
+          "tungsten",
+          40.0
+        ],
+        [
+          "elude",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "avert",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "beryllium-eruption-drill",
+      "name": "Beryllium (Eruption Drill)",
+      "time": 1.0,
+      "machines": [
+        "eruption-drill"
+      ],
+      "in": [
+        [
+          "hydrogen",
+          4.0
+        ]
+      ],
+      "out": [
+        [
+          "beryllium",
+          10.66
+        ]
+      ]
+    },
+    {
+      "id": "beryllium-impact-drill",
+      "name": "Beryllium (Impact Drill)",
+      "time": 1.0,
+      "machines": [
+        "impact-drill"
+      ],
+      "in": [
+        [
+          "water",
+          10.0
+        ]
+      ],
+      "out": [
+        [
+          "beryllium",
+          2.66
+        ]
+      ]
+    },
+    {
+      "id": "blast-mixer",
+      "name": "Blast Mixer",
+      "time": 1.3333,
+      "machines": [
+        "blast-mixer"
+      ],
+      "in": [
+        [
+          "pyratite",
+          1.0
+        ],
+        [
+          "spore-pod",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "blast-compound",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "bryde",
+      "name": "Bryde",
+      "time": 30.0,
+      "machines": [
+        "multiplicative-reconstructor"
+      ],
+      "in": [
+        [
+          "silicon",
+          130.0
+        ],
+        [
+          "titanium",
+          80.0
+        ],
+        [
+          "metaglass",
+          40.0
+        ],
+        [
+          "minke",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "bryde",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "carbide-crucible",
+      "name": "Carbide Crucible",
+      "time": 2.25,
+      "machines": [
+        "carbide-crucible"
+      ],
+      "in": [
+        [
+          "tungsten",
+          2.0
+        ],
+        [
+          "graphite",
+          3.0
+        ],
+        [
+          "heat-unit",
+          10.0
+        ]
+      ],
+      "out": [
+        [
+          "carbide",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "chemical-combustion-chamber",
+      "name": "Chemical Combustion Chamber",
+      "time": 1.0,
+      "machines": [
+        "chemical-combustion-chamber"
+      ],
+      "in": [
+        [
+          "ozone",
+          2.0
+        ],
+        [
+          "arkycite",
+          40.0
+        ]
+      ]
+    },
+    {
+      "id": "cleroi",
+      "name": "Cleroi",
+      "time": 45.0,
+      "machines": [
+        "mech-refabricator"
+      ],
+      "in": [
+        [
+          "hydrogen",
+          135.0
+        ],
+        [
+          "silicon",
+          50.0
+        ],
+        [
+          "tungsten",
+          40.0
+        ],
+        [
+          "merui",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "cleroi",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "coal",
+      "name": "Coal",
+      "time": 1.357,
+      "machines": [
+        "airblast-drill",
+        "laser-drill",
+        "mechanical-drill",
+        "pneumatic-drill"
+      ],
+      "out": [
+        [
+          "coal",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "coal-centrifuge",
+      "name": "Coal Centrifuge",
+      "time": 0.5,
+      "machines": [
+        "coal-centrifuge"
+      ],
+      "in": [
+        [
+          "oil",
+          3.0
+        ]
+      ],
+      "out": [
+        [
+          "coal",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "collaris",
+      "name": "Collaris",
+      "time": 180.0,
+      "machines": [
+        "mech-assembler"
+      ],
+      "in": [
+        [
+          "cyanogen",
+          2160.0
+        ],
+        [
+          "cleroi",
+          6.0
+        ],
+        [
+          "large-carbide-wall",
+          20.0
+        ]
+      ],
+      "out": [
+        [
+          "collaris",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "combustion-generator-blast",
+      "name": "Combustion Generator (Blast)",
+      "time": 2.0,
+      "machines": [
+        "combustion-generator"
+      ],
+      "in": [
+        [
+          "blast-compound",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "combustion-generator-coal",
+      "name": "Combustion Generator (Coal)",
+      "time": 2.0,
+      "machines": [
+        "combustion-generator"
+      ],
+      "in": [
+        [
+          "coal",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "combustion-generator-pyratite",
+      "name": "Combustion Generator (Pyratite)",
+      "time": 2.0,
+      "machines": [
+        "combustion-generator"
+      ],
+      "in": [
+        [
+          "pyratite",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "combustion-generator-spore",
+      "name": "Combustion Generator (Spore)",
+      "time": 2.0,
+      "machines": [
+        "combustion-generator"
+      ],
+      "in": [
+        [
+          "spore-pod",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "conquer",
+      "name": "Conquer",
+      "time": 180.0,
+      "machines": [
+        "tank-assembler"
+      ],
+      "in": [
+        [
+          "cyanogen",
+          1620.0
+        ],
+        [
+          "locus",
+          6.0
+        ],
+        [
+          "large-carbide-wall",
+          20.0
+        ]
+      ],
+      "out": [
+        [
+          "conquer",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "copper",
+      "name": "Copper",
+      "time": 1.179,
+      "machines": [
+        "airblast-drill",
+        "laser-drill",
+        "mechanical-drill",
+        "pneumatic-drill"
+      ],
+      "out": [
+        [
+          "copper",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "corvus",
+      "name": "Corvus",
+      "time": 240.0,
+      "machines": [
+        "tetrative-reconstructor"
+      ],
+      "in": [
+        [
+          "silicon",
+          1000.0
+        ],
+        [
+          "plastanium",
+          600.0
+        ],
+        [
+          "surge-alloy",
+          500.0
+        ],
+        [
+          "phase-fabric",
+          350.0
+        ],
+        [
+          "cryofluid",
+          43200.0
+        ],
+        [
+          "vela",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "corvus",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "crawler",
+      "name": "Crawler",
+      "time": 10.0,
+      "machines": [
+        "ground-factory"
+      ],
+      "in": [
+        [
+          "silicon",
+          8.0
+        ],
+        [
+          "coal",
+          10.0
+        ]
+      ],
+      "out": [
+        [
+          "crawler",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "cryofluid-mixer",
+      "name": "Cryofluid Mixer",
+      "time": 2.0,
+      "machines": [
+        "cryofluid-mixer"
+      ],
+      "in": [
+        [
+          "titanium",
+          1.0
+        ],
+        [
+          "water",
+          24.0
+        ]
+      ],
+      "out": [
+        [
+          "cryofluid",
+          24.0
+        ]
+      ]
+    },
+    {
+      "id": "cultivator",
+      "name": "Cultivator",
+      "time": 1.6667,
+      "machines": [
+        "cultivator"
+      ],
+      "in": [
+        [
+          "water",
+          30.0
+        ]
+      ],
+      "out": [
+        [
+          "spore-pod",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "cyanogen-sythesizer",
+      "name": "Cyanogen Sythesizer",
+      "time": 1.333,
+      "machines": [
+        "cyanogen-synthesizer"
+      ],
+      "in": [
+        [
+          "arkycite",
+          53.332
+        ],
+        [
+          "graphite",
+          1.0
+        ],
+        [
+          "heat-unit",
+          5.0
+        ]
+      ],
+      "out": [
+        [
+          "cyanogen",
+          4.0
+        ]
+      ]
+    },
+    {
+      "id": "cyerce",
+      "name": "Cyerce",
+      "time": 30.0,
+      "machines": [
+        "multiplicative-reconstructor"
+      ],
+      "in": [
+        [
+          "silicon",
+          130.0
+        ],
+        [
+          "titanium",
+          80.0
+        ],
+        [
+          "metaglass",
+          40.0
+        ],
+        [
+          "oxynoe",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "cyerce",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "dagger",
+      "name": "Dagger",
+      "time": 15.0,
+      "machines": [
+        "ground-factory"
+      ],
+      "in": [
+        [
+          "silicon",
+          10.0
+        ],
+        [
+          "lead",
+          10.0
+        ]
+      ],
+      "out": [
+        [
+          "dagger",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "differential-generator",
+      "name": "Differential Generator",
+      "time": 3.6667,
+      "machines": [
+        "differential-generator"
+      ],
+      "in": [
+        [
+          "pyratite",
+          1.0
+        ],
+        [
+          "cryofluid",
+          22.0
+        ]
+      ]
+    },
+    {
+      "id": "disassembler",
+      "name": "Disassembler",
+      "time": 0.25,
+      "machines": [
+        "disassembler"
+      ],
+      "in": [
+        [
+          "scrap",
+          1.0
+        ],
+        [
+          "slag",
+          1.8
+        ]
+      ],
+      "out": [
+        [
+          "sand",
+          0.4
+        ],
+        [
+          "graphite",
+          0.2
+        ],
+        [
+          "titanium",
+          0.2
+        ],
+        [
+          "thorium",
+          0.2
+        ]
+      ]
+    },
+    {
+      "id": "disrupt",
+      "name": "Disrupt",
+      "time": 180.0,
+      "machines": [
+        "ship-assembler"
+      ],
+      "in": [
+        [
+          "cyanogen",
+          2160.0
+        ],
+        [
+          "avert",
+          6.0
+        ],
+        [
+          "large-carbide-wall",
+          20.0
+        ]
+      ],
+      "out": [
+        [
+          "disrupt",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "eclipse",
+      "name": "Eclipse",
+      "time": 240.0,
+      "machines": [
+        "tetrative-reconstructor"
+      ],
+      "in": [
+        [
+          "silicon",
+          1000.0
+        ],
+        [
+          "plastanium",
+          600.0
+        ],
+        [
+          "surge-alloy",
+          500.0
+        ],
+        [
+          "phase-fabric",
+          350.0
+        ],
+        [
+          "cryofluid",
+          43200.0
+        ],
+        [
+          "antumbra",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "eclipse",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "electric-heater",
+      "name": "Electric Heater",
+      "time": 1.0,
+      "machines": [
+        "electric-heater"
+      ],
+      "out": [
+        [
+          "heat-unit",
+          3.0
+        ]
+      ]
+    },
+    {
+      "id": "electrolyzer",
+      "name": "Electrolyzer",
+      "time": 1.0,
+      "machines": [
+        "electrolyzer"
+      ],
+      "in": [
+        [
+          "water",
+          10.0
+        ]
+      ],
+      "out": [
+        [
+          "ozone",
+          4.0
+        ],
+        [
+          "hydrogen",
+          6.0
+        ]
+      ]
+    },
+    {
+      "id": "elude",
+      "name": "Elude",
+      "time": 40.0,
+      "machines": [
+        "ship-fabricator"
+      ],
+      "in": [
+        [
+          "graphite",
+          50.0
+        ],
+        [
+          "silicon",
+          70.0
+        ]
+      ],
+      "out": [
+        [
+          "elude",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "flare",
+      "name": "Flare",
+      "time": 15.0,
+      "machines": [
+        "air-factory"
+      ],
+      "in": [
+        [
+          "silicon",
+          30.0
+        ]
+      ],
+      "out": [
+        [
+          "flare",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "flux-reactor",
+      "name": "Flux Reactor",
+      "time": 1.0,
+      "machines": [
+        "flux-reactor"
+      ],
+      "in": [
+        [
+          "cyanogen",
+          9.0
+        ],
+        [
+          "heat-unit",
+          150.0
+        ]
+      ]
+    },
+    {
+      "id": "fortress",
+      "name": "Fortress",
+      "time": 30.0,
+      "machines": [
+        "multiplicative-reconstructor"
+      ],
+      "in": [
+        [
+          "silicon",
+          130.0
+        ],
+        [
+          "titanium",
+          80.0
+        ],
+        [
+          "metaglass",
+          40.0
+        ],
+        [
+          "mace",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "fortress",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "graphite-press",
+      "name": "Graphite Press",
+      "time": 1.5,
+      "machines": [
+        "graphite-press"
+      ],
+      "in": [
+        [
+          "coal",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "graphite",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "horizon",
+      "name": "Horizon",
+      "time": 10.0,
+      "machines": [
+        "additive-reconstructor"
+      ],
+      "in": [
+        [
+          "silicon",
+          40.0
+        ],
+        [
+          "graphite",
+          40.0
+        ],
+        [
+          "flare",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "horizon",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "impact-reactor",
+      "name": "Impact Reactor",
+      "time": 2.333333,
+      "machines": [
+        "impact-reactor"
+      ],
+      "in": [
+        [
+          "blast-compound",
+          1.0
+        ],
+        [
+          "cryofluid",
+          35.0
+        ]
+      ]
+    },
+    {
+      "id": "kiln",
+      "name": "Kiln",
+      "time": 0.5,
+      "machines": [
+        "kiln"
+      ],
+      "in": [
+        [
+          "sand",
+          1.0
+        ],
+        [
+          "lead",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "metaglass",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "large-beryllium-wall",
+      "name": "Large Beryllium Wall",
+      "time": 10.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "beryllium",
+          24.0
+        ]
+      ],
+      "out": [
+        [
+          "large-beryllium-wall",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "large-carbide-wall",
+      "name": "Large Carbide Wall",
+      "time": 10.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "thorium",
+          24.0
+        ],
+        [
+          "carbide",
+          24.0
+        ]
+      ],
+      "out": [
+        [
+          "large-carbide-wall",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "large-tungsten-wall",
+      "name": "Large Tungsten Wall",
+      "time": 10.0,
+      "machines": [
+        "constructor"
+      ],
+      "in": [
+        [
+          "tungsten",
+          24.0
+        ]
+      ],
+      "out": [
+        [
+          "large-tungsten-wall",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "lead",
+      "name": "Lead",
+      "time": 1.179,
+      "machines": [
+        "airblast-drill",
+        "laser-drill",
+        "mechanical-drill",
+        "pneumatic-drill"
+      ],
+      "out": [
+        [
+          "lead",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "locus",
+      "name": "Locus",
+      "time": 30.0,
+      "machines": [
+        "tank-refabricator"
+      ],
+      "in": [
+        [
+          "hydrogen",
+          90.0
+        ],
+        [
+          "silicon",
+          40.0
+        ],
+        [
+          "tungsten",
+          30.0
+        ],
+        [
+          "stell",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "locus",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "mace",
+      "name": "Mace",
+      "time": 10.0,
+      "machines": [
+        "additive-reconstructor"
+      ],
+      "in": [
+        [
+          "dagger",
+          1.0
+        ],
+        [
+          "silicon",
+          40.0
+        ],
+        [
+          "graphite",
+          40.0
+        ]
+      ],
+      "out": [
+        [
+          "mace",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "mega",
+      "name": "Mega",
+      "time": 30.0,
+      "machines": [
+        "multiplicative-reconstructor"
+      ],
+      "in": [
+        [
+          "silicon",
+          130.0
+        ],
+        [
+          "titanium",
+          80.0
+        ],
+        [
+          "metaglass",
+          40.0
+        ],
+        [
+          "poly",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "mega",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "melter",
+      "name": "Melter",
+      "time": 0.1666,
+      "machines": [
+        "melter"
+      ],
+      "in": [
+        [
+          "scrap",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "slag",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "merui",
+      "name": "Merui",
+      "time": 40.0,
+      "machines": [
+        "mech-fabricator"
+      ],
+      "in": [
+        [
+          "beryllium",
+          50.0
+        ],
+        [
+          "silicon",
+          70.0
+        ]
+      ],
+      "out": [
+        [
+          "merui",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "mine-beryllium",
+      "name": "Mine Beryllium",
+      "time": 1.0,
+      "machines": [
+        "advanced-plasma-bore",
+        "plasma-bore"
+      ],
+      "out": [
+        [
+          "beryllium",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "mine-graphite",
+      "name": "Mine Graphite",
+      "time": 1.0,
+      "machines": [
+        "advanced-plasma-bore",
+        "plasma-bore"
+      ],
+      "out": [
+        [
+          "graphite",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "minke",
+      "name": "Minke",
+      "time": 10.0,
+      "machines": [
+        "additive-reconstructor"
+      ],
+      "in": [
+        [
+          "silicon",
+          40.0
+        ],
+        [
+          "graphite",
+          40.0
+        ],
+        [
+          "risso",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "minke",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "mono",
+      "name": "Mono",
+      "time": 35.0,
+      "machines": [
+        "air-factory"
+      ],
+      "in": [
+        [
+          "silicon",
+          30.0
+        ],
+        [
+          "lead",
+          15.0
+        ]
+      ],
+      "out": [
+        [
+          "mono",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "multi-press",
+      "name": "Multi-Press",
+      "time": 0.5,
+      "machines": [
+        "multi-press"
+      ],
+      "in": [
+        [
+          "coal",
+          3.0
+        ],
+        [
+          "water",
+          3.0
+        ]
+      ],
+      "out": [
+        [
+          "graphite",
+          2.0
+        ]
+      ]
+    },
+    {
+      "id": "navanax",
+      "name": "Navanax",
+      "time": 240.0,
+      "machines": [
+        "tetrative-reconstructor"
+      ],
+      "in": [
+        [
+          "silicon",
+          1000.0
+        ],
+        [
+          "plastanium",
+          600.0
+        ],
+        [
+          "surge-alloy",
+          500.0
+        ],
+        [
+          "phase-fabric",
+          350.0
+        ],
+        [
+          "cryofluid",
+          43200.0
+        ],
+        [
+          "aegires",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "navanax",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "neoplasia-reactor",
+      "name": "Neoplasia Reactor",
+      "time": 3.0,
+      "machines": [
+        "neoplasia-reactor"
+      ],
+      "in": [
+        [
+          "arkycite",
+          26.6667
+        ],
+        [
+          "water",
+          3.3333
+        ],
+        [
+          "phase-fabric",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "neoplasm",
+          6.666667
+        ],
+        [
+          "heat-unit",
+          60.0
+        ]
+      ]
+    },
+    {
+      "id": "nova",
+      "name": "Nova",
+      "time": 40.0,
+      "machines": [
+        "ground-factory"
+      ],
+      "in": [
+        [
+          "silicon",
+          30.0
+        ],
+        [
+          "lead",
+          20.0
+        ],
+        [
+          "titanium",
+          20.0
+        ]
+      ],
+      "out": [
+        [
+          "nova",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "obviate",
+      "name": "Obviate",
+      "time": 60.0,
+      "machines": [
+        "prime-refabricator"
+      ],
+      "in": [
+        [
+          "nitrogen",
+          600.0
+        ],
+        [
+          "thorium",
+          80.0
+        ],
+        [
+          "silicon",
+          100.0
+        ],
+        [
+          "avert",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "obviate",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "oct",
+      "name": "Oct",
+      "time": 240.0,
+      "machines": [
+        "tetrative-reconstructor"
+      ],
+      "in": [
+        [
+          "silicon",
+          1000.0
+        ],
+        [
+          "plastanium",
+          600.0
+        ],
+        [
+          "surge-alloy",
+          500.0
+        ],
+        [
+          "phase-fabric",
+          350.0
+        ],
+        [
+          "cryofluid",
+          43200.0
+        ],
+        [
+          "quad",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "oct",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "oil-extractor",
+      "name": "Oil Extractor",
+      "time": 1.0,
+      "machines": [
+        "oil-extractor"
+      ],
+      "in": [
+        [
+          "sand",
+          1.0
+        ],
+        [
+          "water",
+          9.0
+        ]
+      ],
+      "out": [
+        [
+          "oil",
+          15.0
+        ]
+      ]
+    },
+    {
+      "id": "omura",
+      "name": "Omura",
+      "time": 240.0,
+      "machines": [
+        "tetrative-reconstructor"
+      ],
+      "in": [
+        [
+          "silicon",
+          1000.0
+        ],
+        [
+          "plastanium",
+          600.0
+        ],
+        [
+          "surge-alloy",
+          500.0
+        ],
+        [
+          "phase-fabric",
+          350.0
+        ],
+        [
+          "cryofluid",
+          43200.0
+        ],
+        [
+          "sei",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "omura",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "oxidation-chamber",
+      "name": "Oxidation Chamber",
+      "time": 2.0,
+      "machines": [
+        "oxidation-chamber"
+      ],
+      "in": [
+        [
+          "ozone",
+          1.0
+        ],
+        [
+          "beryllium",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "oxide",
+          1.0
+        ],
+        [
+          "heat-unit",
+          5.0
+        ]
+      ]
+    },
+    {
+      "id": "oxynoe",
+      "name": "Oxynoe",
+      "time": 10.0,
+      "machines": [
+        "additive-reconstructor"
+      ],
+      "in": [
+        [
+          "silicon",
+          40.0
+        ],
+        [
+          "graphite",
+          40.0
+        ],
+        [
+          "retusa",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "oxynoe",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "phase-heater",
+      "name": "Phase Heater",
+      "time": 8.0,
+      "machines": [
+        "phase-heater"
+      ],
+      "in": [
+        [
+          "phase-fabric",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "heat-unit",
+          15.0
+        ]
+      ]
+    },
+    {
+      "id": "phase-synthesizer",
+      "name": "Phase Synthesizer",
+      "time": 2.0,
+      "machines": [
+        "phase-synthesizer"
+      ],
+      "in": [
+        [
+          "thorium",
+          2.0
+        ],
+        [
+          "sand",
+          6.0
+        ],
+        [
+          "ozone",
+          1.0
+        ],
+        [
+          "heat-unit",
+          8.0
+        ]
+      ],
+      "out": [
+        [
+          "phase-fabric",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "phase-weaver",
+      "name": "Phase Weaver",
+      "time": 2.0,
+      "machines": [
+        "phase-weaver"
+      ],
+      "in": [
+        [
+          "thorium",
+          4.0
+        ],
+        [
+          "sand",
+          10.0
+        ]
+      ],
+      "out": [
+        [
+          "phase-fabric",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "plastanium-compressor",
+      "name": "Plastanium Compressor",
+      "time": 1.0,
+      "machines": [
+        "plastanium-compressor"
+      ],
+      "in": [
+        [
+          "oil",
+          15.0
+        ],
+        [
+          "titanium",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "plastanium",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "poly",
+      "name": "Poly",
+      "time": 10.0,
+      "machines": [
+        "additive-reconstructor"
+      ],
+      "in": [
+        [
+          "silicon",
+          40.0
+        ],
+        [
+          "graphite",
+          40.0
+        ],
+        [
+          "mono",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "poly",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "precept",
+      "name": "Precept",
+      "time": 60.0,
+      "machines": [
+        "prime-refabricator"
+      ],
+      "in": [
+        [
+          "nitrogen",
+          600.0
+        ],
+        [
+          "thorium",
+          80.0
+        ],
+        [
+          "silicon",
+          100.0
+        ],
+        [
+          "locus",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "precept",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "pulsar",
+      "name": "Pulsar",
+      "time": 10.0,
+      "machines": [
+        "additive-reconstructor"
+      ],
+      "in": [
+        [
+          "silicon",
+          40.0
+        ],
+        [
+          "graphite",
+          40.0
+        ],
+        [
+          "nova",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "pulsar",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "pulverizer",
+      "name": "Pulverizer",
+      "time": 0.666,
+      "machines": [
+        "pulverizer"
+      ],
+      "in": [
+        [
+          "scrap",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "sand",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "pyratite-mixer",
+      "name": "Pyratite Mixer",
+      "time": 1.333,
+      "machines": [
+        "pyratite-mixer"
+      ],
+      "in": [
+        [
+          "coal",
+          1.0
+        ],
+        [
+          "lead",
+          2.0
+        ],
+        [
+          "sand",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "pyratite",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "pyrolysis-generator",
+      "name": "Pyrolysis Generator",
+      "time": 1.0,
+      "machines": [
+        "pyrolysis-generator"
+      ],
+      "in": [
+        [
+          "slag",
+          20.0
+        ],
+        [
+          "arkycite",
+          40.0
+        ]
+      ]
+    },
+    {
+      "id": "quad",
+      "name": "Quad",
+      "time": 90.0,
+      "machines": [
+        "exponential-reconstructor"
+      ],
+      "in": [
+        [
+          "silicon",
+          850.0
+        ],
+        [
+          "titanium",
+          750.0
+        ],
+        [
+          "plastanium",
+          650.0
+        ],
+        [
+          "cryofluid",
+          5400.0
+        ],
+        [
+          "mega",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "quad",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "quasar",
+      "name": "Quasar",
+      "time": 30.0,
+      "machines": [
+        "multiplicative-reconstructor"
+      ],
+      "in": [
+        [
+          "silicon",
+          130.0
+        ],
+        [
+          "titanium",
+          80.0
+        ],
+        [
+          "metaglass",
+          40.0
+        ],
+        [
+          "pulsar",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "quasar",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "quell",
+      "name": "Quell",
+      "time": 60.0,
+      "machines": [
+        "ship-assembler"
+      ],
+      "in": [
+        [
+          "cyanogen",
+          720.0
+        ],
+        [
+          "elude",
+          4.0
+        ],
+        [
+          "large-beryllium-wall",
+          12.0
+        ]
+      ],
+      "out": [
+        [
+          "quell",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "reign",
+      "name": "Reign",
+      "time": 240.0,
+      "machines": [
+        "tetrative-reconstructor"
+      ],
+      "in": [
+        [
+          "silicon",
+          1000.0
+        ],
+        [
+          "plastanium",
+          600.0
+        ],
+        [
+          "surge-alloy",
+          500.0
+        ],
+        [
+          "phase-fabric",
+          350.0
+        ],
+        [
+          "cryofluid",
+          43200.0
+        ],
+        [
+          "scepter",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "reign",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "retusa",
+      "name": "Retusa",
+      "time": 35.0,
+      "machines": [
+        "naval-factory"
+      ],
+      "in": [
+        [
+          "silicon",
+          15.0
+        ],
+        [
+          "titanium",
+          20.0
+        ]
+      ],
+      "out": [
+        [
+          "retusa",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "risso",
+      "name": "Risso",
+      "time": 45.0,
+      "machines": [
+        "naval-factory"
+      ],
+      "in": [
+        [
+          "silicon",
+          20.0
+        ],
+        [
+          "metaglass",
+          35.0
+        ]
+      ],
+      "out": [
+        [
+          "risso",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "rtg-generator-phase",
+      "name": "RTG Generator (Phase)",
+      "time": 213.0,
+      "machines": [
+        "rtg-generator"
+      ],
+      "in": [
+        [
+          "phase-fabric",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "rtg-generator-thorium",
+      "name": "RTG Generator (Thorium)",
+      "time": 14.0,
+      "machines": [
+        "rtg-generator"
+      ],
+      "in": [
+        [
+          "thorium",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "sand",
+      "name": "Sand",
+      "time": 1.0,
+      "machines": [
+        "airblast-drill",
+        "laser-drill",
+        "mechanical-drill",
+        "pneumatic-drill",
+        "cliff-crusher"
+      ],
+      "out": [
+        [
+          "sand",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "sand-advanced-cliff-crusher",
+      "name": "Sand (Advanced Cliff Crusher)",
+      "time": 1.0,
+      "machines": [
+        "advanced-cliff-crusher"
+      ],
+      "in": [
+        [
+          "hydrogen",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "sand",
+          3.75
+        ]
+      ]
+    },
+    {
+      "id": "scepter",
+      "name": "Scepter",
+      "time": 90.0,
+      "machines": [
+        "exponential-reconstructor"
+      ],
+      "in": [
+        [
+          "silicon",
+          850.0
+        ],
+        [
+          "titanium",
+          750.0
+        ],
+        [
+          "plastanium",
+          650.0
+        ],
+        [
+          "cryofluid",
+          5400.0
+        ],
+        [
+          "fortress",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "scepter",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "scrap",
+      "name": "Scrap",
+      "time": 1.0,
+      "machines": [
+        "airblast-drill",
+        "laser-drill",
+        "mechanical-drill",
+        "pneumatic-drill"
+      ],
+      "out": [
+        [
+          "scrap",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "sei",
+      "name": "Sei",
+      "time": 90.0,
+      "machines": [
+        "exponential-reconstructor"
+      ],
+      "in": [
+        [
+          "silicon",
+          850.0
+        ],
+        [
+          "titanium",
+          750.0
+        ],
+        [
+          "plastanium",
+          650.0
+        ],
+        [
+          "cryofluid",
+          5400.0
+        ],
+        [
+          "bryde",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "sei",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "separator",
+      "name": "Separator",
+      "time": 0.583,
+      "machines": [
+        "separator"
+      ],
+      "in": [
+        [
+          "slag",
+          2.3903
+        ]
+      ],
+      "out": [
+        [
+          "copper",
+          0.416667
+        ],
+        [
+          "lead",
+          0.25
+        ],
+        [
+          "graphite",
+          0.16667
+        ],
+        [
+          "titanium",
+          0.16667
+        ]
+      ]
+    },
+    {
+      "id": "silicon-arc-crucible",
+      "name": "Silicon Arc Crucible",
+      "time": 0.833,
+      "machines": [
+        "silicon-arc-furnace"
+      ],
+      "in": [
+        [
+          "graphite",
+          1.0
+        ],
+        [
+          "sand",
+          4.0
+        ]
+      ],
+      "out": [
+        [
+          "silicon",
+          4.0
+        ]
+      ]
+    },
+    {
+      "id": "silicon-crucible",
+      "name": "Silicon Crucible",
+      "time": 1.5,
+      "machines": [
+        "silicon-crucible"
+      ],
+      "in": [
+        [
+          "coal",
+          4.0
+        ],
+        [
+          "sand",
+          6.0
+        ],
+        [
+          "pyratite",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "silicon",
+          8.0
+        ]
+      ]
+    },
+    {
+      "id": "silicon-smelter",
+      "name": "Silicon Smelter",
+      "time": 0.6666,
+      "machines": [
+        "silicon-smelter"
+      ],
+      "in": [
+        [
+          "coal",
+          1.0
+        ],
+        [
+          "sand",
+          2.0
+        ]
+      ],
+      "out": [
+        [
+          "silicon",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "slag",
+      "name": "Slag",
+      "time": 1.0,
+      "machines": [
+        "reinforced-pump"
+      ],
+      "in": [
+        [
+          "hydrogen",
+          1.5
+        ]
+      ],
+      "out": [
+        [
+          "slag",
+          80.0
+        ]
+      ]
+    },
+    {
+      "id": "slag-heater",
+      "name": "Slag Heater",
+      "time": 1.0,
+      "machines": [
+        "slag-heater"
+      ],
+      "in": [
+        [
+          "slag",
+          40.0
+        ]
+      ],
+      "out": [
+        [
+          "heat-unit",
+          8.0
+        ]
+      ]
+    },
+    {
+      "id": "spiroct",
+      "name": "Spiroct",
+      "time": 30.0,
+      "machines": [
+        "multiplicative-reconstructor"
+      ],
+      "in": [
+        [
+          "silicon",
+          130.0
+        ],
+        [
+          "titanium",
+          80.0
+        ],
+        [
+          "metaglass",
+          40.0
+        ],
+        [
+          "atrax",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "spiroct",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "spore-press",
+      "name": "Spore Press",
+      "time": 0.333,
+      "machines": [
+        "spore-press"
+      ],
+      "in": [
+        [
+          "spore-pod",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "oil",
+          6.0
+        ]
+      ]
+    },
+    {
+      "id": "steam-generator-blast",
+      "name": "Steam Generator (Blast)",
+      "time": 1.5,
+      "machines": [
+        "steam-generator"
+      ],
+      "in": [
+        [
+          "blast-compound",
+          1.0
+        ],
+        [
+          "water",
+          9.0
+        ]
+      ]
+    },
+    {
+      "id": "steam-generator-coal",
+      "name": "Steam Generator (Coal)",
+      "time": 1.5,
+      "machines": [
+        "steam-generator"
+      ],
+      "in": [
+        [
+          "coal",
+          1.0
+        ],
+        [
+          "water",
+          9.0
+        ]
+      ]
+    },
+    {
+      "id": "steam-generator-pyratite",
+      "name": "Steam Generator (Pyratite)",
+      "time": 1.5,
+      "machines": [
+        "steam-generator"
+      ],
+      "in": [
+        [
+          "pyratite",
+          1.0
+        ],
+        [
+          "water",
+          9.0
+        ]
+      ]
+    },
+    {
+      "id": "steam-generator-spore",
+      "name": "Steam Generator (Spore)",
+      "time": 1.5,
+      "machines": [
+        "steam-generator"
+      ],
+      "in": [
+        [
+          "spore-pod",
+          1.0
+        ],
+        [
+          "water",
+          9.0
+        ]
+      ]
+    },
+    {
+      "id": "stell",
+      "name": "Stell",
+      "time": 35.0,
+      "machines": [
+        "tank-fabricator"
+      ],
+      "in": [
+        [
+          "beryllium",
+          40.0
+        ],
+        [
+          "silicon",
+          50.0
+        ]
+      ],
+      "out": [
+        [
+          "stell",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "surge-crucible",
+      "name": "Surge Crucible",
+      "time": 3.0,
+      "machines": [
+        "surge-crucible"
+      ],
+      "in": [
+        [
+          "silicon",
+          3.0
+        ],
+        [
+          "slag",
+          13.333
+        ],
+        [
+          "heat-unit",
+          10.0
+        ]
+      ],
+      "out": [
+        [
+          "surge-alloy",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "surge-smelter",
+      "name": "Surge Smelter",
+      "time": 1.25,
+      "machines": [
+        "surge-smelter"
+      ],
+      "in": [
+        [
+          "copper",
+          3.0
+        ],
+        [
+          "lead",
+          4.0
+        ],
+        [
+          "titanium",
+          2.0
+        ],
+        [
+          "silicon",
+          3.0
+        ]
+      ],
+      "out": [
+        [
+          "surge-alloy",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "tecta",
+      "name": "Tecta",
+      "time": 70.0,
+      "machines": [
+        "mech-assembler"
+      ],
+      "in": [
+        [
+          "cyanogen",
+          840.0
+        ],
+        [
+          "merui",
+          5.0
+        ],
+        [
+          "large-tungsten-wall",
+          12.0
+        ]
+      ],
+      "out": [
+        [
+          "tecta",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "thorium",
+      "name": "Thorium",
+      "time": 1.714,
+      "machines": [
+        "airblast-drill",
+        "laser-drill",
+        "mechanical-drill",
+        "pneumatic-drill"
+      ],
+      "out": [
+        [
+          "thorium",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "thorium-reactor",
+      "name": "Thorium Reactor",
+      "time": 6.0,
+      "machines": [
+        "thorium-reactor"
+      ],
+      "in": [
+        [
+          "thorium",
+          1.0
+        ],
+        [
+          "cryofluid",
+          14.4
+        ]
+      ]
+    },
+    {
+      "id": "titanium",
+      "name": "Titanium",
+      "time": 1.536,
+      "machines": [
+        "airblast-drill",
+        "laser-drill",
+        "pneumatic-drill"
+      ],
+      "out": [
+        [
+          "titanium",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "toxopid",
+      "name": "Toxopid",
+      "time": 240.0,
+      "machines": [
+        "tetrative-reconstructor"
+      ],
+      "in": [
+        [
+          "silicon",
+          1000.0
+        ],
+        [
+          "plastanium",
+          600.0
+        ],
+        [
+          "surge-alloy",
+          500.0
+        ],
+        [
+          "phase-fabric",
+          350.0
+        ],
+        [
+          "cryofluid",
+          43200.0
+        ],
+        [
+          "arkyid",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "toxopid",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "tungsten-eruption-drill",
+      "name": "Tungsten (Eruption Drill)",
+      "time": 1.0,
+      "machines": [
+        "eruption-drill"
+      ],
+      "in": [
+        [
+          "nitrogen",
+          4.0
+        ]
+      ],
+      "out": [
+        [
+          "tungsten",
+          5.333
+        ]
+      ]
+    },
+    {
+      "id": "tungsten-impact-drill",
+      "name": "Tungsten (Impact Drill)",
+      "time": 1.0,
+      "machines": [
+        "impact-drill"
+      ],
+      "in": [
+        [
+          "water",
+          10.0
+        ]
+      ],
+      "out": [
+        [
+          "tungsten",
+          1.33
+        ]
+      ]
+    },
+    {
+      "id": "turbine-condenser",
+      "name": "Turbine Condenser",
+      "time": 1.0,
+      "machines": [
+        "turbine-condenser"
+      ],
+      "out": [
+        [
+          "water",
+          5.0
+        ]
+      ]
+    },
+    {
+      "id": "vanquish",
+      "name": "Vanquish",
+      "time": 50.0,
+      "machines": [
+        "tank-assembler"
+      ],
+      "in": [
+        [
+          "cyanogen",
+          450.0
+        ],
+        [
+          "stell",
+          4.0
+        ],
+        [
+          "large-tungsten-wall",
+          10.0
+        ]
+      ],
+      "out": [
+        [
+          "vanquish",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "vela",
+      "name": "Vela",
+      "time": 90.0,
+      "machines": [
+        "exponential-reconstructor"
+      ],
+      "in": [
+        [
+          "silicon",
+          850.0
+        ],
+        [
+          "titanium",
+          750.0
+        ],
+        [
+          "plastanium",
+          650.0
+        ],
+        [
+          "cryofluid",
+          5400.0
+        ],
+        [
+          "quasar",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "vela",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "vent-condenser",
+      "name": "Vent Condenser",
+      "time": 1.0,
+      "machines": [
+        "vent-condenser"
+      ],
+      "out": [
+        [
+          "water",
+          30.0
+        ]
+      ]
+    },
+    {
+      "id": "water",
+      "name": "Water",
+      "time": 1.0,
+      "machines": [
+        "water-extractor",
+        "rotary-pump",
+        "impulse-pump",
+        "mechanical-pump"
+      ],
+      "out": [
+        [
+          "water",
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "zenith",
+      "name": "Zenith",
+      "time": 30.0,
+      "machines": [
+        "multiplicative-reconstructor"
+      ],
+      "in": [
+        [
+          "silicon",
+          130.0
+        ],
+        [
+          "titanium",
+          80.0
+        ],
+        [
+          "metaglass",
+          40.0
+        ],
+        [
+          "horizon",
+          1.0
+        ]
+      ],
+      "out": [
+        [
+          "zenith",
+          1.0
+        ]
+      ]
+    }
+  ]
+}
