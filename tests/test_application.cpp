@@ -1,3 +1,4 @@
+#define IMGUI_DEFINE_MATH_OPERATORS
 #include <gtest/gtest.h>
 #include "app/Application.h"
 #include "editor/factory_planner/FactoryNodeEditor.h"
@@ -11,6 +12,7 @@
 #include "common/IdUtils.h"
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <imgui_node_editor_internal.h>
 #include "services/NotificationManager.h"
 #include <GLFW/glfw3.h>
 #include <filesystem>
@@ -120,8 +122,40 @@ protected:
         ImGui::EndFrame();
     }
 
+    void drawEditorLinkPopupFrame(FactoryNodeEditor& editor, uint64_t linkId, bool openPopupThisFrame) {
+        ImGui::NewFrame();
+        ImGui::SetNextWindowPos(ImVec2(0, 0));
+        ImGui::SetNextWindowSize(ImVec2(1280, 720));
+        ImGui::Begin("EditorHost", nullptr, ImGuiWindowFlags_NoDecoration);
+        ax::NodeEditor::SetCurrentEditor(editor.getContext());
+        ax::NodeEditor::Begin(editor.getName().c_str());
+        if (openPopupThisFrame) {
+            editor.m_contextLinkId = IdUtils::toLinkId(linkId);
+            ax::NodeEditor::Suspend();
+            ImGui::OpenPopup("Link Context Menu");
+            ax::NodeEditor::Resume();
+        }
+        editor.handlePopups();
+        ax::NodeEditor::End();
+        ax::NodeEditor::SetCurrentEditor(nullptr);
+        ImGui::End();
+        ImGui::EndFrame();
+    }
+
     size_t getEditorUndoStackSize(const FactoryNodeEditor& editor) const {
         return editor.m_undoRedoManager.getUndoStackSize();
+    }
+
+    ImVec2 getStoredPopupPosition(const FactoryNodeEditor& editor) const {
+        return editor.m_storedPopupPosition;
+    }
+
+    void markQuadtreeDirty(FactoryNodeEditor& editor) {
+        editor.m_quadtreeNeedsRebuild = true;
+    }
+
+    bool isActiveParamEdit(const FactoryNodeEditor& editor) const {
+        return editor.m_activeParamEdit.active;
     }
 
     void setEditorFocused(FactoryNodeEditor& editor, bool focused) {
@@ -2209,5 +2243,621 @@ TEST_F(ApplicationLifecycleTest, SaveAs_DetectsCollisionWhenTargetOmitsExtension
     EXPECT_EQ(app.getEditor(0)->getProjectFilePath(), fileA);
     EXPECT_EQ(app.getEditor(1)->getProjectFilePath(), fileB);
     EXPECT_TRUE(NotificationManager::instance().hasActiveNotifications());
+}
+
+// -----------------------------------------------------------------------------
+// v0.12 Bug Audit Fixes (#12, #14, #15, #16, #18)
+// -----------------------------------------------------------------------------
+
+TEST_F(ApplicationLifecycleTest, Audit12_LinkContextMenu_DeleteLinkSkipsPostDeleteDebugInfo) {
+    struct SettingsGuard {
+        AppSettings prev = SettingsManager::instance().getSettings();
+        ~SettingsGuard() { SettingsManager::instance().setSettings(prev); }
+    } settingsGuard;
+
+    AppSettings s = settingsGuard.prev;
+    s.showDebugInfo = true;
+    SettingsManager::instance().setSettings(s);
+
+    GameData gd;
+    gd.game.id = "audit12_test";
+    gd.game.name = "Audit12Test";
+    gd.units.recipe_time = gamedata::RecipeTimeUnit::Seconds;
+    gd.units.default_rate = gamedata::RateUnit::PerSecond;
+    gamedata::ensureV3CompatProfile(gd);
+    gamedata::upsertResource(gd, "iron_ore", "Iron Ore");
+    gamedata::upsertResource(gd, "iron_plate", "Iron Plate");
+    gamedata::upsertMachine(gd, "miner", "Miner", 1.0, "v3_compat");
+    gamedata::upsertMachine(gd, "smelter", "Smelter", 1.0, "v3_compat");
+    gamedata::upsertRecipe(gd, "extract_ore", "Extract Ore", 1.0, {"miner"}, {}, {{"iron_ore", 1.0}});
+    gamedata::upsertRecipe(gd, "smelt_plate", "Smelt Plate", 1.0, {"smelter"},
+                           {{"iron_ore", 1.0}}, {{"iron_plate", 1.0}});
+
+    FactoryNodeEditor editor(gd, dirA / "audit12.fpp", "Audit12");
+    FactoryGraph* graph = editor.getGraph();
+    ASSERT_NE(graph, nullptr);
+
+    const uint64_t minerId = graph->addNode("Miner", "extract_ore");
+    const uint64_t smelter1Id = graph->addNode("Smelter1", "smelt_plate");
+    const uint64_t smelter2Id = graph->addNode("Smelter2", "smelt_plate");
+    const uint64_t outPortId = graph->getNode(minerId)->output_ports.front();
+    const uint64_t inPort1Id = graph->getNode(smelter1Id)->input_ports.front();
+    const uint64_t inPort2Id = graph->getNode(smelter2Id)->input_ports.front();
+
+    const uint64_t link1Id = graph->addConnection(outPortId, inPort1Id);
+    const uint64_t link2Id = graph->addConnection(outPortId, inPort2Id);
+    ASSERT_NE(link1Id, static_cast<uint64_t>(-1));
+    ASSERT_NE(link2Id, static_cast<uint64_t>(-1));
+    ASSERT_EQ(graph->getConnections().size(), 2u);
+
+    // 1. Delete link 1 (which swaps link 2 into index 0): Debug Info must NOT render for swapped link 2.
+    drawEditorLinkPopupFrame(editor, link1Id, true);
+    drawEditorLinkPopupFrame(editor, link1Id, false);
+    ImGuiWindow* popupWin = findOpenPopupWindow();
+    ASSERT_NE(popupWin, nullptr);
+    const float heightWithDebug = popupWin->DC.CursorMaxPos.y - popupWin->DC.CursorStartPos.y;
+    const ImGuiID deleteLinkId = popupWin->GetID("Delete Link");
+
+    ImGui::ActivateItemByID(deleteLinkId);
+    drawEditorLinkPopupFrame(editor, link1Id, false);
+    const float heightAfterDelete = popupWin->DC.CursorMaxPos.y - popupWin->DC.CursorStartPos.y;
+
+    EXPECT_EQ(graph->getConnection(link1Id), nullptr);
+    EXPECT_EQ(graph->getConnections().size(), 1u);
+    EXPECT_LT(heightAfterDelete, heightWithDebug - 30.0f);
+
+    // 2. Delete the remaining last link (pop_back): must not read past end() or crash.
+    drawEditorLinkPopupFrame(editor, link2Id, true);
+    drawEditorLinkPopupFrame(editor, link2Id, false);
+    popupWin = findOpenPopupWindow();
+    ASSERT_NE(popupWin, nullptr);
+    const float height2WithDebug = popupWin->DC.CursorMaxPos.y - popupWin->DC.CursorStartPos.y;
+    ImGui::ActivateItemByID(popupWin->GetID("Delete Link"));
+    drawEditorLinkPopupFrame(editor, link2Id, false);
+    const float height2AfterDelete = popupWin->DC.CursorMaxPos.y - popupWin->DC.CursorStartPos.y;
+
+    EXPECT_TRUE(graph->getConnections().empty());
+    EXPECT_LT(height2AfterDelete, height2WithDebug - 30.0f);
+}
+
+TEST_F(ApplicationLifecycleTest, Audit14_PinDragAndBackgroundMenu_StoreScreenPopupPosOnce) {
+    GameData gd;
+    gd.game.id = "audit14_test";
+    gd.game.name = "Audit14Test";
+    gd.units.recipe_time = gamedata::RecipeTimeUnit::Seconds;
+    gd.units.default_rate = gamedata::RateUnit::PerSecond;
+    gamedata::ensureV3CompatProfile(gd);
+    gamedata::upsertResource(gd, "iron_ore", "Iron Ore");
+    gamedata::upsertResource(gd, "iron_plate", "Iron Plate");
+    gamedata::upsertMachine(gd, "miner", "Miner", 1.0, "v3_compat");
+    gamedata::upsertMachine(gd, "smelter", "Smelter", 1.0, "v3_compat");
+    gamedata::upsertRecipe(gd, "extract_ore", "Extract Ore", 1.0, {"miner"}, {}, {{"iron_ore", 1.0}});
+    gamedata::upsertRecipe(gd, "smelt_plate", "Smelt Plate", 1.0, {"smelter"},
+                           {{"iron_ore", 1.0}}, {{"iron_plate", 1.0}});
+
+    FactoryNodeEditor editor(gd, dirA / "audit14.fpp", "Audit14");
+    FactoryGraph* graph = editor.getGraph();
+    ASSERT_NE(graph, nullptr);
+
+    executeEditorCommand(editor, std::make_unique<AddNodeCommand>(
+        "Miner", "extract_ore", static_cast<uint64_t>(-1), ImVec2(2000.0f, 2000.0f)));
+    ASSERT_EQ(graph->getNodes().size(), 1u);
+    const uint64_t minerId = graph->getNodes().front().id;
+    const uint64_t outPortId = graph->getNodes().front().output_ports.front();
+
+    renderEditorFrame(editor);
+    renderEditorFrame(editor);
+
+    // Pan + zoom to an off-origin region so canvas coords (~2000) differ strongly from screen coords.
+    ax::NodeEditor::SetCurrentEditor(editor.getContext());
+    ax::NodeEditor::NavigateTo(ImRect(1900.0f, 1900.0f, 2540.0f, 2260.0f), true, 0.0f);
+    ax::NodeEditor::SetCurrentEditor(nullptr);
+    renderEditorFrame(editor);
+    renderEditorFrame(editor);
+
+    auto* detailCtx = reinterpret_cast<ax::NodeEditor::Detail::EditorContext*>(editor.getContext());
+    ASSERT_NE(detailCtx, nullptr);
+    auto* pinPtr = detailCtx->FindPin(IdUtils::toPinId(outPortId));
+    ASSERT_NE(pinPtr, nullptr);
+
+    ax::NodeEditor::SetCurrentEditor(editor.getContext());
+    const float zoom = ax::NodeEditor::GetCurrentZoom();
+    const ImVec2 pinScreen = ax::NodeEditor::CanvasToScreen(pinPtr->m_Bounds.GetCenter());
+    const ImVec2 dropScreen(pinScreen.x + 220.0f, pinScreen.y + 40.0f);
+    const ImVec2 expectedCanvas = ax::NodeEditor::ScreenToCanvas(dropScreen);
+    ax::NodeEditor::SetCurrentEditor(nullptr);
+    ASSERT_LT(zoom, 0.85f);
+    ASSERT_GT(expectedCanvas.x, 1800.0f);
+
+    // Part A: Drag from output pin to empty background and release to trigger QueryNewNode.
+    ASSERT_TRUE(pinPtr->m_IsLive) << "pin not live, pos=" << expectedCanvas.x << "," << expectedCanvas.y;
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddMousePosEvent(pinScreen.x, pinScreen.y);
+    renderEditorFrame(editor);
+    ax::NodeEditor::SetCurrentEditor(editor.getContext());
+    const ax::NodeEditor::PinId hovPin = ax::NodeEditor::GetHoveredPin();
+    ax::NodeEditor::SetCurrentEditor(nullptr);
+    EXPECT_EQ(hovPin, IdUtils::toPinId(outPortId))
+        << "pinScreen=" << pinScreen.x << "," << pinScreen.y
+        << " pinBounds=" << pinPtr->m_Bounds.Min.x << "," << pinPtr->m_Bounds.Min.y
+        << ".." << pinPtr->m_Bounds.Max.x << "," << pinPtr->m_Bounds.Max.y;
+    io.AddMouseButtonEvent(0, true);
+    renderEditorFrame(editor);
+    io.AddMousePosEvent(dropScreen.x, dropScreen.y);
+    renderEditorFrame(editor);
+    renderEditorFrame(editor);
+    renderEditorFrame(editor);
+    io.AddMouseButtonEvent(0, false);
+    renderEditorFrame(editor);
+    renderEditorFrame(editor);
+    renderEditorFrame(editor);
+
+    ASSERT_NE(findOpenPopupWindow(), nullptr);
+    const ImVec2 storedFromPinDrag = getStoredPopupPosition(editor);
+    EXPECT_NEAR(storedFromPinDrag.x, dropScreen.x, 5.0f);
+    EXPECT_NEAR(storedFromPinDrag.y, dropScreen.y, 5.0f);
+
+    ImGuiWindow* tableWin = findEditorWindowContaining("RecipeList");
+    ASSERT_NE(tableWin, nullptr);
+    const ImVec2 row0ClickPos(tableWin->Pos.x + tableWin->Size.x * 0.5f, tableWin->Pos.y + 10.0f);
+    io.AddMousePosEvent(row0ClickPos.x, row0ClickPos.y);
+    renderEditorFrame(editor);
+    io.AddMouseButtonEvent(0, true);
+    renderEditorFrame(editor);
+    io.AddMouseButtonEvent(0, false);
+    renderEditorFrame(editor);
+
+    ASSERT_EQ(graph->getNodes().size(), 2u);
+    uint64_t createdId = 0;
+    for (const auto& n : graph->getNodes()) {
+        if (n.id != minerId) createdId = n.id;
+    }
+    ax::NodeEditor::SetCurrentEditor(editor.getContext());
+    const ImVec2 createdPos = ax::NodeEditor::GetNodePosition(IdUtils::toNodeId(createdId));
+    ax::NodeEditor::SetCurrentEditor(nullptr);
+
+    // Single ScreenToCanvas places X directly at expectedCanvas.x (double transform diverges by >400 px).
+    EXPECT_NEAR(createdPos.x, expectedCanvas.x, 5.0f);
+    EXPECT_NEAR(createdPos.y, expectedCanvas.y, 120.0f);
+
+    // Part B: Right-click empty background triggers ShowBackgroundContextMenu.
+    const ImVec2 bgScreen(120.0f, 120.0f);
+    io.AddMousePosEvent(bgScreen.x, bgScreen.y);
+    renderEditorFrame(editor);
+    io.AddMouseButtonEvent(1, true);
+    renderEditorFrame(editor);
+    io.AddMouseButtonEvent(1, false);
+    renderEditorFrame(editor);
+    renderEditorFrame(editor);
+
+    ASSERT_NE(findOpenPopupWindow(), nullptr);
+    const ImVec2 storedFromBg = getStoredPopupPosition(editor);
+    EXPECT_NEAR(storedFromBg.x, bgScreen.x, 5.0f);
+    EXPECT_NEAR(storedFromBg.y, bgScreen.y, 5.0f);
+}
+
+TEST_F(ApplicationLifecycleTest, Audit15_LiveEdits_IncludedInIsDirtyAndCommittedOnSaveAsAndCopy) {
+    const char* manifest = R"JSON({
+      "schema_version": 4,
+      "game": { "id": "audit15_test", "name": "Audit15Test" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "resources": [
+        { "id": "iron_ore", "name": "Iron Ore" },
+        { "id": "iron_plate", "name": "Iron Plate" }
+      ],
+      "parameters": {
+        "input_scale": {
+          "label": "Input Scale", "type": "number", "min": "0.5", "max": "20.0",
+          "default": 1.0,
+          "ui": { "widget": "input", "format": "%.2f", "group": "Tuning", "placement": "panel" }
+        }
+      },
+      "profiles": {
+        "prof": {
+          "params": ["input_scale"],
+          "craft_time": "recipe.time / param.input_scale"
+        }
+      },
+      "machines": [
+        { "id": "assembler", "name": "Assembler", "profile": "prof", "categories": ["craft"] }
+      ],
+      "recipes": [
+        { "id": "smelt", "name": "Smelt", "category": "craft", "time": 1,
+          "in": [["iron_ore", 1]], "out": [["iron_plate", 1]] }
+      ]
+    })JSON";
+
+    gamedata::GamePackage pkg;
+    gamedata::LoadReport report;
+    ASSERT_TRUE(gamedata::loadGamePackageFromMemory(manifest, {}, pkg, report))
+        << (report.errors.empty() ? "" : report.errors.front().formatted);
+
+    {
+        Application app;
+        auto editorUnique = std::make_unique<FactoryNodeEditor>(pkg, dirA / "audit15.fpp", "Audit15");
+        FactoryNodeEditor* editor = editorUnique.get();
+        addEditorDirectly(app, std::move(editorUnique));
+
+        FactoryGraph* graph = editor->getGraph();
+        const uint64_t nodeId = graph->addNode("Smelt", "smelt");
+        ASSERT_NE(graph->getNode(nodeId), nullptr);
+        const uint64_t outPortId = graph->getNode(nodeId)->output_ports.front();
+        executeEditorCommand(*editor, std::make_unique<SetPortConstraintCommand>(outPortId, -1.0, 10.0));
+        ASSERT_TRUE(editor->save());
+        ASSERT_FALSE(editor->isDirty());
+        EXPECT_NEAR(graph->getNode(nodeId)->machine_count, 10.0, 1e-6);
+
+        renderEditorFrame(*editor);
+        ax::NodeEditor::SetCurrentEditor(editor->getContext());
+        ax::NodeEditor::SelectNode(IdUtils::toNodeId(nodeId));
+        ax::NodeEditor::SetCurrentEditor(nullptr);
+        renderEditorFrame(*editor);
+
+        ImGuiWindow* sidePanel = findEditorWindowContaining("##EditorSidePanel");
+        ASSERT_NE(sidePanel, nullptr);
+        const ImGuiID panelParamsRoot = ImHashStr("##props_node", 0, sidePanel->ID);
+        const ImGuiID scaleInputId = ImHashStr("##val", 0, ImHashStr("input_scale", 0, panelParamsRoot));
+
+        // 1. Live parameter edit without Enter/deactivation must mark isDirty() and trigger quit prompt.
+        ImGui::ActivateItemByID(scaleInputId);
+        renderEditorFrame(*editor);
+        ImGuiIO& io = ImGui::GetIO();
+        io.AddInputCharactersUTF8("2");
+        renderEditorFrame(*editor);
+
+        EXPECT_TRUE(editor->isDirty());
+        app.requestQuit();
+        EXPECT_TRUE(app.isUnsavedChangesDialogOpen());
+
+        // Settle edit cleanly and add 999 offscreen filler nodes so graph >= 1000 (deferred solve path).
+        io.AddKeyEvent(ImGuiKey_Enter, true);
+        io.AddKeyEvent(ImGuiKey_Enter, false);
+        renderEditorFrame(*editor);
+        ax::NodeEditor::SetCurrentEditor(editor->getContext());
+        for (int i = 0; i < 999; ++i) {
+            const uint64_t fillerId = graph->addNode("Smelt", "smelt");
+            ax::NodeEditor::SetNodePosition(IdUtils::toNodeId(fillerId), ImVec2(8000.0f, 8000.0f));
+        }
+        ax::NodeEditor::SetCurrentEditor(nullptr);
+        markQuadtreeDirty(*editor);
+        ASSERT_GE(graph->getNodes().size(), 1000u);
+        ASSERT_TRUE(editor->save());
+        ASSERT_FALSE(editor->isDirty());
+
+        // 2. Live edit on >=1000-node graph without Enter -> saveAs must commit, solve, and clear dirty on SwitchToNewFile.
+        ax::NodeEditor::SetCurrentEditor(editor->getContext());
+        ax::NodeEditor::SelectNode(IdUtils::toNodeId(nodeId));
+        ax::NodeEditor::SetCurrentEditor(nullptr);
+        renderEditorFrame(*editor);
+
+        ImGui::ActivateItemByID(scaleInputId);
+        renderEditorFrame(*editor);
+        io.AddInputCharactersUTF8("4");
+        renderEditorFrame(*editor);
+        EXPECT_TRUE(editor->isDirty());
+
+        const size_t undoBeforeSaveAs = getEditorUndoStackSize(*editor);
+        const fs::path copyPath = dirB / "audit15_copy.fpp";
+        ASSERT_TRUE(editor->saveAs(copyPath, SaveAsMode::KeepCurrentFile));
+        EXPECT_EQ(getEditorUndoStackSize(*editor), undoBeforeSaveAs + 1);
+        EXPECT_NEAR(graph->getNode(nodeId)->machine_count, 2.5, 1e-6);
+
+        FactoryGraph loadedCopy(graph->getGameData());
+        ASSERT_TRUE(ProjectIO::loadProject(copyPath, loadedCopy));
+        const Node* loadedNode = loadedCopy.getNode(nodeId);
+        ASSERT_NE(loadedNode, nullptr);
+        ASSERT_TRUE(loadedNode->params.contains("input_scale"));
+        EXPECT_NEAR(loadedNode->params.at("input_scale").asNumber(), 4.0, 1e-6);
+
+        // Also test SwitchToNewFile with a fresh live edit -> must commit, solve, clear isDirty().
+        ImGui::ClearActiveID();
+        renderEditorFrame(*editor);
+        ImGui::ActivateItemByID(scaleInputId);
+        renderEditorFrame(*editor);
+        io.AddInputCharactersUTF8("5");
+        renderEditorFrame(*editor);
+        EXPECT_TRUE(editor->isDirty());
+
+        ASSERT_TRUE(editor->saveAs(dirB / "audit15_switched.fpp", SaveAsMode::SwitchToNewFile));
+        EXPECT_FALSE(editor->isDirty());
+        EXPECT_NEAR(graph->getNode(nodeId)->machine_count, 2.0, 1e-6);
+
+        // 3. copy() while a live edit is pending on >=1000-node graph must commit & solve before copying.
+        ImGui::ClearActiveID();
+        renderEditorFrame(*editor);
+        ImGui::ActivateItemByID(scaleInputId);
+        renderEditorFrame(*editor);
+        io.AddInputCharactersUTF8("10");
+        renderEditorFrame(*editor);
+        ax::NodeEditor::SetCurrentEditor(editor->getContext());
+        ax::NodeEditor::SelectNode(IdUtils::toNodeId(nodeId));
+        ax::NodeEditor::SetCurrentEditor(nullptr);
+
+        const size_t undoBeforeCopy = getEditorUndoStackSize(*editor);
+        CopyBuffer copyBuf;
+        ax::NodeEditor::SetCurrentEditor(editor->getContext());
+        editor->copy(copyBuf);
+        ax::NodeEditor::SetCurrentEditor(nullptr);
+        EXPECT_EQ(getEditorUndoStackSize(*editor), undoBeforeCopy + 1);
+        ASSERT_TRUE(copyBuf.nodes.contains(nodeId));
+        EXPECT_NEAR(copyBuf.nodes.at(nodeId).machine_count, 1.0, 1e-6);
+        EXPECT_TRUE(editor->isDirty());
+    }
+
+    {
+        // 4. Pin Context Menu live constraint edit without Enter/close:
+        //    must report isDirty()=true, prompt on requestQuit(), commit on save(),
+        //    not duplicate undo on close, and commit before undo().
+        Application app2;
+        auto editorUnique = std::make_unique<FactoryNodeEditor>(pkg, dirA / "audit15_pin.fpp", "Audit15Pin");
+        FactoryNodeEditor* editor2 = editorUnique.get();
+        addEditorDirectly(app2, std::move(editorUnique));
+
+        FactoryGraph* graph2 = editor2->getGraph();
+        const uint64_t nodeId = graph2->addNode("Smelt", "smelt");
+        const uint64_t outPortId = graph2->getNode(nodeId)->output_ports.front();
+        executeEditorCommand(*editor2, std::make_unique<SetPortConstraintCommand>(outPortId, -1.0, 10.0));
+        ASSERT_TRUE(editor2->save());
+        ASSERT_FALSE(editor2->isDirty());
+        const size_t undoBeforePin = getEditorUndoStackSize(*editor2);
+
+        ImGuiIO& io = ImGui::GetIO();
+        drawEditorPinPopupFrame(*editor2, outPortId, true);
+        drawEditorPinPopupFrame(*editor2, outPortId, false);
+        io.AddInputCharactersUTF8("20");
+        drawEditorPinPopupFrame(*editor2, outPortId, false);
+
+        EXPECT_TRUE(editor2->isDirty());
+        app2.requestQuit();
+        EXPECT_TRUE(app2.isUnsavedChangesDialogOpen());
+
+        ASSERT_TRUE(editor2->save());
+        EXPECT_FALSE(editor2->isDirty());
+        EXPECT_EQ(getEditorUndoStackSize(*editor2), undoBeforePin + 1);
+        EXPECT_NEAR(graph2->getPort(outPortId)->user_constraint, 20.0, 1e-6);
+
+        // Dismiss popup by clicking outside -> must NOT push a duplicate undo command.
+        io.AddMousePosEvent(900.0f, 600.0f);
+        io.AddMouseButtonEvent(0, true);
+        drawEditorPinPopupFrame(*editor2, outPortId, false);
+        io.AddMouseButtonEvent(0, false);
+        drawEditorPinPopupFrame(*editor2, outPortId, false);
+        EXPECT_EQ(getEditorUndoStackSize(*editor2), undoBeforePin + 1);
+
+        // Live edit again and undo() while popup is still open -> commits then undoes cleanly back to 20.
+        drawEditorPinPopupFrame(*editor2, outPortId, true);
+        drawEditorPinPopupFrame(*editor2, outPortId, false);
+        io.AddInputCharactersUTF8("40");
+        drawEditorPinPopupFrame(*editor2, outPortId, false);
+        EXPECT_NEAR(graph2->getPort(outPortId)->user_constraint, 40.0, 1e-6);
+
+        editor2->undo();
+        EXPECT_NEAR(graph2->getPort(outPortId)->user_constraint, 20.0, 1e-6);
+    }
+}
+
+TEST_F(ApplicationLifecycleTest, Audit16_DrawNodes_KeepsActiveParamEditNodeWhenCulledOffscreen) {
+    const char* manifest = R"JSON({
+      "schema_version": 4,
+      "game": { "id": "audit16_test", "name": "Audit16Test" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "resources": [
+        { "id": "iron_ore", "name": "Iron Ore" },
+        { "id": "iron_plate", "name": "Iron Plate" }
+      ],
+      "parameters": {
+        "overclock": {
+          "label": "Overclock", "type": "number", "min": "1", "max": "250",
+          "default": 100, "unit": "%",
+          "ui": { "widget": "input", "format": "%.1f", "group": "Tuning", "placement": "body" }
+        }
+      },
+      "profiles": {
+        "prof": {
+          "params": ["overclock"],
+          "craft_time": "recipe.time / (param.overclock / 100)"
+        }
+      },
+      "machines": [
+        { "id": "assembler", "name": "Assembler", "profile": "prof", "categories": ["craft"] }
+      ],
+      "recipes": [
+        { "id": "smelt", "name": "Smelt", "category": "craft", "time": 1,
+          "in": [["iron_ore", 1]], "out": [["iron_plate", 1]] }
+      ]
+    })JSON";
+
+    gamedata::GamePackage pkg;
+    gamedata::LoadReport report;
+    ASSERT_TRUE(gamedata::loadGamePackageFromMemory(manifest, {}, pkg, report))
+        << (report.errors.empty() ? "" : report.errors.front().formatted);
+
+    FactoryNodeEditor editor(pkg, dirA / "audit16.fpp", "Audit16");
+    FactoryGraph* graph = editor.getGraph();
+    ASSERT_NE(graph, nullptr);
+
+    executeEditorCommand(editor, std::make_unique<AddNodeCommand>(
+        "Smelt", "smelt", static_cast<uint64_t>(-1), ImVec2(0.0f, 0.0f)));
+    executeEditorCommand(editor, std::make_unique<AddNodeCommand>(
+        "Smelt", "smelt", static_cast<uint64_t>(-1), ImVec2(4000.0f, 0.0f)));
+    ASSERT_EQ(graph->getNodes().size(), 2u);
+    const uint64_t node1Id = graph->getNodes()[0].id;
+    const uint64_t node2Id = graph->getNodes()[1].id;
+
+    ax::NodeEditor::SetCurrentEditor(editor.getContext());
+    ax::NodeEditor::SetNodePosition(IdUtils::toNodeId(node1Id), ImVec2(0.0f, 0.0f));
+    ax::NodeEditor::SetNodePosition(IdUtils::toNodeId(node2Id), ImVec2(4000.0f, 0.0f));
+    ax::NodeEditor::NavigateTo(ImRect(-150.0f, -150.0f, 450.0f, 250.0f), true, 0.0f);
+    ax::NodeEditor::SetCurrentEditor(nullptr);
+    markQuadtreeDirty(editor);
+
+    renderEditorFrame(editor);
+    renderEditorFrame(editor);
+
+    ImGuiWindow* hostWin = findEditorWindowContaining("EditorHost");
+    ASSERT_NE(hostWin, nullptr);
+    const ImGuiID editorScope = ImHashStr(editor.getName().c_str(), 0, hostWin->ID);
+    const std::string bodyScopeName = "##nbody_" + std::to_string(node1Id);
+    const ImGuiID bodyNodeScope = ImHashStr(bodyScopeName.c_str(), 0, editorScope);
+    const ImGuiID bodyOcScope = ImHashStr("overclock", 0, bodyNodeScope);
+    const ImGuiID bodyOcInputId = ImHashStr("##val", 0, bodyOcScope);
+
+    // Begin editing node1's body parameter without pressing Enter/deactivating.
+    ImGui::ActivateItemByID(bodyOcInputId);
+    renderEditorFrame(editor);
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddInputCharactersUTF8("200");
+    renderEditorFrame(editor);
+
+    ASSERT_TRUE(isActiveParamEdit(editor));
+    ASSERT_TRUE(graph->getNode(node1Id)->params.contains("overclock"));
+    EXPECT_NEAR(graph->getNode(node1Id)->params.at("overclock").asNumber(), 200.0, 1e-6);
+
+    const size_t undoBeforePan = getEditorUndoStackSize(editor);
+
+    // Pan/navigate completely off node1 so only node2 (at 4000,0) is inside the viewport.
+    ax::NodeEditor::SetCurrentEditor(editor.getContext());
+    ax::NodeEditor::NavigateTo(ImRect(3900.0f, -100.0f, 4500.0f, 300.0f), true, 0.0f);
+    ax::NodeEditor::SetCurrentEditor(nullptr);
+    renderEditorFrame(editor);
+    renderEditorFrame(editor);
+
+    ASSERT_GT(editor.getDebugInfo().viewBoundsMin[0], 1000.0f);
+
+    // Press Enter while node1 is offscreen: trackContinuousScalar must still run, commit undo, and clear active edit.
+    io.AddKeyEvent(ImGuiKey_Enter, true);
+    renderEditorFrame(editor);
+    io.AddKeyEvent(ImGuiKey_Enter, false);
+    renderEditorFrame(editor);
+
+    EXPECT_EQ(getEditorUndoStackSize(editor), undoBeforePan + 1);
+    EXPECT_FALSE(isActiveParamEdit(editor));
+
+    // Hovering node2 must now show a node tooltip (not suppressed by a stuck m_activeParamEdit.active).
+    const ImVec2 hoverNode2Pos = getNodeCenterScreenPos(editor, node2Id);
+    io.AddMousePosEvent(hoverNode2Pos.x, hoverNode2Pos.y);
+    renderEditorFrame(editor);
+    renderEditorFrame(editor);
+
+    ImGuiWindow* tooltipWin = findEditorWindowContaining("##Tooltip");
+    ASSERT_NE(tooltipWin, nullptr);
+    EXPECT_TRUE(tooltipWin->Active);
+}
+
+TEST_F(ApplicationLifecycleTest, Audit18_NumberStepper_RejectsNonFiniteTempInput) {
+    const char* manifest = R"JSON({
+      "schema_version": 4,
+      "game": { "id": "audit18_test", "name": "Audit18Test" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "resources": [
+        { "id": "iron_ore", "name": "Iron Ore" },
+        { "id": "iron_plate", "name": "Iron Plate" }
+      ],
+      "parameters": {
+        "overclock_bounded": {
+          "label": "Overclock", "type": "number", "min": "50", "max": "250",
+          "default": 100, "step": 10, "unit": "%",
+          "ui": { "widget": "stepper", "format": "%.1f", "group": "Tuning", "placement": "panel" }
+        },
+        "rate_unbounded": {
+          "label": "Scale", "type": "number",
+          "default": 10, "step": 1,
+          "ui": { "widget": "stepper", "format": "%.2f", "group": "Tuning", "placement": "panel" }
+        }
+      },
+      "profiles": {
+        "prof": {
+          "params": ["overclock_bounded", "rate_unbounded"],
+          "craft_time": "recipe.time / ((param.overclock_bounded / 100) * param.rate_unbounded)"
+        }
+      },
+      "machines": [
+        { "id": "assembler", "name": "Assembler", "profile": "prof", "categories": ["craft"] }
+      ],
+      "recipes": [
+        { "id": "smelt", "name": "Smelt", "category": "craft", "time": 1,
+          "in": [["iron_ore", 1]], "out": [["iron_plate", 1]] }
+      ]
+    })JSON";
+
+    gamedata::GamePackage pkg;
+    gamedata::LoadReport report;
+    ASSERT_TRUE(gamedata::loadGamePackageFromMemory(manifest, {}, pkg, report))
+        << (report.errors.empty() ? "" : report.errors.front().formatted);
+
+    FactoryNodeEditor editor(pkg, dirA / "audit18.fpp", "Audit18");
+    FactoryGraph* graph = editor.getGraph();
+    ASSERT_NE(graph, nullptr);
+
+    const uint64_t nodeId = graph->addNode("Smelt", "smelt");
+    ASSERT_NE(graph->getNode(nodeId), nullptr);
+    ASSERT_TRUE(editor.save());
+    ASSERT_FALSE(editor.isDirty());
+
+    renderEditorFrame(editor);
+    ax::NodeEditor::SetCurrentEditor(editor.getContext());
+    ax::NodeEditor::SelectNode(IdUtils::toNodeId(nodeId));
+    ax::NodeEditor::SetCurrentEditor(nullptr);
+    renderEditorFrame(editor);
+
+    ImGuiWindow* sidePanel = findEditorWindowContaining("##EditorSidePanel");
+    ASSERT_NE(sidePanel, nullptr);
+    const ImGuiID panelParamsRoot = ImHashStr("##props_node", 0, sidePanel->ID);
+    const ImGuiID ocValId = ImHashStr("##val", 0, ImHashStr("overclock_bounded", 0, panelParamsRoot));
+    const ImGuiID rateValId = ImHashStr("##val", 0, ImHashStr("rate_unbounded", 0, panelParamsRoot));
+
+    const size_t undoBefore = getEditorUndoStackSize(editor);
+    ImGuiIO& io = ImGui::GetIO();
+
+    // 1. Bounded stepper: TempInputScalar typing "nan" + Enter must be rejected without writing NaN.
+    ImGui::GetCurrentContext()->NavNextActivateId = ocValId;
+    ImGui::GetCurrentContext()->NavNextActivateFlags = ImGuiActivateFlags_PreferInput;
+    renderEditorFrame(editor);
+    io.AddInputCharactersUTF8("nan");
+    io.AddKeyEvent(ImGuiKey_Enter, true);
+    io.AddKeyEvent(ImGuiKey_Enter, false);
+    renderEditorFrame(editor);
+    renderEditorFrame(editor);
+
+    const Node* node = graph->getNode(nodeId);
+    ASSERT_NE(node, nullptr);
+    if (auto it = node->params.find("overclock_bounded"); it != node->params.end()) {
+        EXPECT_TRUE(it->second.isNumber() && std::isfinite(it->second.asNumber()));
+    }
+    const auto* evalAfterNan = graph->getNodeEval(nodeId);
+    ASSERT_NE(evalAfterNan, nullptr);
+    EXPECT_EQ(evalAfterNan->status, gamedata::EvalStatus::OK);
+    EXPECT_TRUE(std::isfinite(evalAfterNan->resolved_params.at("overclock_bounded").asNumber()));
+    EXPECT_FALSE(editor.isDirty());
+    EXPECT_EQ(getEditorUndoStackSize(editor), undoBefore);
+
+    // 2. Unbounded stepper: TempInputScalar typing "inf" + Enter must be rejected without writing Inf.
+    ImGui::GetCurrentContext()->NavNextActivateId = rateValId;
+    ImGui::GetCurrentContext()->NavNextActivateFlags = ImGuiActivateFlags_PreferInput;
+    renderEditorFrame(editor);
+    io.AddInputCharactersUTF8("inf");
+    io.AddKeyEvent(ImGuiKey_Enter, true);
+    io.AddKeyEvent(ImGuiKey_Enter, false);
+    renderEditorFrame(editor);
+    renderEditorFrame(editor);
+
+    if (auto it = node->params.find("rate_unbounded"); it != node->params.end()) {
+        EXPECT_TRUE(it->second.isNumber() && std::isfinite(it->second.asNumber()));
+    }
+    const auto* evalAfterInf = graph->getNodeEval(nodeId);
+    ASSERT_NE(evalAfterInf, nullptr);
+    EXPECT_EQ(evalAfterInf->status, gamedata::EvalStatus::OK);
+    EXPECT_TRUE(std::isfinite(evalAfterInf->resolved_params.at("rate_unbounded").asNumber()));
+    EXPECT_FALSE(editor.isDirty());
+    EXPECT_EQ(getEditorUndoStackSize(editor), undoBefore);
+
+    const nlohmann::json serialized = graph->serialize();
+    for (const auto& jNode : serialized.at("nodes")) {
+        if (jNode.contains("params") && jNode.at("params").is_object()) {
+            for (auto it = jNode.at("params").begin(); it != jNode.at("params").end(); ++it) {
+                EXPECT_FALSE(it.value().is_null()) << "Param " << it.key() << " serialized as null";
+            }
+        }
+    }
 }
 

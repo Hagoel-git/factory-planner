@@ -447,7 +447,7 @@ void FactoryNodeEditor::draw() {
 }
 
 bool FactoryNodeEditor::save() {
-    commitActiveParamEdit();
+    commitPendingEdits();
     if (!m_loadedSuccessfully || m_projectFilePath.empty()) {
         LOG(WARNING) << "Save refused: editor was not loaded successfully or path is empty: " << m_projectFilePath;
         return false;
@@ -469,6 +469,7 @@ bool FactoryNodeEditor::saveAs(const std::filesystem::path &newFilePath, SaveAsM
         LOG(WARNING) << "SaveAs refused: cannot overwrite corrupted project file: " << resolvedPath;
         return false;
     }
+    commitPendingEdits();
     if (ProjectIO::saveProject(resolvedPath, *m_graph, this->m_context)) {
         if (mode == SaveAsMode::SwitchToNewFile) {
             m_projectFilePath = resolvedPath;
@@ -491,6 +492,7 @@ void FactoryNodeEditor::copy(CopyBuffer &copy_buffer) {
 
     if (nodeCount == 0) return;
 
+    commitPendingEdits();
     copy_buffer.clear();
 
     copy_buffer.gameId = m_graph->getGameData().game.id;
@@ -721,7 +723,8 @@ void FactoryNodeEditor::fitView(bool force) {
 }
 
 void FactoryNodeEditor::undo() {
-    commitActiveParamEdit();
+    commitPendingEdits();
+    m_isContextMenuInitialized = false;
     if (!m_undoRedoManager.canUndo()) return;
 
     const Command *command = m_undoRedoManager.getCommandToUndo();
@@ -746,7 +749,8 @@ void FactoryNodeEditor::undo() {
 }
 
 void FactoryNodeEditor::redo() {
-    commitActiveParamEdit();
+    commitPendingEdits();
+    m_isContextMenuInitialized = false;
     if (!m_undoRedoManager.canRedo()) return;
 
     const Command *command = m_undoRedoManager.getCommandToRedo();
@@ -1066,6 +1070,14 @@ void FactoryNodeEditor::drawNodes() {
         auto port = m_graph->getPort(m_selectedPortId);
         if (port) {
             visibleNodeIds.insert(port->node_id);
+        }
+    }
+    // Keep node owning an active parameter edit alive so offscreen pan/zoom does not strand the edit.
+    if (m_activeParamEdit.active) {
+        if (m_graph->getNode(m_activeParamEdit.nodeId)) {
+            visibleNodeIds.insert(m_activeParamEdit.nodeId);
+        } else {
+            m_activeParamEdit = ActiveParamEdit{};
         }
     }
 
@@ -1573,8 +1585,8 @@ void FactoryNodeEditor::handleUserInteractions() {
             if (ed::AcceptNewItem(ImColor(255, 255, 255), 0.7f)) {
                 ed::Suspend();
                 ImGui::OpenPopup("Create new node");
+                m_storedPopupPosition = ImGui::GetMousePos();
                 ed::Resume();
-                m_storedPopupPosition = ImGui::GetMousePosOnOpeningCurrentPopup();
             }
         }
 
@@ -1670,14 +1682,7 @@ void FactoryNodeEditor::handleContextMenus() {
     }
     ed::PinId clickedPinId = 0;
     if (ed::ShowPinContextMenu(&clickedPinId)) {
-        if (m_isContextMenuInitialized && m_contextPinCurrentConstraint != m_contextPinOriginalConstraint) {
-            if (auto prevPort = m_graph->getPort(IdUtils::fromPinId(m_contextPinId))) {
-                executeCommand(std::make_unique<SetPortConstraintCommand>(
-                    prevPort->id, m_contextPinOriginalConstraint, m_contextPinCurrentConstraint
-                ));
-            }
-            m_contextPinOriginalConstraint = m_contextPinCurrentConstraint;
-        }
+        commitActivePinConstraintEdit();
         m_contextPinId = clickedPinId;
         ImGui::OpenPopup("Pin Context Menu");
         m_isContextMenuInitialized = false;
@@ -1690,9 +1695,9 @@ void FactoryNodeEditor::handleContextMenus() {
     if (ed::ShowBackgroundContextMenu()) {
         ed::Suspend();
         ImGui::OpenPopup("Create new node");
+        m_storedPopupPosition = ImGui::GetMousePos();
         m_selectedPortId = static_cast<uint64_t>(-1);
         ed::Resume();
-        m_storedPopupPosition = ImGui::GetMousePosOnOpeningCurrentPopup();
     }
 }
 
@@ -1914,12 +1919,7 @@ void FactoryNodeEditor::handlePopups() {
             ImGui::PopItemWidth();
             const bool enterPressed = ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter);
             if (ImGui::IsItemDeactivatedAfterEdit() || (ImGui::IsItemFocused() && enterPressed)) {
-                if (m_contextPinCurrentConstraint != m_contextPinOriginalConstraint) {
-                    executeCommand(std::make_unique<SetPortConstraintCommand>(
-                        port->id, m_contextPinOriginalConstraint, m_contextPinCurrentConstraint
-                    ));
-                    m_contextPinOriginalConstraint = m_contextPinCurrentConstraint;
-                }
+                commitActivePinConstraintEdit();
                 if (enterPressed) {
                     ImGui::CloseCurrentPopup();
                     m_isContextMenuInitialized = false;
@@ -1992,14 +1992,7 @@ void FactoryNodeEditor::handlePopups() {
         }
         ImGui::EndPopup();
     } else if (m_isContextMenuInitialized) {
-        if (m_contextPinCurrentConstraint != m_contextPinOriginalConstraint) {
-            if (auto port = m_graph->getPort(IdUtils::fromPinId(m_contextPinId))) {
-                executeCommand(std::make_unique<SetPortConstraintCommand>(
-                    port->id, m_contextPinOriginalConstraint, m_contextPinCurrentConstraint
-                ));
-            }
-            m_contextPinOriginalConstraint = m_contextPinCurrentConstraint;
-        }
+        commitActivePinConstraintEdit();
         m_isContextMenuInitialized = false;
     }
 
@@ -2022,10 +2015,14 @@ void FactoryNodeEditor::handlePopups() {
             ImGui::Separator();
 
             if (ImGui::MenuItem("Delete Link")) {
-                executeCommand(std::make_unique<RemoveConnectionCommand>(connection->from_port, connection->to_port));
+                const uint64_t fromPort = connection->from_port;
+                const uint64_t toPort = connection->to_port;
+                executeCommand(std::make_unique<RemoveConnectionCommand>(fromPort, toPort));
+                connection = nullptr;
             }
 
-            if (showDebug) {
+            connection = m_graph->getConnection(IdUtils::fromLinkId(m_contextLinkId));
+            if (showDebug && connection) {
                 ImGui::Separator();
                 ImGui::TextDisabled("Debug Info");
                 ImGui::Text("Link ID: %" PRIu64, connection->id);
@@ -2261,6 +2258,17 @@ void FactoryNodeEditor::handlePopups() {
     ed::Resume();
 }
 
+bool FactoryNodeEditor::hasPendingParamEdit() const {
+    return m_activeParamEdit.active && m_activeParamEdit.dirty &&
+           (!m_activeParamEdit.originalStoredValue.has_value() ||
+            *m_activeParamEdit.originalStoredValue != m_activeParamEdit.currentValue);
+}
+
+bool FactoryNodeEditor::hasPendingPinConstraintEdit() const {
+    return m_isContextMenuInitialized &&
+           m_contextPinCurrentConstraint != m_contextPinOriginalConstraint;
+}
+
 void FactoryNodeEditor::commitActiveParamEdit() {
     if (!m_activeParamEdit.active) {
         return;
@@ -2288,6 +2296,24 @@ void FactoryNodeEditor::commitActiveParamEdit() {
     } else if (m_graph->getNodes().size() >= 1000) {
         (void)m_solver->solve(*m_graph);
     }
+}
+
+void FactoryNodeEditor::commitActivePinConstraintEdit() {
+    if (!hasPendingPinConstraintEdit()) {
+        return;
+    }
+    const double original = m_contextPinOriginalConstraint;
+    const double current = m_contextPinCurrentConstraint;
+    m_contextPinOriginalConstraint = current;
+    if (auto port = m_graph->getPort(IdUtils::fromPinId(m_contextPinId))) {
+        executeCommand(std::make_unique<SetPortConstraintCommand>(
+            port->id, original, current));
+    }
+}
+
+void FactoryNodeEditor::commitPendingEdits() {
+    commitActiveParamEdit();
+    commitActivePinConstraintEdit();
 }
 
 void FactoryNodeEditor::applyLiveParamValue(
@@ -2633,9 +2659,25 @@ void FactoryNodeEditor::drawSingleParameterWidget(
             ImGui::TextUnformatted(inNodeBody ? baseLabel.c_str() : fullLabel.c_str());
             handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
 
-            double val = currentVal.isNumber() ? expr::normalizeZero(currentVal.asNumber()) : 0.0;
+            const double fallbackVal = (currentVal.isNumber() && std::isfinite(currentVal.asNumber()))
+                ? expr::normalizeZero(currentVal.asNumber())
+                : 0.0;
+            double val = fallbackVal;
             if (ui.has_min && val < ui.min_val) val = ui.min_val;
             if (ui.has_max && val > ui.max_val) val = ui.max_val;
+            const double clampedFallback = val;
+
+            auto sanitizeEditedNumber = [&](double& v, bool& edited) {
+                if (!edited) return;
+                if (!std::isfinite(v)) {
+                    v = clampedFallback;
+                    edited = false;
+                    return;
+                }
+                if (ui.has_min && v < ui.min_val) v = ui.min_val;
+                if (ui.has_max && v > ui.max_val) v = ui.max_val;
+                v = expr::normalizeZero(v);
+            };
 
             std::string fmt = sanitizeScalarFormat(pdef.ui.format.empty() ? "%.4g" : pdef.ui.format, false, false);
             double stepVal = (pdef.has_step && pdef.step > 0.0) ? pdef.step : 1.0;
@@ -2675,11 +2717,7 @@ void FactoryNodeEditor::drawSingleParameterWidget(
                 ImGui::SetNextItemWidth(midW);
                 bool edited = ImGui::DragScalar("##val", ImGuiDataType_Double, &val, dragSpeed,
                                                 minPtr, maxPtr, fmt.c_str(), sliderFlags);
-                if (edited) {
-                    if (ui.has_min && val < ui.min_val) val = ui.min_val;
-                    if (ui.has_max && val > ui.max_val) val = ui.max_val;
-                    val = expr::normalizeZero(val);
-                }
+                sanitizeEditedNumber(val, edited);
                 trackContinuousScalar(gamedata::ParamValue::number(val), edited, true);
                 handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
 
@@ -2705,14 +2743,7 @@ void FactoryNodeEditor::drawSingleParameterWidget(
                     edited = ImGui::DragScalar("##val", ImGuiDataType_Double, &val, dragSpeed,
                                                minPtr, maxPtr, fmt.c_str(), sliderFlags);
                 }
-                if (edited) {
-                    if (!std::isfinite(val)) {
-                        val = currentVal.isNumber() ? currentVal.asNumber() : 0.0;
-                    }
-                    if (ui.has_min && val < ui.min_val) val = ui.min_val;
-                    if (ui.has_max && val > ui.max_val) val = ui.max_val;
-                    val = expr::normalizeZero(val);
-                }
+                sanitizeEditedNumber(val, edited);
                 trackContinuousScalar(gamedata::ParamValue::number(val), edited, true);
                 handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
             }

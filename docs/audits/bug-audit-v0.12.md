@@ -238,7 +238,7 @@
 - **Reproduction / failing test idea:**
   Enable `showDebugInfo = true` in settings. Create two connected nodes (`m_connections.size() == 1`). Right-click the wire to open `"Link Context Menu"` and click `"Delete Link"` (`FactoryNodeEditor.cpp:2011`). In an ASan build or test harness, lines `2018-2020` perform an invalid out-of-bounds read past `m_connections.end()` on that frame; with two connections, deleting the first prints the second connection's `id`, `from_port`, and `to_port`.
 - **Confidence:** High
-- **Status:** fix (only manifests with `showDebugInfo = true` and under ASan / memory inspection because `pop_back()` leaves vector capacity intact)
+- **Status:** fixed
 
 ---
 
@@ -282,7 +282,7 @@
 - **Reproduction / failing test idea:**
   With the canvas zoomed (`scale != 1.0`) or panned (`m_ViewTransformPosition != (0, 0)`, which also holds whenever the canvas window origin is non-zero), drag a wire from any pin to empty space (`ed::QueryNewNode`) and pick a recipe in `"Create new node"`. The newly created node is placed at `ed::ScreenToCanvas(canvasDropPos)` instead of `canvasDropPos` (e.g., at scale `0.5` and pan offset `(-500, 0)`, dropping at screen `(100, 200)` / canvas `(1200, 400)` computes `ScreenToCanvas((1200, 400)) = (3400, 800)` before port offset, spawning the node far off-screen).
 - **Confidence:** High
-- **Status:** fix
+- **Status:** fixed
 
 ---
 
@@ -300,7 +300,7 @@
 - **Reproduction / failing test idea:**
   Open a saved `.fpp` project (`editor->isDirty() == false`). Type a new value into a node's `Input` parameter (without pressing Enter or blurring the field) so `node->params` is updated via `applyLiveParamValue()` (`m_activeParamEdit.dirty == true`). Check `editor->isDirty()` (returns `false`) and invoke `Ctrl+W` / `requestCloseEditor` or `Ctrl+Q` / `requestQuit`: the editor closes with no prompt and the edit is lost. Separately, call `editor->saveAs(outPath, SaveAsMode::SwitchToNewFile)` while `m_activeParamEdit.dirty == true` on a `>= 1000`-node graph: `outPath` contains the new parameter value paired with old pre-edit `machine_count` and `rate` values, and `isDirty()` becomes `false` with `canUndo() == false`.
 - **Confidence:** High
-- **Status:** fix
+- **Status:** fixed
 
 ---
 
@@ -319,7 +319,7 @@
 - **Reproduction / failing test idea:**
   Place a node with a `UiPlacement::Body` `Input` parameter in a clean project (`isDirty() == false`, empty undo stack). Focus and type a new value into its body `Input` widget (`m_activeParamEdit.active == true, dirty == true`), then pan/zoom the canvas view so that node leaves `canvasMin..canvasMax` and click empty canvas. Because the node is culled from `visibleNodeIds`, `commitActiveParamEdit()` is not called: `canUndo()` remains `false`, `isDirty()` remains `false`, and hovering any visible node fails to set `deferredTooltip` (`1452`) because `m_activeParamEdit.active` stays `true`.
 - **Confidence:** High
-- **Status:** fix
+- **Status:** fixed
 
 ---
 
@@ -359,5 +359,5 @@
 - **Reproduction / failing test idea:**
   Create a node with a `Number` parameter configured with `"ui": { "widget": "stepper" }` (even with finite `"min": 50, "max": 250`). `Ctrl+Click` the middle `DragScalar` widget (`FactoryNodeEditor.cpp:2656`), type `"nan"`, and press `Enter`. Verify `node->params[paramId].asNumber()` is `std::isnan(...) == true`, the node displays `[WARN]` (`"Invalid stored value..., using default"`), and `graph.serialize()` outputs `null` for that parameter under `"params"`.
 - **Confidence:** High
-- **Status:** fix
+- **Status:** fixed
 
