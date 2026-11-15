@@ -11,16 +11,18 @@ It lives in the repo so that every agent conversation can read it. Prompts refer
 | # | Decision | Why |
 |---|---|---|
 | D1 | **Strictly sequential**: one task at a time, merged before the next starts | You prefer quality over speed |
-| D2 | **The in-app GameData editor is deleted** | It's slow and nobody would use it for 50k-recipe games; game data comes from importers and hand edits instead |
-| D3 | **No Python** (or other extra runtimes) in the repo | You don't want venvs and library version conflicts. Committed tooling is C++ |
+| D2 | **The in-app GameData editor is deleted** | It's slow and nobody would use it for 50k-recipe games; game data comes from AI-assisted converter scripts, hand-authored templates, and offline validation instead |
+| D3 | **No Python** (or other extra runtimes) in the main app repo | You don't want venvs and library version conflicts in the C++ build. Committed tooling here is C++; game packs, icons, and converter scripts live in `factory-planner-packs` |
 | D4 | Old GameData and project formats **don't need backward compatibility** | There are no users yet |
 | D5 | GameData v4 is a **custom schema with formulas**; **GTNH is the stress test** | Goal: support as many games as possible |
 | D6 | **Two kinds of formulas**: *pre-solve* (constants per node → recipe amounts, enabled ports, crafting time; the solver stays linear) and *post-solve* (solved values → displayed metrics such as power or cost, plus graph-wide totals) | Your GTNH examples (tier-gated byproducts, crop manager) change what the solver works with |
 | D7 | Formula language: **a small expression language written in C++**, no new dependency | No extra runtime; good error messages |
-| D8 | `gamedata_tool` (a C++ command-line tool for validating and importing data) **gets its own design conversation** later | You want to discuss it separately |
+| D8 | `gamedata_tool` (a C++ CLI validator, packager, and evaluation oracle) **gets its own design conversation** in Step 4 | Shared `core_gamedata` library guarantees zero drift; powers human + AI + script pack authoring (`init`, `validate`, `eval`, `stats`, `check-icons`, `pack-icons`) instead of hardcoded C++ per-game parsers |
 | D9 | GameData v4 comes **before** the node-editor rework | v4 decides what a node shows; the canvas is designed around that |
 | D10 | The node-editor rework is **Opus-led** and preceded by a premium **UI/UX audit** | It needs real decisions, not mechanical pruning |
 | D11 | **Auto-layout** ships first as a standalone "Auto-arrange" command, then Generate reuses it | Useful on its own; Generate needs it anyway |
+| D12 | **Packs split + all-in-one Releases (no server)** | Official packs, icons (square PNG `≤ 64×64`), converter scripts, and AI authoring prompts live in a separate public `factory-planner-packs` repo; `release.yml` pulls them into an all-in-one release zip after migrating `data/game_data/` out of the main repo |
+| D13 | **`icons.pak` + async lazy icon loading (no atlases, no Data Browser)** | Releases pack icons into uncompressed per-pack `icons.pak` containers (index + raw PNG bytes, loose PNG fallback for local dev) decoded asynchronously on a background thread with capped per-frame GL uploads and clipped pickers — smooth 50k fast-scrolling without UV/atlas complexity |
 
 ---
 
@@ -29,10 +31,9 @@ It lives in the repo so that every agent conversation can read it. Prompts refer
 | Version | Contents (steps below) | Done when |
 |---|---|---|
 | **v0.11-alpha** | 0, 1, 2 | Tests run in CI on every push; GameData editor removed; golden tests in place; audit findings fixed or logged |
-| **v0.12-alpha** | 3 | GameData v4 + expression engine; Satisfactory and Mindustry converted; solver golden tests still pass |
-| **v0.13-alpha** | 4 | `gamedata_tool`; at least one new game imported (ideally GTNH as the scale test); Data Browser |
-| **v0.14-alpha** | 5, 6 | UI/UX decisions doc; node editor reworked (app-owned state, link waypoints, link styles, no default snapping, smooth `showFlow`) |
-| **v0.15-alpha** | 7 | Auto-arrange + Generate |
+| **v0.12-alpha** | 3, 4 | GameData v4 + expression engine; `gamedata_tool` + AI/script authoring guide; async lazy loading + `icons.pak` + clipped 50k pickers; `factory-planner-packs` split; GTNH (50k+ recipes) + additional packs bundled in all-in-one release; solver golden tests pass |
+| **v0.13-alpha** | 5, 6 | UI/UX decisions doc; node editor reworked (app-owned state, link waypoints, link styles, no default snapping, smooth `showFlow`) |
+| **v0.14-alpha** | 7 | Auto-arrange + Generate |
 | **v1.0-Beta** | 8 + polish | See the criteria below |
 
 **v1.0-Beta criteria** (proposal; adjust as you like):
@@ -346,27 +347,53 @@ Then, in a short follow-up (Opus if the issues are deep, otherwise Flash): *"App
 >
 > **3h Format:** `Read docs/ROADMAP.md and the rules file. Add an explicit format version to the project file format. Reject unknown or newer versions with a clear error. Add a test.`
 
-**→ Release v0.12-alpha.**
+*(Step 3 code complete; `v0.12-alpha` release is combined with Step 4 so the first post-v4 release ships with `gamedata_tool`, `factory-planner-packs`, and GTNH + additional games.)*
 
 ---
 
-### Step 4 — `gamedata_tool` + importers · conversation to come (decision D8)
+### Step 4 — `gamedata_tool`, `factory-planner-packs` & GTNH import · conversation to come (decisions D3, D8, D12, D13)
 
 You'll start this design conversation yourself. Starter prompt:
 
 > ```
 > /plan
-> Read docs/ROADMAP.md (D3, D8), docs/design/gamedata-v4-spec.md and
+> Read docs/ROADMAP.md (D3, D8, D12, D13), docs/design/gamedata-v4-spec.md and
 > docs/design/mechanics-matrix.md (data availability section).
-> Let's design gamedata_tool: a C++ command-line tool built from the same GameData library
-> as the app (validate, stats, importers per game). Discuss with me the commands, the
-> importer architecture, which game to import first, and the in-app read-only Data Browser
-> with hot reload. Output: docs/design/gamedata-tool.md.
+>
+> Task: design the Step 4 tooling, 50k-scale runtime loading, AI-assisted authoring
+> workflow, and pack distribution split. Output: docs/design/gamedata-tool.md.
+>
+> Cover:
+> 1. `gamedata_tool` (pure C++ CLI built on a headless `core_gamedata` library shared
+>    with the app — NO hardcoded per-game dump parsers, NO Data Browser / hot reload):
+>    - `init` (minimal valid v4 package scaffold),
+>    - `validate` (full loader/compiler/validator + missing-icon `V-W-1` + unused `V-W-2`,
+>      grouping cascading errors by root cause so 1 profile mistake doesn't flood 50k lines;
+>      optional `--json` output),
+>    - `eval` (headless CLI `NodeEvaluator` check for a recipe + machine + params),
+>    - `stats` + `check-icons` / `prune-icons` (counts, unreferenced icons, checking icons
+>      are square PNGs <= 64x64),
+>    - `pack-icons` (packs loose PNGs into an uncompressed `icons.pak` = index + raw PNG
+>      bytes for release distribution; no texture atlases per D13).
+> 2. Async lazy icon loading & 50k picker smoothness in the app:
+>    - Replace eager `GameDataManager::loadTextures()` with on-demand async background
+>      decoding + capped per-frame OpenGL upload (with optional LRU eviction), reading
+>      `icons.pak` first and falling back to loose PNGs for local authoring.
+> 3. Authoring workflow + reusable AI agent prompt/guide (`factory-planner-packs`):
+>    - How human + AI co-design the small schema/profile template (`game.json` mechanics,
+>      params, metrics, UI hints) while deterministic converter scripts in the public
+>      `factory-planner-packs` repo transform raw dumps & resize icons into v4 packages
+>      verified in a loop with `gamedata_tool validate` / `eval`.
+> 4. Migration plan (at the end of Step 4, after importing GTNH first + any extra packs):
+>    - Move `data/game_data/` into `factory-planner-packs`, adapt `tests/test_gamedata_v4.cpp`
+>      tests so CI unit tests run standalone, and update `.github/workflows/release.yml`
+>      to fetch `factory-planner-packs`, build `icons.pak`, validate packs, and ship an
+>      all-in-one release archive.
 > ```
 
-Things to bring into that conversation: a GTNH-sized import should also check the **recipe and machine picker UX** (search, filtering) and loading speed.
+Things to bring into that conversation: verify **GTNH** (50k+ recipes) load speed, `icons.pak` build/read latency, and recipe/machine picker usability end-to-end.
 
-**→ Release v0.13-alpha.**
+**→ Release v0.12-alpha.**
 
 ---
 
@@ -423,7 +450,7 @@ Suggested split (the audit may change it):
 > without a window; describe the manual checks for the rest.
 > ```
 
-**→ Release v0.14-alpha.**
+**→ Release v0.13-alpha.**
 
 ---
 
@@ -446,13 +473,13 @@ Suggested split (the audit may change it):
 
 **7b. Auto-arrange · Opus** (`feat/auto-layout`). **7c. Generate · Opus** (`feat/generate`). Both use the template: *"Implement part X of docs/design/auto-layout-and-generate.md."*
 
-**→ Release v0.15-alpha.**
+**→ Release v0.14-alpha.**
 
 ---
 
 ### Step 8 — Audits round 2 → v1.0-Beta backlog
 
-- Re-run the step 2b bug-audit template over **all** code, including the new GameData, expression and node-editor code. Write to `docs/audits/bug-audit-v0.15.md`.
+- Re-run the step 2b bug-audit template over **all** code, including the new GameData, expression and node-editor code. Write to `docs/audits/bug-audit-v0.14.md`.
 - Feature-suggestion audit (Flash): *"Compare Factory Planner (read docs/ROADMAP.md and the code) with Satisfactory Tools, Factorio's FactoryPlanner, Helmod and YAFC. List missing features that matter for planning, with value and effort. Write to docs/audits/feature-ideas.md."*
 - **One premium task:** *"Read all files in docs/audits/. De-duplicate and rank them into a v1.0-Beta backlog in docs/design/beta-backlog.md, checked against the v1.0-Beta criteria in docs/ROADMAP.md."*
 
