@@ -599,7 +599,9 @@ const gamedata::NodeMetricsResult* FactorySolver::getNodeMetrics(const uint64_t 
     return it != m_nodeMetrics.end() ? &it->second : nullptr;
 }
 
-void FactorySolver::evaluatePostSolveMetrics(const FactoryGraph& factory_graph) {
+void FactorySolver::evaluatePostSolveMetrics(
+    const FactoryGraph& factory_graph,
+    const std::unordered_set<uint64_t>& failed_nodes) {
     m_nodeMetrics.clear();
     m_totals.clear();
 
@@ -610,6 +612,7 @@ void FactorySolver::evaluatePostSolveMetrics(const FactoryGraph& factory_graph) 
     const auto& resolvedGlobals = factory_graph.getResolvedGlobals();
 
     for (const auto& node : factory_graph.getNodes()) {
+        if (failed_nodes.count(node.id) > 0) continue;
         if (!isNodeActiveInSolver(factory_graph, node)) continue;
         const gamedata::NodeEval* eval = factory_graph.getNodeEval(node.id);
         if (!eval) continue;
@@ -685,6 +688,7 @@ FactorySolver::SolverResult FactorySolver::solve(FactoryGraph& factory_graph) {
         update_ms += absl::ToDoubleMilliseconds(absl::Now() - t_orphan_start);
 
         SolverResultStatus overall_result = SolverResultStatus::SUCCESS;
+        std::unordered_set<uint64_t> failed_nodes;
         absl::SetStderrThreshold(absl::LogSeverityAtLeast::kWarning);
 
         for (auto& comp : components) {
@@ -719,6 +723,7 @@ FactorySolver::SolverResult FactorySolver::solve(FactoryGraph& factory_graph) {
                 updateComponentGraph(factory_graph, comp);
             } else {
                 zeroComponentGraph(factory_graph, comp);
+                failed_nodes.insert(comp.nodes.begin(), comp.nodes.end());
                 if (statusSeverity(comp_result) > statusSeverity(overall_result)) {
                     overall_result = comp_result;
                 }
@@ -729,7 +734,7 @@ FactorySolver::SolverResult FactorySolver::solve(FactoryGraph& factory_graph) {
         }
 
         absl::Time t_metrics_start = absl::Now();
-        evaluatePostSolveMetrics(factory_graph);
+        evaluatePostSolveMetrics(factory_graph, failed_nodes);
         update_ms += absl::ToDoubleMilliseconds(absl::Now() - t_metrics_start);
 
         absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);

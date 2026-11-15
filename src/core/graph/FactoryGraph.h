@@ -30,6 +30,7 @@ public:
     std::optional<gamedata::ParamValue> getNodeParam(uint64_t node_id, const std::string& param_id) const;
 
     bool setGlobalParam(const std::string& id, const gamedata::ParamValue& value);
+    bool clearGlobalParam(const std::string& id);
     std::optional<gamedata::ParamValue> getGlobalParam(const std::string& id) const;
     const std::unordered_map<std::string, gamedata::ParamValue>& getGlobals() const { return m_globals; }
     const gamedata::ResolvedGlobals& getResolvedGlobals() const { return m_resolvedGlobals; }
@@ -100,7 +101,7 @@ public:
         : m_gameData(std::move(game_data)) {
         gamedata::ensureBuiltInDefaultProfile(m_gameData);
         m_rateUnit = m_gameData.units.default_rate;
-        m_resolvedGlobals = gamedata::resolveProjectGlobals(m_gameData, m_globals);
+        refreshResolvedGlobals();
     }
 
     ~FactoryGraph() = default;
@@ -141,6 +142,7 @@ private:
     void removePortFromIndex(uint64_t id) { m_portIdToIndex.erase(id); }
     void removeConnectionFromIndex(uint64_t id) { m_connectionIdToIndex.erase(id); }
 
+    void refreshResolvedGlobals();
     void migrateNodeParams(Node& node, const std::string& oldMachineKey,
                            const std::string& oldRecipeKey,
                            const std::string& newMachineKey,

@@ -3101,6 +3101,329 @@ TEST_F(FactoryGraphTest, ResolveEffectiveParamUiFallbackAndBlockedEvaluation) {
               (std::vector<std::string>{"a"}));
 }
 
+TEST(FactoryGraphV4Test, ChangeMachine_PreservesUnresolvedRecipePortsAndInactiveWires) {
+    const std::string pkg_json = R"json({
+        "schema_version": 4,
+        "game": { "id": "unresolved_port_test", "name": "Unresolved Port Test" },
+        "units": { "recipe_time": "s", "default_rate": "s" },
+        "resources": [
+            { "id": "iron_ore", "name": "Iron Ore" },
+            { "id": "iron_ingot", "name": "Iron Ingot" }
+        ],
+        "profiles": {
+            "p1": {},
+            "p2": {}
+        },
+        "machines": [
+            { "id": "furnace_mk1", "name": "Furnace Mk1", "profile": "p1" },
+            { "id": "furnace_mk2", "name": "Furnace Mk2", "profile": "p2" }
+        ],
+        "recipes": [
+            {
+                "id": "smelt", "name": "Smelt", "time": 1.0,
+                "machines": ["furnace_mk1", "furnace_mk2"],
+                "in": [{ "res": "iron_ore", "amount": 1.0 }],
+                "out": [{ "res": "iron_ingot", "amount": 1.0 }]
+            },
+            {
+                "id": "consume", "name": "Consume", "time": 1.0,
+                "machines": ["furnace_mk1"],
+                "in": [{ "res": "iron_ingot", "amount": 1.0 }],
+                "out": []
+            }
+        ]
+    })json";
+
+    gamedata::LoadReport report;
+    gamedata::GamePackage pkg;
+    ASSERT_TRUE(gamedata::loadGamePackageFromMemory(pkg_json, {}, pkg, report))
+        << (report.errors.empty() ? "" : report.errors.front().formatted);
+
+    nlohmann::json projectJson = {
+        {"game", {{"id", "unresolved_port_test"}}},
+        {"rate_unit", "s"},
+        {"nodes", nlohmann::json::array({
+            {
+                {"id", 1},
+                {"name", "Smelter"},
+                {"recipe", "smelt"},
+                {"machine", "furnace_mk1"},
+                {"ports", {{"in:0", 10}, {"in:1", 98}, {"out:0", 11}, {"out:1", 99}}},
+                {"port_constraints", {{"99", 12.5}}},
+                {"port_constraint_modes", {{"99", "target"}}}
+            },
+            {
+                {"id", 2},
+                {"name", "Consumer"},
+                {"recipe", "consume"},
+                {"machine", "furnace_mk1"},
+                {"ports", {{"in:0", 20}}}
+            }
+        })},
+        {"connections", nlohmann::json::array({
+            {{"id", 5}, {"from_port", 99}, {"to_port", 20}}
+        })},
+        {"next_node_id", 3},
+        {"next_port_id", 100},
+        {"next_connection_id", 6}
+    };
+
+    FactoryGraph g(pkg);
+    ASSERT_TRUE(g.deserialize(projectJson, pkg));
+
+    const Port* p98 = g.getPort(98);
+    const Port* p99 = g.getPort(99);
+    const Connection* c5 = g.getConnection(5);
+    ASSERT_NE(p98, nullptr);
+    ASSERT_NE(p99, nullptr);
+    ASSERT_NE(c5, nullptr);
+    EXPECT_TRUE(p98->is_unresolved);
+    EXPECT_TRUE(p99->is_unresolved);
+    EXPECT_FALSE(p99->active);
+    EXPECT_DOUBLE_EQ(p99->user_constraint, 12.5);
+    EXPECT_EQ(p99->constraint_mode, ConstraintMode::TARGET);
+    EXPECT_EQ(c5->state, WireState::INACTIVE);
+
+    ASSERT_TRUE(g.changeMachine(1, "furnace_mk2"));
+
+    EXPECT_EQ(g.getNode(1)->machine_key, "furnace_mk2");
+    p98 = g.getPort(98);
+    p99 = g.getPort(99);
+    c5 = g.getConnection(5);
+    ASSERT_NE(p98, nullptr);
+    ASSERT_NE(p99, nullptr);
+    ASSERT_NE(c5, nullptr);
+    EXPECT_EQ(g.getPortBySlot(1, "in:1"), p98);
+    EXPECT_EQ(g.getPortBySlot(1, "out:1"), p99);
+    EXPECT_TRUE(p98->is_unresolved);
+    EXPECT_TRUE(p99->is_unresolved);
+    EXPECT_FALSE(p99->active);
+    EXPECT_DOUBLE_EQ(p99->user_constraint, 12.5);
+    EXPECT_EQ(p99->constraint_mode, ConstraintMode::TARGET);
+    EXPECT_EQ(c5->state, WireState::INACTIVE);
+
+    nlohmann::json saved = g.serialize();
+    bool checkedNode1 = false;
+    for (const auto& nj : saved["nodes"]) {
+        if (nj["id"] == 1) {
+            checkedNode1 = true;
+            EXPECT_EQ(nj["ports"]["in:1"], 98);
+            EXPECT_EQ(nj["ports"]["out:1"], 99);
+        }
+    }
+    EXPECT_TRUE(checkedNode1);
+    ASSERT_EQ(saved["connections"].size(), 1u);
+    EXPECT_EQ(saved["connections"][0]["id"], 5);
+}
+
+TEST(FactoryGraphV4Test, MigrateNodeParams_PrunesStaleInvalidParamRaw) {
+    const std::string pkg_json = R"json({
+        "schema_version": 4,
+        "game": { "id": "migrate_invalid_param_test", "name": "Migrate Invalid Param Test" },
+        "units": { "recipe_time": "s", "default_rate": "s" },
+        "resources": [
+            { "id": "iron_ore", "name": "Iron Ore" },
+            { "id": "iron_ingot", "name": "Iron Ingot" }
+        ],
+        "parameters": {
+            "mode": { "type": "int", "default": 1, "min": 1, "max": 4 },
+            "speed_mult": { "type": "number", "default": 1.0, "min": 0.5, "max": 2.0 }
+        },
+        "profiles": {
+            "p_mk1": {
+                "params": ["mode", "speed_mult"],
+                "craft_time": "recipe.time / param.speed_mult"
+            },
+            "p_mk2": {
+                "params": ["speed_mult"],
+                "craft_time": "recipe.time / param.speed_mult"
+            }
+        },
+        "machines": [
+            { "id": "mk1", "name": "Mk1", "profile": "p_mk1" },
+            { "id": "mk2", "name": "Mk2", "profile": "p_mk2" }
+        ],
+        "recipes": [
+            {
+                "id": "smelt", "name": "Smelt", "time": 2.0,
+                "machines": ["mk1", "mk2"],
+                "in": [{ "res": "iron_ore", "amount": 1.0 }],
+                "out": [{ "res": "iron_ingot", "amount": 1.0 }]
+            },
+            {
+                "id": "smelt_alt", "name": "Smelt Alt", "time": 1.0,
+                "machines": ["mk2"],
+                "in": [{ "res": "iron_ore", "amount": 1.0 }],
+                "out": [{ "res": "iron_ingot", "amount": 1.0 }]
+            }
+        ]
+    })json";
+
+    gamedata::LoadReport report;
+    gamedata::GamePackage pkg;
+    ASSERT_TRUE(gamedata::loadGamePackageFromMemory(pkg_json, {}, pkg, report))
+        << (report.errors.empty() ? "" : report.errors.front().formatted);
+
+    nlohmann::json projectJson = {
+        {"game", {{"id", "migrate_invalid_param_test"}}},
+        {"rate_unit", "s"},
+        {"nodes", nlohmann::json::array({
+            {
+                {"id", 1},
+                {"name", "Node 1"},
+                {"recipe", "smelt"},
+                {"machine", "mk1"},
+                {"params", {{"mode", {{"bad", 1}}}, {"speed_mult", 2.0}}}
+            },
+            {
+                {"id", 2},
+                {"name", "Node 2"},
+                {"recipe", "smelt"},
+                {"machine", "mk1"},
+                {"params", {{"mode", {{"bad", 2}}}, {"speed_mult", 1.5}}}
+            }
+        })},
+        {"next_node_id", 3}
+    };
+
+    FactoryGraph g(pkg);
+    ASSERT_TRUE(g.deserialize(projectJson, pkg));
+
+    ASSERT_TRUE(g.getNode(1)->invalid_param_raw.contains("mode"));
+    ASSERT_EQ(g.getNodeEval(1)->status, gamedata::EvalStatus::WARNING);
+
+    // 1. Switching machine to mk2 (which does not declare "mode") must prune invalid_param_raw["mode"].
+    ASSERT_TRUE(g.changeMachine(1, "mk2"));
+    EXPECT_FALSE(g.getNode(1)->invalid_param_raw.contains("mode"));
+    EXPECT_EQ(g.getNodeEval(1)->status, gamedata::EvalStatus::OK);
+    EXPECT_TRUE(g.getNodeEval(1)->messages.empty());
+
+    // 2. Switching recipe on Node 2 to smelt_alt (runs on mk2 without "mode") must also prune it.
+    ASSERT_TRUE(g.setNodeRecipe(2, "smelt_alt"));
+    EXPECT_FALSE(g.getNode(2)->invalid_param_raw.contains("mode"));
+    EXPECT_EQ(g.getNodeEval(2)->status, gamedata::EvalStatus::OK);
+    EXPECT_TRUE(g.getNodeEval(2)->messages.empty());
+
+    nlohmann::json saved = g.serialize();
+    for (const auto& nj : saved["nodes"]) {
+        EXPECT_FALSE(nj["params"].contains("mode"));
+    }
+}
+
+TEST(FactoryGraphV4Test, InvalidGlobalRaw_OnlyWarnsReferencingNodes) {
+    const std::string pkg_json = R"json({
+        "schema_version": 4,
+        "game": { "id": "invalid_global_scope_test", "name": "Invalid Global Scope Test" },
+        "units": { "recipe_time": "s", "default_rate": "s" },
+        "resources": [
+            { "id": "iron_ore", "name": "Iron Ore" },
+            { "id": "iron_ingot", "name": "Iron Ingot" }
+        ],
+        "globals": {
+            "tax_rate": { "type": "int", "default": 2, "min": 0, "max": 10 },
+            "derived_tax": { "type": "int", "default": 2, "min": "global.tax_rate", "max": 20 }
+        },
+        "profiles": {
+            "fixed_prof": {
+                "craft_time": "recipe.time",
+                "input_amount": "port.amount",
+                "output_amount": "port.amount"
+            },
+            "taxed_prof": {
+                "craft_time": "recipe.time",
+                "input_amount": "port.amount",
+                "output_amount": "port.amount * global.tax_rate"
+            },
+            "derived_prof": {
+                "craft_time": "recipe.time",
+                "input_amount": "port.amount",
+                "output_amount": "port.amount * global.derived_tax"
+            }
+        },
+        "machines": [
+            { "id": "m_fixed", "name": "Fixed", "profile": "fixed_prof" },
+            { "id": "m_taxed", "name": "Taxed", "profile": "taxed_prof" },
+            { "id": "m_derived", "name": "Derived", "profile": "derived_prof" }
+        ],
+        "recipes": [
+            {
+                "id": "r_fixed", "name": "Fixed Recipe", "time": 1.0, "machines": ["m_fixed"],
+                "in": [{ "res": "iron_ore", "amount": 1.0 }],
+                "out": [{ "res": "iron_ingot", "amount": 1.0 }]
+            },
+            {
+                "id": "r_taxed", "name": "Taxed Recipe", "time": 1.0, "machines": ["m_taxed"],
+                "in": [{ "res": "iron_ore", "amount": 1.0 }],
+                "out": [{ "res": "iron_ingot", "amount": 1.0 }]
+            },
+            {
+                "id": "r_derived", "name": "Derived Recipe", "time": 1.0, "machines": ["m_derived"],
+                "in": [{ "res": "iron_ore", "amount": 1.0 }],
+                "out": [{ "res": "iron_ingot", "amount": 1.0 }]
+            }
+        ]
+    })json";
+
+    gamedata::LoadReport report;
+    gamedata::GamePackage pkg;
+    ASSERT_TRUE(gamedata::loadGamePackageFromMemory(pkg_json, {}, pkg, report))
+        << (report.errors.empty() ? "" : report.errors.front().formatted);
+
+    nlohmann::json projectJson = {
+        {"game", {{"id", "invalid_global_scope_test"}}},
+        {"rate_unit", "s"},
+        {"globals", {{"tax_rate", {{"bad", 1}}}}},
+        {"nodes", nlohmann::json::array({
+            { {"id", 1}, {"name", "Fixed Node"}, {"recipe", "r_fixed"}, {"machine", "m_fixed"} },
+            { {"id", 2}, {"name", "Taxed Node"}, {"recipe", "r_taxed"}, {"machine", "m_taxed"} },
+            { {"id", 3}, {"name", "Derived Node"}, {"recipe", "r_derived"}, {"machine", "m_derived"} }
+        })},
+        {"next_node_id", 4}
+    };
+
+    FactoryGraph g(pkg);
+    ASSERT_TRUE(g.deserialize(projectJson, pkg));
+    g.evaluateAllNodes();
+
+    // Load warning is still recorded once on project load.
+    int taxLoadWarnings = 0;
+    for (const auto& w : g.getLoadWarnings()) {
+        if (w.find("tax_rate") != std::string::npos) {
+            ++taxLoadWarnings;
+        }
+    }
+    EXPECT_EQ(taxLoadWarnings, 1);
+
+    // Unrelated Node 1 must remain OK with no global warning.
+    const gamedata::NodeEval* evalFixed = g.getNodeEval(1);
+    ASSERT_NE(evalFixed, nullptr);
+    EXPECT_EQ(evalFixed->status, gamedata::EvalStatus::OK);
+    EXPECT_TRUE(evalFixed->messages.empty());
+
+    // Node 2 directly referencing global.tax_rate must receive WARNING.
+    const gamedata::NodeEval* evalTaxed = g.getNodeEval(2);
+    ASSERT_NE(evalTaxed, nullptr);
+    EXPECT_EQ(evalTaxed->status, gamedata::EvalStatus::WARNING);
+    EXPECT_FALSE(evalTaxed->messages.empty());
+    EXPECT_NEAR(g.getPortBySlot(2, "out:0")->amount_per_craft, 2.0, 1e-9);
+
+    // Node 3 referencing global.derived_tax (which depends on global.tax_rate) also receives WARNING.
+    const gamedata::NodeEval* evalDerived = g.getNodeEval(3);
+    ASSERT_NE(evalDerived, nullptr);
+    EXPECT_EQ(evalDerived->status, gamedata::EvalStatus::WARNING);
+
+    // Raw invalid global value is preserved on serialize until edited.
+    nlohmann::json saved = g.serialize();
+    EXPECT_EQ(saved["globals"]["tax_rate"], nlohmann::json({{"bad", 1}}));
+
+    // Setting a valid value clears the warning on referencing nodes.
+    ASSERT_TRUE(g.setGlobalParam("tax_rate", gamedata::ParamValue{int64_t(4)}));
+    EXPECT_EQ(g.getNodeEval(1)->status, gamedata::EvalStatus::OK);
+    EXPECT_EQ(g.getNodeEval(2)->status, gamedata::EvalStatus::OK);
+    EXPECT_EQ(g.getNodeEval(3)->status, gamedata::EvalStatus::OK);
+    EXPECT_NEAR(g.getPortBySlot(2, "out:0")->amount_per_craft, 4.0, 1e-9);
+}
+
 
 
 

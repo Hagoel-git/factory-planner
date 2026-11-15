@@ -2279,4 +2279,101 @@ TEST_F(FactorySolverTest, V4_PostSolveMetrics_NodeAndGraphTotals_And_ErrorNodeCl
     EXPECT_DOUBLE_EQ(p_smelt_out->rate, 0.0);
 }
 
+TEST_F(FactorySolverTest, FailedComponentExcludedFromPostSolveMetricsAndTotals) {
+    const std::string pkg_json = R"json({
+        "schema_version": 4,
+        "game": { "id": "failed_comp_metrics_test", "name": "FailedCompMetricsTest" },
+        "units": { "recipe_time": "s", "default_rate": "s" },
+        "resources": [
+            { "id": "ore", "name": "Ore" }
+        ],
+        "metrics": {
+            "node_count": { "label": "Node Count", "aggregate": "sum", "display": ["totals"] },
+            "min_power": { "label": "Min Power", "aggregate": "min", "display": ["body", "totals"] },
+            "eff": { "label": "Efficiency", "aggregate": "min", "display": ["tooltip", "totals"] }
+        },
+        "profiles": {
+            "p": {
+                "craft_time": "recipe.time",
+                "input_amount": "port.amount",
+                "output_amount": "port.amount",
+                "metrics": {
+                    "node_count": { "value": "1" },
+                    "min_power": { "per_machine": 10.0 },
+                    "eff": { "value": "100.0 / node.machines" }
+                }
+            }
+        },
+        "machines": [
+            { "id": "miner", "name": "Miner", "profile": "p" }
+        ],
+        "recipes": [
+            {
+                "id": "mine_ore", "name": "Mine Ore", "time": 1.0, "machines": ["miner"],
+                "in": [],
+                "out": [{ "res": "ore", "amount": 10.0 }]
+            }
+        ]
+    })json";
+
+    gamedata::LoadReport report;
+    gamedata::GamePackage pkg;
+    ASSERT_TRUE(gamedata::loadGamePackageFromMemory(pkg_json, {}, pkg, report))
+        << (report.errors.empty() ? "" : report.errors.front().formatted);
+
+    FactoryGraph g(pkg);
+    uint64_t n_fail = g.addNode("Miner Fail", "mine_ore");
+    uint64_t n_ok = g.addNode("Miner OK", "mine_ore");
+
+    Port* p_fail_out = g.getPortBySlot(n_fail, "out:0");
+    Port* p_ok_out = g.getPortBySlot(n_ok, "out:0");
+    ASSERT_NE(p_fail_out, nullptr);
+    ASSERT_NE(p_ok_out, nullptr);
+
+    // Component A (n_fail): non-finite constraint triggers component solve failure.
+    // Component B (n_ok): target 20 ore/s -> 2.0 machines, min_power = 20, eff = 50, node_count = 1.
+    g.setPortConstraint(p_fail_out->id, std::numeric_limits<double>::quiet_NaN());
+    g.setPortConstraint(p_ok_out->id, 20.0, ConstraintMode::TARGET);
+
+    auto res = solver->solve(g);
+    EXPECT_EQ(res.status, FactorySolver::SolverResultStatus::ERROR_);
+    EXPECT_DOUBLE_EQ(g.getNode(n_fail)->machine_count, 0.0);
+    EXPECT_DOUBLE_EQ(g.getNode(n_fail)->crafts, 0.0);
+    EXPECT_NEAR(g.getNode(n_ok)->machine_count, 2.0, 1e-6);
+
+    // Failed component nodes must not retain post-solve metrics or pollute totals.
+    EXPECT_EQ(solver->getNodeMetrics(n_fail), nullptr);
+    const auto* m_ok = solver->getNodeMetrics(n_ok);
+    ASSERT_NE(m_ok, nullptr);
+    EXPECT_NEAR(m_ok->findMetric("node_count")->value, 1.0, 1e-6);
+    EXPECT_NEAR(m_ok->findMetric("min_power")->value, 20.0, 1e-6);
+    EXPECT_NEAR(m_ok->findMetric("eff")->value, 50.0, 1e-6);
+
+    auto findTotal = [&](const std::string& id) -> const gamedata::MetricTotal* {
+        for (const auto& t : solver->getTotals()) {
+            if (t.metric_id == id) return &t;
+        }
+        return nullptr;
+    };
+
+    const auto* t_count = findTotal("node_count");
+    const auto* t_power = findTotal("min_power");
+    const auto* t_eff = findTotal("eff");
+    ASSERT_NE(t_count, nullptr);
+    ASSERT_NE(t_power, nullptr);
+    ASSERT_NE(t_eff, nullptr);
+
+    EXPECT_TRUE(t_count->has_value);
+    EXPECT_EQ(t_count->contributing_nodes, 1u);
+    EXPECT_NEAR(t_count->value, 1.0, 1e-6);
+
+    EXPECT_TRUE(t_power->has_value);
+    EXPECT_EQ(t_power->contributing_nodes, 1u);
+    EXPECT_NEAR(t_power->value, 20.0, 1e-6);
+
+    EXPECT_TRUE(t_eff->has_value);
+    EXPECT_EQ(t_eff->contributing_nodes, 1u);
+    EXPECT_NEAR(t_eff->value, 50.0, 1e-6);
+}
+
 

@@ -488,6 +488,10 @@ void restoreNodeSnapshot(FactoryGraph& graph, uint64_t nodeId,
     node->machine_key = beforeNode.machine_key;
     node->selected_recipe_key = beforeNode.selected_recipe_key;
     node->params = beforeNode.params;
+    node->unresolved_params = beforeNode.unresolved_params;
+    node->invalid_param_raw = beforeNode.invalid_param_raw;
+    node->is_unresolved = beforeNode.is_unresolved;
+    node->unresolved_json = beforeNode.unresolved_json;
     node->input_ports = beforeNode.input_ports;
     node->output_ports = beforeNode.output_ports;
 
@@ -600,6 +604,8 @@ void SetGlobalParamCommand::execute(FactoryGraph& graph) {
 void SetGlobalParamCommand::undo(FactoryGraph& graph) {
     if (oldValue.has_value()) {
         graph.setGlobalParam(paramId, *oldValue);
+    } else {
+        graph.clearGlobalParam(paramId);
     }
 }
 

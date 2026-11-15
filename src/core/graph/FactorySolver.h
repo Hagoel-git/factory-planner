@@ -191,7 +191,8 @@ private:
 
     void updateComponentGraph(FactoryGraph& factory_graph, const ComponentData& comp);
     static void zeroComponentGraph(FactoryGraph& factory_graph, const ComponentData& comp);
-    void evaluatePostSolveMetrics(const FactoryGraph& factory_graph);
+    void evaluatePostSolveMetrics(const FactoryGraph& factory_graph,
+                                  const std::unordered_set<uint64_t>& failed_nodes);
     SolverResultStatus convertSolverStatus(operations_research::MPSolver::ResultStatus status) const;
 };
 

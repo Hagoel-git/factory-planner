@@ -143,7 +143,7 @@
 - **Reproduction / failing test idea:**
   Build a v4 game package containing a `Min`-aggregated power metric linear in `machine_count` and/or a `Sum`-aggregated flat per-node metric (e.g., constant `1`). Construct two disconnected components in `FactoryGraph`: Component A with conflicting constraints (`LIMIT` < `TARGET`) so its LP solve returns `INFEASIBLE`, and Component B as a valid solved 2-machine producer. Run `FactorySolver::solve()`. Component A's flows and `machine_count` are zeroed (`0.0`), yet `evaluatePostSolveMetrics` evaluates Component A's nodes and folds them into `m_totals` (`Min` power becomes `0.0` instead of Component B's power, and the flat `Sum` metric counts Component A's failed nodes).
 - **Confidence:** High
-- **Status:** fix
+- **Status:** fixed
 
 ---
 
@@ -157,7 +157,7 @@
 - **Reproduction / failing test idea:**
   Save a project containing node A (`selected_recipe_key = "smelt"`, `machine_key = "furnace_mk1"`) with a wire connected to output slot `"out:1"`. Load that project against updated game data where `"smelt"` now has only 1 output (`"out:0"`), while both `"furnace_mk1"` and `"furnace_mk2"` remain valid for `"smelt"`. Verify `"out:1"` is present with `is_unresolved == true` and its connection is `WireState::INACTIVE`. Then call `graph.changeMachine(nodeA, "furnace_mk2")`: port `"out:1"` is removed from `node->output_ports` and deleted via `removePort`, and the preserved `INACTIVE` connection disappears from `graph.getConnections()`.
 - **Confidence:** High
-- **Status:** fix
+- **Status:** fixed
 
 ---
 
@@ -174,7 +174,7 @@
 - **Reproduction / failing test idea:**
   Load a project where node A runs machine `"mk1"` (which defines param `"mode"`) with invalid raw value `"mode": 999` in `"params"`. Confirm `node->invalid_param_raw` contains `"mode"` and `getNodeEval(nodeA)` has `EvalStatus::WARNING` with `"parameters/mode"`. Switch node A via `graph.changeMachine(nodeA, "mk2")` where `"mk2"` does not declare `"mode"`. Observe `getNodeEval(nodeA)` still reports `EvalStatus::WARNING` for `"parameters/mode"`, `setNodeParam(nodeA, "mode", ...)` returns `false`, and `graph.serialize()` outputs `"mode": 999` inside node A's `"params"`.
 - **Confidence:** High
-- **Status:** fix
+- **Status:** fixed
 
 ---
 
@@ -189,7 +189,7 @@
 - **Reproduction / failing test idea:**
   Deserialize a project containing a node referencing an absent recipe `"removed_recipe"` so `node->is_unresolved == true` and `node->unresolved_json` holds the preserved JSON object. Execute `ChangeRecipeCommand` on that node to assign a valid recipe `"valid_recipe"`, then call `undo()`. `node->selected_recipe_key` reverts to `"removed_recipe"`, but `node->is_unresolved` is `false` and `node->unresolved_json` is empty (`{}`). (Note: `ChangeRecipeCommand` currently has no UI callers in `src/editor/` or `src/app/`, and is exercised via `UndoRedoSystem` API/tests.)
 - **Confidence:** High
-- **Status:** fix
+- **Status:** fixed
 
 ---
 
@@ -203,7 +203,7 @@
 - **Reproduction / failing test idea:**
   Construct a `FactoryGraph` with a v4 game package defining global `"difficulty"` (default `1`, absent from `graph.getGlobals()`). Execute `SetGlobalParamCommand("difficulty", std::nullopt, ParamValue::integer(3))`, verify `graph.getGlobals().count("difficulty") == 1`, then call `undo()`. `graph.getGlobals()` still contains `"difficulty"` with value `3`, and nodes referencing `$globals.difficulty` continue evaluating with `3` instead of reverting to `1`. (Note: `SetGlobalParamCommand` currently has no UI callers in `src/editor/` or `src/app/`.)
 - **Confidence:** High
-- **Status:** fix
+- **Status:** fixed
 
 ---
 
@@ -217,7 +217,7 @@
 - **Reproduction / failing test idea:**
   Load a v4 game package declaring global `"tax_rate"` (integer) and a project with `"globals": { "tax_rate": "not_an_int" }` containing a valid node running a fixed-rate recipe with zero expressions touching `$globals.tax_rate`. After `graph.evaluateAllNodes()`, inspect `getNodeEval(nodeId)`: it reports `EvalStatus::WARNING` with `"globals/tax_rate"` instead of `EvalStatus::OK`.
 - **Confidence:** Medium (appears deliberate in `FactoryGraph.cpp:386-392` as a way to surface global errors without a separate global diagnostics list, but produces misleading per-node `WARNING` status on completely unrelated nodes).
-- **Status:** fix (load warnings are already recorded in `m_loadWarnings`; per-node `WARNING` should only propagate to nodes referencing the global per Spec §3.2)
+- **Status:** fixed (load warnings are recorded in `m_loadWarnings`; per-node `WARNING` only propagates to nodes referencing the global per Spec §3.2)
 
 ---
 
