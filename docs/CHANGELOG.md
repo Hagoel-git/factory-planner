@@ -13,6 +13,9 @@ This document holds the user-facing changelog that is also used in release notes
 
 ### Fixed
 - Fixed the Mindustry `silicon-smelter` recipe machine mapping to reference `silicon-smelter` instead of `silicon-crucible`.
+- Fixed the Link Context Menu reading deleted or swapped link debug info after clicking "Delete Link" when debug info is enabled.
+- Fixed node-creation popup coordinates being captured in canvas space instead of screen space when opening the canvas context menu, preventing misaligned node placement.
+- Fixed active Pin Context Menu constraint edits not marking the project dirty (bypassing unsaved-changes prompts) and not committing before Save, Save As, Copy, Undo, or Redo.
 - Added post-solve GameData v4 metric rendering on node cards (`body`), in node hover tooltips (`tooltip`), and in a collapsible side panel (`Graph Totals` and `Node Properties`) featuring `split_sign` breakdowns (`+` / `-` / `Net`) and a project rate-unit selector.
 - Added node evaluation status borders and badges (`WARNING`, `BLOCKED`, `ERROR`, `UNRESOLVED`), recipe `setup` item display, diagnostic hover tooltips, and connection state coloring (`INVALID`, `INACTIVE`).
 

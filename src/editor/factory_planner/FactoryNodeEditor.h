@@ -100,7 +100,7 @@ public:
 
     bool isFocused() const { return m_isFocused; }
 
-    bool isDirty() const { return m_isDirty; }
+    bool isDirty() const { return m_isDirty || hasPendingParamEdit() || hasPendingPinConstraintEdit(); }
     void setDirty(bool dirty) { m_isDirty = dirty; }
 
     bool isAutosaveSuspended() const { return m_autosaveSuspended; }
@@ -169,7 +169,7 @@ private:
 
     ed::LinkId m_contextLinkId;
 
-    ImVec2 m_storedPopupPosition;
+    ImVec2 m_storedPopupPosition = ImVec2(0.0f, 0.0f);
     ImVec2 m_windowPos;
     ImVec2 m_windowSize;
     std::string m_editorName;
@@ -208,7 +208,11 @@ private:
     bool m_showSidePanel = true;
     uint64_t m_lastInspectedNodeId = static_cast<uint64_t>(-1);
 
+    bool hasPendingParamEdit() const;
+    bool hasPendingPinConstraintEdit() const;
     void commitActiveParamEdit();
+    void commitActivePinConstraintEdit();
+    void commitPendingEdits();
     void applyLiveParamValue(uint64_t nodeId, const std::string& paramId, const gamedata::ParamValue& value);
     void executeParamChangeCommand(uint64_t nodeId, const std::string& paramId, const gamedata::ParamValue& newValue);
 
