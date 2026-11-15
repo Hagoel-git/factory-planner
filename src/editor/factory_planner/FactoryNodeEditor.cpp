@@ -1875,7 +1875,7 @@ void FactoryNodeEditor::handlePopups() {
                 m_contextPinCurrentConstraint = port->user_constraint;
                 if (port->user_constraint < 0.0) m_contextPinConstraintBuf[0] = '\0';
                 else snprintf(m_contextPinConstraintBuf, sizeof(m_contextPinConstraintBuf), "%.12g",
-                              m_graph->toDisplayRate(port->user_constraint));
+                              m_graph->toResourceDisplayRate(port->resource_key, port->user_constraint));
 
                 m_isContextMenuInitialized = true;
             }
@@ -1894,7 +1894,8 @@ void FactoryNodeEditor::handlePopups() {
 
             ImGui::Separator();
 
-            const std::string rateSuffix = gamedata::rateUnitSuffix(m_graph->getRateUnit());
+            const std::string rateSuffix = m_graph->formatResourceRateSuffix(port->resource_key);
+            const std::string spacedRateSuffix = m_graph->formatResourceRateSpacedSuffix(port->resource_key);
             ImGui::Text("Flow Rate Limit (%s):", rateSuffix.c_str());
             ImGui::PushItemWidth(-1);
 
@@ -1907,7 +1908,7 @@ void FactoryNodeEditor::handlePopups() {
                     m_contextPinCurrentConstraint = -1.0;
                 } else {
                     const double clampedDisplay = (!std::isfinite(v) || v < 0.0) ? 0.0 : v;
-                    m_contextPinCurrentConstraint = m_graph->fromDisplayRate(clampedDisplay);
+                    m_contextPinCurrentConstraint = m_graph->fromResourceDisplayRate(port->resource_key, clampedDisplay);
                 }
 
                 // Only solve LIVE if graph is small
@@ -1957,7 +1958,9 @@ void FactoryNodeEditor::handlePopups() {
 
             ImGui::Separator();
 
-            ImGui::TextDisabled("Current Actual Flow: %.2f%s", m_graph->toDisplayRate(port->rate), rateSuffix.c_str());
+            ImGui::TextDisabled("Current Actual Flow: %.2f%s",
+                                m_graph->toResourceDisplayRate(port->resource_key, port->rate),
+                                spacedRateSuffix.c_str());
             const double saturation = m_solver->getGoalSaturation(port->id);
             if (saturation >= 0.0) {
                 if (m_solver->isGoalBottlenecked(port->id)) {
@@ -1972,9 +1975,10 @@ void FactoryNodeEditor::handlePopups() {
                 if (port->excess_rate > 1e-4) {
                     ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
                                        "Excess (Unconsumed): %.2f%s",
-                                       m_graph->toDisplayRate(port->excess_rate), rateSuffix.c_str());
+                                       m_graph->toResourceDisplayRate(port->resource_key, port->excess_rate),
+                                       spacedRateSuffix.c_str());
                 } else {
-                    ImGui::TextDisabled("Excess (Unconsumed): 0.00%s", rateSuffix.c_str());
+                    ImGui::TextDisabled("Excess (Unconsumed): 0.00%s", spacedRateSuffix.c_str());
                 }
             }
 
@@ -2008,9 +2012,8 @@ void FactoryNodeEditor::handlePopups() {
             }
             ImGui::Separator();
 
-            const std::string timeUnit = gamedata::rateUnitToString(m_graph->getRateUnit());
-
-            ImGui::Text("Current Rate: %.2f / %s", m_graph->toDisplayRate(connection->rate), timeUnit.c_str());
+            const std::string linkRateText = formatLinkRateText(*connection);
+            ImGui::TextUnformatted(linkRateText.c_str());
 
             ImGui::Separator();
 
@@ -3009,7 +3012,7 @@ void FactoryNodeEditor::drawDeferredBodyParamPopup() {
 }
 
 std::string FactoryNodeEditor::formatPinRateText(const Port& port) const {
-    const double displayRate = m_graph->toDisplayRate(port.rate);
+    const double displayRate = m_graph->toResourceDisplayRate(port.resource_key, port.rate);
     const bool hasNumericConstraint = port.user_constraint >= 0.0;
     const bool hasUnratedPush = (port.user_constraint < 0.0 && port.constraint_mode == ConstraintMode::PUSH);
     char buf[64];
@@ -3030,14 +3033,24 @@ std::string FactoryNodeEditor::formatPinRateText(const Port& port) const {
     return buf;
 }
 
+std::string FactoryNodeEditor::formatLinkRateText(const Connection& connection) const {
+    const std::string spacedUnit = m_graph->formatResourceRateSpacedSuffix(connection.resource_key);
+    char buf[128];
+    snprintf(buf, sizeof(buf), "Current Rate: %.2f%s",
+             m_graph->toResourceDisplayRate(connection.resource_key, connection.rate),
+             spacedUnit.c_str());
+    return buf;
+}
+
 std::string FactoryNodeEditor::buildPinTooltipText(
     const Port& port, const Resource& res, bool hasExcess) const {
-    const std::string timeUnit = gamedata::rateUnitToString(m_graph->getRateUnit());
+    const std::string& resKey = !port.resource_key.empty() ? port.resource_key : res.id;
+    const std::string spacedUnit = m_graph->formatResourceRateSpacedSuffix(resKey);
     std::string tip = res.name;
     if (hasExcess) {
         char ex_buf[128];
-        snprintf(ex_buf, sizeof(ex_buf), "\nExcess: %.2f/%s",
-                 m_graph->toDisplayRate(port.excess_rate), timeUnit.c_str());
+        snprintf(ex_buf, sizeof(ex_buf), "\nExcess: %.2f%s",
+                 m_graph->toResourceDisplayRate(resKey, port.excess_rate), spacedUnit.c_str());
         tip += ex_buf;
     }
     const bool hasNumericConstraint = port.user_constraint >= 0.0;
@@ -3047,16 +3060,16 @@ std::string FactoryNodeEditor::buildPinTooltipText(
         const char* modeLabel = constraintModeToString(resolved);
         char mode_buf[160];
         if (hasNumericConstraint) {
-            const double displayConstraint = m_graph->toDisplayRate(port.user_constraint);
+            const double displayConstraint = m_graph->toResourceDisplayRate(resKey, port.user_constraint);
             const double sat = m_solver->getGoalSaturation(port.id);
             if (sat >= 0.0) {
                 const bool bottlenecked = m_solver->isGoalBottlenecked(port.id);
-                snprintf(mode_buf, sizeof(mode_buf), "\n%s: %.2f/%s (%.1f%%%s)",
-                         modeLabel, displayConstraint, timeUnit.c_str(),
+                snprintf(mode_buf, sizeof(mode_buf), "\n%s: %.2f%s (%.1f%%%s)",
+                         modeLabel, displayConstraint, spacedUnit.c_str(),
                          sat * 100.0, bottlenecked ? " - Bottlenecked" : "");
             } else {
-                snprintf(mode_buf, sizeof(mode_buf), "\n%s: %.2f/%s",
-                         modeLabel, displayConstraint, timeUnit.c_str());
+                snprintf(mode_buf, sizeof(mode_buf), "\n%s: %.2f%s",
+                         modeLabel, displayConstraint, spacedUnit.c_str());
             }
         } else if (hasUnratedPush) {
             snprintf(mode_buf, sizeof(mode_buf), "\nMode: PUSH (Unrated - No Overflow)");

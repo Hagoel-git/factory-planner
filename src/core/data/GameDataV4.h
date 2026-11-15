@@ -848,6 +848,24 @@ struct GamePackage {
     double fromDisplayRate(double display_rate, RateUnit unit) const {
         return toCanonicalRate(display_rate, unit, units.ticks_per_second);
     }
+
+    const ResourceKindDef* findResourceKindForResource(std::string_view resource_id) const {
+        const Resource* res = findResource(resource_id);
+        return (res != nullptr) ? findResourceKind(res->kind) : nullptr;
+    }
+
+    double resourceDisplayScale(std::string_view resource_id) const {
+        const ResourceKindDef* kind = findResourceKindForResource(resource_id);
+        if (kind != nullptr && std::isfinite(kind->display_scale) && kind->display_scale > 0.0) {
+            return kind->display_scale;
+        }
+        return 1.0;
+    }
+
+    std::string resourceDisplayUnit(std::string_view resource_id) const {
+        const ResourceKindDef* kind = findResourceKindForResource(resource_id);
+        return (kind != nullptr) ? kind->display_unit : std::string{};
+    }
 };
 
 using ParamDef = ParameterDef;

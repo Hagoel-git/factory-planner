@@ -228,6 +228,7 @@ private:
                                      const gamedata::NodeMetricsResult* nodeMetrics) const;
     std::string formatPinRateText(const Port& port) const;
     std::string buildPinTooltipText(const Port& port, const Resource& res, bool hasExcess) const;
+    std::string formatLinkRateText(const Connection& connection) const;
 
     void drawNodes();
     void drawConnections();

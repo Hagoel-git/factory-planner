@@ -257,7 +257,7 @@
 - **Reproduction / failing test idea:**
   Load a v4 game package with `"resource_kinds": { "fluid": { "label": "Fluid", "display_unit": "kL", "display_scale": 0.001 } }`, resource `"water"` (`kind: "fluid"`), and a recipe producing `1000` units/s of `"water"` at `RateUnit::PerSecond`. `formatPinRateText(*outPort)` renders `"1000.00"` instead of `"1.00"`, `buildPinTooltipText` / `"Link Context Menu"` render `"/s"` instead of `" kL/s"`, and entering `"2"` in `"Pin Context Menu"` `"Flow Rate Limit"` stores `user_constraint = 2.0` canonical units/s instead of `2000.0`.
 - **Confidence:** High
-- **Status:** won't fix (user confirmed current pin/link rate display behavior should stay as-is)
+- **Status:** fixed
 
 ---
 
