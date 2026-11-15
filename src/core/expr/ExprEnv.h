@@ -132,7 +132,7 @@ struct CompileEnv {
     bool allow_option = false;            // True inside allowed_if
     ExprType option_type;                 // Option<S> (for enum/slots) or Resource (for resource_choice)
     bool allow_port_in_static = false;    // True inside visible_if / allowed_if of a resource_choice param
-    bool port_has_base_resource = true;   // True when the recipe port declares static "res"
+    bool port_has_base_resource = false;  // True when the recipe port declares static "res"
 
     // Optional per-load budget for Levenshtein "did you mean" suggestions (capped at 25)
     SuggestionBudget* suggestion_budget = nullptr;

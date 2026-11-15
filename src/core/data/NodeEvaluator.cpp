@@ -108,6 +108,20 @@ bool propagateReferencedGlobalStatuses(
     return true;
 }
 
+bool referencesAnyFailedParam(
+    const expr::CompiledExpr& cexpr,
+    const std::unordered_set<std::string>* failedParams) {
+    if (failedParams == nullptr || failedParams->empty()) {
+        return false;
+    }
+    for (const std::string& pid : cexpr.referenced_params) {
+        if (failedParams->count(pid) > 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void bindHiddenDefault(
     const GamePackage& pkg,
     const ParameterDef& pdef,
@@ -218,6 +232,7 @@ struct SingleParamResolution {
     EvaluatedParamUi ui;
     ParamValue resolved_param;
     expr::EvalValue eval_value;
+    bool deferred_by_failed_param = false;
 };
 
 template <typename Items, typename KeyGetter, typename Predicate>
@@ -264,7 +279,8 @@ SingleParamResolution resolveSingleParamOrGlobal(
     std::unordered_set<std::string>& warnedGlobals,
     expr::EvalEnv& env,
     std::string_view nodeLabel,
-    std::string_view recipeId) {
+    std::string_view recipeId,
+    const std::unordered_set<std::string>* failedParams = nullptr) {
     SingleParamResolution out;
     const std::string sourcePrefix = (isGlobal ? "globals/" : "parameters/") + pdef.id;
     const std::string displayLabel = pdef.label.empty() ? pdef.id : pdef.label;
@@ -319,6 +335,12 @@ SingleParamResolution resolveSingleParamOrGlobal(
                     warnedGlobals, out.status, out.messages)) {
                 return out;
             }
+            if (referencesAnyFailedParam(pdef.visible_if.compiled_expr, failedParams)) {
+                out.visible = false;
+                out.ui.visible = false;
+                out.deferred_by_failed_param = true;
+                return out;
+            }
             expr::EvalResult vres = expr::evaluate(pdef.visible_if.compiled_expr, env);
             if (!vres.ok) {
                 addRuntimeError(vres.error, "visible_if");
@@ -344,43 +366,46 @@ SingleParamResolution resolveSingleParamOrGlobal(
         case ParameterType::Int: {
             bool hasMin = pdef.min.is_present;
             bool hasMax = pdef.max.is_present;
+            bool deferredBounds = false;
             double minVal = 0.0;
             double maxVal = 0.0;
 
-            if (hasMin) {
-                if (pdef.min.is_literal) {
-                    minVal = pdef.min.literal_value;
-                } else {
-                    if (!propagateReferencedGlobalStatuses(
-                            pdef.min.compiled_expr, resolvedGlobalsSoFar,
-                            warnedGlobals, out.status, out.messages)) {
-                        return out;
-                    }
-                    expr::EvalResult mres = expr::evaluate(pdef.min.compiled_expr, env);
-                    if (!mres.ok || !std::isfinite(mres.value.asNumber())) {
-                        addRuntimeError(mres.ok ? "non-finite min bound" : mres.error, "min");
-                        return out;
-                    }
-                    minVal = mres.value.asNumber();
+            auto evalScalarBound = [&](const ScalarOrExpr& bound,
+                                       const char* fieldName,
+                                       const char* nonFiniteMsg,
+                                       bool& hasBound,
+                                       double& outVal) -> bool {
+                if (!hasBound) {
+                    return true;
                 }
-            }
+                if (bound.is_literal) {
+                    outVal = bound.literal_value;
+                    return true;
+                }
+                if (!propagateReferencedGlobalStatuses(
+                        bound.compiled_expr, resolvedGlobalsSoFar,
+                        warnedGlobals, out.status, out.messages)) {
+                    return false;
+                }
+                if (referencesAnyFailedParam(bound.compiled_expr, failedParams)) {
+                    hasBound = false;
+                    deferredBounds = true;
+                    return true;
+                }
+                expr::EvalResult bres = expr::evaluate(bound.compiled_expr, env);
+                if (!bres.ok || !std::isfinite(bres.value.asNumber())) {
+                    addRuntimeError(bres.ok ? nonFiniteMsg : bres.error, fieldName);
+                    return false;
+                }
+                outVal = bres.value.asNumber();
+                return true;
+            };
 
-            if (hasMax) {
-                if (pdef.max.is_literal) {
-                    maxVal = pdef.max.literal_value;
-                } else {
-                    if (!propagateReferencedGlobalStatuses(
-                            pdef.max.compiled_expr, resolvedGlobalsSoFar,
-                            warnedGlobals, out.status, out.messages)) {
-                        return out;
-                    }
-                    expr::EvalResult mres = expr::evaluate(pdef.max.compiled_expr, env);
-                    if (!mres.ok || !std::isfinite(mres.value.asNumber())) {
-                        addRuntimeError(mres.ok ? "non-finite max bound" : mres.error, "max");
-                        return out;
-                    }
-                    maxVal = mres.value.asNumber();
-                }
+            if (!evalScalarBound(pdef.min, "min", "non-finite min bound", hasMin, minVal)) {
+                return out;
+            }
+            if (!evalScalarBound(pdef.max, "max", "non-finite max bound", hasMax, maxVal)) {
+                return out;
             }
 
             if (pdef.type == ParameterType::Int) {
@@ -399,6 +424,11 @@ SingleParamResolution resolveSingleParamOrGlobal(
             out.ui.has_max = hasMax;
             out.ui.min_val = hasMin ? minVal : 0.0;
             out.ui.max_val = hasMax ? maxVal : 0.0;
+
+            if (deferredBounds) {
+                out.deferred_by_failed_param = true;
+                return out;
+            }
 
             double defVal = (pdef.has_default && pdef.default_value.isNumber())
                 ? pdef.default_value.asNumber()
@@ -461,6 +491,11 @@ SingleParamResolution resolveSingleParamOrGlobal(
         }
 
         case ParameterType::Enum: {
+            if (pdef.allowed_if.is_present && !pdef.allowed_if.is_literal &&
+                referencesAnyFailedParam(pdef.allowed_if.compiled_expr, failedParams)) {
+                out.deferred_by_failed_param = true;
+                return out;
+            }
             const OptionSet* os = pkg.findOptionSet(pdef.option_set);
             bool fatalSubExpr = false;
 
@@ -587,6 +622,11 @@ SingleParamResolution resolveSingleParamOrGlobal(
         }
 
         case ParameterType::ResourceChoice: {
+            if (pdef.allowed_if.is_present && !pdef.allowed_if.is_literal &&
+                referencesAnyFailedParam(pdef.allowed_if.compiled_expr, failedParams)) {
+                out.deferred_by_failed_param = true;
+                return out;
+            }
             bool fatalSubExpr = false;
 
             auto isResourceAllowed = [&](std::string_view resId) -> bool {
@@ -733,6 +773,10 @@ SingleParamResolution resolveSingleParamOrGlobal(
                         warnedGlobals, out.status, out.messages)) {
                     return out;
                 }
+                if (referencesAnyFailedParam(pdef.count.compiled_expr, failedParams)) {
+                    out.deferred_by_failed_param = true;
+                    return out;
+                }
                 expr::EvalResult cres = expr::evaluate(pdef.count.compiled_expr, env);
                 if (!cres.ok) {
                     addRuntimeError(cres.error, "count");
@@ -754,6 +798,12 @@ SingleParamResolution resolveSingleParamOrGlobal(
             }
             const size_t activeCount = static_cast<size_t>(countInt);
             out.ui.slot_count = activeCount;
+
+            if (pdef.allowed_if.is_present && !pdef.allowed_if.is_literal &&
+                referencesAnyFailedParam(pdef.allowed_if.compiled_expr, failedParams)) {
+                out.deferred_by_failed_param = true;
+                return out;
+            }
 
             ParamValue::SlotsArray inputSlots;
             if (hasStored) {
@@ -1101,7 +1151,11 @@ NodeEval evaluateNode(
 
     // ========================================================================
     // Step 1: Resolve `param.*` sequentially in `profile.params` order (§4.5)
+    // Evaluate every parameter so param_visible and param_ui are populated
+    // for downstream UI widgets even when an earlier parameter blocks/errors.
     // ========================================================================
+    bool step1Failed = false;
+    std::unordered_set<std::string> failedParamIds;
     for (const std::string& pid : profile->params) {
         const ParameterDef* pdef = pkg.findParameter(pid);
         if (pdef == nullptr) {
@@ -1109,7 +1163,8 @@ NodeEval evaluateNode(
         }
         SingleParamResolution pres = resolveSingleParamOrGlobal(
             pkg, *pdef, false, recipe, nodeParams,
-            globals, warnedGlobalsOnNode, env, effectiveNodeLabel, recipe->id);
+            globals, warnedGlobalsOnNode, env, effectiveNodeLabel, recipe->id,
+            &failedParamIds);
 
         for (auto& m : pres.messages) {
             nodeEval.messages.push_back(std::move(m));
@@ -1119,14 +1174,22 @@ NodeEval evaluateNode(
         nodeEval.param_visible[pid] = pres.visible;
         nodeEval.param_ui[pid] = std::move(pres.ui);
 
-        if (pres.status == EvalStatus::BLOCKED || pres.status == EvalStatus::ERROR) {
-            lockAllPortsInactive(nodeEval);
-            return nodeEval;
+        if (pres.status == EvalStatus::BLOCKED ||
+            pres.status == EvalStatus::ERROR ||
+            pres.deferred_by_failed_param) {
+            failedParamIds.insert(pid);
+            step1Failed = true;
+            continue;
         }
 
         nodeEval.resolved_params[pid] = pres.resolved_param;
         nodeEval.resolved_param_eval_values[pid] = pres.eval_value;
         env.params[pid] = std::move(pres.eval_value);
+    }
+
+    if (step1Failed) {
+        lockAllPortsInactive(nodeEval);
+        return nodeEval;
     }
 
     // ========================================================================
@@ -1558,7 +1621,13 @@ NodeMetricsResult evaluateNodeMetrics(
         if (machine != nullptr && recipe != nullptr) {
             populateMachineAndRecipeEnv(*machine, *recipe, env);
         }
-        if (globals.eval_values.empty() && !pkg.globals.empty()) {
+        const bool callerOmittedGlobals =
+            globals.eval_values.empty() &&
+            globals.status_by_global.empty() &&
+            globals.visible.empty() &&
+            globals.resolved_values.empty() &&
+            globals.messages_by_global.empty();
+        if (callerOmittedGlobals && !pkg.globals.empty()) {
             fallbackGlobals = resolveProjectGlobals(pkg, {});
             activeGlobals = &fallbackGlobals;
         }

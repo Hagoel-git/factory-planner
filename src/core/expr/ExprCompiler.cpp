@@ -1245,6 +1245,7 @@ private:
                          "'port.base_resource' is only available when the recipe port declares a static 'res'");
                     return ExprType::number();
                 }
+                m_compiled.references_port_base_resource = true;
                 node.access_kind = ResolvedAccessKind::PortBaseResource;
                 node.resolved_type = ExprType::resource();
                 return node.resolved_type;

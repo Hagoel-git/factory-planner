@@ -6,9 +6,12 @@
 #include <absl/log/log.h>
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <fstream>
 #include <functional>
+#include <iomanip>
+#include <limits>
 #include <set>
 #include <sstream>
 #include <unordered_map>
@@ -21,6 +24,18 @@ namespace gamedata {
 namespace {
 
 using json = nlohmann::ordered_json;
+
+std::string formatDoubleLiteral(double d) {
+    d = expr::normalizeZero(d);
+    char buf[64];
+    auto [ptr, ec] = std::to_chars(buf, buf + sizeof(buf), d);
+    if (ec == std::errc()) {
+        return std::string(buf, ptr);
+    }
+    std::ostringstream oss;
+    oss << std::setprecision(std::numeric_limits<double>::max_digits10) << d;
+    return oss.str();
+}
 
 void addUnique(std::vector<std::string>& vec, const std::string& item) {
     if (std::find(vec.begin(), vec.end(), item) == vec.end()) {
@@ -2728,6 +2743,7 @@ private:
                 }
             }
             env.allow_port_in_static = allow_port;
+            env.port_has_base_resource = allow_port;
 
             expr::CompileResult res = expr::compile(expr_src, env, expected_t);
             if (!res.ok) {
@@ -2762,15 +2778,15 @@ private:
         const bool allow_port = (!is_global && def.type == ParameterType::ResourceChoice);
 
         if (def.min.is_present) {
-            compileField("min", def.min.is_literal ? std::to_string(def.min.literal_value) : def.min.expr_src,
+            compileField("min", def.min.is_literal ? formatDoubleLiteral(def.min.literal_value) : def.min.expr_src,
                          expr::ExpectedType::Number, false, false, def.min.compiled_expr);
         }
         if (def.max.is_present) {
-            compileField("max", def.max.is_literal ? std::to_string(def.max.literal_value) : def.max.expr_src,
+            compileField("max", def.max.is_literal ? formatDoubleLiteral(def.max.literal_value) : def.max.expr_src,
                          expr::ExpectedType::Number, false, false, def.max.compiled_expr);
         }
         if (def.count.is_present) {
-            compileField("count", def.count.is_literal ? std::to_string(def.count.literal_value) : def.count.expr_src,
+            compileField("count", def.count.is_literal ? formatDoubleLiteral(def.count.literal_value) : def.count.expr_src,
                          expr::ExpectedType::Number, false, false, def.count.compiled_expr);
         }
         if (def.visible_if.is_present && !def.visible_if.is_literal) {
@@ -3199,7 +3215,7 @@ private:
                 addError("V-NUM-1", file, form_ptr, "metric value must be finite");
                 return false;
             }
-            out_entry.expr_src = std::to_string(d);
+            out_entry.expr_src = formatDoubleLiteral(d);
         } else if (form_j.is_string()) {
             out_entry.expr_src = form_j.get<std::string>();
         } else {
@@ -3577,7 +3593,37 @@ private:
             }
         };
 
+        auto recompileInheritedExpr = [&](const std::string& src,
+                                          expr::ExprContext ctx,
+                                          expr::ExpectedType expected_t,
+                                          const std::string& err_ptr,
+                                          bool in_resource_expr,
+                                          expr::CompiledExpr& out_compiled) -> bool {
+            expr::CompileEnv env = prof_env;
+            env.context = ctx;
+            env.port_has_base_resource = (ctx == expr::ExprContext::RecipePortFormula);
+            expr::CompileResult res = expr::compile(src, env, expected_t);
+            if (!res.ok) {
+                if (isSecondaryCompileError(res.error)) {
+                    out_cascade = true;
+                    return false;
+                }
+                addCompileError(res.error, raw.file, err_ptr);
+                ok = false;
+                return true;
+            }
+            if (referencesFailedEntity(res.expr)) {
+                out_cascade = true;
+                return false;
+            }
+            checkPortBoundParamRefs(res.expr, err_ptr);
+            recordExprUsage(res.expr, in_resource_expr);
+            out_compiled = std::move(res.expr);
+            return true;
+        };
+
         // 3. Merge and compile `requires` (appended, §4.2)
+        const size_t inherited_requires_count = prof.requires_rules.size();
         if (pj.contains("requires")) {
             const json& req_arr = pj["requires"];
             std::string reqs_ptr = raw.json_pointer + "/requires";
@@ -3638,6 +3684,19 @@ private:
                 }
             }
         }
+        if (!prof.extends.empty()) {
+            for (size_t i = 0; i < inherited_requires_count; ++i) {
+                if (!recompileInheritedExpr(
+                        prof.requires_rules[i].expr_src,
+                        expr::ExprContext::PreSolveLet,
+                        expr::ExpectedType::Bool,
+                        raw.json_pointer + "/requires/" + std::to_string(i) + "/expr",
+                        false,
+                        prof.requires_rules[i].compiled_expr)) {
+                    return false;
+                }
+            }
+        }
 
         // 4. Compile craft_time, input_amount, output_amount, port_enabled, input_enabled, output_enabled
         auto compileReplacedStringFormula = [&](const char* field,
@@ -3658,6 +3717,7 @@ private:
             }
             expr::CompileEnv env = prof_env;
             env.context = ctx;
+            env.port_has_base_resource = (ctx == expr::ExprContext::RecipePortFormula);
             expr::CompileResult res = expr::compile(in_out_src, env, expected_t);
             if (!res.ok) {
                 if (isSecondaryCompileError(res.error)) {
@@ -3713,6 +3773,7 @@ private:
             if (in_out_be.is_present && !in_out_be.is_literal) {
                 expr::CompileEnv env = prof_env;
                 env.context = expr::ExprContext::RecipePortFormula;
+                env.port_has_base_resource = true;
                 expr::CompileResult res = expr::compile(in_out_be.expr_src, env, expr::ExpectedType::Bool);
                 if (!res.ok) {
                     if (isSecondaryCompileError(res.error)) {
@@ -3740,6 +3801,7 @@ private:
         compileReplacedBoolFormula("output_enabled", prof.output_enabled);
 
         // 5. Merge and compile extra_ports (§4.2, §4.3, V-PROF-4, V-REF-1)
+        std::unordered_set<std::string> overridden_extra_port_ids;
         if (pj.contains("extra_ports")) {
             const json& ep_arr = pj["extra_ports"];
             std::string eps_ptr = raw.json_pointer + "/extra_ports";
@@ -3752,7 +3814,6 @@ private:
                     "amount", "dir", "enabled", "id", "notes", "resource",
                     "resource_expr", "resource_param"
                 };
-                std::unordered_set<std::string> seen_in_this_child;
                 for (size_t i = 0; i < ep_arr.size(); ++i) {
                     const json& epj = ep_arr[i];
                     std::string ep_ptr = eps_ptr + "/" + std::to_string(i);
@@ -3778,7 +3839,7 @@ private:
                                  "invalid extra_port id '" + ep.id + "' (must match [a-z0-9_-]+)");
                         ok = false;
                     }
-                    if (!seen_in_this_child.insert(ep.id).second) {
+                    if (!overridden_extra_port_ids.insert(ep.id).second) {
                         addError("V-PROF-4", raw.file, ep_ptr + "/id",
                                  "duplicate extra_port id '" + ep.id + "' in profile '" + prof.id + "'");
                         ok = false;
@@ -3895,7 +3956,13 @@ private:
                                  "extra_port requires 'amount' expression");
                         ok = false;
                     } else if (epj["amount"].is_number()) {
-                        ep.amount_expr = std::to_string(epj["amount"].get<double>());
+                        double d = epj["amount"].get<double>();
+                        if (!std::isfinite(d)) {
+                            addError("V-NUM-1", raw.file, ep_ptr + "/amount", "extra_port amount must be finite");
+                            ok = false;
+                        } else {
+                            ep.amount_expr = formatDoubleLiteral(d);
+                        }
                     } else if (epj["amount"].is_string()) {
                         ep.amount_expr = epj["amount"].get<std::string>();
                     } else {
@@ -3977,8 +4044,59 @@ private:
                 }
             }
         }
+        if (!prof.extends.empty()) {
+            for (ExtraPortDef& ep : prof.extra_ports) {
+                if (overridden_extra_port_ids.count(ep.id)) {
+                    continue;
+                }
+                const std::string ep_ptr = raw.json_pointer + "/extra_ports/" + ep.id;
+                if (ep.resource_param.has_value()) {
+                    const ParameterDef* pdef = m_pkg.findParameter(*ep.resource_param);
+                    if (pdef != nullptr && pdef->uses_port_in_static) {
+                        addError("V-PROF-4", raw.file, ep_ptr + "/resource_param",
+                                 "port-bound parameter '" + *ep.resource_param +
+                                     "' cannot be used on an extra_port");
+                        ok = false;
+                    }
+                }
+                if (ep.resource_expr.has_value()) {
+                    if (!recompileInheritedExpr(
+                            *ep.resource_expr,
+                            expr::ExprContext::PreSolveAfterCraftTime,
+                            expr::ExpectedType::ResourceOrString,
+                            ep_ptr + "/resource_expr",
+                            true,
+                            ep.compiled_resource_expr)) {
+                        return false;
+                    }
+                }
+                if (!ep.amount_expr.empty()) {
+                    if (!recompileInheritedExpr(
+                            ep.amount_expr,
+                            expr::ExprContext::PreSolveAfterCraftTime,
+                            expr::ExpectedType::Number,
+                            ep_ptr + "/amount",
+                            false,
+                            ep.compiled_amount)) {
+                        return false;
+                    }
+                }
+                if (ep.enabled.is_present && !ep.enabled.is_literal) {
+                    if (!recompileInheritedExpr(
+                            ep.enabled.expr_src,
+                            expr::ExprContext::PreSolveAfterCraftTime,
+                            expr::ExpectedType::Bool,
+                            ep_ptr + "/enabled",
+                            false,
+                            ep.enabled.compiled_expr)) {
+                        return false;
+                    }
+                }
+            }
+        }
 
         // 6. Merge and compile metrics (§4.2, §6.2, V-PROF-3)
+        std::unordered_set<std::string> overridden_metric_ids;
         if (pj.contains("metrics")) {
             const json& met_j = pj["metrics"];
             std::string mets_ptr = raw.json_pointer + "/metrics";
@@ -3990,6 +4108,7 @@ private:
                 for (auto it = met_j.begin(); it != met_j.end(); ++it) {
                     const std::string& mid = it.key();
                     if (mid == "notes" && it.value().is_string()) continue;
+                    overridden_metric_ids.insert(mid);
                     std::string mptr = mets_ptr + "/" + mid;
 
                     // §9.1: When a Metric failed validation (V-MET-1), remove only that metric entry
@@ -4023,6 +4142,43 @@ private:
                     }
                     addUnique(prof.metric_order, mid);
                     prof.metrics[mid] = std::move(mentry);
+                }
+            }
+        }
+        if (!prof.extends.empty()) {
+            for (const std::string& mid : prof.metric_order) {
+                if (overridden_metric_ids.count(mid)) {
+                    continue;
+                }
+                auto mit = prof.metrics.find(mid);
+                if (mit == prof.metrics.end()) {
+                    continue;
+                }
+                ProfileMetricEntry& mentry = mit->second;
+                const std::string mptr = raw.json_pointer + "/metrics/" + mid;
+                if (mentry.enabled.is_present && !mentry.enabled.is_literal) {
+                    if (!recompileInheritedExpr(
+                            mentry.enabled.expr_src,
+                            expr::ExprContext::PreSolveAfterCraftTime,
+                            expr::ExpectedType::Bool,
+                            mptr + "/enabled",
+                            false,
+                            mentry.enabled.compiled_expr)) {
+                        return false;
+                    }
+                }
+                const expr::ExprContext form_ctx =
+                    (mentry.form == MetricFormKind::Value)
+                        ? expr::ExprContext::PostSolveMetricValue
+                        : expr::ExprContext::PreSolveAfterCraftTime;
+                if (!recompileInheritedExpr(
+                        mentry.expr_src,
+                        form_ctx,
+                        expr::ExpectedType::Number,
+                        mptr,
+                        false,
+                        mentry.compiled_expr)) {
+                    return false;
                 }
             }
         }
@@ -4547,7 +4703,9 @@ private:
         const std::string& file,
         const std::string& rec_ptr,
         const expr::CompileEnv& base_env,
+        const std::unordered_set<std::string>& rec_resource_params,
         CompiledRecipeProfile& out_compiled,
+        std::unordered_set<std::string>& out_formula_params,
         bool& out_cascade) {
         bool ok = true;
         const std::string suffix = " in profile '" + prof.id + "' (machine '" + rep_machine_id + "')";
@@ -4589,6 +4747,20 @@ private:
         prof_env.profile_params = prof.params;
         prof_env.let_types = prof.let_types;
 
+        auto checkFormulaParamUsage = [&](const expr::CompiledExpr& cexpr, const std::string& ptr) -> bool {
+            for (const std::string& rp : cexpr.referenced_params) {
+                const ParameterDef* pdef = m_pkg.findParameter(rp);
+                if (pdef != nullptr && (pdef->is_port_bound || rec_resource_params.count(rp) > 0)) {
+                    addError("V-PROF-4", file, ptr,
+                             "port-bound parameter '" + rp +
+                                 "' cannot be used outside a recipe port's resource_param");
+                    return false;
+                }
+                out_formula_params.insert(rp);
+            }
+            return true;
+        };
+
         // 1. Overrides: let (V-OVR-1, V-OVR-2)
         const bool has_let_overrides = !rec.overrides.let.empty();
         if (has_let_overrides) {
@@ -4610,9 +4782,12 @@ private:
                 }
                 return false;
             }
-            for (const auto& [_, cexpr] : let_res.compiled_lets) {
+            for (const auto& [lname, cexpr] : let_res.compiled_lets) {
                 if (referencesFailedEntity(cexpr)) {
                     out_cascade = true;
+                    return false;
+                }
+                if (!checkFormulaParamUsage(cexpr, rec_ptr + "/overrides/let/" + lname)) {
                     return false;
                 }
                 recordExprUsage(cexpr);
@@ -4646,7 +4821,10 @@ private:
                     out_cascade = true;
                     return false;
                 }
-                std::string rule_id = (res.error.rule_id == "V-REF-1") ? "V-REF-1" : "V-OVR-2";
+                std::string rule_id =
+                    (res.error.rule_id == "V-REF-1" || res.error.rule_id == "V-EXPR-3")
+                        ? res.error.rule_id
+                        : "V-OVR-2";
                 addCompileError(res.error, file, ptr, rule_id, suffix);
                 return false;
             }
@@ -4654,14 +4832,8 @@ private:
                 out_cascade = true;
                 return false;
             }
-            for (const std::string& rp : res.expr.referenced_params) {
-                const ParameterDef* pdef = m_pkg.findParameter(rp);
-                if (pdef != nullptr && pdef->uses_port_in_static) {
-                    addError("V-PROF-4", file, ptr,
-                             "port-bound parameter '" + rp +
-                                 "' cannot be used outside a recipe port's resource_param");
-                    return false;
-                }
+            if (!checkFormulaParamUsage(res.expr, ptr)) {
+                return false;
             }
             recordExprUsage(res.expr, is_res_expr);
             out_cexpr = std::move(res.expr);
@@ -4674,7 +4846,7 @@ private:
             std::string rptr = rec_ptr + "/overrides/requires/" + std::to_string(i) + "/expr";
             if (!compileOverrideFormula(
                     rule.expr_src, rptr, expr::ExprContext::PreSolveLet,
-                    expr::ExpectedType::Bool, true, false, rule.compiled_expr)) {
+                    expr::ExpectedType::Bool, false, false, rule.compiled_expr)) {
                 if (out_cascade) return false;
                 ok = false;
             } else {
@@ -4683,12 +4855,22 @@ private:
         }
 
         // 3. Overrides: craft_time, input_amount, output_amount
+        auto hasAllApplicableBaseRes = [&](const std::vector<RecipePort>& ports, auto&& pred) -> bool {
+            bool any_applicable = false;
+            for (const RecipePort& p : ports) {
+                if (!pred(p)) continue;
+                any_applicable = true;
+                if (!p.res.has_value()) return false;
+            }
+            return any_applicable;
+        };
+
         if (rec.overrides.craft_time.has_value()) {
             expr::CompiledExpr cexpr;
             if (!compileOverrideFormula(
                     *rec.overrides.craft_time, rec_ptr + "/overrides/craft_time",
                     expr::ExprContext::PreSolveCraftTime, expr::ExpectedType::Number,
-                    true, false, cexpr)) {
+                    false, false, cexpr)) {
                 if (out_cascade) return false;
                 ok = false;
             } else {
@@ -4696,11 +4878,13 @@ private:
             }
         }
         if (rec.overrides.input_amount.has_value()) {
+            const bool in_amt_base_res = hasAllApplicableBaseRes(
+                rec.in, [](const RecipePort& p) { return !p.amount_expr_override.has_value(); });
             expr::CompiledExpr cexpr;
             if (!compileOverrideFormula(
                     *rec.overrides.input_amount, rec_ptr + "/overrides/input_amount",
                     expr::ExprContext::RecipePortFormula, expr::ExpectedType::Number,
-                    true, false, cexpr)) {
+                    in_amt_base_res, false, cexpr)) {
                 if (out_cascade) return false;
                 ok = false;
             } else {
@@ -4708,11 +4892,13 @@ private:
             }
         }
         if (rec.overrides.output_amount.has_value()) {
+            const bool out_amt_base_res = hasAllApplicableBaseRes(
+                rec.out, [](const RecipePort& p) { return !p.amount_expr_override.has_value(); });
             expr::CompiledExpr cexpr;
             if (!compileOverrideFormula(
                     *rec.overrides.output_amount, rec_ptr + "/overrides/output_amount",
                     expr::ExprContext::RecipePortFormula, expr::ExpectedType::Number,
-                    true, false, cexpr)) {
+                    out_amt_base_res, false, cexpr)) {
                 if (out_cascade) return false;
                 ok = false;
             } else {
@@ -4722,26 +4908,47 @@ private:
 
         auto compileOverrideBool = [&](const BoolOrExpr& src_be,
                                        const std::string& ptr,
+                                       bool port_has_base_res,
                                        BoolOrExpr& out_be) {
             if (!src_be.is_present) return;
             out_be = src_be;
             if (!src_be.is_literal) {
                 if (!compileOverrideFormula(
                         src_be.expr_src, ptr, expr::ExprContext::RecipePortFormula,
-                        expr::ExpectedType::Bool, true, false, out_be.compiled_expr)) {
+                        expr::ExpectedType::Bool, port_has_base_res, false, out_be.compiled_expr)) {
                     if (!out_cascade) ok = false;
                 }
             }
         };
 
+        bool port_enabled_any = false;
+        bool port_enabled_has_base = true;
+        auto accumulateEnabledSide = [&](const std::vector<RecipePort>& ports, bool side_ovr_present) {
+            if (side_ovr_present) return;
+            for (const RecipePort& p : ports) {
+                if (p.enabled_override.is_present) continue;
+                port_enabled_any = true;
+                if (!p.res.has_value()) {
+                    port_enabled_has_base = false;
+                }
+            }
+        };
+        accumulateEnabledSide(rec.in, rec.overrides.input_enabled.is_present);
+        accumulateEnabledSide(rec.out, rec.overrides.output_enabled.is_present);
+
         compileOverrideBool(
             rec.overrides.port_enabled, rec_ptr + "/overrides/port_enabled",
+            port_enabled_any && port_enabled_has_base,
             out_compiled.port_enabled_override);
         compileOverrideBool(
             rec.overrides.input_enabled, rec_ptr + "/overrides/input_enabled",
+            hasAllApplicableBaseRes(
+                rec.in, [](const RecipePort& p) { return !p.enabled_override.is_present; }),
             out_compiled.input_enabled_override);
         compileOverrideBool(
             rec.overrides.output_enabled, rec_ptr + "/overrides/output_enabled",
+            hasAllApplicableBaseRes(
+                rec.out, [](const RecipePort& p) { return !p.enabled_override.is_present; }),
             out_compiled.output_enabled_override);
         if (out_cascade) return false;
 
@@ -4753,7 +4960,7 @@ private:
                 if (!compileOverrideFormula(
                         mentry.enabled.expr_src, mptr + "/enabled",
                         expr::ExprContext::PreSolveAfterCraftTime, expr::ExpectedType::Bool,
-                        true, false, mentry.enabled.compiled_expr)) {
+                        false, false, mentry.enabled.compiled_expr)) {
                     if (out_cascade) return false;
                     ok = false;
                     continue;
@@ -4764,7 +4971,7 @@ private:
                 : expr::ExprContext::PreSolveAfterCraftTime;
             if (!compileOverrideFormula(
                     mentry.expr_src, mptr, mctx, expr::ExpectedType::Number,
-                    true, false, mentry.compiled_expr)) {
+                    false, false, mentry.compiled_expr)) {
                 if (out_cascade) return false;
                 ok = false;
                 continue;
@@ -4827,6 +5034,59 @@ private:
         compilePortsForProfile(rec.out, "out", out_compiled.out_ports);
         if (out_cascade) return false;
 
+        // 6. Validate profile-level port formulas using port.base_resource against ports without 'res'
+        auto checkProfilePortBaseResource = [&](const std::vector<RecipePort>& ports,
+                                                const char* dir_key,
+                                                bool is_in) {
+            const expr::CompiledExpr& prof_amt = is_in
+                ? prof.compiled_input_amount
+                : prof.compiled_output_amount;
+            const bool has_amt_ovr = is_in
+                ? rec.overrides.input_amount.has_value()
+                : rec.overrides.output_amount.has_value();
+            const BoolOrExpr& prof_side_en = is_in ? prof.input_enabled : prof.output_enabled;
+            const bool has_side_en_ovr = is_in
+                ? rec.overrides.input_enabled.is_present
+                : rec.overrides.output_enabled.is_present;
+
+            for (size_t i = 0; i < ports.size(); ++i) {
+                const RecipePort& p = ports[i];
+                if (p.res.has_value()) continue;
+                const std::string pptr = rec_ptr + "/" + dir_key + "/" + std::to_string(i);
+
+                if (!p.amount_expr_override.has_value() && !has_amt_ovr &&
+                    prof_amt.references_port_base_resource) {
+                    addError("V-EXPR-3", file, pptr,
+                             "'port.base_resource' in profile '" + prof.id + "' " +
+                                 std::string(is_in ? "input_amount" : "output_amount") +
+                                 " requires static 'res' on recipe port" + suffix);
+                    ok = false;
+                }
+
+                if (!p.enabled_override.is_present && !has_side_en_ovr &&
+                    !rec.overrides.port_enabled.is_present) {
+                    const BoolOrExpr* eff_prof_en = nullptr;
+                    const char* en_name = nullptr;
+                    if (prof_side_en.is_present) {
+                        eff_prof_en = &prof_side_en;
+                        en_name = is_in ? "input_enabled" : "output_enabled";
+                    } else if (prof.port_enabled.is_present) {
+                        eff_prof_en = &prof.port_enabled;
+                        en_name = "port_enabled";
+                    }
+                    if (eff_prof_en != nullptr && !eff_prof_en->is_literal &&
+                        eff_prof_en->compiled_expr.references_port_base_resource) {
+                        addError("V-EXPR-3", file, pptr,
+                                 "'port.base_resource' in profile '" + prof.id + "' " + en_name +
+                                     " requires static 'res' on recipe port" + suffix);
+                        ok = false;
+                    }
+                }
+            }
+        };
+        checkProfilePortBaseResource(rec.in, "in", true);
+        checkProfilePortBaseResource(rec.out, "out", false);
+
         return ok && !out_cascade;
     }
 
@@ -4847,6 +5107,51 @@ private:
         expr::CompileEnv base_env = buildBaseCompileEnv();
         std::unordered_map<std::string, std::pair<std::string, std::string>> first_seen_rec;
         std::unordered_set<std::string> params_used_as_recipe_port_param;
+        std::unordered_set<std::string> params_used_outside_resource_param;
+
+        auto collectParamRefs = [&](const expr::CompiledExpr& cexpr) {
+            if (!cexpr.isValid()) return;
+            for (const std::string& rp : cexpr.referenced_params) {
+                params_used_outside_resource_param.insert(rp);
+            }
+        };
+        auto collectFromParamList = [&](const std::vector<ParameterDef>& defs) {
+            for (const ParameterDef& pdef : defs) {
+                collectParamRefs(pdef.min.compiled_expr);
+                collectParamRefs(pdef.max.compiled_expr);
+                collectParamRefs(pdef.count.compiled_expr);
+                collectParamRefs(pdef.visible_if.compiled_expr);
+                collectParamRefs(pdef.allowed_if.compiled_expr);
+            }
+        };
+        collectFromParamList(m_pkg.parameters);
+        collectFromParamList(m_pkg.globals);
+        for (const Profile& prof : m_pkg.profiles) {
+            for (const auto& [_, cexpr] : prof.compiled_lets) {
+                collectParamRefs(cexpr);
+            }
+            for (const RequireRule& r : prof.requires_rules) {
+                collectParamRefs(r.compiled_expr);
+            }
+            collectParamRefs(prof.compiled_craft_time);
+            collectParamRefs(prof.compiled_input_amount);
+            collectParamRefs(prof.compiled_output_amount);
+            collectParamRefs(prof.port_enabled.compiled_expr);
+            collectParamRefs(prof.input_enabled.compiled_expr);
+            collectParamRefs(prof.output_enabled.compiled_expr);
+            for (const ExtraPortDef& ep : prof.extra_ports) {
+                if (ep.resource_param.has_value()) {
+                    params_used_outside_resource_param.insert(*ep.resource_param);
+                }
+                collectParamRefs(ep.compiled_resource_expr);
+                collectParamRefs(ep.compiled_amount);
+                collectParamRefs(ep.enabled.compiled_expr);
+            }
+            for (const auto& [_, mentry] : prof.metrics) {
+                collectParamRefs(mentry.compiled_expr);
+                collectParamRefs(mentry.enabled.compiled_expr);
+            }
+        }
 
         for (const RawArrayItem& item : m_rawRecipes) {
             if (!item.value.is_object()) {
@@ -5074,13 +5379,33 @@ private:
                 }
             }
 
-            for (const std::string& rp : seen_resource_params_on_recipe) {
-                params_used_as_recipe_port_param.insert(rp);
-                auto pit = m_pkg.parameter_index.find(rp);
-                if (pit != m_pkg.parameter_index.end()) {
-                    m_pkg.parameters[pit->second].is_port_bound = true;
+            auto validateRecipeResourceParamPorts = [&](const std::vector<RecipePort>& ports, const char* dir_key) {
+                for (size_t i = 0; i < ports.size(); ++i) {
+                    const RecipePort& p = ports[i];
+                    if (!p.resource_param.has_value()) continue;
+                    const std::string rpPtr =
+                        item.json_pointer + "/" + dir_key + "/" + std::to_string(i) + "/resource_param";
+                    if (params_used_outside_resource_param.count(*p.resource_param)) {
+                        addError("V-PROF-4", item.file, rpPtr,
+                                 "port-bound parameter '" + *p.resource_param +
+                                     "' cannot be used outside a recipe port's resource_param");
+                        ok = false;
+                    }
+                    if (!p.res.has_value()) {
+                        const ParameterDef* pdef = m_pkg.findParameter(*p.resource_param);
+                        if (pdef != nullptr &&
+                            (pdef->visible_if.compiled_expr.references_port_base_resource ||
+                             pdef->allowed_if.compiled_expr.references_port_base_resource)) {
+                            addError("V-EXPR-3", item.file, rpPtr,
+                                     "'port.base_resource' used by parameter '" + *p.resource_param +
+                                         "' requires static 'res' on recipe port");
+                            ok = false;
+                        }
+                    }
                 }
-            }
+            };
+            validateRecipeResourceParamPorts(rec.in, "in");
+            validateRecipeResourceParamPorts(rec.out, "out");
 
             if (rec.in.empty() && rec.out.empty() && !cascade) {
                 if ((!rj.contains("in") || (rj["in"].is_array() && rj["in"].empty())) &&
@@ -5276,7 +5601,14 @@ private:
                                     ? MetricFormKind::PerMachine
                                     : (mej.contains("per_craft") ? MetricFormKind::PerCraft : MetricFormKind::Value);
                                 if (mej[fk].is_number()) {
-                                    pme.expr_src = std::to_string(mej[fk].get<double>());
+                                    double d = mej[fk].get<double>();
+                                    if (!std::isfinite(d)) {
+                                        addError("V-NUM-1", item.file, mptr + "/" + fk,
+                                                 "metric override value must be finite");
+                                        ok = false;
+                                        continue;
+                                    }
+                                    pme.expr_src = formatDoubleLiteral(d);
                                 } else if (mej[fk].is_string()) {
                                     pme.expr_src = mej[fk].get<std::string>();
                                 } else {
@@ -5295,6 +5627,7 @@ private:
             }
 
             // Compile overrides and port formulas against each unique compatible profile (§2.9 item 2)
+            std::unordered_set<std::string> recipe_formula_params;
             if (ok && !cascade) {
                 for (const std::string& prof_id : rec.compatible_profile_ids) {
                     const Profile* prof_ptr = m_pkg.findProfile(prof_id);
@@ -5314,7 +5647,8 @@ private:
                     CompiledRecipeProfile crp;
                     if (!validateAndCompileRecipeForProfile(
                             rec, *prof_ptr, rep_mach, item.file, item.json_pointer,
-                            base_env, crp, cascade)) {
+                            base_env, seen_resource_params_on_recipe, crp,
+                            recipe_formula_params, cascade)) {
                         ok = false;
                         if (cascade) break;
                     } else {
@@ -5324,6 +5658,16 @@ private:
             }
 
             if (ok && !cascade && !rec.id.empty()) {
+                for (const std::string& rp : seen_resource_params_on_recipe) {
+                    params_used_as_recipe_port_param.insert(rp);
+                    auto pit = m_pkg.parameter_index.find(rp);
+                    if (pit != m_pkg.parameter_index.end()) {
+                        m_pkg.parameters[pit->second].is_port_bound = true;
+                    }
+                }
+                for (const std::string& fp : recipe_formula_params) {
+                    params_used_outside_resource_param.insert(fp);
+                }
                 m_pkg.recipe_index[rec.id] = m_pkg.recipes.size();
                 m_pkg.recipes.push_back(std::move(rec));
             } else if (!id.empty()) {

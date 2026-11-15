@@ -2984,5 +2984,123 @@ TEST(FactoryGraphV4Test, SerializeAndDeserialize_UnresolvedNodesParamsGlobalsAnd
     EXPECT_TRUE(g2.getNodes().empty());
 }
 
+TEST_F(FactoryGraphTest, ResolveEffectiveParamUiFallbackAndBlockedEvaluation) {
+    const std::string manifest = R"JSON({
+      "schema_version": 4,
+      "game": { "id": "ui_fallback_test", "name": "UI Fallback Test" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "resources": [
+        { "id": "iron", "name": "Iron" },
+        { "id": "copper", "name": "Copper" }
+      ],
+      "option_sets": {
+        "opts": {
+          "options": [
+            { "key": "a", "label": "A" },
+            { "key": "b", "label": "B" }
+          ]
+        }
+      },
+      "parameters": {
+        "p_block": {
+          "type": "resource_choice",
+          "resources": ["iron", "copper"],
+          "allow_none": false,
+          "allowed_if": "false"
+        },
+        "p_hidden": {
+          "type": "bool",
+          "default": false,
+          "visible_if": "false"
+        },
+        "p_enum_lit_false": {
+          "type": "enum",
+          "option_set": "opts",
+          "allow_none": true,
+          "allowed_if": "false"
+        },
+        "p_enum_expr": {
+          "type": "enum",
+          "option_set": "opts",
+          "allowed_if": "option != 'b'",
+          "default": "a"
+        },
+        "p_res_lit_false": {
+          "type": "resource_choice",
+          "resources": ["iron", "copper"],
+          "allow_none": true,
+          "allowed_if": "false"
+        }
+      },
+      "profiles": {
+        "p": {
+          "params": [
+            "p_block",
+            "p_hidden",
+            "p_enum_lit_false",
+            "p_enum_expr",
+            "p_res_lit_false"
+          ]
+        }
+      },
+      "machines": [
+        { "id": "m", "profile": "p", "categories": ["cat"] }
+      ],
+      "recipes": [
+        { "id": "r", "category": "cat", "time": 1, "in": [{ "res": "iron", "amount": 1 }] }
+      ]
+    })JSON";
+
+    GameData gd;
+    gamedata::LoadReport report;
+    ASSERT_TRUE(gamedata::loadGamePackageFromMemory(manifest, {}, gd, report))
+        << (report.errors.empty() ? "" : report.errors.front().formatted);
+
+    // 1. Even with a partial/empty NodeEval (param_ui/param_visible missing pdef.id),
+    //    fallback must honor literal visible_if: false, literal allowed_if: false,
+    //    and must not expose inverted Int bounds [1, 0] from fractional [0.4, 0.6].
+    gamedata::NodeEval partialEval;
+    const auto* pHidden = gd.findParameter("p_hidden");
+    const auto* pEnumLitFalse = gd.findParameter("p_enum_lit_false");
+    const auto* pResLitFalse = gd.findParameter("p_res_lit_false");
+    ASSERT_NE(pHidden, nullptr);
+    ASSERT_NE(pEnumLitFalse, nullptr);
+    ASSERT_NE(pResLitFalse, nullptr);
+
+    gamedata::ParameterDef pIntFrac;
+    pIntFrac.id = "p_int_frac";
+    pIntFrac.type = gamedata::ParameterType::Int;
+    pIntFrac.min.is_present = true;
+    pIntFrac.min.is_literal = true;
+    pIntFrac.min.literal_value = 0.4;
+    pIntFrac.max.is_present = true;
+    pIntFrac.max.is_literal = true;
+    pIntFrac.max.literal_value = 0.6;
+
+    EXPECT_FALSE(FactoryNodeEditor::resolveEffectiveParamUi(gd, &partialEval, *pHidden).visible);
+    EXPECT_TRUE(FactoryNodeEditor::resolveEffectiveParamUi(gd, &partialEval, *pEnumLitFalse).allowed_options.empty());
+    EXPECT_TRUE(FactoryNodeEditor::resolveEffectiveParamUi(gd, &partialEval, *pResLitFalse).allowed_resources.empty());
+    {
+        const gamedata::EvaluatedParamUi fracUi =
+            FactoryNodeEditor::resolveEffectiveParamUi(gd, &partialEval, pIntFrac);
+        EXPECT_FALSE(fracUi.has_min && fracUi.has_max && fracUi.min_val > fracUi.max_val);
+    }
+
+    // 2. End-to-end with graph evaluation when p_block is BLOCKED:
+    FactoryGraph graph(gd);
+    uint64_t nid = graph.addNode("Node", "r");
+    ASSERT_NE(nid, static_cast<uint64_t>(-1));
+    const gamedata::NodeEval* eval = graph.getNodeEval(nid);
+    ASSERT_NE(eval, nullptr);
+    EXPECT_EQ(eval->status, gamedata::EvalStatus::BLOCKED);
+
+    EXPECT_FALSE(FactoryNodeEditor::resolveEffectiveParamUi(gd, eval, *pHidden).visible);
+    const auto* pEnumExpr = gd.findParameter("p_enum_expr");
+    ASSERT_NE(pEnumExpr, nullptr);
+    EXPECT_EQ(FactoryNodeEditor::resolveEffectiveParamUi(gd, eval, *pEnumExpr).allowed_options,
+              (std::vector<std::string>{"a"}));
+}
+
+
 
 

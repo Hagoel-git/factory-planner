@@ -865,6 +865,164 @@ TEST(GameDataV4EvaluationTest, GlobalStatusIsolationAndPostSolveMetricErrorIsola
     EXPECT_DOUBLE_EQ(totals[2].value, 50.0);
 }
 
+TEST(GameDataV4EvaluationTest, PostSolveMetricRespectsAllBlockedOrErroredResolvedGlobals) {
+    // Finding #2: when every project global is BLOCKED/ERROR, globals.eval_values is empty
+    // while globals.status_by_global is populated. evaluateNodeMetrics must NOT discard
+    // caller globals and fall back to resolveProjectGlobals(pkg, {}).
+    const std::string manifest = R"JSON({
+      "schema_version": 4,
+      "game": { "id": "globals_all_blocked_test" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "option_sets": {
+        "tiers": {
+          "options": [
+            { "key": "basic", "label": "Basic" },
+            { "key": "pro", "label": "Pro" }
+          ]
+        }
+      },
+      "globals": {
+        "tier": { "type": "enum", "option_set": "tiers", "default": "pro" }
+      },
+      "metrics": {
+        "power": { "label": "Power", "aggregate": "sum" }
+      },
+      "resources": [
+        { "id": "ore", "name": "Ore" },
+        { "id": "plate", "name": "Plate" }
+      ],
+      "profiles": {
+        "smelter_prof": {
+          "metrics": {
+            "power": { "value": "node.machines * if(global.tier == 'pro', 2, 1)" }
+          }
+        }
+      },
+      "machines": [
+        { "id": "smelter", "profile": "smelter_prof", "categories": ["smelting"] }
+      ],
+      "recipes": [
+        { "id": "smelt_ore", "category": "smelting", "time": 1, "in": [["ore", 1]], "out": [["plate", 1]] }
+      ]
+    })JSON";
+
+    GamePackage pkg;
+    LoadReport report;
+    ASSERT_TRUE(loadGamePackageFromMemory(manifest, {}, pkg, report))
+        << (report.errors.empty() ? "" : report.errors.front().formatted);
+
+    // Simulate resolved project globals where the sole global is BLOCKED/ERROR:
+    // eval_values is empty, while status_by_global/visible/messages_by_global are populated.
+    ResolvedGlobals badGlobals;
+    badGlobals.visible["tier"] = true;
+    badGlobals.status_by_global["tier"] = EvalStatus::BLOCKED;
+    badGlobals.messages_by_global["tier"] = {
+        EvalMessage{EvalStatus::BLOCKED, "No allowed tier option", "globals/tier"}
+    };
+    ASSERT_TRUE(badGlobals.eval_values.empty());
+
+    // Pre-solve doesn't touch global.tier, so NodeEval itself is OK.
+    NodeEval eval = evaluateNode(pkg, "smelter", "smelt_ore", {}, badGlobals);
+    EXPECT_EQ(eval.status, EvalStatus::OK);
+
+    // Post-solve `value` metric references global.tier and must observe the failed global
+    // (not fall back to default "pro" with value 10.0).
+    NodeMetricsResult badMetrics = evaluateNodeMetrics(pkg, "smelter", "smelt_ore", eval, 5.0, 5.0, badGlobals);
+    const EvaluatedNodeMetric* badPower = badMetrics.findMetric("power");
+    ASSERT_NE(badPower, nullptr);
+    EXPECT_EQ(badPower->status, EvalStatus::ERROR);
+    ASSERT_FALSE(badMetrics.messages.empty());
+    EXPECT_EQ(badMetrics.messages.front().text, "No allowed tier option");
+
+    // Convenience: omitting globals (default-constructed ResolvedGlobals{}) still resolves default "pro" (10.0).
+    NodeMetricsResult defaultMetrics = evaluateNodeMetrics(pkg, "smelter", "smelt_ore", eval, 5.0, 5.0);
+    const EvaluatedNodeMetric* defPower = defaultMetrics.findMetric("power");
+    ASSERT_NE(defPower, nullptr);
+    EXPECT_EQ(defPower->status, EvalStatus::OK);
+    EXPECT_DOUBLE_EQ(defPower->value, 10.0);
+}
+
+TEST(GameDataV4EvaluationTest, PreservesSmallAndHighPrecisionNumericLiteralsInExtraPortsAndMetrics) {
+    // Finding #4: JSON numeric literals < 5e-7 or with > 6 fractional digits must not truncate via std::to_string.
+    const double tiny = 4e-7;
+    const double highPrec = 1.2345678901234567e-10;
+    const double frac = 1.123456789;
+    const std::string manifest = R"JSON({
+      "schema_version": 4,
+      "game": { "id": "numeric_precision_test" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "metrics": {
+        "m_pm": { "label": "PM", "aggregate": "sum" },
+        "m_pc": { "label": "PC", "aggregate": "sum" },
+        "m_val": { "label": "Val", "aggregate": "sum" },
+        "m_ovr": { "label": "Ovr", "aggregate": "sum" }
+      },
+      "resources": [
+        { "id": "ore", "name": "Ore" },
+        { "id": "water", "name": "Water" }
+      ],
+      "profiles": {
+        "base_p": {
+          "extra_ports": [
+            { "id": "cat_tiny", "dir": "in", "resource": "water", "amount": 4e-7 },
+            { "id": "cat_frac", "dir": "in", "resource": "water", "amount": 1.123456789 }
+          ],
+          "metrics": {
+            "m_pm": { "per_machine": 4e-7 },
+            "m_pc": { "per_craft": 4e-7 },
+            "m_val": { "value": 1.2345678901234567e-10 },
+            "m_ovr": { "per_craft": 1 }
+          }
+        },
+        "child_p": {
+          "extends": "base_p"
+        }
+      },
+      "machines": [
+        { "id": "mach", "profile": "child_p", "categories": ["cat"] }
+      ],
+      "recipes": [
+        {
+          "id": "rec", "category": "cat", "time": 1,
+          "in": [["ore", 1]], "out": [["ore", 1]],
+          "overrides": {
+            "metrics": {
+              "m_ovr": { "value": 4e-7 }
+            }
+          }
+        }
+      ]
+    })JSON";
+
+    GamePackage pkg;
+    LoadReport report;
+    ASSERT_TRUE(loadGamePackageFromMemory(manifest, {}, pkg, report))
+        << (report.errors.empty() ? "" : report.errors.front().formatted);
+
+    NodeEval eval = evaluateNode(pkg, "mach", "rec");
+    EXPECT_EQ(eval.status, EvalStatus::OK);
+
+    const EvaluatedPort* epTiny = eval.findPort("xin:cat_tiny");
+    ASSERT_NE(epTiny, nullptr);
+    EXPECT_TRUE(epTiny->active);
+    EXPECT_DOUBLE_EQ(epTiny->amount_per_craft, tiny);
+
+    const EvaluatedPort* epFrac = eval.findPort("xin:cat_frac");
+    ASSERT_NE(epFrac, nullptr);
+    EXPECT_TRUE(epFrac->active);
+    EXPECT_DOUBLE_EQ(epFrac->amount_per_craft, frac);
+
+    NodeMetricsResult mres = evaluateNodeMetrics(pkg, "mach", "rec", eval, 1.0, 1.0);
+    ASSERT_NE(mres.findMetric("m_pm"), nullptr);
+    ASSERT_NE(mres.findMetric("m_pc"), nullptr);
+    ASSERT_NE(mres.findMetric("m_val"), nullptr);
+    ASSERT_NE(mres.findMetric("m_ovr"), nullptr);
+    EXPECT_DOUBLE_EQ(mres.findMetric("m_pm")->value, tiny);
+    EXPECT_DOUBLE_EQ(mres.findMetric("m_pc")->value, tiny);
+    EXPECT_DOUBLE_EQ(mres.findMetric("m_val")->value, highPrec);
+    EXPECT_DOUBLE_EQ(mres.findMetric("m_ovr")->value, tiny);
+}
+
 TEST(GameDataV4EvaluationTest, EvaluatedParamUiMetadataAndBlockedVisibility) {
     const std::string manifest = R"JSON({
       "schema_version": 4,
@@ -1726,6 +1884,681 @@ TEST(GameDataV4ValidationTest, MindustryProductionPackageValidatesAndEvaluates) 
     NodeEval neBoosted = evaluateNode(pkg, "silicon-smelter", "silicon-smelter", boostedParams);
     EXPECT_EQ(neBoosted.status, EvalStatus::OK);
     EXPECT_NEAR(neBoosted.craft_time_s, 0.6666 / (2.5 * 2.0), 1e-9);
+}
+
+TEST(GameDataV4ValidationTest, ChildProfileRecompilesInheritedFormulasOnLetOverride) {
+    // Finding #1: child profiles inheriting requires, extra_ports, and metrics
+    // must recompile inherited formulas against the child's merged `let` env.
+    auto makeManifest = [](const std::string& childLetJson) {
+        return R"JSON({
+          "schema_version": 4,
+          "game": { "id": "child_recomp_test" },
+          "units": { "recipe_time": "s", "default_rate": "s" },
+          "metrics": {
+            "power": { "label": "Power", "unit": "W", "aggregate": "sum" },
+            "emissions": { "label": "Emissions", "unit": "u/s", "aggregate": "sum" },
+            "heat": { "label": "Heat", "unit": "J", "aggregate": "sum" }
+          },
+          "resources": [
+            { "id": "iron", "name": "Iron" },
+            { "id": "steam", "name": "Steam" }
+          ],
+          "profiles": {
+            "base_req": {
+              "let": { "x": "2" },
+              "requires": [{ "expr": "x > 0", "message": "x must be positive" }]
+            },
+            "child_req": {
+              "extends": "base_req",
+              "let": { "x": )JSON" + childLetJson + R"JSON( }
+            },
+            "base_ep_amt": {
+              "let": { "x": "2" },
+              "extra_ports": [{ "id": "ep_amt", "dir": "out", "resource": "steam", "amount": "x * 2" }]
+            },
+            "child_ep_amt": {
+              "extends": "base_ep_amt",
+              "let": { "x": )JSON" + childLetJson + R"JSON( }
+            },
+            "base_ep_res": {
+              "let": { "x": "2" },
+              "extra_ports": [{ "id": "ep_res", "dir": "out", "resource_expr": "if(x > 1, 'steam', '')", "amount": "1" }]
+            },
+            "child_ep_res": {
+              "extends": "base_ep_res",
+              "let": { "x": )JSON" + childLetJson + R"JSON( }
+            },
+            "base_ep_en": {
+              "let": { "x": "2" },
+              "extra_ports": [{ "id": "ep_en", "dir": "out", "resource": "steam", "amount": "1", "enabled": "x > 1" }]
+            },
+            "child_ep_en": {
+              "extends": "base_ep_en",
+              "let": { "x": )JSON" + childLetJson + R"JSON( }
+            },
+            "base_met_pm": {
+              "let": { "x": "2" },
+              "metrics": { "power": { "per_machine": "x * 10" } }
+            },
+            "child_met_pm": {
+              "extends": "base_met_pm",
+              "let": { "x": )JSON" + childLetJson + R"JSON( }
+            },
+            "base_met_en": {
+              "let": { "x": "2" },
+              "metrics": { "heat": { "per_machine": "10", "enabled": "x > 0" } }
+            },
+            "child_met_en": {
+              "extends": "base_met_en",
+              "let": { "x": )JSON" + childLetJson + R"JSON( }
+            },
+            "base_met_val": {
+              "let": { "x": "2" },
+              "metrics": { "emissions": { "value": "x * node.machines" } }
+            },
+            "child_met_val": {
+              "extends": "base_met_val",
+              "let": { "x": )JSON" + childLetJson + R"JSON( }
+            }
+          },
+          "machines": [
+            { "id": "m_base", "profile": "base_req", "categories": ["cat"] },
+            { "id": "m_ep_amt", "profile": "child_ep_amt", "categories": ["cat"] },
+            { "id": "m_met_pm", "profile": "child_met_pm", "categories": ["cat"] },
+            { "id": "m_met_val", "profile": "child_met_val", "categories": ["cat"] }
+          ],
+          "recipes": [
+            { "id": "r1", "category": "cat", "time": 1, "in": [["iron", 1]], "out": [["iron", 1]] }
+          ]
+        })JSON";
+    };
+
+    // Valid compatible override compiles cleanly and preserves inherited entries.
+    {
+        GamePackage pkg;
+        LoadReport report;
+        ASSERT_TRUE(loadGamePackageFromMemory(makeManifest("\"5\""), {}, pkg, report, false));
+        EXPECT_TRUE(report.errors.empty());
+
+        NodeEval epEval = evaluateNode(pkg, "m_ep_amt", "r1");
+        EXPECT_EQ(epEval.status, EvalStatus::OK);
+        const EvaluatedPort* epPort = epEval.findPort("xout:ep_amt");
+        ASSERT_NE(epPort, nullptr);
+        EXPECT_TRUE(epPort->active);
+        EXPECT_DOUBLE_EQ(epPort->amount_per_craft, 10.0);
+
+        NodeEval pmEval = evaluateNode(pkg, "m_met_pm", "r1");
+        NodeMetricsResult pmRes = evaluateNodeMetrics(pkg, "m_met_pm", "r1", pmEval, 2.0, 2.0);
+        const EvaluatedNodeMetric* pmMet = pmRes.findMetric("power");
+        ASSERT_NE(pmMet, nullptr);
+        EXPECT_TRUE(pmMet->enabled);
+        EXPECT_DOUBLE_EQ(pmMet->value, 100.0);
+
+        NodeEval valEval = evaluateNode(pkg, "m_met_val", "r1");
+        NodeMetricsResult valRes = evaluateNodeMetrics(pkg, "m_met_val", "r1", valEval, 3.0, 3.0);
+        const EvaluatedNodeMetric* valMet = valRes.findMetric("emissions");
+        ASSERT_NE(valMet, nullptr);
+        EXPECT_TRUE(valMet->enabled);
+        EXPECT_DOUBLE_EQ(valMet->value, 15.0);
+    }
+
+    // Incompatible let type override must trigger V-EXPR-4 on every child profile.
+    {
+        GamePackage pkg;
+        LoadReport report;
+        EXPECT_FALSE(loadGamePackageFromMemory(makeManifest("\"true\""), {}, pkg, report, false));
+        EXPECT_TRUE(report.hasRule("V-EXPR-4"));
+        EXPECT_EQ(report.errors.size(), 7u);
+        for (const auto& err : report.errors) {
+            EXPECT_EQ(err.rule_id, "V-EXPR-4") << err.formatted;
+        }
+
+        GamePackage degradedPkg;
+        LoadReport degradedReport;
+        ASSERT_TRUE(loadGamePackageFromMemory(makeManifest("\"true\""), {}, degradedPkg, degradedReport, true));
+        EXPECT_TRUE(degradedReport.hasRule("V-EXPR-4"));
+        EXPECT_NE(degradedPkg.findProfile("base_req"), nullptr);
+        EXPECT_EQ(degradedPkg.findProfile("child_req"), nullptr);
+        EXPECT_EQ(degradedPkg.findProfile("child_ep_amt"), nullptr);
+        EXPECT_EQ(degradedPkg.findProfile("child_ep_res"), nullptr);
+        EXPECT_EQ(degradedPkg.findProfile("child_ep_en"), nullptr);
+        EXPECT_EQ(degradedPkg.findProfile("child_met_pm"), nullptr);
+        EXPECT_EQ(degradedPkg.findProfile("child_met_en"), nullptr);
+        EXPECT_EQ(degradedPkg.findProfile("child_met_val"), nullptr);
+    }
+}
+
+TEST(GameDataV4ValidationTest, RejectsPortBaseResourceWithoutStaticRes_V_EXPR_3) {
+    // Finding #3: port.base_resource is only legal when applicable recipe ports declare static 'res'.
+    auto expectVExpr3Failure = [](const std::string& label, const std::string& manifest) {
+        SCOPED_TRACE(label);
+        GamePackage pkg;
+        LoadReport report;
+        EXPECT_FALSE(loadGamePackageFromMemory(manifest, {}, pkg, report, false));
+        EXPECT_TRUE(report.hasRule("V-EXPR-3"));
+    };
+
+    // 1. Recipe-level overrides (input_amount, output_amount, port_enabled, input_enabled, output_enabled)
+    expectVExpr3Failure("overrides.input_amount", R"JSON({
+      "schema_version": 4,
+      "game": { "id": "t3a" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "resources": [{ "id": "iron", "name": "Iron" }],
+      "machines": [{ "id": "m", "categories": ["cat"] }],
+      "recipes": [{
+        "id": "r", "category": "cat", "time": 1,
+        "in": [{ "resource_expr": "'iron'", "amount": 1 }],
+        "out": [{ "res": "iron", "amount": 1 }],
+        "overrides": { "input_amount": "if(port.base_resource.id == 'iron', 1, 2)" }
+      }]
+    })JSON");
+
+    expectVExpr3Failure("overrides.output_amount", R"JSON({
+      "schema_version": 4,
+      "game": { "id": "t3b" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "resources": [{ "id": "iron", "name": "Iron" }],
+      "machines": [{ "id": "m", "categories": ["cat"] }],
+      "recipes": [{
+        "id": "r", "category": "cat", "time": 1,
+        "in": [{ "res": "iron", "amount": 1 }],
+        "out": [{ "resource_expr": "'iron'", "amount": 1 }],
+        "overrides": { "output_amount": "if(port.base_resource.id == 'iron', 1, 2)" }
+      }]
+    })JSON");
+
+    expectVExpr3Failure("overrides.port_enabled", R"JSON({
+      "schema_version": 4,
+      "game": { "id": "t3c" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "resources": [{ "id": "iron", "name": "Iron", "tags": ["ore"] }],
+      "machines": [{ "id": "m", "categories": ["cat"] }],
+      "recipes": [{
+        "id": "r", "category": "cat", "time": 1,
+        "in": [{ "resource_expr": "'iron'", "amount": 1 }],
+        "out": [{ "res": "iron", "amount": 1 }],
+        "overrides": { "port_enabled": "has_tag(port.base_resource, 'ore')" }
+      }]
+    })JSON");
+
+    expectVExpr3Failure("overrides.input_enabled", R"JSON({
+      "schema_version": 4,
+      "game": { "id": "t3d" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "resources": [{ "id": "iron", "name": "Iron", "tags": ["ore"] }],
+      "machines": [{ "id": "m", "categories": ["cat"] }],
+      "recipes": [{
+        "id": "r", "category": "cat", "time": 1,
+        "in": [{ "resource_expr": "'iron'", "amount": 1 }],
+        "overrides": { "input_enabled": "has_tag(port.base_resource, 'ore')" }
+      }]
+    })JSON");
+
+    expectVExpr3Failure("overrides.output_enabled", R"JSON({
+      "schema_version": 4,
+      "game": { "id": "t3e" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "resources": [{ "id": "iron", "name": "Iron", "tags": ["ore"] }],
+      "machines": [{ "id": "m", "categories": ["cat"] }],
+      "recipes": [{
+        "id": "r", "category": "cat", "time": 1,
+        "out": [{ "resource_expr": "'iron'", "amount": 1 }],
+        "overrides": { "output_enabled": "has_tag(port.base_resource, 'ore')" }
+      }]
+    })JSON");
+
+    // 2. Profile-level port formulas compiled with a recipe whose port omits static 'res'
+    expectVExpr3Failure("profile.input_amount", R"JSON({
+      "schema_version": 4,
+      "game": { "id": "t3f" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "resources": [{ "id": "iron", "name": "Iron" }],
+      "profiles": {
+        "p": { "input_amount": "if(port.base_resource.id == 'iron', port.amount, 2)" }
+      },
+      "machines": [{ "id": "m", "profile": "p", "categories": ["cat"] }],
+      "recipes": [{
+        "id": "r", "category": "cat", "time": 1,
+        "in": [{ "resource_expr": "'iron'", "amount": 1 }]
+      }]
+    })JSON");
+
+    expectVExpr3Failure("profile.port_enabled", R"JSON({
+      "schema_version": 4,
+      "game": { "id": "t3g" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "resources": [{ "id": "iron", "name": "Iron", "tags": ["ore"] }],
+      "profiles": {
+        "p": { "port_enabled": "has_tag(port.base_resource, 'ore')" }
+      },
+      "machines": [{ "id": "m", "profile": "p", "categories": ["cat"] }],
+      "recipes": [{
+        "id": "r", "category": "cat", "time": 1,
+        "out": [{ "resource_expr": "'iron'", "amount": 1 }]
+      }]
+    })JSON");
+
+    // 3. Port-bound resource_choice visible_if / allowed_if using port.base_resource without static 'res'
+    expectVExpr3Failure("resource_param.visible_if", R"JSON({
+      "schema_version": 4,
+      "game": { "id": "t3h" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "resources": [{ "id": "iron", "name": "Iron" }],
+      "parameters": {
+        "rp": { "type": "resource_choice", "resources": ["iron"], "default": "iron",
+                "visible_if": "port.base_resource.id == 'iron'" }
+      },
+      "profiles": { "p": { "params": ["rp"] } },
+      "machines": [{ "id": "m", "profile": "p", "categories": ["cat"] }],
+      "recipes": [{
+        "id": "r", "category": "cat", "time": 1,
+        "in": [{ "resource_param": "rp", "amount": 1 }]
+      }]
+    })JSON");
+
+    expectVExpr3Failure("resource_param.allowed_if", R"JSON({
+      "schema_version": 4,
+      "game": { "id": "t3i" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "resources": [{ "id": "iron", "name": "Iron", "tags": ["ore"] }],
+      "parameters": {
+        "rp": { "type": "resource_choice", "resources": ["iron"], "default": "iron",
+                "allowed_if": "has_tag(port.base_resource, 'ore')" }
+      },
+      "profiles": { "p": { "params": ["rp"] } },
+      "machines": [{ "id": "m", "profile": "p", "categories": ["cat"] }],
+      "recipes": [{
+        "id": "r", "category": "cat", "time": 1,
+        "out": [{ "resource_param": "rp", "amount": 1 }]
+      }]
+    })JSON");
+
+    // 4. Positive controls: profile/overrides using port.base_resource SUCCEED when applicable ports
+    // declare static 'res' (or when missing-'res' ports override the formula cleanly).
+    {
+        const std::string validManifest = R"JSON({
+          "schema_version": 4,
+          "game": { "id": "t3_ok" },
+          "units": { "recipe_time": "s", "default_rate": "s" },
+          "resources": [{ "id": "iron", "name": "Iron", "tags": ["ore"] }],
+          "profiles": {
+            "p": { "input_amount": "if(port.base_resource.id == 'iron', port.amount * 2, port.amount)" }
+          },
+          "machines": [{ "id": "m", "profile": "p", "categories": ["cat"] }],
+          "recipes": [
+            {
+              "id": "r_static", "category": "cat", "time": 1,
+              "in": [{ "res": "iron", "amount": 1 }],
+              "out": [{ "res": "iron", "amount": 1 }]
+            },
+            {
+              "id": "r_gen_empty_in", "category": "cat", "time": 1,
+              "out": [{ "res": "iron", "amount": 1 }]
+            },
+            {
+              "id": "r_port_override", "category": "cat", "time": 1,
+              "in": [{ "resource_expr": "'iron'", "amount": 1, "amount_expr": "3" }],
+              "out": [{ "res": "iron", "amount": 1 }]
+            }
+          ]
+        })JSON";
+        GamePackage pkg;
+        LoadReport report;
+        ASSERT_TRUE(loadGamePackageFromMemory(validManifest, {}, pkg, report, false))
+            << (report.errors.empty() ? "" : report.errors.front().formatted);
+        EXPECT_TRUE(report.errors.empty());
+    }
+}
+
+TEST(GameDataV4ValidationTest, RejectsPortBoundResourceParamUsedOutsideRecipePort_V_PROF_4) {
+    // Finding #5: a resource_choice parameter referenced by any recipe port's resource_param
+    // is port-bound and must be rejected with V-PROF-4 if also used outside recipe resource_param.
+    auto expectVProf4 = [](const std::string& label, const std::string& manifest) {
+        SCOPED_TRACE(label);
+        GamePackage pkg;
+        LoadReport report;
+        EXPECT_FALSE(loadGamePackageFromMemory(manifest, {}, pkg, report, false));
+        EXPECT_TRUE(report.hasRule("V-PROF-4"));
+    };
+
+    // 1. Audit #5 scenario: used in extra_ports.resource_param on "boiler" + recipe port on "alt_recipe"
+    const std::string extraPortConflict = R"JSON({
+      "schema_version": 4,
+      "game": { "id": "t5_extra" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "resources": [
+        { "id": "coal", "name": "Coal" },
+        { "id": "wood", "name": "Wood" },
+        { "id": "water", "name": "Water" },
+        { "id": "steam", "name": "Steam" }
+      ],
+      "parameters": {
+        "fuel": { "type": "resource_choice", "resources": ["coal", "wood"], "default": "coal" }
+      },
+      "profiles": {
+        "boiler": {
+          "params": ["fuel"],
+          "extra_ports": [{ "id": "fuel_in", "dir": "in", "resource_param": "fuel", "amount": "1" }]
+        },
+        "furnace": { "params": ["fuel"] }
+      },
+      "machines": [
+        { "id": "m_boiler", "profile": "boiler", "categories": ["boil"] },
+        { "id": "m_furnace", "profile": "furnace", "categories": ["smelt"] }
+      ],
+      "recipes": [
+        { "id": "boil_water", "category": "boil", "time": 1,
+          "in": [["water", 1]], "out": [["steam", 1]] },
+        { "id": "alt_recipe", "category": "smelt", "time": 1,
+          "in": [{ "resource_param": "fuel", "amount": 1 }], "out": [["coal", 1]] }
+      ]
+    })JSON";
+    expectVProf4("extra_ports.resource_param", extraPortConflict);
+
+    // In degraded mode, boil_water survives with fuel NOT marked port-bound so stored "wood" works!
+    {
+        GamePackage pkg;
+        LoadReport report;
+        ASSERT_TRUE(loadGamePackageFromMemory(extraPortConflict, {}, pkg, report, true));
+        EXPECT_TRUE(report.hasRule("V-PROF-4"));
+        EXPECT_NE(pkg.findRecipe("boil_water"), nullptr);
+        EXPECT_EQ(pkg.findRecipe("alt_recipe"), nullptr);
+        NodeEval ne = evaluateNode(pkg, "m_boiler", "boil_water", {{"fuel", ParamValue::string("wood")}});
+        EXPECT_EQ(ne.status, EvalStatus::OK);
+        EXPECT_TRUE(ne.param_visible.at("fuel"));
+        const EvaluatedPort* ep = ne.findPort("xin:fuel_in");
+        ASSERT_NE(ep, nullptr);
+        EXPECT_EQ(ep->resource, "wood");
+    }
+
+    // 2. Used in profile let / metrics
+    expectVProf4("profile.let_and_metrics", R"JSON({
+      "schema_version": 4,
+      "game": { "id": "t5_let" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "attributes": { "resource": { "energy": { "type": "number", "default": 1 } } },
+      "metrics": { "power": { "label": "Power", "aggregate": "sum" } },
+      "resources": [
+        { "id": "coal", "name": "Coal", "attrs": { "energy": 4 } },
+        { "id": "iron", "name": "Iron" }
+      ],
+      "parameters": {
+        "fuel": { "type": "resource_choice", "resources": ["coal"], "default": "coal" }
+      },
+      "profiles": {
+        "p_let": {
+          "params": ["fuel"],
+          "let": { "fv": "param.fuel.energy" },
+          "metrics": { "power": { "per_machine": "fv * 10" } }
+        }
+      },
+      "machines": [{ "id": "m", "profile": "p_let", "categories": ["cat"] }],
+      "recipes": [
+        { "id": "r_port", "category": "cat", "time": 1,
+          "in": [{ "resource_param": "fuel", "amount": 1 }], "out": [["iron", 1]] }
+      ]
+    })JSON");
+
+    // 3. Same recipe uses resource_param AND reads param in overrides
+    expectVProf4("same_recipe_override", R"JSON({
+      "schema_version": 4,
+      "game": { "id": "t5_same_rec" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "resources": [{ "id": "coal", "name": "Coal" }],
+      "parameters": {
+        "fuel": { "type": "resource_choice", "resources": ["coal"], "default": "coal" }
+      },
+      "profiles": { "p": { "params": ["fuel"] } },
+      "machines": [{ "id": "m", "profile": "p", "categories": ["cat"] }],
+      "recipes": [{
+        "id": "r", "category": "cat", "time": 1,
+        "in": [{ "resource_param": "fuel", "amount": 1 }],
+        "overrides": { "craft_time": "if(is_set(param.fuel), 1, 2)" }
+      }]
+    })JSON");
+
+    // 4. Cross-recipe order-independence (override before port, and port before override)
+    expectVProf4("override_before_port", R"JSON({
+      "schema_version": 4,
+      "game": { "id": "t5_order1" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "resources": [{ "id": "coal", "name": "Coal" }],
+      "parameters": {
+        "fuel": { "type": "resource_choice", "resources": ["coal"], "default": "coal" }
+      },
+      "profiles": { "p": { "params": ["fuel"] } },
+      "machines": [{ "id": "m", "profile": "p", "categories": ["cat"] }],
+      "recipes": [
+        {
+          "id": "r_ovr", "category": "cat", "time": 1,
+          "in": [["coal", 1]],
+          "overrides": { "craft_time": "if(is_set(param.fuel), 1, 2)" }
+        },
+        {
+          "id": "r_port", "category": "cat", "time": 1,
+          "in": [{ "resource_param": "fuel", "amount": 1 }]
+        }
+      ]
+    })JSON");
+
+    // 5. Static expression of another parameter referencing param.fuel
+    expectVProf4("other_param_static", R"JSON({
+      "schema_version": 4,
+      "game": { "id": "t5_param" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "resources": [{ "id": "coal", "name": "Coal" }],
+      "parameters": {
+        "fuel": { "type": "resource_choice", "resources": ["coal"], "default": "coal" },
+        "extra": { "type": "bool", "default": false, "visible_if": "is_set(param.fuel)" }
+      },
+      "profiles": { "p": { "params": ["fuel", "extra"] } },
+      "machines": [{ "id": "m", "profile": "p", "categories": ["cat"] }],
+      "recipes": [
+        { "id": "r_port", "category": "cat", "time": 1,
+          "in": [{ "resource_param": "fuel", "amount": 1 }] }
+      ]
+    })JSON");
+}
+
+TEST(GameDataV4EvaluationTest, PopulatesDownstreamParamUiWhenEarlierParamIsBlockedOrErrored) {
+    const std::string manifest = R"JSON({
+      "schema_version": 4,
+      "game": { "id": "downstream_ui_test", "name": "Downstream UI Test" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "attributes": {
+        "machine": {
+          "base_min": { "type": "number", "default": 2 },
+          "base_max": { "type": "number", "default": 8 },
+          "slot_cap": { "type": "number", "default": 3 },
+          "frac_min": { "type": "number", "default": 0.4 },
+          "frac_max": { "type": "number", "default": 0.6 }
+        }
+      },
+      "resources": [
+        { "id": "iron", "name": "Iron" },
+        { "id": "copper", "name": "Copper" }
+      ],
+      "option_sets": {
+        "opts": {
+          "options": [
+            { "key": "a", "label": "Opt A" },
+            { "key": "b", "label": "Opt B" }
+          ]
+        }
+      },
+      "parameters": {
+        "p_block": {
+          "type": "resource_choice",
+          "resources": ["iron", "copper"],
+          "allow_none": false,
+          "allowed_if": "false"
+        },
+        "p_hidden_lit": {
+          "type": "bool",
+          "default": false,
+          "visible_if": "false"
+        },
+        "p_hidden_expr": {
+          "type": "bool",
+          "default": true,
+          "visible_if": "recipe.id == 'other_recipe'"
+        },
+        "p_enum": {
+          "type": "enum",
+          "option_set": "opts",
+          "allowed_if": "option != 'b'",
+          "default": "a"
+        },
+        "p_res": {
+          "type": "resource_choice",
+          "resources": ["iron", "copper"],
+          "allowed_if": "option == 'copper'",
+          "default": "copper"
+        },
+        "p_bounds": {
+          "type": "int",
+          "min": "machine.base_min",
+          "max": "machine.base_max",
+          "default": 5
+        },
+        "p_slots": {
+          "type": "slots",
+          "option_set": "opts",
+          "count": "machine.slot_cap",
+          "allowed_if": "option != 'b'",
+          "allow_empty": true
+        },
+        "p_dep_vis": {
+          "type": "number",
+          "default": 1,
+          "visible_if": "is_set(param.p_block)"
+        },
+        "p_dep_bounds": {
+          "type": "number",
+          "min": "param.p_bounds + 1",
+          "max": 100,
+          "default": 10
+        },
+        "p_dep_blocked_min": {
+          "type": "number",
+          "min": "if(is_set(param.p_block), 2, 1)",
+          "max": 10,
+          "default": 5
+        },
+        "p_err_int_inv": {
+          "type": "int",
+          "min": "machine.frac_min",
+          "max": "machine.frac_max",
+          "default": 0
+        }
+      },
+      "profiles": {
+        "p_blocked": {
+          "params": [
+            "p_block",
+            "p_hidden_lit",
+            "p_hidden_expr",
+            "p_enum",
+            "p_res",
+            "p_bounds",
+            "p_slots",
+            "p_dep_vis",
+            "p_dep_bounds",
+            "p_dep_blocked_min"
+          ]
+        },
+        "p_errored": {
+          "params": [
+            "p_err_int_inv",
+            "p_hidden_lit",
+            "p_enum"
+          ]
+        }
+      },
+      "machines": [
+        { "id": "m_block", "profile": "p_blocked", "categories": ["cat"] },
+        { "id": "m_err", "profile": "p_errored", "categories": ["cat"] }
+      ],
+      "recipes": [
+        {
+          "id": "r1",
+          "category": "cat",
+          "time": 1,
+          "in": [{ "res": "iron", "amount": 1 }],
+          "out": [{ "res": "copper", "amount": 1 }]
+        }
+      ]
+    })JSON";
+
+    GamePackage pkg;
+    LoadReport report;
+    ASSERT_TRUE(loadGamePackageFromMemory(manifest, {}, pkg, report))
+        << (report.errors.empty() ? "" : report.errors.front().formatted);
+
+    // 1. Upstream BLOCKED parameter must NOT leave downstream param_visible / param_ui empty
+    //    and must NOT escalate BLOCKED into ERROR for downstream params referencing p_block.
+    NodeEval blockedEval = evaluateNode(pkg, "m_block", "r1", {});
+    EXPECT_EQ(blockedEval.status, EvalStatus::BLOCKED);
+
+    ASSERT_TRUE(blockedEval.param_visible.contains("p_hidden_lit"));
+    ASSERT_TRUE(blockedEval.param_ui.contains("p_hidden_lit"));
+    EXPECT_FALSE(blockedEval.param_visible.at("p_hidden_lit"));
+    EXPECT_FALSE(blockedEval.param_ui.at("p_hidden_lit").visible);
+
+    ASSERT_TRUE(blockedEval.param_visible.contains("p_hidden_expr"));
+    ASSERT_TRUE(blockedEval.param_ui.contains("p_hidden_expr"));
+    EXPECT_FALSE(blockedEval.param_visible.at("p_hidden_expr"));
+    EXPECT_FALSE(blockedEval.param_ui.at("p_hidden_expr").visible);
+
+    ASSERT_TRUE(blockedEval.param_ui.contains("p_enum"));
+    EXPECT_TRUE(blockedEval.param_ui.at("p_enum").visible);
+    EXPECT_EQ(blockedEval.param_ui.at("p_enum").allowed_options, (std::vector<std::string>{"a"}));
+
+    ASSERT_TRUE(blockedEval.param_ui.contains("p_res"));
+    EXPECT_TRUE(blockedEval.param_ui.at("p_res").visible);
+    EXPECT_EQ(blockedEval.param_ui.at("p_res").allowed_resources, (std::vector<std::string>{"copper"}));
+
+    ASSERT_TRUE(blockedEval.param_ui.contains("p_bounds"));
+    EXPECT_TRUE(blockedEval.param_ui.at("p_bounds").has_min);
+    EXPECT_TRUE(blockedEval.param_ui.at("p_bounds").has_max);
+    EXPECT_DOUBLE_EQ(blockedEval.param_ui.at("p_bounds").min_val, 2.0);
+    EXPECT_DOUBLE_EQ(blockedEval.param_ui.at("p_bounds").max_val, 8.0);
+
+    ASSERT_TRUE(blockedEval.param_ui.contains("p_slots"));
+    EXPECT_EQ(blockedEval.param_ui.at("p_slots").slot_count, 3u);
+    EXPECT_EQ(blockedEval.param_ui.at("p_slots").allowed_options, (std::vector<std::string>{"a"}));
+
+    ASSERT_TRUE(blockedEval.param_visible.contains("p_dep_vis"));
+    ASSERT_TRUE(blockedEval.param_ui.contains("p_dep_vis"));
+    EXPECT_FALSE(blockedEval.param_visible.at("p_dep_vis"));
+    EXPECT_FALSE(blockedEval.param_ui.at("p_dep_vis").visible);
+
+    ASSERT_TRUE(blockedEval.param_ui.contains("p_dep_bounds"));
+    EXPECT_TRUE(blockedEval.param_ui.at("p_dep_bounds").has_min);
+    EXPECT_DOUBLE_EQ(blockedEval.param_ui.at("p_dep_bounds").min_val, 6.0);
+    EXPECT_TRUE(blockedEval.param_ui.at("p_dep_bounds").has_max);
+    EXPECT_DOUBLE_EQ(blockedEval.param_ui.at("p_dep_bounds").max_val, 100.0);
+
+    ASSERT_TRUE(blockedEval.param_ui.contains("p_dep_blocked_min"));
+    EXPECT_TRUE(blockedEval.param_ui.at("p_dep_blocked_min").visible);
+    EXPECT_TRUE(blockedEval.param_ui.at("p_dep_blocked_min").has_max);
+    EXPECT_DOUBLE_EQ(blockedEval.param_ui.at("p_dep_blocked_min").max_val, 10.0);
+
+    // 2. Upstream ERROR parameter (fractional int bounds 0.4..0.6 -> 1..0) must also populate
+    //    downstream param_visible & param_ui, and must not expose inverted [1, 0] bounds.
+    NodeEval errEval = evaluateNode(pkg, "m_err", "r1", {});
+    EXPECT_EQ(errEval.status, EvalStatus::ERROR);
+    ASSERT_TRUE(errEval.param_ui.contains("p_err_int_inv"));
+    EXPECT_FALSE(errEval.param_ui.at("p_err_int_inv").has_min);
+    EXPECT_FALSE(errEval.param_ui.at("p_err_int_inv").has_max);
+
+    ASSERT_TRUE(errEval.param_visible.contains("p_hidden_lit"));
+    ASSERT_TRUE(errEval.param_ui.contains("p_hidden_lit"));
+    EXPECT_FALSE(errEval.param_visible.at("p_hidden_lit"));
+    EXPECT_FALSE(errEval.param_ui.at("p_hidden_lit").visible);
+
+    ASSERT_TRUE(errEval.param_ui.contains("p_enum"));
+    EXPECT_EQ(errEval.param_ui.at("p_enum").allowed_options, (std::vector<std::string>{"a"}));
 }
 
 } // namespace

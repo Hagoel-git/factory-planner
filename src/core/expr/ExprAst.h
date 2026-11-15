@@ -230,6 +230,7 @@ struct CompiledExpr {
     std::vector<std::string> referenced_resource_attrs;
     bool references_port = false;
     bool references_port_resource = false;
+    bool references_port_base_resource = false;
 
     CompiledExpr() = default;
     CompiledExpr(const CompiledExpr& other)
@@ -246,7 +247,8 @@ struct CompiledExpr {
           referenced_port_attrs(other.referenced_port_attrs),
           referenced_resource_attrs(other.referenced_resource_attrs),
           references_port(other.references_port),
-          references_port_resource(other.references_port_resource) {}
+          references_port_resource(other.references_port_resource),
+          references_port_base_resource(other.references_port_base_resource) {}
     CompiledExpr& operator=(const CompiledExpr& other) {
         if (this != &other) {
             CompiledExpr tmp(other);

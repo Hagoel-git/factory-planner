@@ -158,51 +158,6 @@ std::vector<const gamedata::ParameterDef*> collectProfileParamDefs(const GameDat
     return result;
 }
 
-gamedata::EvaluatedParamUi resolveEffectiveParamUi(
-    const GameData& gameData,
-    const gamedata::NodeEval* eval,
-    const gamedata::ParameterDef& pdef) {
-    if (eval) {
-        if (auto it = eval->param_ui.find(pdef.id); it != eval->param_ui.end()) {
-            return it->second;
-        }
-    }
-    gamedata::EvaluatedParamUi fallback;
-    if (eval) {
-        if (auto vit = eval->param_visible.find(pdef.id); vit != eval->param_visible.end()) {
-            fallback.visible = vit->second;
-        }
-    } else if (pdef.visible_if.is_present && pdef.visible_if.is_literal) {
-        fallback.visible = pdef.visible_if.literal_value;
-    }
-    if (pdef.min.is_present && pdef.min.is_literal) {
-        fallback.has_min = true;
-        fallback.min_val = pdef.min.literal_value;
-    }
-    if (pdef.max.is_present && pdef.max.is_literal) {
-        fallback.has_max = true;
-        fallback.max_val = pdef.max.literal_value;
-    }
-    if (pdef.type == gamedata::ParameterType::Int) {
-        if (fallback.has_min) fallback.min_val = std::ceil(fallback.min_val - 1e-9);
-        if (fallback.has_max) fallback.max_val = std::floor(fallback.max_val + 1e-9);
-    }
-    if (pdef.type == gamedata::ParameterType::Slots && pdef.count.is_literal) {
-        int64_t c = std::llround(pdef.count.literal_value);
-        fallback.slot_count = static_cast<size_t>(std::clamp<int64_t>(c, 0, 64));
-    }
-    if (pdef.type == gamedata::ParameterType::Enum || pdef.type == gamedata::ParameterType::Slots) {
-        if (const auto* os = gameData.findOptionSet(pdef.option_set)) {
-            for (const auto& opt : os->options) {
-                fallback.allowed_options.push_back(opt.key);
-            }
-        }
-    } else if (pdef.type == gamedata::ParameterType::ResourceChoice) {
-        fallback.allowed_resources = pdef.candidate_resources;
-    }
-    return fallback;
-}
-
 gamedata::ParamValue resolveEffectiveParamValue(
     const Node& node,
     const gamedata::NodeEval* eval,
@@ -940,6 +895,64 @@ std::vector<NodeQuadtreeData> FactoryNodeEditor::getVisibleNodes(const ImVec2& v
 
     quadtree::Box<float> viewBox(minX, minY, maxX - minX, maxY - minY);
     return m_nodeQuadtree->query(viewBox);
+}
+
+gamedata::EvaluatedParamUi FactoryNodeEditor::resolveEffectiveParamUi(
+    const GameData& gameData,
+    const gamedata::NodeEval* eval,
+    const gamedata::ParameterDef& pdef) {
+    if (eval) {
+        if (auto it = eval->param_ui.find(pdef.id); it != eval->param_ui.end()) {
+            return it->second;
+        }
+    }
+    gamedata::EvaluatedParamUi fallback;
+    bool hasEvalVisible = false;
+    if (eval) {
+        if (auto vit = eval->param_visible.find(pdef.id); vit != eval->param_visible.end()) {
+            fallback.visible = vit->second;
+            hasEvalVisible = true;
+        }
+    }
+    if (!hasEvalVisible && pdef.visible_if.is_present && pdef.visible_if.is_literal) {
+        fallback.visible = pdef.visible_if.literal_value;
+    }
+    if (pdef.min.is_present && pdef.min.is_literal) {
+        fallback.has_min = true;
+        fallback.min_val = pdef.min.literal_value;
+    }
+    if (pdef.max.is_present && pdef.max.is_literal) {
+        fallback.has_max = true;
+        fallback.max_val = pdef.max.literal_value;
+    }
+    if (pdef.type == gamedata::ParameterType::Int) {
+        if (fallback.has_min) fallback.min_val = std::ceil(fallback.min_val - 1e-9);
+        if (fallback.has_max) fallback.max_val = std::floor(fallback.max_val + 1e-9);
+    }
+    if (fallback.has_min && fallback.has_max && fallback.min_val > fallback.max_val) {
+        fallback.has_min = false;
+        fallback.has_max = false;
+        fallback.min_val = 0.0;
+        fallback.max_val = 0.0;
+    }
+    if (pdef.type == gamedata::ParameterType::Slots && pdef.count.is_literal) {
+        int64_t c = std::llround(pdef.count.literal_value);
+        fallback.slot_count = static_cast<size_t>(std::clamp<int64_t>(c, 0, 64));
+    }
+    const bool allowAllByLiteral = !pdef.allowed_if.is_present ||
+        (pdef.allowed_if.is_literal && pdef.allowed_if.literal_value);
+    if (allowAllByLiteral) {
+        if (pdef.type == gamedata::ParameterType::Enum || pdef.type == gamedata::ParameterType::Slots) {
+            if (const auto* os = gameData.findOptionSet(pdef.option_set)) {
+                for (const auto& opt : os->options) {
+                    fallback.allowed_options.push_back(opt.key);
+                }
+            }
+        } else if (pdef.type == gamedata::ParameterType::ResourceChoice) {
+            fallback.allowed_resources = pdef.candidate_resources;
+        }
+    }
+    return fallback;
 }
 
 bool FactoryNodeEditor::segmentIntersectsAABB(ImVec2 p1, ImVec2 p2, ImVec2 boxMin, ImVec2 boxMax) {
@@ -2548,11 +2561,18 @@ void FactoryNodeEditor::drawNodeParameters(
 void FactoryNodeEditor::drawSingleParameterWidget(
     const Node& node,
     const gamedata::ParameterDef& pdef,
-    const gamedata::EvaluatedParamUi& ui,
+    const gamedata::EvaluatedParamUi& rawUi,
     bool inNodeBody,
     float itemWidth,
     std::string* hoveredTooltipOut) {
     ImGui::PushID(pdef.id.c_str());
+    gamedata::EvaluatedParamUi ui = rawUi;
+    if (ui.has_min && ui.has_max && ui.min_val > ui.max_val) {
+        ui.has_min = false;
+        ui.has_max = false;
+        ui.min_val = 0.0;
+        ui.max_val = 0.0;
+    }
     const auto& gameData = m_graph->getGameData();
     const gamedata::NodeEval* eval = m_graph->getNodeEval(node.id);
     gamedata::ParamValue currentVal = resolveEffectiveParamValue(node, eval, pdef);
