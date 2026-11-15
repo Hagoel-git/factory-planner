@@ -131,6 +131,10 @@ public:
     void setNextAutosaveTime(std::chrono::time_point<std::chrono::steady_clock> t) { m_nextAutosaveTime = t; }
 
     static bool segmentIntersectsAABB(ImVec2 p1, ImVec2 p2, ImVec2 boxMin, ImVec2 boxMax);
+    static gamedata::EvaluatedParamUi resolveEffectiveParamUi(
+        const GameData& gameData,
+        const gamedata::NodeEval* eval,
+        const gamedata::ParameterDef& pdef);
 private:
     std::unique_ptr<FactoryGraph> m_graph;
     std::unique_ptr<FactorySolver> m_solver;

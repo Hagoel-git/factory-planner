@@ -467,6 +467,7 @@ TEST(ExprTypeAndContextTest, PostfixMemberAccessOnLetAndIfExpressions) {
     CompileEnv cenv = makeStandardCompileEnv();
     EvalEnv eenv = makeStandardEvalEnv();
     cenv.context = ExprContext::RecipePortFormula;
+    cenv.port_has_base_resource = true;
     eenv.port.resource = "coal";
     eenv.port.base_resource = "iron-ore";
 
