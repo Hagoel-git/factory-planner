@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -42,6 +43,25 @@ public:
     }
     double fromDisplayRate(double displayVal) const {
         return m_gameData.fromDisplayRate(displayVal, m_rateUnit);
+    }
+    double toResourceDisplayRate(std::string_view resource_id, double canonicalPerSec) const {
+        return toDisplayRate(canonicalPerSec) * m_gameData.resourceDisplayScale(resource_id);
+    }
+    double fromResourceDisplayRate(std::string_view resource_id, double displayVal) const {
+        const double scale = m_gameData.resourceDisplayScale(resource_id);
+        return fromDisplayRate((scale > 0.0) ? (displayVal / scale) : displayVal);
+    }
+    std::string formatResourceRateSuffix(std::string_view resource_id) const {
+        const std::string kindUnit = m_gameData.resourceDisplayUnit(resource_id);
+        const std::string rateSuffix = gamedata::rateUnitSuffix(m_rateUnit);
+        return kindUnit.empty() ? rateSuffix : (kindUnit + rateSuffix);
+    }
+    std::string formatResourceRateSpacedSuffix(std::string_view resource_id) const {
+        std::string suffix = formatResourceRateSuffix(resource_id);
+        if (!suffix.empty() && suffix.front() != '/') {
+            return " " + suffix;
+        }
+        return suffix;
     }
 
     void evaluateNode(uint64_t node_id);

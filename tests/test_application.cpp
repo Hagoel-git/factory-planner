@@ -309,6 +309,10 @@ protected:
         return editor.buildPinTooltipText(port, res, hasExcess);
     }
 
+    std::string formatEditorLinkRateText(const FactoryNodeEditor& editor, const Connection& conn) const {
+        return editor.formatLinkRateText(conn);
+    }
+
     std::string getPinConstraintBuffer(const FactoryNodeEditor& editor) const {
         return editor.m_contextPinConstraintBuf;
     }
@@ -2859,5 +2863,194 @@ TEST_F(ApplicationLifecycleTest, Audit18_NumberStepper_RejectsNonFiniteTempInput
             }
         }
     }
+}
+
+TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_ResourceKindDisplayScaleAndUnit_PinTooltipConstraintAndLink) {
+    const std::string manifest = R"JSON({
+      "schema_version": 4,
+      "game": { "id": "resource_kind_ui_test", "name": "Resource Kind UI Test" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "resource_kinds": {
+        "item": { "label": "Item", "display_unit": "", "display_scale": 1 },
+        "fluid": { "label": "Fluid", "display_unit": "kL", "display_scale": 0.001 },
+        "sat_fluid": { "label": "Fluid (m3)", "display_unit": "m³", "display_scale": 1 }
+      },
+      "resources": [
+        { "id": "water", "name": "Water", "kind": "fluid" },
+        { "id": "coolant", "name": "Coolant", "kind": "sat_fluid" },
+        { "id": "iron_ore", "name": "Iron Ore", "kind": "item" }
+      ],
+      "machines": [
+        { "id": "pump", "name": "Pump", "categories": ["pump"] },
+        { "id": "tank", "name": "Tank", "categories": ["tank"] },
+        { "id": "sat_pump", "name": "Sat Pump", "categories": ["sat_pump"] },
+        { "id": "miner", "name": "Miner", "categories": ["mine"] }
+      ],
+      "recipes": [
+        {
+          "id": "pump_water",
+          "name": "Pump Water",
+          "category": "pump",
+          "time": 1.0,
+          "in": [],
+          "out": [
+            { "res": "water", "amount": 1000.0 },
+            { "res": "iron_ore", "amount": 5.0 }
+          ]
+        },
+        {
+          "id": "store_water",
+          "name": "Store Water",
+          "category": "tank",
+          "time": 1.0,
+          "in": [{ "res": "water", "amount": 1000.0 }],
+          "out": []
+        },
+        {
+          "id": "pump_coolant",
+          "name": "Pump Coolant",
+          "category": "sat_pump",
+          "time": 1.0,
+          "in": [],
+          "out": [{ "res": "coolant", "amount": 2.0 }]
+        },
+        {
+          "id": "store_coolant",
+          "name": "Store Coolant",
+          "category": "tank",
+          "time": 1.0,
+          "in": [{ "res": "coolant", "amount": 2.0 }],
+          "out": []
+        }
+      ]
+    })JSON";
+
+    gamedata::GamePackage pkg;
+    gamedata::LoadReport report;
+    ASSERT_TRUE(gamedata::loadGamePackageFromMemory(manifest, {}, pkg, report))
+        << (report.errors.empty() ? "" : report.errors.front().formatted);
+
+    FactoryNodeEditor editor(pkg, dirA / "audit13.fpp", "Audit13");
+    FactoryGraph* graph = editor.getGraph();
+    ASSERT_NE(graph, nullptr);
+
+    const uint64_t pumpId = graph->addNode("Pump", "pump_water");
+    const uint64_t tankId = graph->addNode("Tank", "store_water");
+    const uint64_t satPumpId = graph->addNode("SatPump", "pump_coolant");
+    const uint64_t satTankId = graph->addNode("SatTank", "store_coolant");
+    ASSERT_NE(graph->getNode(pumpId), nullptr);
+    ASSERT_NE(graph->getNode(tankId), nullptr);
+    ASSERT_NE(graph->getNode(satPumpId), nullptr);
+    ASSERT_NE(graph->getNode(satTankId), nullptr);
+
+    std::optional<uint64_t> outWaterOpt;
+    std::optional<uint64_t> outOreOpt;
+    for (uint64_t pid : graph->getNode(pumpId)->output_ports) {
+        const Port* p = graph->getPort(pid);
+        ASSERT_NE(p, nullptr);
+        if (p->resource_key == "water") outWaterOpt = pid;
+        else if (p->resource_key == "iron_ore") outOreOpt = pid;
+    }
+    ASSERT_TRUE(outWaterOpt.has_value());
+    ASSERT_TRUE(outOreOpt.has_value());
+    const uint64_t outWaterId = *outWaterOpt;
+    const uint64_t outOreId = *outOreOpt;
+    ASSERT_FALSE(graph->getNode(tankId)->input_ports.empty());
+    ASSERT_FALSE(graph->getNode(satPumpId)->output_ports.empty());
+    ASSERT_FALSE(graph->getNode(satTankId)->input_ports.empty());
+    const uint64_t inWaterId = graph->getNode(tankId)->input_ports[0];
+    const uint64_t outCoolantId = graph->getNode(satPumpId)->output_ports[0];
+    const uint64_t inCoolantId = graph->getNode(satTankId)->input_ports[0];
+
+    const uint64_t waterConnId = graph->addConnection(outWaterId, inWaterId);
+    const uint64_t coolantConnId = graph->addConnection(outCoolantId, inCoolantId);
+    ASSERT_TRUE(graph->connectionExists(outWaterId, inWaterId));
+    ASSERT_TRUE(graph->connectionExists(outCoolantId, inCoolantId));
+
+    // Set explicit Target constraints on water (1000/s = 1.00 kL/s) and coolant (2/s = 2.00 m³/s)
+    executeEditorCommand(editor, std::make_unique<SetPortConstraintCommand>(
+        outWaterId, -1.0, 1000.0, ConstraintMode::AUTO, ConstraintMode::TARGET));
+    executeEditorCommand(editor, std::make_unique<SetPortConstraintCommand>(
+        outCoolantId, -1.0, 2.0, ConstraintMode::AUTO, ConstraintMode::TARGET));
+
+    const Port* outWaterPort = graph->getPort(outWaterId);
+    const Port* outOrePort = graph->getPort(outOreId);
+    const Port* outCoolantPort = graph->getPort(outCoolantId);
+    const Connection* waterConn = graph->getConnection(waterConnId);
+    const Connection* coolantConn = graph->getConnection(coolantConnId);
+    const Resource* waterRes = graph->getGameData().findResource("water");
+    const Resource* coolantRes = graph->getGameData().findResource("coolant");
+    ASSERT_NE(outWaterPort, nullptr);
+    ASSERT_NE(outOrePort, nullptr);
+    ASSERT_NE(outCoolantPort, nullptr);
+    ASSERT_NE(waterConn, nullptr);
+    ASSERT_NE(coolantConn, nullptr);
+    ASSERT_NE(waterRes, nullptr);
+    ASSERT_NE(coolantRes, nullptr);
+
+    // 1. PerSecond + display_scale=0.001 + display_unit="kL"
+    ASSERT_EQ(graph->getRateUnit(), gamedata::RateUnit::PerSecond);
+    EXPECT_DOUBLE_EQ(outWaterPort->user_constraint, 1000.0);
+    EXPECT_EQ(formatEditorPinRateText(editor, *outWaterPort), "1.00 [T]");
+    EXPECT_EQ(formatEditorLinkRateText(editor, *waterConn), "Current Rate: 1.00 kL/s");
+
+    const std::string waterTip = buildEditorPinTooltipText(editor, *outWaterPort, *waterRes, false);
+    EXPECT_NE(waterTip.find("target: 1.00 kL/s (100.0%)"), std::string::npos) << waterTip;
+
+    // Item resource with empty display_unit continues to use plain scaling and "/s"
+    EXPECT_EQ(formatEditorPinRateText(editor, *outOrePort), "5.00");
+
+    // Pin Context Menu opens with display-scaled "1" and typing "2" stores canonical 2000.0/s
+    drawEditorPinPopupFrame(editor, outWaterId, true);
+    EXPECT_EQ(getPinConstraintBuffer(editor), "1");
+    drawEditorPinPopupFrame(editor, outWaterId, false);
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddInputCharactersUTF8("2");
+    drawEditorPinPopupFrame(editor, outWaterId, false);
+    EXPECT_EQ(getPinConstraintBuffer(editor), "2");
+    EXPECT_NEAR(outWaterPort->user_constraint, 2000.0, 1e-6);
+
+    // Dismiss popup by clicking outside to commit 1000 -> 2000
+    io.AddMousePosEvent(1200.0f, 700.0f);
+    io.AddMouseButtonEvent(0, true);
+    drawEditorPinPopupFrame(editor, outWaterId, false);
+    io.AddMouseButtonEvent(0, false);
+    drawEditorPinPopupFrame(editor, outWaterId, false);
+    EXPECT_NEAR(outWaterPort->user_constraint, 2000.0, 1e-6);
+    EXPECT_EQ(formatEditorLinkRateText(editor, *waterConn), "Current Rate: 2.00 kL/s");
+
+    // Verify Excess tooltip formatting by capping tank input at 1000/s while water target pushes 2000/s
+    executeEditorCommand(editor, std::make_unique<SetPortConstraintCommand>(
+        inWaterId, -1.0, 1000.0, ConstraintMode::AUTO, ConstraintMode::LIMIT));
+    executeEditorCommand(editor, std::make_unique<SetPortConstraintCommand>(
+        outOreId, -1.0, 10.0, ConstraintMode::AUTO, ConstraintMode::TARGET));
+    const std::string waterExcessTip = buildEditorPinTooltipText(editor, *outWaterPort, *waterRes, true);
+    EXPECT_NE(waterExcessTip.find("Excess: 1.00 kL/s"), std::string::npos) << waterExcessTip;
+
+    // 2. PerMinute: m3 fluid (display_scale=1, display_unit="m³") & kL fluid
+    executeEditorCommand(editor, std::make_unique<SetRateUnitCommand>(
+        gamedata::RateUnit::PerSecond, gamedata::RateUnit::PerMinute));
+    EXPECT_EQ(formatEditorPinRateText(editor, *outWaterPort), "120.00 [T]");
+    EXPECT_EQ(formatEditorLinkRateText(editor, *waterConn), "Current Rate: 60.00 kL/min");
+    const std::string waterMinTip = buildEditorPinTooltipText(editor, *outWaterPort, *waterRes, true);
+    EXPECT_NE(waterMinTip.find("Excess: 60.00 kL/min"), std::string::npos) << waterMinTip;
+    EXPECT_NE(waterMinTip.find("target: 120.00 kL/min"), std::string::npos) << waterMinTip;
+
+    EXPECT_EQ(formatEditorPinRateText(editor, *outCoolantPort), "120.00 [T]");
+    EXPECT_EQ(formatEditorLinkRateText(editor, *coolantConn), "Current Rate: 120.00 m³/min");
+    const std::string coolantTip = buildEditorPinTooltipText(editor, *outCoolantPort, *coolantRes, false);
+    EXPECT_NE(coolantTip.find("target: 120.00 m³/min (100.0%)"), std::string::npos) << coolantTip;
+
+    // Also verify Link Context Menu renders cleanly without issues
+    drawEditorLinkPopupFrame(editor, waterConnId, true);
+    io.AddKeyEvent(ImGuiKey_Escape, true);
+    drawEditorLinkPopupFrame(editor, waterConnId, false);
+    io.AddKeyEvent(ImGuiKey_Escape, false);
+    drawEditorLinkPopupFrame(editor, waterConnId, false);
+
+    // Also verify suffix helpers directly on the graph
+    EXPECT_EQ(graph->formatResourceRateSuffix("water"), "kL/min");
+    EXPECT_EQ(graph->formatResourceRateSuffix("coolant"), "m³/min");
+    EXPECT_EQ(graph->formatResourceRateSuffix("iron_ore"), "/min");
 }
 
