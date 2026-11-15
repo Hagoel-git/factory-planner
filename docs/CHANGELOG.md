@@ -10,6 +10,8 @@ This document holds the user-facing changelog that is also used in release notes
 
 ### Changed
 - Converted the bundled Satisfactory (`1.1`) and Mindustry (`build-154-3`) game data packages to GameData v4 (`game.json`), adding fluid unit formatting (`m³`), Satisfactory Clock Speed (`1–250%`), Somersloops amplification, Power Shards, and Power (`MW`) metrics, plus Mindustry Overdrive and Efficiency speed parameters.
+- Replaced the hardcoded node context menu parameters with dynamic GameData v4 profile parameter controls supporting live editing and undoable commits.
+- Updated pin rate labels, pin/link hover tooltips, and Pin Context Menu constraint input and flow readouts to display and parse values in the active project rate unit (`/tick`, `/s`, `/min`, `/h`).
 
 ### Fixed
 - Fixed the Mindustry `silicon-smelter` recipe machine mapping to reference `silicon-smelter` instead of `silicon-crucible`.
@@ -18,10 +20,6 @@ This document holds the user-facing changelog that is also used in release notes
 - Fixed active Pin Context Menu constraint edits not marking the project dirty (bypassing unsaved-changes prompts) and not committing before Save, Save As, Copy, Undo, or Redo.
 - Added post-solve GameData v4 metric rendering on node cards (`body`), in node hover tooltips (`tooltip`), and in a collapsible side panel (`Graph Totals` and `Node Properties`) featuring `split_sign` breakdowns (`+` / `-` / `Net`) and a project rate-unit selector.
 - Added node evaluation status borders and badges (`WARNING`, `BLOCKED`, `ERROR`, `UNRESOLVED`), recipe `setup` item display, diagnostic hover tooltips, and connection state coloring (`INVALID`, `INACTIVE`).
-
-### Changed
-- Replaced the hardcoded node context menu parameters with dynamic GameData v4 profile parameter controls supporting live editing and undoable commits.
-- Updated pin rate labels, pin/link hover tooltips, and Pin Context Menu constraint input and flow readouts to display and parse values in the active project rate unit (`/tick`, `/s`, `/min`, `/h`).
 
 ## v0.11-alpha 2026-Nov-1
 
