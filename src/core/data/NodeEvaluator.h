@@ -7,6 +7,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace gamedata {
@@ -17,7 +18,8 @@ namespace gamedata {
 // to nodes whose evaluated expressions actually reference that global.
 ResolvedGlobals resolveProjectGlobals(
     const GamePackage& pkg,
-    const std::unordered_map<std::string, ParamValue>& storedGlobals = {});
+    const std::unordered_map<std::string, ParamValue>& storedGlobals = {},
+    const std::unordered_set<std::string>& invalidRawGlobalIds = {});
 
 // Resolves the initial §4.5 Step 1 parameter values for a new node or a newly added profile
 // parameter on `(machineId, recipeId)` with empty stored parameters (§7.4), so new nodes start

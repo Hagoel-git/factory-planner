@@ -1218,6 +1218,179 @@ TEST(UndoRedoV4CommandsTest, ChangeNodeParam_ChangeMachine_ChangeRecipe_SetGloba
     (void)n_consumer;
 }
 
+TEST(UndoRedoV4Test, ChangeRecipeCommand_UndoRestoresUnresolvedNodeFallbackState) {
+    const std::string pkg_json = R"json({
+        "schema_version": 4,
+        "game": { "id": "unresolved_undo_test", "name": "Unresolved Undo Test" },
+        "units": { "recipe_time": "s", "default_rate": "s" },
+        "resources": [
+            { "id": "iron_ore", "name": "Iron Ore" },
+            { "id": "iron_ingot", "name": "Iron Ingot" }
+        ],
+        "profiles": {
+            "std": {}
+        },
+        "machines": [
+            { "id": "smelter", "name": "Smelter", "profile": "std" }
+        ],
+        "recipes": [
+            {
+                "id": "valid_smelt", "name": "Valid Smelt", "time": 1.0, "machines": ["smelter"],
+                "in": [{ "res": "iron_ore", "amount": 1.0 }],
+                "out": [{ "res": "iron_ingot", "amount": 1.0 }]
+            }
+        ]
+    })json";
+
+    gamedata::LoadReport report;
+    gamedata::GamePackage pkg;
+    ASSERT_TRUE(gamedata::loadGamePackageFromMemory(pkg_json, {}, pkg, report))
+        << (report.errors.empty() ? "" : report.errors.front().formatted);
+
+    nlohmann::json projectJson = {
+        {"game", {{"id", "unresolved_undo_test"}}},
+        {"rate_unit", "s"},
+        {"nodes", nlohmann::json::array({
+            {
+                {"id", 1},
+                {"name", "Removed Node"},
+                {"recipe", "removed_recipe"},
+                {"machine", "removed_machine"},
+                {"params", {{"old_param", 7}}},
+                {"ports", {{"out:0", 77}}},
+                {"custom_tag", "keep_me_verbatim"}
+            },
+            {
+                {"id", 2},
+                {"name", "Valid Consumer"},
+                {"recipe", "valid_smelt"},
+                {"machine", "smelter"},
+                {"ports", {{"in:0", 88}, {"out:0", 89}}}
+            }
+        })},
+        {"connections", nlohmann::json::array({
+            {{"id", 10}, {"from_port", 77}, {"to_port", 88}}
+        })},
+        {"next_node_id", 3},
+        {"next_port_id", 90},
+        {"next_connection_id", 11}
+    };
+
+    FactoryGraph g(pkg);
+    ASSERT_TRUE(g.deserialize(projectJson, pkg));
+    ASSERT_TRUE(g.getNode(1)->is_unresolved);
+    ASSERT_EQ(g.getNode(1)->unresolved_json["custom_tag"], "keep_me_verbatim");
+    ASSERT_EQ(g.getConnection(10)->state, WireState::INACTIVE);
+
+    UndoRedoManager mgr;
+    auto recCmd = std::make_unique<ChangeRecipeCommand>(1, "removed_recipe", "valid_smelt");
+    mgr.executeCommand(std::move(recCmd), g);
+
+    EXPECT_FALSE(g.getNode(1)->is_unresolved);
+    EXPECT_EQ(g.getNode(1)->selected_recipe_key, "valid_smelt");
+    EXPECT_EQ(g.getNodeEval(1)->status, gamedata::EvalStatus::OK);
+    EXPECT_EQ(g.getConnection(10), nullptr);
+
+    // Undo must restore is_unresolved, unresolved_json, unresolved port, and INACTIVE connection.
+    mgr.undo(g);
+    const Node* restored = g.getNode(1);
+    ASSERT_NE(restored, nullptr);
+    EXPECT_EQ(restored->selected_recipe_key, "removed_recipe");
+    EXPECT_EQ(restored->machine_key, "removed_machine");
+    EXPECT_TRUE(restored->is_unresolved);
+    EXPECT_EQ(restored->unresolved_json.value("custom_tag", ""), "keep_me_verbatim");
+    EXPECT_EQ(g.getNodeEval(1)->status, gamedata::EvalStatus::ERROR);
+    ASSERT_NE(g.getPort(77), nullptr);
+    EXPECT_TRUE(g.getPort(77)->is_unresolved);
+    ASSERT_NE(g.getConnection(10), nullptr);
+    EXPECT_EQ(g.getConnection(10)->state, WireState::INACTIVE);
+
+    nlohmann::json saved = g.serialize();
+    bool foundNode1 = false;
+    for (const auto& nj : saved["nodes"]) {
+        if (nj["id"] == 1) {
+            foundNode1 = true;
+            EXPECT_EQ(nj.value("recipe", ""), "removed_recipe");
+            EXPECT_EQ(nj.value("custom_tag", ""), "keep_me_verbatim");
+        }
+    }
+    EXPECT_TRUE(foundNode1);
+
+    // Redo switches cleanly back to valid_smelt.
+    mgr.redo(g);
+    EXPECT_FALSE(g.getNode(1)->is_unresolved);
+    EXPECT_EQ(g.getNode(1)->selected_recipe_key, "valid_smelt");
+    EXPECT_EQ(g.getNodeEval(1)->status, gamedata::EvalStatus::OK);
+}
+
+TEST(UndoRedoV4Test, SetGlobalParamCommand_UndoWhenPreviouslyUnset) {
+    const std::string pkg_json = R"json({
+        "schema_version": 4,
+        "game": { "id": "unset_global_undo_test", "name": "Unset Global Undo Test" },
+        "units": { "recipe_time": "s", "default_rate": "s" },
+        "resources": [
+            { "id": "iron", "name": "Iron" }
+        ],
+        "globals": {
+            "difficulty": { "type": "int", "default": 1, "min": 1, "max": 5 }
+        },
+        "profiles": {
+            "p": {
+                "craft_time": "recipe.time",
+                "output_amount": "port.amount * global.difficulty"
+            }
+        },
+        "machines": [
+            { "id": "m", "name": "M", "profile": "p" }
+        ],
+        "recipes": [
+            {
+                "id": "r", "name": "R", "time": 1.0, "machines": ["m"],
+                "in": [],
+                "out": [{ "res": "iron", "amount": 10.0 }]
+            }
+        ]
+    })json";
+
+    gamedata::LoadReport report;
+    gamedata::GamePackage pkg;
+    ASSERT_TRUE(gamedata::loadGamePackageFromMemory(pkg_json, {}, pkg, report))
+        << (report.errors.empty() ? "" : report.errors.front().formatted);
+
+    FactoryGraph g(pkg);
+    uint64_t nid = g.addNode("Node", "r");
+    ASSERT_NE(nid, static_cast<uint64_t>(-1));
+    ASSERT_EQ(g.getGlobals().count("difficulty"), 0u);
+    ASSERT_TRUE(g.getGlobalParam("difficulty").has_value());
+    EXPECT_DOUBLE_EQ(g.getGlobalParam("difficulty")->asNumber(), 1.0);
+    EXPECT_DOUBLE_EQ(g.getPortBySlot(nid, "out:0")->amount_per_craft, 10.0);
+
+    UndoRedoManager mgr;
+    auto cmd = std::make_unique<SetGlobalParamCommand>(
+        "difficulty", std::optional<gamedata::ParamValue>{}, gamedata::ParamValue{int64_t(3)});
+    mgr.executeCommand(std::move(cmd), g);
+
+    EXPECT_EQ(g.getGlobals().count("difficulty"), 1u);
+    ASSERT_TRUE(g.getGlobalParam("difficulty").has_value());
+    EXPECT_DOUBLE_EQ(g.getGlobalParam("difficulty")->asNumber(), 3.0);
+    EXPECT_DOUBLE_EQ(g.getPortBySlot(nid, "out:0")->amount_per_craft, 30.0);
+    EXPECT_TRUE(g.serialize()["globals"].contains("difficulty"));
+
+    // Undo must remove the previously unset global and restore schema-default evaluation.
+    mgr.undo(g);
+    EXPECT_EQ(g.getGlobals().count("difficulty"), 0u);
+    ASSERT_TRUE(g.getGlobalParam("difficulty").has_value());
+    EXPECT_DOUBLE_EQ(g.getGlobalParam("difficulty")->asNumber(), 1.0);
+    EXPECT_DOUBLE_EQ(g.getPortBySlot(nid, "out:0")->amount_per_craft, 10.0);
+    EXPECT_FALSE(g.serialize()["globals"].contains("difficulty"));
+
+    // Redo re-applies the explicit global value.
+    mgr.redo(g);
+    EXPECT_EQ(g.getGlobals().count("difficulty"), 1u);
+    EXPECT_DOUBLE_EQ(g.getGlobalParam("difficulty")->asNumber(), 3.0);
+    EXPECT_DOUBLE_EQ(g.getPortBySlot(nid, "out:0")->amount_per_craft, 30.0);
+}
+
 
 
 

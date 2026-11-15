@@ -912,7 +912,8 @@ SingleParamResolution resolveSingleParamOrGlobal(
 
 ResolvedGlobals resolveProjectGlobals(
     const GamePackage& pkg,
-    const std::unordered_map<std::string, ParamValue>& storedGlobals) {
+    const std::unordered_map<std::string, ParamValue>& storedGlobals,
+    const std::unordered_set<std::string>& invalidRawGlobalIds) {
     ResolvedGlobals result;
     expr::EvalEnv env = pkg.base_eval_env;
 
@@ -925,6 +926,16 @@ ResolvedGlobals resolveProjectGlobals(
         SingleParamResolution gres = resolveSingleParamOrGlobal(
             pkg, *gdef, true, nullptr, storedGlobals,
             result, warnedGlobals, env, "Project Globals", {});
+
+        if (invalidRawGlobalIds.count(gid) > 0 &&
+            storedGlobals.find(gid) == storedGlobals.end()) {
+            upgradeStatus(gres.status, EvalStatus::WARNING);
+            gres.messages.push_back(EvalMessage{
+                EvalStatus::WARNING,
+                "Global parameter '" + gid + "' failed validation; using schema default.",
+                "globals/" + gid
+            });
+        }
 
         result.visible[gid] = gres.visible;
         result.status_by_global[gid] = gres.status;

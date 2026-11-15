@@ -326,7 +326,7 @@ void FactoryGraph::clear() {
     m_globals.clear();
     m_unresolvedGlobals = nlohmann::json::object();
     m_invalidGlobalRaw = nlohmann::json::object();
-    m_resolvedGlobals = gamedata::resolveProjectGlobals(m_gameData, m_globals);
+    refreshResolvedGlobals();
     m_nodeEvals.clear();
     m_lastLoadError.clear();
     m_loadWarnings.clear();
@@ -367,12 +367,12 @@ void FactoryGraph::evaluateNode(uint64_t node_id) {
         return;
     }
 
-    m_resolvedGlobals = gamedata::resolveProjectGlobals(m_gameData, m_globals);
+    refreshResolvedGlobals();
     gamedata::NodeEval eval = gamedata::evaluateNode(
         m_gameData, node->machine_key, node->selected_recipe_key,
         node->params, m_resolvedGlobals, node->name);
 
-    if (!node->invalid_param_raw.empty() || !m_invalidGlobalRaw.empty()) {
+    if (!node->invalid_param_raw.empty()) {
         if (eval.status == gamedata::EvalStatus::OK) {
             eval.status = gamedata::EvalStatus::WARNING;
         }
@@ -381,13 +381,6 @@ void FactoryGraph::evaluateNode(uint64_t node_id) {
                 gamedata::EvalStatus::WARNING,
                 "Node parameter '" + it.key() + "' failed validation; using schema default.",
                 "parameters/" + it.key()
-            });
-        }
-        for (auto it = m_invalidGlobalRaw.begin(); it != m_invalidGlobalRaw.end(); ++it) {
-            eval.messages.push_back(gamedata::EvalMessage{
-                gamedata::EvalStatus::WARNING,
-                "Global parameter '" + it.key() + "' failed validation; using schema default.",
-                "globals/" + it.key()
             });
         }
     }
@@ -430,7 +423,7 @@ void FactoryGraph::evaluateNode(uint64_t node_id) {
 }
 
 void FactoryGraph::evaluateAllNodes() {
-    m_resolvedGlobals = gamedata::resolveProjectGlobals(m_gameData, m_globals);
+    refreshResolvedGlobals();
     for (const auto& node : m_nodes) {
         evaluateNode(node.id);
     }
@@ -520,6 +513,31 @@ bool FactoryGraph::setGlobalParam(const std::string& id, const gamedata::ParamVa
     return true;
 }
 
+bool FactoryGraph::clearGlobalParam(const std::string& id) {
+    const gamedata::ParameterDef* def = m_gameData.findGlobal(id);
+    if (!def) {
+        return false;
+    }
+    bool changed = m_globals.erase(id) > 0;
+    if (m_invalidGlobalRaw.is_object() && m_invalidGlobalRaw.erase(id) > 0) {
+        changed = true;
+    }
+    if (changed) {
+        evaluateAllNodes();
+    }
+    return true;
+}
+
+void FactoryGraph::refreshResolvedGlobals() {
+    std::unordered_set<std::string> invalidRawGlobalIds;
+    if (m_invalidGlobalRaw.is_object()) {
+        for (auto it = m_invalidGlobalRaw.begin(); it != m_invalidGlobalRaw.end(); ++it) {
+            invalidRawGlobalIds.insert(it.key());
+        }
+    }
+    m_resolvedGlobals = gamedata::resolveProjectGlobals(m_gameData, m_globals, invalidRawGlobalIds);
+}
+
 std::optional<gamedata::ParamValue> FactoryGraph::getGlobalParam(const std::string& id) const {
     auto it = m_globals.find(id);
     if (it != m_globals.end()) {
@@ -537,7 +555,7 @@ void FactoryGraph::migrateNodeParams(Node& node, const std::string& /*oldMachine
                                      const std::string& newMachineKey,
                                      const std::string& newRecipeKey) const {
     auto defaults = gamedata::resolveInitialNodeParams(m_gameData, newMachineKey, newRecipeKey, &m_resolvedGlobals);
-    if (oldRecipeKey.empty() && node.params.empty()) {
+    if (oldRecipeKey.empty() && node.params.empty() && node.invalid_param_raw.empty()) {
         node.params = std::move(defaults);
         return;
     }
@@ -547,6 +565,7 @@ void FactoryGraph::migrateNodeParams(Node& node, const std::string& /*oldMachine
         newMachine ? m_gameData.findProfile(newMachine->profile) : m_gameData.findProfile("default");
 
     std::unordered_map<std::string, gamedata::ParamValue> migrated;
+    nlohmann::json prunedInvalidRaw = nlohmann::json::object();
     if (newProfile) {
         for (const std::string& pid : newProfile->params) {
             auto curIt = node.params.find(pid);
@@ -558,10 +577,16 @@ void FactoryGraph::migrateNodeParams(Node& node, const std::string& /*oldMachine
                     migrated[pid] = defIt->second;
                 }
             }
+            if (node.invalid_param_raw.is_object() &&
+                node.invalid_param_raw.contains(pid) &&
+                m_gameData.findParameter(pid) != nullptr) {
+                prunedInvalidRaw[pid] = node.invalid_param_raw[pid];
+            }
         }
     }
 
     node.params = std::move(migrated);
+    node.invalid_param_raw = std::move(prunedInvalidRaw);
 }
 
 bool FactoryGraph::setNodeRecipe(uint64_t node_id, const std::string& recipe_key,
@@ -588,7 +613,7 @@ bool FactoryGraph::setNodeRecipe(uint64_t node_id, const std::string& recipe_key
         node->machine_key = "";
     }
 
-    m_resolvedGlobals = gamedata::resolveProjectGlobals(m_gameData, m_globals);
+    refreshResolvedGlobals();
     migrateNodeParams(*node, oldMachineKey, oldRecipeKey, node->machine_key, node->selected_recipe_key);
 
     std::vector<uint64_t> old_ports;
@@ -673,7 +698,7 @@ bool FactoryGraph::changeMachine(uint64_t node_id, const std::string& machine_ke
     }
 
     std::string oldMachineKey = node->machine_key;
-    m_resolvedGlobals = gamedata::resolveProjectGlobals(m_gameData, m_globals);
+    refreshResolvedGlobals();
     migrateNodeParams(*node, oldMachineKey, node->selected_recipe_key, machine_key, node->selected_recipe_key);
     node->machine_key = machine_key;
 
@@ -701,67 +726,71 @@ bool FactoryGraph::changeMachine(uint64_t node_id, const std::string& machine_ke
         return std::nullopt;
     };
 
-    std::vector<uint64_t> newInputPorts;
-    for (size_t i = 0; i < recipe->in.size(); ++i) {
-        std::string slotKey = recipe->in[i].slot_key.empty()
-                                  ? ("in:" + std::to_string(i))
-                                  : recipe->in[i].slot_key;
-        auto it = oldInputBySlot.find(slotKey);
-        if (it != oldInputBySlot.end()) {
-            newInputPorts.push_back(it->second);
-        } else {
-            newInputPorts.push_back(
-                addPort(recipe->in[i].res.value_or(""), node_id, slotKey, findPreassigned(slotKey)));
+    auto reuseOrAddPort = [&](const std::unordered_map<std::string, uint64_t>& oldBySlot,
+                              const std::string& slotKey,
+                              const std::string& resourceKey) -> uint64_t {
+        auto it = oldBySlot.find(slotKey);
+        if (it != oldBySlot.end()) {
+            if (Port* existing = getPort(it->second)) {
+                existing->is_unresolved = false;
+            }
+            return it->second;
         }
-    }
+        return addPort(resourceKey, node_id, slotKey, findPreassigned(slotKey));
+    };
+
+    auto appendUnresolvedRecipePorts = [&](const std::vector<uint64_t>& existingIds,
+                                           std::string_view requiredPrefix,
+                                           std::vector<uint64_t>& target) {
+        std::unordered_set<uint64_t> matched(target.begin(), target.end());
+        for (uint64_t pid : existingIds) {
+            if (matched.count(pid) > 0) continue;
+            const Port* p = getPort(pid);
+            if (p && p->is_unresolved && p->slot_key.rfind(requiredPrefix, 0) == 0) {
+                target.push_back(pid);
+            }
+        }
+    };
 
     const gamedata::Machine* newMachine = m_gameData.findMachine(machine_key);
     const gamedata::MachineProfile* newProfile =
         newMachine ? m_gameData.findProfile(newMachine->profile) : m_gameData.findProfile("default");
 
+    std::vector<uint64_t> newInputPorts;
+    for (size_t i = 0; i < recipe->in.size(); ++i) {
+        std::string slotKey = recipe->in[i].slot_key.empty()
+                                  ? ("in:" + std::to_string(i))
+                                  : recipe->in[i].slot_key;
+        newInputPorts.push_back(reuseOrAddPort(oldInputBySlot, slotKey, recipe->in[i].res.value_or("")));
+    }
+
     if (newProfile) {
         for (const auto& ep : newProfile->extra_ports) {
             if (ep.dir == "in") {
                 std::string slotKey = ep.slot_key.empty() ? ("xin:" + ep.id) : ep.slot_key;
-                auto it = oldInputBySlot.find(slotKey);
-                if (it != oldInputBySlot.end()) {
-                    newInputPorts.push_back(it->second);
-                } else {
-                    newInputPorts.push_back(
-                        addPort(ep.resource.value_or(""), node_id, slotKey, findPreassigned(slotKey)));
-                }
+                newInputPorts.push_back(reuseOrAddPort(oldInputBySlot, slotKey, ep.resource.value_or("")));
             }
         }
     }
+    appendUnresolvedRecipePorts(node->input_ports, "in:", newInputPorts);
 
     std::vector<uint64_t> newOutputPorts;
     for (size_t i = 0; i < recipe->out.size(); ++i) {
         std::string slotKey = recipe->out[i].slot_key.empty()
                                   ? ("out:" + std::to_string(i))
                                   : recipe->out[i].slot_key;
-        auto it = oldOutputBySlot.find(slotKey);
-        if (it != oldOutputBySlot.end()) {
-            newOutputPorts.push_back(it->second);
-        } else {
-            newOutputPorts.push_back(
-                addPort(recipe->out[i].res.value_or(""), node_id, slotKey, findPreassigned(slotKey)));
-        }
+        newOutputPorts.push_back(reuseOrAddPort(oldOutputBySlot, slotKey, recipe->out[i].res.value_or("")));
     }
 
     if (newProfile) {
         for (const auto& ep : newProfile->extra_ports) {
             if (ep.dir == "out") {
                 std::string slotKey = ep.slot_key.empty() ? ("xout:" + ep.id) : ep.slot_key;
-                auto it = oldOutputBySlot.find(slotKey);
-                if (it != oldOutputBySlot.end()) {
-                    newOutputPorts.push_back(it->second);
-                } else {
-                    newOutputPorts.push_back(
-                        addPort(ep.resource.value_or(""), node_id, slotKey, findPreassigned(slotKey)));
-                }
+                newOutputPorts.push_back(reuseOrAddPort(oldOutputBySlot, slotKey, ep.resource.value_or("")));
             }
         }
     }
+    appendUnresolvedRecipePorts(node->output_ports, "out:", newOutputPorts);
 
     std::unordered_set<uint64_t> keptPortIds(newInputPorts.begin(), newInputPorts.end());
     keptPortIds.insert(newOutputPorts.begin(), newOutputPorts.end());
@@ -1093,10 +1122,13 @@ bool FactoryGraph::deserialize(const nlohmann::json& j, const GameData& game_dat
         }
     }
 
-    m_resolvedGlobals = gamedata::resolveProjectGlobals(m_gameData, m_globals);
+    refreshResolvedGlobals();
+    std::unordered_set<std::string> seenLoadWarnings(m_loadWarnings.begin(), m_loadWarnings.end());
     for (const auto& [gid, msgs] : m_resolvedGlobals.messages_by_global) {
         for (const auto& m : msgs) {
-            m_loadWarnings.push_back(m.text);
+            if (seenLoadWarnings.insert(m.text).second) {
+                m_loadWarnings.push_back(m.text);
+            }
         }
     }
 
