@@ -3,6 +3,7 @@
 #include "common/FilesystemUtils.h"
 #include "core/data/GameDataLoader.h"
 #include "core/data/ReportGrouping.h"
+#include "tools/gamedata_tool/IconToolUtils.h"
 
 #include <nlohmann/json.hpp>
 
@@ -139,23 +140,6 @@ bool groupMatchesCascade(
     return false;
 }
 
-bool hasAnyIconSource(const gamedata::GamePackage& pkg) {
-    std::error_code ec;
-    if (!pkg.package_root.empty() &&
-        std::filesystem::is_regular_file(pkg.package_root / "icons.pak", ec)) {
-        return true;
-    }
-    if (!pkg.icon_root.empty()) {
-        if (std::filesystem::is_regular_file(pkg.icon_root / "icons.pak", ec)) {
-            return true;
-        }
-        if (std::filesystem::is_directory(pkg.icon_root, ec)) {
-            return true;
-        }
-    }
-    return false;
-}
-
 } // namespace
 
 int runValidate(const Args& args, std::ostream& out, std::ostream& err) {
@@ -166,12 +150,9 @@ int runValidate(const Args& args, std::ostream& out, std::ostream& err) {
     gamedata::LoadReport report;
     const bool loaded = gamedata::loadGamePackage(pkgPath, pkg, report, args.ignore_errors);
 
-    // "No icons" mode check (T9, §2.2). Detailed IconPak/PngInfo/V-ICON-1/V-W-1 checks are Task 4b.
-    if (!args.no_icons && loaded && !report.fatal && !hasAnyIconSource(pkg)) {
-        report.addNote(
-            "package has no icons: " + formatWithCommas(pkg.resources.size()) +
-            " resources and " + formatWithCommas(pkg.machines.size()) +
-            " machines use fallback icons");
+    // Icon checks in T8 order: "no icons" note, V-W-1 (missing), V-ICON-1 (invalid/corrupt).
+    if (!args.no_icons && loaded && !report.fatal) {
+        checkPackageIconsForValidate(pkg, report);
     }
 
     gamedata::GroupingOptions groupOpts;

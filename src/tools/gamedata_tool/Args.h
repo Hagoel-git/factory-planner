@@ -52,6 +52,13 @@ struct Args {
 
     // stats flags
     int repeat = 1;
+
+    // icon command flags (check-icons, prune-icons, pack-icons)
+    std::string from_dir;
+    bool apply = false;
+    std::string out_pak;
+    bool verify = false;
+    std::string list_pak;
 };
 
 struct ParseResult {

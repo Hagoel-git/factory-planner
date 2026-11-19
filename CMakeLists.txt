@@ -109,6 +109,10 @@ set(CORE_GAMEDATA_SRC
         src/core/data/GameDataScanner.h
         src/core/data/ReportGrouping.h
         src/core/data/ReportGrouping.cpp
+        src/core/data/PngInfo.h
+        src/core/data/PngInfo.cpp
+        src/core/data/IconPak.h
+        src/core/data/IconPak.cpp
 )
 
 add_library(core_gamedata STATIC ${CORE_GAMEDATA_SRC})
@@ -124,10 +128,15 @@ set(GAMEDATA_TOOL_LIB_SRC
         src/tools/gamedata_tool/Args.h
         src/tools/gamedata_tool/Args.cpp
         src/tools/gamedata_tool/Commands.h
+        src/tools/gamedata_tool/IconToolUtils.h
+        src/tools/gamedata_tool/IconToolUtils.cpp
         src/tools/gamedata_tool/CmdInit.cpp
         src/tools/gamedata_tool/CmdValidate.cpp
         src/tools/gamedata_tool/CmdEval.cpp
         src/tools/gamedata_tool/CmdStats.cpp
+        src/tools/gamedata_tool/CmdCheckIcons.cpp
+        src/tools/gamedata_tool/CmdPruneIcons.cpp
+        src/tools/gamedata_tool/CmdPackIcons.cpp
 )
 
 add_library(gamedata_tool_lib STATIC ${GAMEDATA_TOOL_LIB_SRC})
