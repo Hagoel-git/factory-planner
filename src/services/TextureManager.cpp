@@ -21,6 +21,7 @@ void TextureManager::cleanup() {
         }
     }
     m_textures.clear();
+    m_entityIconCache.clear();
 
     if (m_missingTextureLoaded) {
         if (m_missingTextureId != 0) {
@@ -79,7 +80,32 @@ ImTextureID TextureManager::loadTexture(const std::filesystem::path& path) {
     return (ImTextureID)(intptr_t)missingId;
 }
 
+ImTextureID TextureManager::loadEntityIcon(
+    const std::filesystem::path& iconRoot,
+    std::string_view kindDir,
+    std::string_view id) {
+    if (iconRoot.empty() || id.empty()) {
+        return 0;
+    }
+    std::string cacheKey = iconRoot.string();
+    cacheKey.push_back('\0');
+    cacheKey.append(kindDir);
+    cacheKey.push_back('\0');
+    cacheKey.append(id);
+
+    auto it = m_entityIconCache.find(cacheKey);
+    if (it != m_entityIconCache.end()) {
+        return it->second;
+    }
+
+    std::filesystem::path texPath = iconRoot / std::string(kindDir) / (std::string(id) + ".png");
+    ImTextureID texId = loadTexture(texPath);
+    m_entityIconCache.emplace(std::move(cacheKey), texId);
+    return texId;
+}
+
 void TextureManager::invalidateTexture(const std::filesystem::path& path) {
+    m_entityIconCache.clear();
     std::error_code ec;
     std::filesystem::path absPath = std::filesystem::absolute(path, ec);
     if (ec) return;

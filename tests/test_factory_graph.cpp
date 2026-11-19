@@ -2172,13 +2172,13 @@ TEST(GraphPrimitivesTest, DefaultInitializers) {
     EXPECT_EQ(c.state, WireState::OK);
     EXPECT_TRUE(c.resource_key.empty());
 
-    // Fix 1.5: Resource and Machine ImTextureID default member initializers
+    // Resource and Machine default member initializers (texture fields removed from core in 4a)
     Resource r;
-    EXPECT_EQ(r.texture, 0ULL);
+    EXPECT_EQ(r.kind, "item");
     EXPECT_TRUE(r.name.empty());
 
     Machine m;
-    EXPECT_EQ(m.texture, 0ULL);
+    EXPECT_DOUBLE_EQ(m.speed, 1.0);
     EXPECT_EQ(m.profile, "default");
     EXPECT_TRUE(m.name.empty());
 }

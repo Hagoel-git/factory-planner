@@ -23,6 +23,7 @@
 #include "services/NotificationManager.h"
 #include "services/ProjectIo.h"
 #include "services/SettingsManager.h"
+#include "services/TextureManager.h"
 namespace ed = ax::NodeEditor;
 
 namespace {
@@ -1251,7 +1252,9 @@ void FactoryNodeEditor::drawNodes() {
 
                     ImGui::GetWindowDrawList()->AddRectFilled(iconPos, ImVec2(iconPos.x + iconSize.x, iconPos.y + iconSize.y), bgColor, 0.0f);
                 }
-                ImGui::Image(res.texture, ImVec2(port_img_h,port_img_h));
+                ImGui::Image(
+                    TextureManager::instance().loadEntityIcon(gameData.icon_root, "resources", res.id),
+                    ImVec2(port_img_h, port_img_h));
                 if (m_solver->isGoalBottlenecked(p->id)) {
                     ImGui::GetWindowDrawList()->AddRect(
                         iconPos, ImVec2(iconPos.x + iconSize.x, iconPos.y + iconSize.y),
@@ -1318,7 +1321,9 @@ void FactoryNodeEditor::drawNodes() {
             if (middleWidth > machine_h) {
                 ImGui::SetCursorPosX(groupStartX + (middleWidth - machine_h) * 0.5f);
             }
-            ImGui::Image(machPtr->texture, ImVec2(machine_h, machine_h));
+            ImGui::Image(
+                TextureManager::instance().loadEntityIcon(gameData.icon_root, "machines", machPtr->id),
+                ImVec2(machine_h, machine_h));
             if (deferredTooltip.empty() && nodeDeferredTip.empty() && ImGui::IsItemHovered()) {
                 nodeDeferredTip = buildNodeTooltipText(*node, nodeEval, nodeMetrics);
             }
@@ -1447,7 +1452,9 @@ void FactoryNodeEditor::drawNodes() {
 
                     ImGui::GetWindowDrawList()->AddRectFilled(iconPos, ImVec2(iconPos.x + iconSize.x, iconPos.y + iconSize.y), bgColor, 0.0f);
                 }
-                ImGui::Image(res.texture, ImVec2(port_img_h,port_img_h));
+                ImGui::Image(
+                    TextureManager::instance().loadEntityIcon(gameData.icon_root, "resources", res.id),
+                    ImVec2(port_img_h, port_img_h));
                 if (m_solver->isGoalBottlenecked(p->id)) {
                     ImGui::GetWindowDrawList()->AddRect(
                         iconPos, ImVec2(iconPos.x + iconSize.x, iconPos.y + iconSize.y),
@@ -1738,7 +1745,8 @@ void FactoryNodeEditor::handlePopups() {
         if (node) {
             m_isNodeContextMenuInitialized = true;
             if (const Machine* nodeMach = gameData.findMachine(node->machine_key)) {
-                ImTextureID icon = nodeMach->texture;
+                ImTextureID icon = TextureManager::instance().loadEntityIcon(
+                    gameData.icon_root, "machines", nodeMach->id);
                 ImGui::Image(icon, ImVec2(fontSize, fontSize));
                 ImGui::SameLine();
             }
@@ -1804,7 +1812,9 @@ void FactoryNodeEditor::handlePopups() {
                         ImGui::PushID(mKey.c_str());
 
 
-                        ImGui::Image(machine.texture, ImVec2(fontSize, fontSize));
+                        ImGui::Image(
+                            TextureManager::instance().loadEntityIcon(gameData.icon_root, "machines", machine.id),
+                            ImVec2(fontSize, fontSize));
                         ImGui::SameLine();
 
                         if (ImGui::Selectable(machine.name.c_str(), isSelected)) {
@@ -1882,7 +1892,9 @@ void FactoryNodeEditor::handlePopups() {
 
             if (const Resource* res = gameData.findResource(port->resource_key)) {
                 double imageSize = ImGui::GetFontSize();
-                ImGui::Image(res->texture, ImVec2(imageSize, imageSize));
+                ImGui::Image(
+                    TextureManager::instance().loadEntityIcon(gameData.icon_root, "resources", res->id),
+                    ImVec2(imageSize, imageSize));
                 ImGui::SameLine();
                 ImGui::Text("%s", res->name.c_str());
             } else {
@@ -2004,7 +2016,9 @@ void FactoryNodeEditor::handlePopups() {
         auto connection = m_graph->getConnection(IdUtils::fromLinkId(m_contextLinkId));
         if (connection) {
             if (const Resource* res = gameData.findResource(connection->resource_key)) {
-                ImGui::Image(res->texture, ImVec2(24, 24));
+                ImGui::Image(
+                    TextureManager::instance().loadEntityIcon(gameData.icon_root, "resources", res->id),
+                    ImVec2(24, 24));
                 ImGui::SameLine();
                 ImGui::Text("%s Flow", res->name.c_str());
             } else {
@@ -2130,7 +2144,9 @@ void FactoryNodeEditor::handlePopups() {
                     std::string rKey = p.res.value_or("");
                     if (rKey.empty()) continue;
                     if (const Resource* res = gameData.findResource(rKey)) {
-                        ImGui::Image(res->texture, ImVec2(iconSize, iconSize));
+                        ImGui::Image(
+                            TextureManager::instance().loadEntityIcon(gameData.icon_root, "resources", res->id),
+                            ImVec2(iconSize, iconSize));
                         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", res->name.c_str());
                         ImGui::SameLine();
                     }
@@ -2237,7 +2253,9 @@ void FactoryNodeEditor::handlePopups() {
                         if (rKey.empty()) continue;
                         if (const Resource* res = gameData.findResource(rKey)) {
                             if (!first) ImGui::SameLine();
-                            ImGui::Image(res->texture, ImVec2(iconSize, iconSize));
+                            ImGui::Image(
+                            TextureManager::instance().loadEntityIcon(gameData.icon_root, "resources", res->id),
+                            ImVec2(iconSize, iconSize));
                             if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", res->name.c_str());
                             first = false;
                         }
@@ -2432,9 +2450,13 @@ void renderChoiceListItems(
             const Resource* res = gameData.findResource(resId);
             std::string disp = getResourceDisplayName(gameData, resId);
             ImGui::PushID(resId.c_str());
-            if (res && res->texture != 0) {
-                ImGui::Image(res->texture, ImVec2(iconSz, iconSz));
-                ImGui::SameLine();
+            if (res) {
+                ImTextureID resTex = TextureManager::instance().loadEntityIcon(
+                    gameData.icon_root, "resources", res->id);
+                if (resTex != 0) {
+                    ImGui::Image(resTex, ImVec2(iconSz, iconSz));
+                    ImGui::SameLine();
+                }
             }
             if (ImGui::Selectable(disp.c_str(), selected)) {
                 if (!selected) {

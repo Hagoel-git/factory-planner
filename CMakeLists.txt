@@ -85,11 +85,68 @@ add_library(imgui_node_editor STATIC ${NODE_EDITOR_SOURCES})
 target_include_directories(imgui_node_editor PUBLIC ${EXTERNAL_DIR}/imgui-node-editor)
 target_link_libraries(imgui_node_editor PUBLIC imgui)
 
+# ---- Headless core_gamedata static lib (no ImGui, GLFW, GL, NFD, or OR-Tools) ----
+set(CORE_GAMEDATA_SRC
+        src/common/FilesystemUtils.h
+        src/common/StringUtils.h
+
+        src/core/expr/ExprValue.h
+        src/core/expr/ExprDiagnostic.h
+        src/core/expr/ExprDiagnostic.cpp
+        src/core/expr/ExprEnv.h
+        src/core/expr/ExprAst.h
+        src/core/expr/ExprCompiler.h
+        src/core/expr/ExprCompiler.cpp
+        src/core/expr/ExprEvaluator.h
+        src/core/expr/ExprEvaluator.cpp
+
+        src/core/data/GameData.h
+        src/core/data/GameDataV4.h
+        src/core/data/GameDataLoader.h
+        src/core/data/GameDataLoader.cpp
+        src/core/data/NodeEvaluator.h
+        src/core/data/NodeEvaluator.cpp
+        src/core/data/GameDataScanner.h
+        src/core/data/ReportGrouping.h
+        src/core/data/ReportGrouping.cpp
+)
+
+add_library(core_gamedata STATIC ${CORE_GAMEDATA_SRC})
+target_include_directories(core_gamedata PUBLIC
+        ${CMAKE_SOURCE_DIR}/external
+        ${CMAKE_SOURCE_DIR}/src
+)
+target_link_libraries(core_gamedata PUBLIC absl::log)
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${CORE_GAMEDATA_SRC})
+
+# ---- gamedata_tool CLI library + executable ----
+set(GAMEDATA_TOOL_LIB_SRC
+        src/tools/gamedata_tool/Args.h
+        src/tools/gamedata_tool/Args.cpp
+        src/tools/gamedata_tool/Commands.h
+        src/tools/gamedata_tool/CmdInit.cpp
+        src/tools/gamedata_tool/CmdValidate.cpp
+        src/tools/gamedata_tool/CmdEval.cpp
+        src/tools/gamedata_tool/CmdStats.cpp
+)
+
+add_library(gamedata_tool_lib STATIC ${GAMEDATA_TOOL_LIB_SRC})
+target_link_libraries(gamedata_tool_lib PUBLIC core_gamedata)
+target_compile_definitions(gamedata_tool_lib PRIVATE GAMEDATA_TOOL_VERSION="${PROJECT_VERSION}")
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${GAMEDATA_TOOL_LIB_SRC})
+
+add_executable(gamedata_tool src/tools/gamedata_tool/main.cpp)
+target_link_libraries(gamedata_tool
+        PRIVATE
+        gamedata_tool_lib
+        absl::log_initialize
+        absl::log_globals
+)
+
 set(FACTORY_PLANNER_LIB_SRC
         src/app/Application.h
         src/app/Application.cpp
 
-        src/common/FilesystemUtils.h
         src/common/CopyBuffer.h
         src/common/IdUtils.h
 
@@ -102,24 +159,8 @@ set(FACTORY_PLANNER_LIB_SRC
         src/core/graph/FactorySolver.h
         src/core/graph/FactorySolver.cpp
 
-        src/core/data/GameData.h
-        src/core/data/GameDataV4.h
-        src/core/data/GameDataLoader.h
-        src/core/data/GameDataLoader.cpp
-        src/core/data/NodeEvaluator.h
-        src/core/data/NodeEvaluator.cpp
         src/core/data/GameDataManager.h
         src/core/data/GameDataManager.cpp
-
-        src/core/expr/ExprValue.h
-        src/core/expr/ExprDiagnostic.h
-        src/core/expr/ExprDiagnostic.cpp
-        src/core/expr/ExprEnv.h
-        src/core/expr/ExprAst.h
-        src/core/expr/ExprCompiler.h
-        src/core/expr/ExprCompiler.cpp
-        src/core/expr/ExprEvaluator.h
-        src/core/expr/ExprEvaluator.cpp
 
         src/editor/factory_planner/FactoryNodeEditor.h
         src/editor/factory_planner/FactoryNodeEditor.cpp
@@ -130,7 +171,6 @@ set(FACTORY_PLANNER_LIB_SRC
         src/services/UndoRedoSystem.h
         src/services/SettingsManager.cpp
         src/services/SettingsManager.h
-        src/common/StringUtils.h
         src/editor/settings_editor/SettingsEditor.cpp
         src/editor/settings_editor/SettingsEditor.h
         src/services/SessionManager.cpp
@@ -139,7 +179,6 @@ set(FACTORY_PLANNER_LIB_SRC
         src/services/RecentFiles.h
         src/common/TextureUtils.h
         src/common/TextureUtils.cpp
-        src/core/data/GameDataScanner.h
         src/services/TextureManager.h
         src/services/TextureManager.cpp
         src/services/NotificationManager.cpp
@@ -171,6 +210,7 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${FACTORY_PLANNER_LIB_SRC})
 # Link libraries using modern target_link_libraries
 target_link_libraries(factory_planner_lib
         PUBLIC
+        core_gamedata
         imgui
         imgui_node_editor
         nfd
@@ -194,7 +234,7 @@ target_link_libraries(factory_planner
 
 # Set runtime output dir
 set(_BinDir ${CMAKE_BINARY_DIR}/bin)
-set_target_properties(factory_planner PROPERTIES
+set_target_properties(factory_planner gamedata_tool PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${_BinDir}"
         RUNTIME_OUTPUT_DIRECTORY_DEBUG "${_BinDir}"
         RUNTIME_OUTPUT_DIRECTORY_RELEASE "${_BinDir}"
@@ -202,7 +242,7 @@ set_target_properties(factory_planner PROPERTIES
 )
 
 if (UNIX AND NOT APPLE)
-    set_target_properties(factory_planner PROPERTIES
+    set_target_properties(factory_planner gamedata_tool PROPERTIES
             BUILD_WITH_INSTALL_RPATH OFF
             BUILD_RPATH "${CMAKE_SOURCE_DIR}/external/or-tools/lib"
             INSTALL_RPATH "$ORIGIN/lib"
@@ -210,7 +250,7 @@ if (UNIX AND NOT APPLE)
 endif()
 
 # Install rules (optional)
-install(TARGETS factory_planner RUNTIME DESTINATION bin)
+install(TARGETS factory_planner gamedata_tool RUNTIME DESTINATION bin)
 
 enable_testing()
 add_subdirectory(tests)

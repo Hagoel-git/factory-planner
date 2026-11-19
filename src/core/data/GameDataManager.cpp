@@ -28,13 +28,11 @@ void GameDataManager::loadTextures() {
     if (m_data.icon_root.empty()) {
         return;
     }
-    for (auto& res : m_data.resources) {
-        std::filesystem::path texPath = m_data.icon_root / "resources" / (res.id + ".png");
-        res.texture = TextureManager::instance().loadTexture(texPath);
+    for (const auto& res : m_data.resources) {
+        TextureManager::instance().loadEntityIcon(m_data.icon_root, "resources", res.id);
     }
-    for (auto& mac : m_data.machines) {
-        std::filesystem::path texPath = m_data.icon_root / "machines" / (mac.id + ".png");
-        mac.texture = TextureManager::instance().loadTexture(texPath);
+    for (const auto& mac : m_data.machines) {
+        TextureManager::instance().loadEntityIcon(m_data.icon_root, "machines", mac.id);
     }
 }
 

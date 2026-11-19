@@ -509,7 +509,6 @@ struct Resource {
     std::unordered_set<std::string> tag_set;
     std::unordered_map<std::string, expr::EvalValue> attrs;
     std::string notes;
-    unsigned long long texture = 0;
 };
 
 struct Machine {
@@ -520,7 +519,6 @@ struct Machine {
     double speed = 1.0;
     std::unordered_map<std::string, expr::EvalValue> attrs;
     std::string notes;
-    unsigned long long texture = 0;
 };
 
 struct RecipePort {
@@ -630,7 +628,8 @@ struct Recipe {
 enum class DiagnosticSeverity {
     Fatal,
     Error,
-    Warning
+    Warning,
+    Info
 };
 
 struct LoadDiagnostic {
@@ -640,18 +639,52 @@ struct LoadDiagnostic {
     std::string json_pointer; // e.g. "/recipes/88/in/0"
     size_t line = 0;          // 1-based line (0 if not applicable)
     size_t column = 0;        // 1-based column (0 if not applicable)
+    std::string subject;      // Optional offending token (unknown id, bad slug, key)
+    std::string entity;       // Optional canonical owner key ("kind:id", e.g. "profile:gt_single")
     std::string message;      // Core message
     std::string formatted;    // Full formatted diagnostic string (§5.7, §9.2)
+};
+
+struct LoadTimingMs {
+    double total = 0.0;
+    double parse = 0.0;
+    double compile = 0.0;
+};
+
+struct LoadedFileInfo {
+    std::string path;   // Relative path inside package ("game.json", "recipes/foo.json")
+    uint64_t bytes = 0;
+    size_t recipes = 0;
 };
 
 struct LoadReport {
     bool fatal = false;
     bool degraded = false; // True when loaded via ignore_errors ("Load anyway") with errors
+    std::string game_id;   // Parsed game.id from manifest when available (even if load fails later)
     std::vector<LoadDiagnostic> errors;
     std::vector<LoadDiagnostic> warnings;
-    std::unordered_map<std::string, std::vector<std::string>> dropped; // kind -> sorted/ordered [ids]
+    std::vector<LoadDiagnostic> notes; // Info-level entries (e.g. "no icons" mode); never affect ok() or --werror
+    std::unordered_map<std::string, std::vector<std::string>> dropped; // plural kind -> ordered [ids]
+    std::unordered_map<std::string, std::string> drop_root;            // dropped "kind:id" -> root "kind:id" (singular kinds)
+    LoadTimingMs timing_ms;
+    std::vector<LoadedFileInfo> loaded_files;
 
     bool ok() const { return !fatal && errors.empty(); }
+
+    void addNote(
+        std::string message,
+        std::string rule_id = {},
+        std::string file = {},
+        std::string json_pointer = {}) {
+        LoadDiagnostic d;
+        d.severity = DiagnosticSeverity::Info;
+        d.rule_id = std::move(rule_id);
+        d.file = std::move(file);
+        d.json_pointer = std::move(json_pointer);
+        d.message = std::move(message);
+        d.formatted = d.message;
+        notes.push_back(std::move(d));
+    }
 
     bool hasRule(std::string_view rule_id) const {
         for (const auto& e : errors) {
