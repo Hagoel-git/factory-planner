@@ -19,7 +19,7 @@ It lives in the repo so that every agent conversation can read it. Prompts refer
 | D7 | Formula language: **a small expression language written in C++**, no new dependency | No extra runtime; good error messages |
 | D8 | `gamedata_tool` (a C++ CLI validator, packager, and evaluation oracle) **gets its own design conversation** in Step 4 | Shared `core_gamedata` library guarantees zero drift; powers human + AI + script pack authoring (`init`, `validate`, `eval`, `stats`, `check-icons`, `pack-icons`) instead of hardcoded C++ per-game parsers |
 | D9 | GameData v4 comes **before** the node-editor rework | v4 decides what a node shows; the canvas is designed around that |
-| D10 | The node-editor rework is **Opus-led** and preceded by a premium **UI/UX audit** | It needs real decisions, not mechanical pruning |
+| D10 | The node-editor rework is **premium-led (Opus or Neon)** and preceded by a premium **UI/UX audit** | It needs real decisions, not mechanical pruning |
 | D11 | **Auto-layout** ships first as a standalone "Auto-arrange" command, then Generate reuses it | Useful on its own; Generate needs it anyway |
 | D12 | **Packs split + all-in-one Releases (no server)** | Official packs, icons (square PNG `≤ 64×64`), converter scripts, and AI authoring prompts live in a separate public `factory-planner-packs` repo; `release.yml` pulls them into an all-in-one release zip after migrating `data/game_data/` out of the main repo |
 | D13 | **`icons.pak` + async lazy icon loading (no atlases, no Data Browser)** | Releases pack icons into uncompressed per-pack `icons.pak` containers (index + raw PNG bytes, loose PNG fallback for local dev) decoded asynchronously on a background thread with capped per-frame GL uploads and clipped pickers — smooth 50k fast-scrolling without UV/atlas complexity |
@@ -47,7 +47,7 @@ It lives in the repo so that every agent conversation can read it. Prompts refer
 ## 3. How to run each task (the routine)
 
 1. **Start a new conversation per task.** Long conversations waste quota and lose focus. Use `/compact` if one grows too long.
-2. **Pick the model** given for the step. For Opus and Argon tasks, start the prompt with `/plan` so the agent proposes a plan before writing code and you approve it.
+2. **Pick the model** given for the step (see the model guide below). For complex design or implementation tasks (**Neon**, **Orchestrator (Neon)**, or **Opus**), start the prompt with `/plan` so the agent proposes a plan before writing code and you approve it.
 3. **Branch first (you do this)**: `git switch dev && git pull && git switch -c <branch-name-given-in-step>`.
 4. **Paste the prompt.** Every prompt tells the agent to read this file and the rules file (`AGENTS.md`).
 5. **Agents never touch git** (AGENTS.md Hard Rule 5). They leave changes uncommitted and end with a handover report and a suggested commit message. You review `git status` / `git diff`, then commit and push yourself.
@@ -55,10 +55,22 @@ It lives in the repo so that every agent conversation can read it. Prompts refer
 7. **Write things down.** If the agent made a mistake you had to correct, use `/learn` (or add a line to the rules file) so the next agent doesn't repeat it.
 8. **Record what each step produced** (a document, decisions) under `docs/design/` or `docs/audits/`. Later prompts refer to those files, which is how one conversation hands over to the next.
 
-**Saving premium quota:**
-- Before an Opus or Argon task, have Flash gather the context first (for example a summary of the files involved), and paste that summary in.
-- Ask the premium model for **decisions + the core code**. Leave follow-up polish (renames, extra tests, changelog) to a Flash conversation.
-- If a premium task runs out of quota midway, ask it first: *"Write a handoff note to `docs/handoff/<step>.md`: what's done, what's left, open decisions."* A new conversation can continue from that file.
+### Model roles (updated for Gemini 4 Neon & Hydrogen)
+
+**Gemini 4 Neon** and **Gemini 4 Hydrogen** supersede **Argon** and **3.8 Flash** respectively (older steps 0–3 below retain their historical labels).
+
+| Model | Strengths | Best used for |
+|---|---|---|
+| **Gemini 4 Hydrogen** (`Medium` / `High`) | Ultra-fast, native parallel file reads, low hallucination rate (~5× lower than 3.8 Flash), matches older Argon on hard coding benchmarks | Everyday coding, well-scoped features, tests, bug-audit scans, context gathering, migrations, and follow-up polish |
+| **Gemini 4 Neon** (`High` / `XHigh`) | Near-Carbon reasoning, 1M context, lowest hallucination rate, strong multi-file refactoring & design; supersedes Argon and matches/edges Opus on most coding benchmarks | Architecture & algorithm design (`XHigh`), adversarial reviews, UI/UX audits, documentation synthesis, and complex C++ implementation |
+| **Orchestrator (Neon)** | Pairs **Neon** (Architect/Planner/Reviewer) with **Hydrogen** (fast Executor/Builder) in one session with an automatic test-failure feedback loop | Medium-to-large **spec-driven implementation** tasks where a design doc already exists (e.g. 4a, 4c, 6.x, 7b, 7c) — Neon-grade judgment with faster execution and lower quota burn |
+| **Claude Opus 5.5** *(optional / specialist)* | Slight qualitative edge in messy legacy/vendored C++ refactors and deep terminal debugging | Hardest vendored-library work (e.g. Step 6 `external/imgui-node-editor` state ownership) or as a second-opinion reviewer alongside Neon |
+
+**Saving quota:**
+- Prefer **Orchestrator (Neon)** over standalone **Neon (High/XHigh)** or **Opus** whenever a detailed design spec already exists — Neon plans/reviews while Hydrogen writes the code and runs tests.
+- Before a heavy **Neon** or **Opus** design/audit task, have **Hydrogen** gather the raw codebase inventory first (e.g. Step 5), and pass that file in.
+- Ask **Neon / Opus** for **decisions + core code**. Leave follow-up polish (renames, extra tests, changelog) to a **Hydrogen** conversation.
+- If a session runs out of quota midway, ask it first: *"Write a handoff note to `docs/handoff/<step>.md`: what's done, what's left, open decisions."* A new conversation can continue from that file.
 
 ---
 
@@ -355,7 +367,7 @@ Then, in a short follow-up (Opus if the issues are deep, otherwise Flash): *"App
 
 **Design:** ✅ done → `docs/design/gamedata-tool.md` (decisions T1–T13). Each task below implements one part of it. Measure the 50k budgets (§4.5 of the design) on the synthetic package in 4a–4c and on real GTNH in 4e.
 
-#### 4a. Tool core · **Opus** · `/plan` · branch `feat/gamedata-tool-core`
+#### 4a. Tool core · **Orchestrator (Neon)** (or Neon High) · `/plan` · branch `feat/gamedata-tool-core`
 
 > ```
 > /plan
@@ -368,7 +380,7 @@ Then, in a short follow-up (Opus if the issues are deep, otherwise Flash): *"App
 > test helpers and report the load time. Tests per §9. Don't start 4b/4c work.
 > ```
 
-#### 4b. Icon tooling · Flash · branch `feat/gamedata-tool-icons`
+#### 4b. Icon tooling · **Hydrogen (High)** · branch `feat/gamedata-tool-icons`
 
 > ```
 > Read docs/ROADMAP.md, the rules file and docs/design/gamedata-tool.md (§2.2, §2.6, §3, §9).
@@ -377,7 +389,7 @@ Then, in a short follow-up (Opus if the issues are deep, otherwise Flash): *"App
 > prune-icons / pack-icons with --from. Tests per §9 (Icons, IconPak rows).
 > ```
 
-#### 4c. Lazy icons + 50k pickers · **Opus** · `/plan` · branch `feat/lazy-icons`
+#### 4c. Lazy icons + 50k pickers · **Orchestrator (Neon)** (or Neon High / Opus) · `/plan` · branch `feat/lazy-icons`
 
 > ```
 > /plan
@@ -388,7 +400,7 @@ Then, in a short follow-up (Opus if the issues are deep, otherwise Flash): *"App
 > Report picker timing on the synthetic 50k package. Add a CHANGELOG entry.
 > ```
 
-#### 4d. Authoring docs + packs repo bootstrap · **Opus** · branch `docs/pack-authoring`
+#### 4d. Authoring docs + packs repo bootstrap · **Neon (High)** · branch `docs/pack-authoring`
 
 > ```
 > Read docs/ROADMAP.md, the rules file, docs/design/gamedata-v4-spec.md,
@@ -401,11 +413,11 @@ Then, in a short follow-up (Opus if the issues are deep, otherwise Flash): *"App
 > repo during 4e.
 > ```
 
-#### 4e. Dogfood imports · you + an agent in the packs repo
+#### 4e. Dogfood imports · you + **Hydrogen** (simpler games) / **Orchestrator (Neon)** (GTNH) in the packs repo
 
 Use the bootstrap prompt (design Appendix A) on a **simpler game first** (Satisfactory from `Docs.json`, or DSP), then **GTNH**. Measure the §4.5 budgets, verify the recipe and machine pickers end-to-end, and turn any tool or app problems into small follow-up tasks.
 
-#### 4f. Packs split · Flash · branch `chore/packs-split`
+#### 4f. Packs split · **Hydrogen (Medium/High)** · branch `chore/packs-split`
 
 > ```
 > Read docs/ROADMAP.md, the rules file and docs/design/gamedata-tool.md (§6.2, §7).
@@ -419,9 +431,9 @@ Use the bootstrap prompt (design Appendix A) on a **simpler game first** (Satisf
 
 ---
 
-### Step 5 — Whole-app UI/UX audit · **Argon** (or Opus) · writes a document
+### Step 5 — Whole-app UI/UX audit · **Neon (High/XHigh)** (or Opus) · writes a document
 
-First have Flash collect raw material (cheap):
+First have **Hydrogen (Medium)** collect raw material (fast parallel scan):
 > ```
 > Read docs/ROADMAP.md and the rules file. Read-only task: list every user-facing
 > feature, interaction, shortcut, menu, window, popup and setting in the app, with
@@ -454,13 +466,13 @@ Then the premium audit:
 
 ---
 
-### Step 6 — Node-editor rework · **Opus** · one `/plan` conversation per task from the split
+### Step 6 — Node-editor rework · **Opus** or **Orchestrator (Neon)** · one `/plan` conversation per task from the split
 
 Suggested split (the audit may change it):
-1. **App-owned node state** (`feat/ne-owned-state`): position and size live in `Node`; the library reads them from us; saving, undo and copy/paste use our fields.
-2. **Link waypoints + link styles** (`feat/ne-waypoints`): add, drag and delete points; links pass through them; saved and undoable; style setting.
-3. **Snapping + `showFlow` performance** (`feat/ne-flow-lod`): snapping configurable and off by default; flow animation hidden when zoomed far out and only for on-screen links; measure the improvement with a stress scene.
-4. **Pruning** (`refactor/ne-prune`): remove what the audit marked; behaviour unchanged, tests green.
+1. **App-owned node state** (`feat/ne-owned-state`, **Opus** or **Neon High**): position and size live in `Node`; the library reads them from us; saving, undo and copy/paste use our fields.
+2. **Link waypoints + link styles** (`feat/ne-waypoints`, **Orchestrator (Neon)**): add, drag and delete points; links pass through them; saved and undoable; style setting.
+3. **Snapping + `showFlow` performance** (`feat/ne-flow-lod`, **Orchestrator (Neon)**): snapping configurable and off by default; flow animation hidden when zoomed far out and only for on-screen links; measure the improvement with a stress scene.
+4. **Pruning** (`refactor/ne-prune`, **Hydrogen High**): remove what the audit marked; behaviour unchanged, tests green.
 
 > **Prompt template:**
 > ```
@@ -478,7 +490,7 @@ Suggested split (the audit may change it):
 
 ### Step 7 — Auto-layout, then Generate
 
-**7a. Algorithm design · Argon** → `docs/design/auto-layout-and-generate.md`
+**7a. Algorithm design · Neon (XHigh)** → `docs/design/auto-layout-and-generate.md`
 > ```
 > /plan
 > Read docs/ROADMAP.md, the v4 spec, docs/solver.md and docs/design/ui-decisions.md.
@@ -493,7 +505,7 @@ Suggested split (the audit may change it):
 > Include complexity notes and the test strategy.
 > ```
 
-**7b. Auto-arrange · Opus** (`feat/auto-layout`). **7c. Generate · Opus** (`feat/generate`). Both use the template: *"Implement part X of docs/design/auto-layout-and-generate.md."*
+**7b. Auto-arrange · Orchestrator (Neon)** (or Opus) (`feat/auto-layout`). **7c. Generate · Orchestrator (Neon)** (or Opus) (`feat/generate`). Both use `/plan` and the template: *"Implement part X of docs/design/auto-layout-and-generate.md."*
 
 **→ Release v0.14-alpha.**
 
@@ -501,24 +513,23 @@ Suggested split (the audit may change it):
 
 ### Step 8 — Audits round 2 → v1.0-Beta backlog
 
-- Re-run the step 2b bug-audit template over **all** code, including the new GameData, expression and node-editor code. Write to `docs/audits/bug-audit-v0.14.md`.
-- Feature-suggestion audit (Flash): *"Compare Factory Planner (read docs/ROADMAP.md and the code) with Satisfactory Tools, Factorio's FactoryPlanner, Helmod and YAFC. List missing features that matter for planning, with value and effort. Write to docs/audits/feature-ideas.md."*
-- **One premium task:** *"Read all files in docs/audits/. De-duplicate and rank them into a v1.0-Beta backlog in docs/design/beta-backlog.md, checked against the v1.0-Beta criteria in docs/ROADMAP.md."*
+- Re-run the step 2b bug-audit template over **all** code, including the new GameData, expression and node-editor code, using **Hydrogen (High)**. Write to `docs/audits/bug-audit-v0.14.md`.
+- Feature-suggestion audit (**Hydrogen High** or **Neon Medium**): *"Compare Factory Planner (read docs/ROADMAP.md and the code) with Satisfactory Tools, Factorio's FactoryPlanner, Helmod and YAFC. List missing features that matter for planning, with value and effort. Write to docs/audits/feature-ideas.md."*
+- **Consolidation · Neon (High):** *"Read all files in docs/audits/. De-duplicate and rank them into a v1.0-Beta backlog in docs/design/beta-backlog.md, checked against the v1.0-Beta criteria in docs/ROADMAP.md."*
 
 Work through the backlog, then **release v1.0-Beta**.
 
 ---
 
-## 5. Premium quota budget (approximate)
+## 5. Model & quota plan (remaining Steps 4–8)
 
-| Step | Opus tasks | Argon tasks |
-|---|---|---|
-| 3 GameData v4 | 3–4 (design, core, solver, maybe review fixes) | 1 (review) |
-| 4 gamedata_tool | 1 (design) | — |
-| 5 UI/UX audit | — | 1 |
-| 6 Node editor | 3–4 | 0–1 (review of the state-ownership PR) |
-| 7 Layout + Generate | 2 | 1 |
-| 8 Consolidation | — | 1 |
-| **Total** | **~10–11** | **~4–5** |
+| Step | Neon (`High`/`XHigh`) | Orchestrator (Neon) | Opus *(optional)* | Hydrogen (`Medium`/`High`) |
+|---|---|---|---|---|
+| 4 `gamedata_tool` & packs | 1 (4d docs) | 2 (4a core, 4c lazy icons) + 4e GTNH | 0–1 (optional for 4c threading) | 2 (4b icons, 4f split) + 4e simpler packs |
+| 5 UI/UX audit | 1 (UI/UX decisions) | — | — | 1 (UI inventory) |
+| 6 Node editor | 0–1 (6.1 state ownership, or review) | 2 (6.2 waypoints, 6.3 flow LOD) | 1 (6.1 vendored-lib state ownership) | 1 (6.4 pruning) |
+| 7 Layout + Generate | 1 (7a algorithm design, `XHigh`) | 2 (7b auto-arrange, 7c generate) | — | — |
+| 8 Audits & consolidation | 1 (Beta backlog) | — | — | 5–6 (bug-audit lenses + feature audit) |
+| **Total (remaining)** | **~4–5** | **~6 (+4e)** | **~1–2** | **~9–10 (+4e)** |
 
-At about 2 + 2 premium tasks per week, the premium work comes to roughly 5–6 weeks of quota. Everything else runs on Flash.
+With **Hydrogen** handling all routine coding, audits, and migrations, and **Orchestrator (Neon)** handling spec-driven multi-file implementations, standalone **Neon (`High`/`XHigh`)** and **Opus** are reserved for high-leverage design, audits, and the trickiest vendored-library C++ refactors.
