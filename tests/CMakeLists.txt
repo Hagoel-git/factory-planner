@@ -12,6 +12,7 @@ add_executable(
         test_golden.cpp
         test_expr.cpp
         test_gamedata_v4.cpp
+        test_gamedata_tool.cpp
 )
 
 target_link_libraries(
@@ -19,6 +20,7 @@ target_link_libraries(
         PRIVATE
         gtest_main
         factory_planner_lib
+        gamedata_tool_lib
 )
 
 if(WIN32)

@@ -51,6 +51,5 @@ using gamedata::UiWidget;
 using gamedata::UnitsDef;
 
 using GameData = gamedata::GamePackage;
-using ImTextureID = unsigned long long;
 
 #endif // GAMEDATA_H

@@ -49,8 +49,7 @@ void ensureV3CompatProfile(GamePackage& pkg);
 void upsertResource(
     GamePackage& pkg,
     std::string id,
-    std::string name = {},
-    unsigned long long texture = 0);
+    std::string name = {});
 
 void upsertMachine(
     GamePackage& pkg,
@@ -58,8 +57,7 @@ void upsertMachine(
     std::string name = {},
     double speed = 1.0,
     std::string profile = "default",
-    std::vector<std::string> categories = {},
-    unsigned long long texture = 0);
+    std::vector<std::string> categories = {});
 
 void upsertRecipe(
     GamePackage& pkg,

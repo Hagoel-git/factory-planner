@@ -2,6 +2,7 @@
 #define FACTORY_PLANNER_TEXTUREMANAGER_H
 
 #include <string>
+#include <string_view>
 #include <filesystem>
 #include <unordered_map>
 #include <imgui.h>
@@ -11,6 +12,10 @@ public:
     static TextureManager &instance();
 
     ImTextureID loadTexture(const std::filesystem::path &filePath);
+
+    ImTextureID loadEntityIcon(const std::filesystem::path &iconRoot,
+                               std::string_view kindDir,
+                               std::string_view id);
 
     void invalidateTexture(const std::filesystem::path &filePath);
 
@@ -26,6 +31,7 @@ private:
     TextureManager &operator=(const TextureManager &) = delete;
 
     std::unordered_map<std::string, unsigned int> m_textures;
+    std::unordered_map<std::string, ImTextureID> m_entityIconCache;
     unsigned int m_missingTextureId = 0;
     bool m_missingTextureLoaded = false;
 

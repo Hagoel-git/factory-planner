@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <chrono>
 #include <cmath>
 #include <fstream>
 #include <functional>
@@ -491,10 +492,21 @@ public:
           m_report(out_report) {}
 
     bool loadFromManifestText(std::string_view manifest_text, const std::string& manifest_rel_name) {
+        using Clock = std::chrono::steady_clock;
+        const auto t0 = Clock::now();
+
         // Stage 0: Parse manifest & shards
+        recordLoadedFile(manifest_rel_name, manifest_text.size());
         if (!runStage0(manifest_text, manifest_rel_name)) {
+            const auto t_fail = Clock::now();
+            m_report.timing_ms.parse =
+                std::chrono::duration<double, std::milli>(t_fail - t0).count();
+            m_report.timing_ms.total = m_report.timing_ms.parse;
             return false;
         }
+        const auto t1 = Clock::now();
+        m_report.timing_ms.parse = std::chrono::duration<double, std::milli>(t1 - t0).count();
+
         // Stage 1: game, resource_kinds, attributes
         runStage1();
         // Stage 2: resources
@@ -514,6 +526,10 @@ public:
         // Stage 9: V-W-2 unused warnings & base EvalEnv assembly
         runStage9();
 
+        const auto t2 = Clock::now();
+        m_report.timing_ms.compile = std::chrono::duration<double, std::milli>(t2 - t1).count();
+        m_report.timing_ms.total = std::chrono::duration<double, std::milli>(t2 - t0).count();
+
         return true;
     }
 
@@ -523,7 +539,8 @@ public:
         std::string json_pointer,
         std::string message,
         size_t line = 0,
-        size_t col = 0) {
+        size_t col = 0,
+        std::string subject = {}) {
         m_report.fatal = true;
         LoadDiagnostic d;
         d.severity = DiagnosticSeverity::Fatal;
@@ -532,12 +549,87 @@ public:
         d.json_pointer = std::move(json_pointer);
         d.line = line;
         d.column = col;
+        d.subject = std::move(subject);
+        d.entity = m_currentEntity;
         d.message = std::move(message);
         d.formatted = formatDiagnostic(d);
         m_report.errors.push_back(std::move(d));
     }
 
 private:
+    struct EntityScope {
+        std::string& slot;
+        std::string prev;
+        EntityScope(std::string& s, std::string val) : slot(s), prev(std::move(s)) {
+            slot = std::move(val);
+        }
+        ~EntityScope() { slot = std::move(prev); }
+    };
+
+    static void setCause(std::string& out_cause, std::string cause) {
+        if (out_cause.empty() && !cause.empty()) {
+            out_cause = std::move(cause);
+        }
+    }
+
+    size_t recordLoadedFile(const std::string& rel_path, uint64_t bytes) {
+        auto it = m_loadedFileIndex.find(rel_path);
+        if (it != m_loadedFileIndex.end()) {
+            return it->second;
+        }
+        const size_t idx = m_report.loaded_files.size();
+        m_loadedFileIndex.emplace(rel_path, idx);
+        m_report.loaded_files.push_back(LoadedFileInfo{rel_path, bytes, 0});
+        return idx;
+    }
+
+    void incrementFileRecipes(const std::string& rel_path) {
+        auto it = m_loadedFileIndex.find(rel_path);
+        if (it != m_loadedFileIndex.end()) {
+            ++m_report.loaded_files[it->second].recipes;
+        }
+    }
+
+    std::string resolveDropRoot(const std::string& entity_key) const {
+        std::string cur = entity_key;
+        for (int depth = 0; depth < 32; ++depth) {
+            auto it = m_report.drop_root.find(cur);
+            if (it == m_report.drop_root.end() || it->second.empty() || it->second == cur) {
+                break;
+            }
+            cur = it->second;
+        }
+        return cur;
+    }
+
+    void recordCascadeDrop(
+        const std::string& singular_kind,
+        const std::string& id,
+        const std::string& cause_key) {
+        if (id.empty() || cause_key.empty()) {
+            return;
+        }
+        std::string key = singular_kind + ":" + id;
+        std::string root = resolveDropRoot(cause_key);
+        if (!root.empty() && root != key) {
+            m_report.drop_root.emplace(std::move(key), std::move(root));
+        }
+    }
+
+    static std::string compileErrorSubject(const expr::CompileError& cerr) {
+        if (cerr.offending_symbol.empty()) {
+            return {};
+        }
+        switch (cerr.offending_kind) {
+            case expr::OffendingSymbolKind::Parameter:
+                return "param." + cerr.offending_symbol;
+            case expr::OffendingSymbolKind::Global:
+                return "global." + cerr.offending_symbol;
+            default:
+                return cerr.offending_symbol;
+        }
+    }
+
     static std::string formatDiagnostic(const LoadDiagnostic& d) {
         std::ostringstream oss;
         if (!d.file.empty()) {
@@ -564,7 +656,8 @@ private:
         std::string json_pointer,
         std::string message,
         size_t line = 0,
-        size_t col = 0) {
+        size_t col = 0,
+        std::string subject = {}) {
         LoadDiagnostic d;
         d.severity = DiagnosticSeverity::Error;
         d.rule_id = std::move(rule_id);
@@ -572,6 +665,8 @@ private:
         d.json_pointer = std::move(json_pointer);
         d.line = line;
         d.column = col;
+        d.subject = std::move(subject);
+        d.entity = m_currentEntity;
         d.message = std::move(message);
         d.formatted = formatDiagnostic(d);
         m_report.errors.push_back(std::move(d));
@@ -590,6 +685,8 @@ private:
         d.json_pointer = std::move(json_pointer);
         d.line = cerr.line;
         d.column = cerr.column;
+        d.subject = compileErrorSubject(cerr);
+        d.entity = m_currentEntity;
         d.message = cerr.message + suffix_msg;
         expr::CompileError adjusted = cerr;
         adjusted.message = d.message;
@@ -601,12 +698,15 @@ private:
         std::string rule_id,
         std::string file,
         std::string json_pointer,
-        std::string message) {
+        std::string message,
+        std::string subject = {}) {
         LoadDiagnostic d;
         d.severity = DiagnosticSeverity::Warning;
         d.rule_id = std::move(rule_id);
         d.file = std::move(file);
         d.json_pointer = std::move(json_pointer);
+        d.subject = std::move(subject);
+        d.entity = m_currentEntity;
         d.message = std::move(message);
         d.formatted = formatDiagnostic(d);
         m_report.warnings.push_back(std::move(d));
@@ -639,76 +739,93 @@ private:
             const std::string& k = it.key();
             if (std::find(allowed_keys.begin(), allowed_keys.end(), k) == allowed_keys.end()) {
                 std::string ptr = (base_ptr == "/") ? ("/" + k) : (base_ptr + "/" + k);
-                addError("V-STRUCT-1", file, ptr, formatUnknownFieldMessage(k, allowed_keys));
+                addError("V-STRUCT-1", file, ptr, formatUnknownFieldMessage(k, allowed_keys), 0, 0, k);
                 ok = false;
             }
         }
         if (obj.contains("notes") && !obj["notes"].is_string()) {
             std::string ptr = (base_ptr == "/") ? "/notes" : (base_ptr + "/notes");
             addError("V-STRUCT-2", file, ptr,
-                     "expected string for 'notes', got " + jsonTypeName(obj["notes"]));
+                     "expected string for 'notes', got " + jsonTypeName(obj["notes"]), 0, 0, "notes");
             ok = false;
         }
         return ok;
     }
 
     // Secondary error suppression check (§9.1):
-    // Returns true if the CompileError was caused by referencing an entity that already failed
-    // in an earlier validation stage.
-    bool isSecondaryCompileError(const expr::CompileError& err) const {
+    // Returns the causing failed entity key ("kind:id") if the CompileError was caused by
+    // referencing an entity that already failed in an earlier validation stage.
+    std::optional<std::string> findSecondaryCompileCause(const expr::CompileError& err) const {
         switch (err.offending_kind) {
             case expr::OffendingSymbolKind::Resource:
-                return m_failedResources.count(err.offending_symbol) > 0;
+                if (m_failedResources.count(err.offending_symbol) > 0) {
+                    return "resource:" + err.offending_symbol;
+                }
+                return std::nullopt;
             case expr::OffendingSymbolKind::Table:
-                return m_failedTables.count(err.offending_symbol) > 0;
+                if (m_failedTables.count(err.offending_symbol) > 0) {
+                    return "table:" + err.offending_symbol;
+                }
+                return std::nullopt;
             case expr::OffendingSymbolKind::OptionKey:
-                return m_failedOptionSets.count(err.offending_parent) > 0;
+                if (m_failedOptionSets.count(err.offending_parent) > 0) {
+                    return "option_set:" + err.offending_parent;
+                }
+                return std::nullopt;
             case expr::OffendingSymbolKind::Parameter:
-                return m_failedParameters.count(err.offending_symbol) > 0;
+                if (m_failedParameters.count(err.offending_symbol) > 0) {
+                    return "parameter:" + err.offending_symbol;
+                }
+                return std::nullopt;
             case expr::OffendingSymbolKind::Global:
-                return m_failedGlobals.count(err.offending_symbol) > 0;
+                if (m_failedGlobals.count(err.offending_symbol) > 0) {
+                    return "global:" + err.offending_symbol;
+                }
+                return std::nullopt;
             case expr::OffendingSymbolKind::Attribute: {
                 if (m_failedOptionSets.count(err.offending_parent) > 0) {
-                    return true;
+                    return "option_set:" + err.offending_parent;
                 }
                 auto it = m_failedAttrs.find(err.offending_parent);
                 if (it != m_failedAttrs.end() && it->second.count(err.offending_symbol) > 0) {
-                    return true;
+                    return "attribute:" + err.offending_parent + "." + err.offending_symbol;
                 }
-                return false;
+                return std::nullopt;
             }
             default:
-                return false;
+                return std::nullopt;
         }
     }
 
-    // Checks if a compiled expression references any entity that failed in an earlier stage.
-    bool referencesFailedEntity(const expr::CompiledExpr& comp) const {
+    // Checks if a compiled expression references any entity that failed in an earlier stage,
+    // returning the causing failed entity key ("kind:id") if so.
+    std::optional<std::string> findFailedEntityCause(const expr::CompiledExpr& comp) const {
         for (const auto& g : comp.referenced_globals) {
-            if (m_failedGlobals.count(g)) return true;
+            if (m_failedGlobals.count(g)) return "global:" + g;
         }
         for (const auto& p : comp.referenced_params) {
-            if (m_failedParameters.count(p)) return true;
+            if (m_failedParameters.count(p)) return "parameter:" + p;
         }
         for (const auto& t : comp.referenced_tables) {
-            if (m_failedTables.count(t)) return true;
+            if (m_failedTables.count(t)) return "table:" + t;
         }
         for (const auto& r : comp.referenced_resources) {
-            if (m_failedResources.count(r)) return true;
+            if (m_failedResources.count(r)) return "resource:" + r;
         }
-        auto checkAttrs = [&](const std::string& kind, const std::vector<std::string>& attrs) {
+        auto checkAttrs = [&](const std::string& kind,
+                              const std::vector<std::string>& attrs) -> std::optional<std::string> {
             auto it = m_failedAttrs.find(kind);
-            if (it == m_failedAttrs.end()) return false;
+            if (it == m_failedAttrs.end()) return std::nullopt;
             for (const auto& a : attrs) {
-                if (it->second.count(a)) return true;
+                if (it->second.count(a)) return "attribute:" + kind + "." + a;
             }
-            return false;
+            return std::nullopt;
         };
-        if (checkAttrs("machine", comp.referenced_machine_attrs)) return true;
-        if (checkAttrs("recipe", comp.referenced_recipe_attrs)) return true;
-        if (checkAttrs("port", comp.referenced_port_attrs)) return true;
-        if (checkAttrs("resource", comp.referenced_resource_attrs)) return true;
-        return false;
+        if (auto c = checkAttrs("machine", comp.referenced_machine_attrs)) return c;
+        if (auto c = checkAttrs("recipe", comp.referenced_recipe_attrs)) return c;
+        if (auto c = checkAttrs("port", comp.referenced_port_attrs)) return c;
+        if (auto c = checkAttrs("resource", comp.referenced_resource_attrs)) return c;
+        return std::nullopt;
     }
 
     void recordExprUsage(const expr::CompiledExpr& comp, bool in_resource_expr = false) {
@@ -1008,6 +1125,7 @@ private:
             return false;
         }
         m_pkg.game.id = game_id;
+        m_report.game_id = game_id;
 
         // F-5: units
         if (!m.contains("units") || !m["units"].is_object()) {
@@ -1271,6 +1389,7 @@ private:
     }
 
     void loadSingleShardText(const std::string& rel_name, std::string_view text) {
+        recordLoadedFile(rel_name, text.size());
         SaxParseOutcome parsed = parseJsonWithDuplicateCheck(text);
         if (!parsed.ok) {
             addError(
@@ -1388,11 +1507,12 @@ private:
         };
 
         for (const std::string& kind_id : m_resourceKindOrder) {
+            EntityScope entity_scope(m_currentEntity, "resource_kind:" + kind_id);
             const RawEntry& raw = m_rawResourceKinds.at(kind_id);
             bool ok = true;
             if (!expr::isValidSlugId(kind_id)) {
                 addError("V-ID-1", raw.file, raw.json_pointer,
-                         "invalid resource_kind id '" + kind_id + "' (must match [a-z0-9_-]+)");
+                         "invalid resource_kind id '" + kind_id + "' (must match [a-z0-9_-]+)", 0, 0, kind_id);
                 ok = false;
             }
             if (!raw.value.is_object()) {
@@ -1458,6 +1578,7 @@ private:
             const auto& order_vec = m_attributeOrder[ek];
             const auto& raw_map = m_rawAttributes[ek];
             for (const std::string& attr_name : order_vec) {
+                EntityScope entity_scope(m_currentEntity, "attribute:" + std::string(ek) + "." + attr_name);
                 const RawEntry& raw = raw_map.at(attr_name);
                 AttributeDecl decl;
                 if (validateAttributeDeclaration(ek, attr_name, raw.value, raw.file, raw.json_pointer, decl)) {
@@ -1588,7 +1709,7 @@ private:
         const std::string& file,
         const std::string& ptr,
         std::unordered_map<std::string, expr::EvalValue>& out_attrs,
-        bool& out_cascade_dropped) {
+        std::string& out_cascade_root) {
         if (!attrs_json.is_object()) {
             addError("V-STRUCT-2", file, ptr,
                      "expected object for 'attrs', got " + jsonTypeName(attrs_json));
@@ -1611,7 +1732,7 @@ private:
             auto decl_it = declared_attrs.find(attr_name);
             if (decl_it == declared_attrs.end()) {
                 if (failed_attrs_for_kind.count(attr_name)) {
-                    out_cascade_dropped = true;
+                    setCause(out_cascade_root, "attribute:" + entity_kind + "." + attr_name);
                     ok = false;
                     continue;
                 }
@@ -1632,7 +1753,7 @@ private:
                 }
                 msg += "declare it under " + decl_path_prefix + ": \"" + attr_name +
                        "\": { \"type\": \"" + inferred_type + "\", \"default\": " + inferred_def + " })";
-                addError("V-ATTR-1", file, attr_ptr, std::move(msg));
+                addError("V-ATTR-1", file, attr_ptr, std::move(msg), 0, 0, attr_name);
                 ok = false;
                 continue;
             }
@@ -1664,8 +1785,14 @@ private:
                 continue;
             }
             const json& rj = item.value;
+            const size_t errors_before = m_report.errors.size();
+            EntityScope entity_scope(
+                m_currentEntity,
+                (rj.contains("id") && rj["id"].is_string() && !rj["id"].get<std::string>().empty())
+                    ? ("resource:" + rj["id"].get<std::string>())
+                    : std::string{});
             bool ok = checkAllowedKeys(rj, item.file, item.json_pointer, kResourceKeys);
-            bool cascade = false;
+            std::string cascade_root;
 
             std::string id;
             if (!rj.contains("id")) {
@@ -1679,7 +1806,7 @@ private:
                 id = rj["id"].get<std::string>();
                 if (!expr::isValidSlugId(id)) {
                     addError("V-ID-1", item.file, item.json_pointer + "/id",
-                             "invalid id '" + id + "' (must match [a-z0-9_-]+)");
+                             "invalid id '" + id + "' (must match [a-z0-9_-]+)", 0, 0, id);
                     ok = false;
                 }
             }
@@ -1689,7 +1816,8 @@ private:
                 if (seen_it != first_seen_res.end()) {
                     addError("V-ID-2", item.file, item.json_pointer + "/id",
                              "duplicate resource id '" + id + "' (first defined at " +
-                                 seen_it->second.first + ": " + seen_it->second.second + ")");
+                                 seen_it->second.first + ": " + seen_it->second.second + ")",
+                             0, 0, id);
                     markDropped("resources", id);
                     continue;
                 }
@@ -1722,11 +1850,11 @@ private:
 
             if (m_pkg.findResourceKind(res.kind) == nullptr) {
                 if (m_failedResourceKinds.count(res.kind)) {
-                    cascade = true;
+                    setCause(cascade_root, "resource_kind:" + res.kind);
                     ok = false;
                 } else {
                     addError("V-REF-5", item.file, item.json_pointer + "/kind",
-                             "unknown resource kind '" + res.kind + "'");
+                             "unknown resource kind '" + res.kind + "'", 0, 0, res.kind);
                     ok = false;
                 }
             }
@@ -1748,7 +1876,8 @@ private:
                             std::string tag_str = tj.get<std::string>();
                             if (!expr::isValidSlugId(tag_str)) {
                                 addError("V-ID-1", item.file, tptr,
-                                         "invalid tag '" + tag_str + "' (must match [a-z0-9_-]+)");
+                                         "invalid tag '" + tag_str + "' (must match [a-z0-9_-]+)",
+                                         0, 0, tag_str);
                                 ok = false;
                             } else {
                                 if (res.tag_set.insert(tag_str).second) {
@@ -1765,17 +1894,27 @@ private:
                         "resource", "/attributes/resource",
                         m_pkg.attributes["resource"], m_failedAttrs["resource"],
                         rj["attrs"], item.file, item.json_pointer + "/attrs",
-                        res.attrs, cascade)) {
+                        res.attrs, cascade_root)) {
                     ok = false;
                 }
             }
 
-            if (ok && !cascade && !res.id.empty()) {
+            if (ok && cascade_root.empty() && !res.id.empty()) {
                 m_pkg.resource_index[res.id] = m_pkg.resources.size();
                 m_pkg.resources.push_back(std::move(res));
             } else {
+                const bool is_pure_cascade = !cascade_root.empty() && m_report.errors.size() == errors_before;
+                if (is_pure_cascade && !id.empty()) {
+                    recordCascadeDrop("resource", id, cascade_root);
+                }
+                const std::string eff_root = is_pure_cascade
+                    ? resolveDropRoot(cascade_root)
+                    : (id.empty() ? std::string{} : ("resource:" + id));
                 for (const auto& t : res.tags) {
                     m_tagsOfFailedResources.insert(t);
+                    if (!eff_root.empty()) {
+                        m_failedTagCause.emplace(t, eff_root);
+                    }
                 }
                 if (!id.empty()) {
                     m_failedResources.insert(id);
@@ -1795,11 +1934,12 @@ private:
 
         // 1. Option sets
         for (const std::string& set_id : m_optionSetOrder) {
+            EntityScope entity_scope(m_currentEntity, "option_set:" + set_id);
             const RawEntry& raw = m_rawOptionSets.at(set_id);
             bool ok = true;
             if (!expr::isValidSlugId(set_id)) {
                 addError("V-ID-1", raw.file, raw.json_pointer,
-                         "invalid option_set id '" + set_id + "' (must match [a-z0-9_-]+)");
+                         "invalid option_set id '" + set_id + "' (must match [a-z0-9_-]+)", 0, 0, set_id);
                 ok = false;
             }
             if (!raw.value.is_object()) {
@@ -1901,7 +2041,7 @@ private:
                     }
 
                     if (oj.contains("attrs")) {
-                        bool opt_cascade = false;
+                        std::string opt_cascade;
                         if (!validateEntityAttrs(
                                 "option", "/option_sets/" + set_id + "/attrs",
                                 oset.attrs, failed_opt_attrs,
@@ -1929,11 +2069,12 @@ private:
 
         // 2. Tables
         for (const std::string& tbl_id : m_tableOrder) {
+            EntityScope entity_scope(m_currentEntity, "table:" + tbl_id);
             const RawEntry& raw = m_rawTables.at(tbl_id);
             bool ok = true;
             if (!expr::isValidSlugId(tbl_id)) {
                 addError("V-ID-1", raw.file, raw.json_pointer,
-                         "invalid table id '" + tbl_id + "' (must match [a-z0-9_-]+)");
+                         "invalid table id '" + tbl_id + "' (must match [a-z0-9_-]+)", 0, 0, tbl_id);
                 ok = false;
             }
 
@@ -2021,14 +2162,15 @@ private:
         const RawEntry& raw,
         bool is_global,
         ParameterDef& out_def,
-        bool& out_cascade) {
+        std::string& out_cascade_root) {
+        EntityScope entity_scope(m_currentEntity, std::string(is_global ? "global:" : "parameter:") + id);
         const char* drop_kind = is_global ? "globals" : "parameters";
         bool ok = true;
 
         if (!expr::isValidIdentifierId(id) || expr::isReservedIdentifier(id)) {
             addError("V-ID-1", raw.file, raw.json_pointer,
                      std::string("invalid ") + (is_global ? "global" : "parameter") + " id '" + id +
-                         "' (must match [a-z_][a-z0-9_]* and not be a reserved name)");
+                         "' (must match [a-z_][a-z0-9_]* and not be a reserved name)", 0, 0, id);
             ok = false;
         }
 
@@ -2316,11 +2458,11 @@ private:
                 oset = m_pkg.findOptionSet(out_def.option_set);
                 if (oset == nullptr) {
                     if (m_failedOptionSets.count(out_def.option_set)) {
-                        out_cascade = true;
+                        setCause(out_cascade_root, "option_set:" + out_def.option_set);
                         ok = false;
                     } else {
                         addError("V-REF-5", raw.file, raw.json_pointer + "/option_set",
-                                 "unknown option_set '" + out_def.option_set + "'");
+                                 "unknown option_set '" + out_def.option_set + "'", 0, 0, out_def.option_set);
                         ok = false;
                     }
                 } else {
@@ -2394,11 +2536,11 @@ private:
                         std::string r_id = r_elem.get<std::string>();
                         if (m_pkg.findResource(r_id) == nullptr) {
                             if (m_failedResources.count(r_id)) {
-                                out_cascade = true;
+                                setCause(out_cascade_root, "resource:" + r_id);
                                 ok = false;
                             } else {
                                 addError("V-REF-1", raw.file, r_ptr,
-                                         "unknown resource '" + r_id + "'");
+                                         "unknown resource '" + r_id + "'", 0, 0, r_id);
                                 ok = false;
                             }
                         } else {
@@ -2417,7 +2559,8 @@ private:
                     out_def.tag = pj["tag"].get<std::string>();
                     if (!expr::isValidSlugId(out_def.tag)) {
                         addError("V-ID-1", raw.file, raw.json_pointer + "/tag",
-                                 "invalid tag '" + out_def.tag + "' (must match [a-z0-9_-]+)");
+                                 "invalid tag '" + out_def.tag + "' (must match [a-z0-9_-]+)",
+                                 0, 0, out_def.tag);
                         ok = false;
                     } else {
                         for (const auto& res : m_pkg.resources) {
@@ -2428,11 +2571,13 @@ private:
                         }
                         if (out_def.candidate_resources.empty()) {
                             if (m_tagsOfFailedResources.count(out_def.tag)) {
-                                out_cascade = true;
+                                auto it = m_failedTagCause.find(out_def.tag);
+                                setCause(out_cascade_root,
+                                         it != m_failedTagCause.end() ? it->second : std::string{});
                                 ok = false;
                             } else {
                                 addError("V-REF-5", raw.file, raw.json_pointer + "/tag",
-                                         "no resource has tag '" + out_def.tag + "'");
+                                         "no resource has tag '" + out_def.tag + "'", 0, 0, out_def.tag);
                                 ok = false;
                             }
                         }
@@ -2455,11 +2600,11 @@ private:
                     std::string def_res = def_j.get<std::string>();
                     if (m_pkg.findResource(def_res) == nullptr) {
                         if (m_failedResources.count(def_res)) {
-                            out_cascade = true;
+                            setCause(out_cascade_root, "resource:" + def_res);
                             ok = false;
                         } else {
                             addError("V-REF-1", raw.file, raw.json_pointer + "/default",
-                                     "unknown resource '" + def_res + "'");
+                                     "unknown resource '" + def_res + "'", 0, 0, def_res);
                             ok = false;
                         }
                     } else if (!out_def.candidate_resources.empty() &&
@@ -2501,11 +2646,11 @@ private:
                 oset = m_pkg.findOptionSet(out_def.option_set);
                 if (oset == nullptr) {
                     if (m_failedOptionSets.count(out_def.option_set)) {
-                        out_cascade = true;
+                        setCause(out_cascade_root, "option_set:" + out_def.option_set);
                         ok = false;
                     } else {
                         addError("V-REF-5", raw.file, raw.json_pointer + "/option_set",
-                                 "unknown option_set '" + out_def.option_set + "'");
+                                 "unknown option_set '" + out_def.option_set + "'", 0, 0, out_def.option_set);
                         ok = false;
                     }
                 } else {
@@ -2717,7 +2862,8 @@ private:
         const expr::CompileEnv& base_env,
         std::vector<std::string>& out_referenced_globals,
         std::vector<std::string>& out_referenced_params,
-        bool& out_cascade) {
+        std::string& out_cascade_root) {
+        EntityScope entity_scope(m_currentEntity, std::string(is_global ? "global:" : "parameter:") + def.id);
         bool ok = true;
 
         auto compileField = [&](const char* field,
@@ -2747,8 +2893,8 @@ private:
 
             expr::CompileResult res = expr::compile(expr_src, env, expected_t);
             if (!res.ok) {
-                if (isSecondaryCompileError(res.error)) {
-                    out_cascade = true;
+                if (auto cause = findSecondaryCompileCause(res.error)) {
+                    setCause(out_cascade_root, *cause);
                     ok = false;
                     return;
                 }
@@ -2756,8 +2902,8 @@ private:
                 ok = false;
                 return;
             }
-            if (referencesFailedEntity(res.expr)) {
-                out_cascade = true;
+            if (auto cause = findFailedEntityCause(res.expr)) {
+                setCause(out_cascade_root, *cause);
                 ok = false;
                 return;
             }
@@ -2798,7 +2944,7 @@ private:
                          expr::ExpectedType::Bool, true, allow_port, def.allowed_if.compiled_expr);
         }
 
-        return ok && !out_cascade;
+        return ok && out_cascade_root.empty();
     }
 
     void runStage4() {
@@ -2807,10 +2953,14 @@ private:
         for (const std::string& gid : m_globalOrder) {
             const RawEntry& raw = m_rawGlobals.at(gid);
             ParameterDef def;
-            bool cascade = false;
-            if (validateParamStructure(gid, raw, true, def, cascade) && !cascade) {
+            std::string cascade_root;
+            const size_t errors_before = m_report.errors.size();
+            if (validateParamStructure(gid, raw, true, def, cascade_root) && cascade_root.empty()) {
                 pending_globals.push_back(PendingParam{gid, raw, std::move(def)});
             } else {
+                if (!cascade_root.empty() && m_report.errors.size() == errors_before) {
+                    recordCascadeDrop("global", gid, cascade_root);
+                }
                 m_failedGlobals.insert(gid);
                 markDropped("globals", gid);
             }
@@ -2821,10 +2971,14 @@ private:
         for (const std::string& pid : m_parameterOrder) {
             const RawEntry& raw = m_rawParameters.at(pid);
             ParameterDef def;
-            bool cascade = false;
-            if (validateParamStructure(pid, raw, false, def, cascade) && !cascade) {
+            std::string cascade_root;
+            const size_t errors_before = m_report.errors.size();
+            if (validateParamStructure(pid, raw, false, def, cascade_root) && cascade_root.empty()) {
                 pending_params.push_back(PendingParam{pid, raw, std::move(def)});
             } else {
+                if (!cascade_root.empty() && m_report.errors.size() == errors_before) {
+                    recordCascadeDrop("parameter", pid, cascade_root);
+                }
                 m_failedParameters.insert(pid);
                 markDropped("parameters", pid);
             }
@@ -2846,11 +3000,15 @@ private:
         for (auto& pg : pending_globals) {
             std::vector<std::string> ref_globals;
             std::vector<std::string> ref_params;
-            bool cascade = false;
-            if (compileParamStaticExprs(pg.def, pg.raw, true, base_env, ref_globals, ref_params, cascade)) {
+            std::string cascade_root;
+            const size_t errors_before = m_report.errors.size();
+            if (compileParamStaticExprs(pg.def, pg.raw, true, base_env, ref_globals, ref_params, cascade_root)) {
                 global_deps[pg.id] = std::move(ref_globals);
                 compiled_globals_map.emplace(pg.id, std::move(pg));
             } else {
+                if (!cascade_root.empty() && m_report.errors.size() == errors_before) {
+                    recordCascadeDrop("global", pg.id, cascade_root);
+                }
                 m_failedGlobals.insert(pg.id);
                 markDropped("globals", pg.id);
             }
@@ -2862,14 +3020,15 @@ private:
             changed = false;
             for (auto it = compiled_globals_map.begin(); it != compiled_globals_map.end();) {
                 const std::string& gid = it->first;
-                bool refs_failed = false;
+                std::string failed_dep;
                 for (const std::string& dep : global_deps[gid]) {
                     if (m_failedGlobals.count(dep)) {
-                        refs_failed = true;
+                        failed_dep = dep;
                         break;
                     }
                 }
-                if (refs_failed) {
+                if (!failed_dep.empty()) {
+                    recordCascadeDrop("global", gid, "global:" + failed_dep);
                     m_failedGlobals.insert(gid);
                     markDropped("globals", gid);
                     global_deps.erase(gid);
@@ -2884,17 +3043,26 @@ private:
         // Check global cycles (V-EXPR-6)
         expr::DependencyOrderResult g_order = expr::resolveDependencyOrder(global_deps);
         if (!g_order.ok) {
+            std::string cycle_root;
             if (!g_order.cycled_nodes.empty()) {
                 const std::string& first_cycled = g_order.cycled_nodes.front();
+                cycle_root = "global:" + first_cycled;
+                EntityScope entity_scope(m_currentEntity, cycle_root);
                 const auto& raw = compiled_globals_map.at(first_cycled).raw;
-                addError("V-EXPR-6", raw.file, raw.json_pointer, g_order.cycle_message);
+                addError("V-EXPR-6", raw.file, raw.json_pointer, g_order.cycle_message, 0, 0, first_cycled);
             }
             for (const std::string& cg : g_order.cycled_nodes) {
+                if (!cycle_root.empty() && ("global:" + cg) != cycle_root) {
+                    recordCascadeDrop("global", cg, cycle_root);
+                }
                 m_failedGlobals.insert(cg);
                 markDropped("globals", cg);
                 compiled_globals_map.erase(cg);
             }
             for (const std::string& dg : g_order.downstream_of_cycle) {
+                if (!cycle_root.empty()) {
+                    recordCascadeDrop("global", dg, cycle_root);
+                }
                 m_failedGlobals.insert(dg);
                 markDropped("globals", dg);
                 compiled_globals_map.erase(dg);
@@ -2923,11 +3091,15 @@ private:
         for (auto& pp : pending_params) {
             std::vector<std::string> ref_globals;
             std::vector<std::string> ref_params;
-            bool cascade = false;
-            if (compileParamStaticExprs(pp.def, pp.raw, false, base_env, ref_globals, ref_params, cascade)) {
+            std::string cascade_root;
+            const size_t errors_before = m_report.errors.size();
+            if (compileParamStaticExprs(pp.def, pp.raw, false, base_env, ref_globals, ref_params, cascade_root)) {
                 param_deps[pp.id] = std::move(ref_params);
                 compiled_params_map.emplace(pp.id, std::move(pp));
             } else {
+                if (!cascade_root.empty() && m_report.errors.size() == errors_before) {
+                    recordCascadeDrop("parameter", pp.id, cascade_root);
+                }
                 m_failedParameters.insert(pp.id);
                 markDropped("parameters", pp.id);
             }
@@ -2939,14 +3111,15 @@ private:
             changed = false;
             for (auto it = compiled_params_map.begin(); it != compiled_params_map.end();) {
                 const std::string& pid = it->first;
-                bool refs_failed = false;
+                std::string failed_dep;
                 for (const std::string& dep : param_deps[pid]) {
                     if (m_failedParameters.count(dep)) {
-                        refs_failed = true;
+                        failed_dep = dep;
                         break;
                     }
                 }
-                if (refs_failed) {
+                if (!failed_dep.empty()) {
+                    recordCascadeDrop("parameter", pid, "parameter:" + failed_dep);
                     m_failedParameters.insert(pid);
                     markDropped("parameters", pid);
                     param_deps.erase(pid);
@@ -2977,11 +3150,12 @@ private:
         };
 
         for (const std::string& mid : m_metricOrder) {
+            EntityScope entity_scope(m_currentEntity, "metric:" + mid);
             const RawEntry& raw = m_rawMetrics.at(mid);
             bool ok = true;
             if (!expr::isValidSlugId(mid)) {
                 addError("V-ID-1", raw.file, raw.json_pointer,
-                         "invalid metric id '" + mid + "' (must match [a-z0-9_-]+)");
+                         "invalid metric id '" + mid + "' (must match [a-z0-9_-]+)", 0, 0, mid);
                 ok = false;
             }
             if (!raw.value.is_object()) {
@@ -3130,7 +3304,7 @@ private:
         const std::string& ptr,
         const expr::CompileEnv& base_env,
         ProfileMetricEntry& out_entry,
-        bool& out_cascade) {
+        std::string& out_cascade_root) {
         if (!entry_j.is_object()) {
             addError("V-STRUCT-2", file, ptr,
                      "expected object for metric entry, got " + jsonTypeName(entry_j));
@@ -3148,7 +3322,7 @@ private:
 
         if (form_count != 1) {
             addError("V-PROF-3", file, ptr,
-                     "give exactly one of per_machine, per_craft, value");
+                     "give exactly one of per_machine, per_craft, value", 0, 0, metric_id);
             return false;
         }
 
@@ -3171,14 +3345,14 @@ private:
                 expr::CompileResult res = expr::compile(
                     out_entry.enabled.expr_src, env, expr::ExpectedType::Bool);
                 if (!res.ok) {
-                    if (isSecondaryCompileError(res.error)) {
-                        out_cascade = true;
+                    if (auto cause = findSecondaryCompileCause(res.error)) {
+                        setCause(out_cascade_root, *cause);
                         return false;
                     }
                     addCompileError(res.error, file, en_ptr);
                     ok = false;
-                } else if (referencesFailedEntity(res.expr)) {
-                    out_cascade = true;
+                } else if (auto cause = findFailedEntityCause(res.expr)) {
+                    setCause(out_cascade_root, *cause);
                     return false;
                 } else {
                     recordExprUsage(res.expr);
@@ -3230,21 +3404,21 @@ private:
         expr::CompileResult res = expr::compile(
             out_entry.expr_src, env, expr::ExpectedType::Number);
         if (!res.ok) {
-            if (isSecondaryCompileError(res.error)) {
-                out_cascade = true;
+            if (auto cause = findSecondaryCompileCause(res.error)) {
+                setCause(out_cascade_root, *cause);
                 return false;
             }
             addCompileError(res.error, file, form_ptr);
             ok = false;
-        } else if (referencesFailedEntity(res.expr)) {
-            out_cascade = true;
+        } else if (auto cause = findFailedEntityCause(res.expr)) {
+            setCause(out_cascade_root, *cause);
             return false;
         } else {
             recordExprUsage(res.expr);
             out_entry.compiled_expr = std::move(res.expr);
         }
 
-        return ok && !out_cascade;
+        return ok && out_cascade_root.empty();
     }
 
     static Profile makeBuiltinDefaultProfile() {
@@ -3289,11 +3463,12 @@ private:
         std::unordered_map<std::string, std::vector<std::string>> extends_deps;
 
         for (const std::string& pid : m_profileOrder) {
+            EntityScope entity_scope(m_currentEntity, "profile:" + pid);
             const RawEntry& raw = m_rawProfiles.at(pid);
             bool ok = true;
             if (!expr::isValidSlugId(pid)) {
                 addError("V-ID-1", raw.file, raw.json_pointer,
-                         "invalid profile id '" + pid + "' (must match [a-z0-9_-]+)");
+                         "invalid profile id '" + pid + "' (must match [a-z0-9_-]+)", 0, 0, pid);
                 ok = false;
             }
             if (!raw.value.is_object()) {
@@ -3344,6 +3519,7 @@ private:
                 if (!deps.empty()) {
                     const std::string& parent_id = deps[0];
                     if (m_failedProfiles.count(parent_id)) {
+                        recordCascadeDrop("profile", pid, "profile:" + parent_id);
                         m_failedProfiles.insert(pid);
                         markDropped("profiles", pid);
                         it = extends_deps.erase(it);
@@ -3351,9 +3527,10 @@ private:
                         continue;
                     }
                     if (m_rawProfiles.find(parent_id) == m_rawProfiles.end()) {
+                        EntityScope entity_scope(m_currentEntity, "profile:" + pid);
                         const RawEntry& raw = m_rawProfiles.at(pid);
                         addError("V-PROF-1", raw.file, raw.json_pointer + "/extends",
-                                 "unknown profile '" + parent_id + "'");
+                                 "unknown profile '" + parent_id + "'", 0, 0, parent_id);
                         m_failedProfiles.insert(pid);
                         markDropped("profiles", pid);
                         it = extends_deps.erase(it);
@@ -3368,17 +3545,26 @@ private:
         // Check for extends cycles (V-PROF-2)
         expr::DependencyOrderResult prof_order = expr::resolveDependencyOrder(extends_deps);
         if (!prof_order.ok) {
+            std::string cycle_root;
             if (!prof_order.cycled_nodes.empty()) {
                 const std::string& first_cycled = prof_order.cycled_nodes.front();
+                cycle_root = "profile:" + first_cycled;
+                EntityScope entity_scope(m_currentEntity, cycle_root);
                 const RawEntry& raw = m_rawProfiles.at(first_cycled);
                 addError("V-PROF-2", raw.file, raw.json_pointer + "/extends",
-                         "inheritance " + prof_order.cycle_message);
+                         "inheritance " + prof_order.cycle_message, 0, 0, first_cycled);
             }
             for (const std::string& cp : prof_order.cycled_nodes) {
+                if (!cycle_root.empty() && ("profile:" + cp) != cycle_root) {
+                    recordCascadeDrop("profile", cp, cycle_root);
+                }
                 m_failedProfiles.insert(cp);
                 markDropped("profiles", cp);
             }
             for (const std::string& dp : prof_order.downstream_of_cycle) {
+                if (!cycle_root.empty()) {
+                    recordCascadeDrop("profile", dp, cycle_root);
+                }
                 m_failedProfiles.insert(dp);
                 markDropped("profiles", dp);
             }
@@ -3390,9 +3576,11 @@ private:
         std::unordered_map<std::string, Profile> valid_profiles_map;
 
         for (const std::string& pid : prof_order.order) {
+            EntityScope entity_scope(m_currentEntity, "profile:" + pid);
             const RawEntry& raw = m_rawProfiles.at(pid);
             const std::string& parent_id = parent_of[pid];
             if (!parent_id.empty() && m_failedProfiles.count(parent_id)) {
+                recordCascadeDrop("profile", pid, "profile:" + parent_id);
                 m_failedProfiles.insert(pid);
                 markDropped("profiles", pid);
                 continue;
@@ -3404,10 +3592,14 @@ private:
             prof.id = pid;
             prof.extends = parent_id;
 
-            bool cascade = false;
-            if (mergeAndCompileProfile(prof, raw, base_env, cascade) && !cascade) {
+            std::string cascade_root;
+            const size_t errors_before = m_report.errors.size();
+            if (mergeAndCompileProfile(prof, raw, base_env, cascade_root) && cascade_root.empty()) {
                 valid_profiles_map.emplace(pid, std::move(prof));
             } else {
+                if (!cascade_root.empty() && m_report.errors.size() == errors_before) {
+                    recordCascadeDrop("profile", pid, cascade_root);
+                }
                 m_failedProfiles.insert(pid);
                 markDropped("profiles", pid);
             }
@@ -3426,7 +3618,7 @@ private:
         Profile& prof,
         const RawEntry& raw,
         const expr::CompileEnv& base_env,
-        bool& out_cascade) {
+        std::string& out_cascade_root) {
         const json& pj = raw.value;
         bool ok = true;
 
@@ -3449,11 +3641,12 @@ private:
                 std::string param_id = pe.get<std::string>();
                 if (m_pkg.findParameter(param_id) == nullptr) {
                     if (m_failedParameters.count(param_id)) {
-                        out_cascade = true;
+                        setCause(out_cascade_root, "parameter:" + param_id);
                         ok = false;
                     } else {
                         addError("V-EXPR-5", raw.file, pptr,
-                                 "unknown parameter '" + param_id + "' in profile '" + prof.id + "'");
+                                 "unknown parameter '" + param_id + "' in profile '" + prof.id + "'",
+                                 0, 0, param_id);
                         ok = false;
                     }
                     continue;
@@ -3463,7 +3656,7 @@ private:
             }
         }
 
-        if (!ok || out_cascade) {
+        if (!ok || !out_cascade_root.empty()) {
             return false;
         }
 
@@ -3547,8 +3740,8 @@ private:
         expr::LetCompileResult let_res = expr::compileLetMap(prof.let, prof_env);
         if (!let_res.ok) {
             for (const auto& cerr : let_res.errors) {
-                if (isSecondaryCompileError(cerr)) {
-                    out_cascade = true;
+                if (auto cause = findSecondaryCompileCause(cerr)) {
+                    setCause(out_cascade_root, *cause);
                     return false;
                 }
                 std::string err_ptr = raw.json_pointer + "/let";
@@ -3561,8 +3754,8 @@ private:
         }
 
         for (const auto& [lname, cexpr] : let_res.compiled_lets) {
-            if (referencesFailedEntity(cexpr)) {
-                out_cascade = true;
+            if (auto cause = findFailedEntityCause(cexpr)) {
+                setCause(out_cascade_root, *cause);
                 return false;
             }
             // V-PROF-4: port-bound parameter (uses_port_in_static) cannot be read directly in profile let
@@ -3570,7 +3763,8 @@ private:
                 const ParameterDef* pdef = m_pkg.findParameter(rp);
                 if (pdef != nullptr && pdef->uses_port_in_static) {
                     addError("V-PROF-4", raw.file, raw.json_pointer + "/let/" + lname,
-                             "port-bound parameter '" + rp + "' cannot be used outside a recipe port's resource_param");
+                             "port-bound parameter '" + rp + "' cannot be used outside a recipe port's resource_param",
+                             0, 0, rp);
                     return false;
                 }
             }
@@ -3587,7 +3781,8 @@ private:
                 const ParameterDef* pdef = m_pkg.findParameter(rp);
                 if (pdef != nullptr && pdef->uses_port_in_static) {
                     addError("V-PROF-4", raw.file, ptr,
-                             "port-bound parameter '" + rp + "' cannot be used outside a recipe port's resource_param");
+                             "port-bound parameter '" + rp + "' cannot be used outside a recipe port's resource_param",
+                             0, 0, rp);
                     ok = false;
                 }
             }
@@ -3604,16 +3799,16 @@ private:
             env.port_has_base_resource = (ctx == expr::ExprContext::RecipePortFormula);
             expr::CompileResult res = expr::compile(src, env, expected_t);
             if (!res.ok) {
-                if (isSecondaryCompileError(res.error)) {
-                    out_cascade = true;
+                if (auto cause = findSecondaryCompileCause(res.error)) {
+                    setCause(out_cascade_root, *cause);
                     return false;
                 }
                 addCompileError(res.error, raw.file, err_ptr);
                 ok = false;
                 return true;
             }
-            if (referencesFailedEntity(res.expr)) {
-                out_cascade = true;
+            if (auto cause = findFailedEntityCause(res.expr)) {
+                setCause(out_cascade_root, *cause);
                 return false;
             }
             checkPortBoundParamRefs(res.expr, err_ptr);
@@ -3665,16 +3860,16 @@ private:
                     env.context = expr::ExprContext::PreSolveLet;
                     expr::CompileResult res = expr::compile(rule.expr_src, env, expr::ExpectedType::Bool);
                     if (!res.ok) {
-                        if (isSecondaryCompileError(res.error)) {
-                            out_cascade = true;
+                        if (auto cause = findSecondaryCompileCause(res.error)) {
+                            setCause(out_cascade_root, *cause);
                             return false;
                         }
                         addCompileError(res.error, raw.file, rptr + "/expr");
                         ok = false;
                         continue;
                     }
-                    if (referencesFailedEntity(res.expr)) {
-                        out_cascade = true;
+                    if (auto cause = findFailedEntityCause(res.expr)) {
+                        setCause(out_cascade_root, *cause);
                         return false;
                     }
                     checkPortBoundParamRefs(res.expr, rptr + "/expr");
@@ -3720,8 +3915,8 @@ private:
             env.port_has_base_resource = (ctx == expr::ExprContext::RecipePortFormula);
             expr::CompileResult res = expr::compile(in_out_src, env, expected_t);
             if (!res.ok) {
-                if (isSecondaryCompileError(res.error)) {
-                    out_cascade = true;
+                if (auto cause = findSecondaryCompileCause(res.error)) {
+                    setCause(out_cascade_root, *cause);
                     ok = false;
                     return;
                 }
@@ -3729,8 +3924,8 @@ private:
                 ok = false;
                 return;
             }
-            if (referencesFailedEntity(res.expr)) {
-                out_cascade = true;
+            if (auto cause = findFailedEntityCause(res.expr)) {
+                setCause(out_cascade_root, *cause);
                 ok = false;
                 return;
             }
@@ -3776,8 +3971,8 @@ private:
                 env.port_has_base_resource = true;
                 expr::CompileResult res = expr::compile(in_out_be.expr_src, env, expr::ExpectedType::Bool);
                 if (!res.ok) {
-                    if (isSecondaryCompileError(res.error)) {
-                        out_cascade = true;
+                    if (auto cause = findSecondaryCompileCause(res.error)) {
+                        setCause(out_cascade_root, *cause);
                         ok = false;
                         return;
                     }
@@ -3785,8 +3980,8 @@ private:
                     ok = false;
                     return;
                 }
-                if (referencesFailedEntity(res.expr)) {
-                    out_cascade = true;
+                if (auto cause = findFailedEntityCause(res.expr)) {
+                    setCause(out_cascade_root, *cause);
                     ok = false;
                     return;
                 }
@@ -3876,11 +4071,11 @@ private:
                             std::string rid = epj["resource"].get<std::string>();
                             if (m_pkg.findResource(rid) == nullptr) {
                                 if (m_failedResources.count(rid)) {
-                                    out_cascade = true;
+                                    setCause(out_cascade_root, "resource:" + rid);
                                     return false;
                                 }
                                 addError("V-REF-1", raw.file, ep_ptr + "/resource",
-                                         "unknown resource '" + rid + "'");
+                                         "unknown resource '" + rid + "'", 0, 0, rid);
                                 ok = false;
                             } else {
                                 ep.resource = rid;
@@ -3900,21 +4095,22 @@ private:
                                            prof.params.end();
                             if (pdef == nullptr) {
                                 if (m_failedParameters.count(rparam)) {
-                                    out_cascade = true;
+                                    setCause(out_cascade_root, "parameter:" + rparam);
                                     return false;
                                 }
                                 addError("V-PROF-4", raw.file, ep_ptr + "/resource_param",
-                                         "'" + rparam + "' is not a parameter of profile '" + prof.id + "'");
+                                         "'" + rparam + "' is not a parameter of profile '" + prof.id + "'",
+                                         0, 0, rparam);
                                 ok = false;
                             } else if (!in_prof || pdef->type != ParameterType::ResourceChoice) {
                                 addError("V-PROF-4", raw.file, ep_ptr + "/resource_param",
                                          "'" + rparam + "' is not a resource_choice parameter of profile '" +
-                                             prof.id + "'");
+                                             prof.id + "'", 0, 0, rparam);
                                 ok = false;
                             } else if (pdef->uses_port_in_static) {
                                 addError("V-PROF-4", raw.file, ep_ptr + "/resource_param",
                                          "port-bound parameter '" + rparam +
-                                             "' cannot be used on an extra_port");
+                                             "' cannot be used on an extra_port", 0, 0, rparam);
                                 ok = false;
                             } else {
                                 ep.resource_param = rparam;
@@ -3934,14 +4130,14 @@ private:
                             expr::CompileResult res = expr::compile(
                                 *ep.resource_expr, env, expr::ExpectedType::ResourceOrString);
                             if (!res.ok) {
-                                if (isSecondaryCompileError(res.error)) {
-                                    out_cascade = true;
+                                if (auto cause = findSecondaryCompileCause(res.error)) {
+                                    setCause(out_cascade_root, *cause);
                                     return false;
                                 }
                                 addCompileError(res.error, raw.file, ep_ptr + "/resource_expr");
                                 ok = false;
-                            } else if (referencesFailedEntity(res.expr)) {
-                                out_cascade = true;
+                            } else if (auto cause = findFailedEntityCause(res.expr)) {
+                                setCause(out_cascade_root, *cause);
                                 return false;
                             } else {
                                 checkPortBoundParamRefs(res.expr, ep_ptr + "/resource_expr");
@@ -3978,14 +4174,14 @@ private:
                         expr::CompileResult res = expr::compile(
                             ep.amount_expr, env, expr::ExpectedType::Number);
                         if (!res.ok) {
-                            if (isSecondaryCompileError(res.error)) {
-                                out_cascade = true;
+                            if (auto cause = findSecondaryCompileCause(res.error)) {
+                                setCause(out_cascade_root, *cause);
                                 return false;
                             }
                             addCompileError(res.error, raw.file, ep_ptr + "/amount");
                             ok = false;
-                        } else if (referencesFailedEntity(res.expr)) {
-                            out_cascade = true;
+                        } else if (auto cause = findFailedEntityCause(res.expr)) {
+                            setCause(out_cascade_root, *cause);
                             return false;
                         } else {
                             checkPortBoundParamRefs(res.expr, ep_ptr + "/amount");
@@ -4010,14 +4206,14 @@ private:
                             expr::CompileResult res = expr::compile(
                                 ep.enabled.expr_src, env, expr::ExpectedType::Bool);
                             if (!res.ok) {
-                                if (isSecondaryCompileError(res.error)) {
-                                    out_cascade = true;
+                                if (auto cause = findSecondaryCompileCause(res.error)) {
+                                    setCause(out_cascade_root, *cause);
                                     return false;
                                 }
                                 addCompileError(res.error, raw.file, ep_ptr + "/enabled");
                                 ok = false;
-                            } else if (referencesFailedEntity(res.expr)) {
-                                out_cascade = true;
+                            } else if (auto cause = findFailedEntityCause(res.expr)) {
+                                setCause(out_cascade_root, *cause);
                                 return false;
                             } else {
                                 checkPortBoundParamRefs(res.expr, ep_ptr + "/enabled");
@@ -4123,7 +4319,7 @@ private:
 
                     if (m_pkg.findMetric(mid) == nullptr) {
                         addError("V-PROF-3", raw.file, mptr,
-                                 "unknown metric '" + mid + "' in profile '" + prof.id + "'");
+                                 "unknown metric '" + mid + "' in profile '" + prof.id + "'", 0, 0, mid);
                         ok = false;
                         continue;
                     }
@@ -4131,8 +4327,8 @@ private:
                     m_usedMetrics.insert(mid);
                     ProfileMetricEntry mentry;
                     if (!compileProfileMetricEntry(
-                            mid, it.value(), raw.file, mptr, prof_env, mentry, out_cascade)) {
-                        if (out_cascade) return false;
+                            mid, it.value(), raw.file, mptr, prof_env, mentry, out_cascade_root)) {
+                        if (!out_cascade_root.empty()) return false;
                         ok = false;
                         continue;
                     }
@@ -4183,7 +4379,7 @@ private:
             }
         }
 
-        return ok && !out_cascade;
+        return ok && out_cascade_root.empty();
     }
 
     // ========================================================================
@@ -4203,8 +4399,14 @@ private:
                 continue;
             }
             const json& mj = item.value;
+            const size_t errors_before = m_report.errors.size();
+            EntityScope entity_scope(
+                m_currentEntity,
+                (mj.contains("id") && mj["id"].is_string() && !mj["id"].get<std::string>().empty())
+                    ? ("machine:" + mj["id"].get<std::string>())
+                    : std::string{});
             bool ok = checkAllowedKeys(mj, item.file, item.json_pointer, kMachineKeys);
-            bool cascade = false;
+            std::string cascade_root;
 
             std::string id;
             if (!mj.contains("id")) {
@@ -4218,7 +4420,7 @@ private:
                 id = mj["id"].get<std::string>();
                 if (!expr::isValidSlugId(id)) {
                     addError("V-ID-1", item.file, item.json_pointer + "/id",
-                             "invalid machine id '" + id + "' (must match [a-z0-9_-]+)");
+                             "invalid machine id '" + id + "' (must match [a-z0-9_-]+)", 0, 0, id);
                     ok = false;
                 }
             }
@@ -4228,7 +4430,8 @@ private:
                 if (seen_it != first_seen_mach.end()) {
                     addError("V-ID-2", item.file, item.json_pointer + "/id",
                              "duplicate machine id '" + id + "' (first defined at " +
-                                 seen_it->second.first + ": " + seen_it->second.second + ")");
+                                 seen_it->second.first + ": " + seen_it->second.second + ")",
+                             0, 0, id);
                     markDropped("machines", id);
                     continue;
                 }
@@ -4261,7 +4464,7 @@ private:
 
             if (m_pkg.findProfile(mach.profile) == nullptr) {
                 if (m_failedProfiles.count(mach.profile)) {
-                    cascade = true;
+                    setCause(cascade_root, "profile:" + mach.profile);
                     ok = false;
                 } else {
                     std::vector<std::string> prof_cands;
@@ -4269,7 +4472,8 @@ private:
                     std::string msg = "unknown profile '" + mach.profile + "'";
                     auto sug = expr::findBestSuggestion(mach.profile, prof_cands, &m_suggestionBudget);
                     if (sug.has_value()) msg += " (did you mean '" + *sug + "'?)";
-                    addError("V-REF-4", item.file, item.json_pointer + "/profile", std::move(msg));
+                    addError("V-REF-4", item.file, item.json_pointer + "/profile", std::move(msg),
+                             0, 0, mach.profile);
                     ok = false;
                 }
             }
@@ -4291,7 +4495,8 @@ private:
                             std::string cat = ce.get<std::string>();
                             if (!expr::isValidSlugId(cat)) {
                                 addError("V-ID-1", item.file, cptr,
-                                         "invalid category '" + cat + "' (must match [a-z0-9_-]+)");
+                                         "invalid category '" + cat + "' (must match [a-z0-9_-]+)",
+                                         0, 0, cat);
                                 ok = false;
                             } else {
                                 addUnique(mach.categories, cat);
@@ -4323,12 +4528,12 @@ private:
                         "machine", "/attributes/machine",
                         m_pkg.attributes["machine"], m_failedAttrs["machine"],
                         mj["attrs"], item.file, item.json_pointer + "/attrs",
-                        mach.attrs, cascade)) {
+                        mach.attrs, cascade_root)) {
                     ok = false;
                 }
             }
 
-            if (ok && !cascade && !mach.id.empty()) {
+            if (ok && cascade_root.empty() && !mach.id.empty()) {
                 for (const std::string& cat : mach.categories) {
                     addUnique(m_pkg.category_to_machines[cat], mach.id);
                     addUnique(m_pkg.category_to_profiles[cat], mach.profile);
@@ -4336,8 +4541,18 @@ private:
                 m_pkg.machine_index[mach.id] = m_pkg.machines.size();
                 m_pkg.machines.push_back(std::move(mach));
             } else {
+                const bool is_pure_cascade = !cascade_root.empty() && m_report.errors.size() == errors_before;
+                if (is_pure_cascade && !id.empty()) {
+                    recordCascadeDrop("machine", id, cascade_root);
+                }
+                const std::string eff_root = is_pure_cascade
+                    ? resolveDropRoot(cascade_root)
+                    : (id.empty() ? std::string{} : ("machine:" + id));
                 for (const std::string& cat : mach.categories) {
                     m_categoriesOfFailedMachines.insert(cat);
+                    if (!eff_root.empty()) {
+                        m_failedCategoryCause.emplace(cat, eff_root);
+                    }
                 }
                 if (!id.empty()) {
                     m_failedMachines.insert(id);
@@ -4389,7 +4604,7 @@ private:
         const std::string& base_ptr,
         std::vector<RecipePort>& out_ports,
         std::unordered_set<std::string>& seen_resource_params_on_recipe,
-        bool& out_cascade) {
+        std::string& out_cascade_root) {
         if (!ports_j.is_array()) {
             addError("V-STRUCT-2", file, base_ptr,
                      "expected array for '" + dir + "', got " + jsonTypeName(ports_j));
@@ -4437,14 +4652,14 @@ private:
                 std::string rid = pj[0].get<std::string>();
                 if (m_pkg.findResource(rid) == nullptr) {
                     if (m_failedResources.count(rid)) {
-                        out_cascade = true;
+                        setCause(out_cascade_root, "resource:" + rid);
                         ok = false;
                         continue;
                     }
                     std::string msg = "unknown resource '" + rid + "'";
                     auto sug = expr::findBestSuggestion(rid, ensureResCandidates(), &m_suggestionBudget);
                     if (sug.has_value()) msg += " (did you mean '" + *sug + "'?)";
-                    addError("V-REF-1", file, pptr, std::move(msg));
+                    addError("V-REF-1", file, pptr, std::move(msg), 0, 0, rid);
                     ok = false;
                 } else {
                     port.res = rid;
@@ -4512,14 +4727,14 @@ private:
                         std::string rid = pj["res"].get<std::string>();
                         if (m_pkg.findResource(rid) == nullptr) {
                             if (m_failedResources.count(rid)) {
-                                out_cascade = true;
+                                setCause(out_cascade_root, "resource:" + rid);
                                 ok = false;
                             } else {
                                 std::string msg = "unknown resource '" + rid + "'";
                                 auto sug = expr::findBestSuggestion(
                                     rid, ensureResCandidates(), &m_suggestionBudget);
                                 if (sug.has_value()) msg += " (did you mean '" + *sug + "'?)";
-                                addError("V-REF-1", file, pptr + "/res", std::move(msg));
+                                addError("V-REF-1", file, pptr + "/res", std::move(msg), 0, 0, rid);
                                 ok = false;
                             }
                         } else {
@@ -4612,7 +4827,7 @@ private:
                             "port", "/attributes/port",
                             m_pkg.attributes["port"], m_failedAttrs["port"],
                             pj["attrs"], file, pptr + "/attrs",
-                            port.attrs, out_cascade)) {
+                            port.attrs, out_cascade_root)) {
                         ok = false;
                     }
                 }
@@ -4686,14 +4901,14 @@ private:
                     }
                     if (same_attrs) {
                         addWarning("V-W-3", file, base_ptr,
-                                   "resource '" + *p1.res + "' listed twice");
+                                   "resource '" + *p1.res + "' listed twice", *p1.res);
                         break;
                     }
                 }
             }
         }
 
-        return ok && !out_cascade;
+        return ok && out_cascade_root.empty();
     }
 
     bool validateAndCompileRecipeForProfile(
@@ -4706,7 +4921,7 @@ private:
         const std::unordered_set<std::string>& rec_resource_params,
         CompiledRecipeProfile& out_compiled,
         std::unordered_set<std::string>& out_formula_params,
-        bool& out_cascade) {
+        std::string& out_cascade_root) {
         bool ok = true;
         const std::string suffix = " in profile '" + prof.id + "' (machine '" + rep_machine_id + "')";
 
@@ -4719,19 +4934,19 @@ private:
                 const ParameterDef* pdef = m_pkg.findParameter(rp);
                 if (pdef == nullptr) {
                     if (m_failedParameters.count(rp)) {
-                        out_cascade = true;
+                        setCause(out_cascade_root, "parameter:" + rp);
                         ok = false;
                         continue;
                     }
                     addError("V-PROF-4", file, pptr,
-                             "'" + rp + "' is not a defined resource_choice parameter" + suffix);
+                             "'" + rp + "' is not a defined resource_choice parameter" + suffix, 0, 0, rp);
                     ok = false;
                     continue;
                 }
                 bool in_prof = std::find(prof.params.begin(), prof.params.end(), rp) != prof.params.end();
                 if (!in_prof || pdef->type != ParameterType::ResourceChoice) {
                     addError("V-PROF-4", file, pptr,
-                             "'" + rp + "' is not a resource_choice parameter" + suffix);
+                             "'" + rp + "' is not a resource_choice parameter" + suffix, 0, 0, rp);
                     ok = false;
                 }
             }
@@ -4739,13 +4954,7 @@ private:
 
         checkPortResourceParam(rec.in, "in");
         checkPortResourceParam(rec.out, "out");
-        if (!ok || out_cascade) return false;
-
-        expr::CompileEnv prof_env = base_env;
-        prof_env.profile_id = prof.id;
-        prof_env.check_profile_params = true;
-        prof_env.profile_params = prof.params;
-        prof_env.let_types = prof.let_types;
+        if (!ok || !out_cascade_root.empty()) return false;
 
         auto checkFormulaParamUsage = [&](const expr::CompiledExpr& cexpr, const std::string& ptr) -> bool {
             for (const std::string& rp : cexpr.referenced_params) {
@@ -4753,7 +4962,7 @@ private:
                 if (pdef != nullptr && (pdef->is_port_bound || rec_resource_params.count(rp) > 0)) {
                     addError("V-PROF-4", file, ptr,
                              "port-bound parameter '" + rp +
-                                 "' cannot be used outside a recipe port's resource_param");
+                                 "' cannot be used outside a recipe port's resource_param", 0, 0, rp);
                     return false;
                 }
                 out_formula_params.insert(rp);
@@ -4762,15 +4971,24 @@ private:
         };
 
         // 1. Overrides: let (V-OVR-1, V-OVR-2)
+        // Only copy `base_env` when the recipe actually overrides `let`; pure-data recipes
+        // share `base_env` via `compileCachedWithProfile` without per-recipe env copies.
         const bool has_let_overrides = !rec.overrides.let.empty();
+        std::optional<expr::CompileEnv> prof_env;
         if (has_let_overrides) {
+            prof_env = base_env;
+            prof_env->profile_id = prof.id;
+            prof_env->check_profile_params = true;
+            prof_env->profile_params = prof.params;
+            prof_env->let_types = prof.let_types;
+
             out_compiled.has_let_overrides = true;
             expr::LetCompileResult let_res = expr::compileLetMap(
-                prof.let, prof_env, rec.overrides.let, &prof.let_types);
+                prof.let, *prof_env, rec.overrides.let, &prof.let_types);
             if (!let_res.ok) {
                 for (const auto& cerr : let_res.errors) {
-                    if (isSecondaryCompileError(cerr)) {
-                        out_cascade = true;
+                    if (auto cause = findSecondaryCompileCause(cerr)) {
+                        setCause(out_cascade_root, *cause);
                         return false;
                     }
                     std::string err_ptr = rec_ptr + "/overrides/let";
@@ -4783,8 +5001,8 @@ private:
                 return false;
             }
             for (const auto& [lname, cexpr] : let_res.compiled_lets) {
-                if (referencesFailedEntity(cexpr)) {
-                    out_cascade = true;
+                if (auto cause = findFailedEntityCause(cexpr)) {
+                    setCause(out_cascade_root, *cause);
                     return false;
                 }
                 if (!checkFormulaParamUsage(cexpr, rec_ptr + "/overrides/let/" + lname)) {
@@ -4794,7 +5012,7 @@ private:
             }
             out_compiled.let_evaluation_order = std::move(let_res.evaluation_order);
             out_compiled.compiled_lets = std::move(let_res.compiled_lets);
-            prof_env.let_types = std::move(let_res.let_types);
+            prof_env->let_types = std::move(let_res.let_types);
         }
 
         const bool allow_cache = !has_let_overrides;
@@ -4811,14 +5029,14 @@ private:
                 res = compileCachedWithProfile(
                     prof, base_env, ctx, expected_t, port_has_base_res, expr_src, true);
             } else {
-                expr::CompileEnv env = prof_env;
+                expr::CompileEnv env = *prof_env;
                 env.context = ctx;
                 env.port_has_base_resource = port_has_base_res;
                 res = expr::compile(expr_src, env, expected_t);
             }
             if (!res.ok) {
-                if (isSecondaryCompileError(res.error)) {
-                    out_cascade = true;
+                if (auto cause = findSecondaryCompileCause(res.error)) {
+                    setCause(out_cascade_root, *cause);
                     return false;
                 }
                 std::string rule_id =
@@ -4828,8 +5046,8 @@ private:
                 addCompileError(res.error, file, ptr, rule_id, suffix);
                 return false;
             }
-            if (referencesFailedEntity(res.expr)) {
-                out_cascade = true;
+            if (auto cause = findFailedEntityCause(res.expr)) {
+                setCause(out_cascade_root, *cause);
                 return false;
             }
             if (!checkFormulaParamUsage(res.expr, ptr)) {
@@ -4847,7 +5065,7 @@ private:
             if (!compileOverrideFormula(
                     rule.expr_src, rptr, expr::ExprContext::PreSolveLet,
                     expr::ExpectedType::Bool, false, false, rule.compiled_expr)) {
-                if (out_cascade) return false;
+                if (!out_cascade_root.empty()) return false;
                 ok = false;
             } else {
                 out_compiled.extra_requires.push_back(std::move(rule));
@@ -4871,7 +5089,7 @@ private:
                     *rec.overrides.craft_time, rec_ptr + "/overrides/craft_time",
                     expr::ExprContext::PreSolveCraftTime, expr::ExpectedType::Number,
                     false, false, cexpr)) {
-                if (out_cascade) return false;
+                if (!out_cascade_root.empty()) return false;
                 ok = false;
             } else {
                 out_compiled.craft_time_override = std::move(cexpr);
@@ -4885,7 +5103,7 @@ private:
                     *rec.overrides.input_amount, rec_ptr + "/overrides/input_amount",
                     expr::ExprContext::RecipePortFormula, expr::ExpectedType::Number,
                     in_amt_base_res, false, cexpr)) {
-                if (out_cascade) return false;
+                if (!out_cascade_root.empty()) return false;
                 ok = false;
             } else {
                 out_compiled.input_amount_override = std::move(cexpr);
@@ -4899,7 +5117,7 @@ private:
                     *rec.overrides.output_amount, rec_ptr + "/overrides/output_amount",
                     expr::ExprContext::RecipePortFormula, expr::ExpectedType::Number,
                     out_amt_base_res, false, cexpr)) {
-                if (out_cascade) return false;
+                if (!out_cascade_root.empty()) return false;
                 ok = false;
             } else {
                 out_compiled.output_amount_override = std::move(cexpr);
@@ -4916,7 +5134,7 @@ private:
                 if (!compileOverrideFormula(
                         src_be.expr_src, ptr, expr::ExprContext::RecipePortFormula,
                         expr::ExpectedType::Bool, port_has_base_res, false, out_be.compiled_expr)) {
-                    if (!out_cascade) ok = false;
+                    if (out_cascade_root.empty()) ok = false;
                 }
             }
         };
@@ -4950,7 +5168,7 @@ private:
             hasAllApplicableBaseRes(
                 rec.out, [](const RecipePort& p) { return !p.enabled_override.is_present; }),
             out_compiled.output_enabled_override);
-        if (out_cascade) return false;
+        if (!out_cascade_root.empty()) return false;
 
         // 4. Overrides: metrics
         for (const std::string& mid : rec.overrides.metric_order) {
@@ -4961,7 +5179,7 @@ private:
                         mentry.enabled.expr_src, mptr + "/enabled",
                         expr::ExprContext::PreSolveAfterCraftTime, expr::ExpectedType::Bool,
                         false, false, mentry.enabled.compiled_expr)) {
-                    if (out_cascade) return false;
+                    if (!out_cascade_root.empty()) return false;
                     ok = false;
                     continue;
                 }
@@ -4972,7 +5190,7 @@ private:
             if (!compileOverrideFormula(
                     mentry.expr_src, mptr, mctx, expr::ExpectedType::Number,
                     false, false, mentry.compiled_expr)) {
-                if (out_cascade) return false;
+                if (!out_cascade_root.empty()) return false;
                 ok = false;
                 continue;
             }
@@ -4998,7 +5216,7 @@ private:
                             expr::ExprContext::RecipePortResourceExpr,
                             expr::ExpectedType::ResourceOrString,
                             has_base_res, true, cp.compiled_resource_expr)) {
-                        if (out_cascade) return;
+                        if (!out_cascade_root.empty()) return;
                         ok = false;
                     }
                 }
@@ -5010,7 +5228,7 @@ private:
                                 expr::ExprContext::RecipePortFormula,
                                 expr::ExpectedType::Bool,
                                 has_base_res, false, cp.compiled_enabled.compiled_expr)) {
-                            if (out_cascade) return;
+                            if (!out_cascade_root.empty()) return;
                             ok = false;
                         }
                     }
@@ -5022,7 +5240,7 @@ private:
                             expr::ExprContext::RecipePortFormula,
                             expr::ExpectedType::Number,
                             has_base_res, false, cp.compiled_amount_expr)) {
-                        if (out_cascade) return;
+                        if (!out_cascade_root.empty()) return;
                         ok = false;
                     }
                 }
@@ -5030,9 +5248,9 @@ private:
         };
 
         compilePortsForProfile(rec.in, "in", out_compiled.in_ports);
-        if (out_cascade) return false;
+        if (!out_cascade_root.empty()) return false;
         compilePortsForProfile(rec.out, "out", out_compiled.out_ports);
-        if (out_cascade) return false;
+        if (!out_cascade_root.empty()) return false;
 
         // 6. Validate profile-level port formulas using port.base_resource against ports without 'res'
         auto checkProfilePortBaseResource = [&](const std::vector<RecipePort>& ports,
@@ -5087,7 +5305,7 @@ private:
         checkProfilePortBaseResource(rec.in, "in", true);
         checkProfilePortBaseResource(rec.out, "out", false);
 
-        return ok && !out_cascade;
+        return ok && out_cascade_root.empty();
     }
 
     void runStage8() {
@@ -5160,8 +5378,14 @@ private:
                 continue;
             }
             const json& rj = item.value;
+            const size_t errors_before = m_report.errors.size();
+            EntityScope entity_scope(
+                m_currentEntity,
+                (rj.contains("id") && rj["id"].is_string() && !rj["id"].get<std::string>().empty())
+                    ? ("recipe:" + rj["id"].get<std::string>())
+                    : std::string{});
             bool ok = checkAllowedKeys(rj, item.file, item.json_pointer, kRecipeKeys);
-            bool cascade = false;
+            std::string cascade_root;
 
             std::string id;
             if (!rj.contains("id")) {
@@ -5175,7 +5399,7 @@ private:
                 id = rj["id"].get<std::string>();
                 if (!expr::isValidSlugId(id)) {
                     addError("V-ID-1", item.file, item.json_pointer + "/id",
-                             "invalid recipe id '" + id + "' (must match [a-z0-9_-]+)");
+                             "invalid recipe id '" + id + "' (must match [a-z0-9_-]+)", 0, 0, id);
                     ok = false;
                 }
             }
@@ -5185,7 +5409,8 @@ private:
                 if (seen_it != first_seen_rec.end()) {
                     addError("V-ID-2", item.file, item.json_pointer + "/id",
                              "duplicate recipe id '" + id + "' (first defined at " +
-                                 seen_it->second.first + ": " + seen_it->second.second + ")");
+                                 seen_it->second.first + ": " + seen_it->second.second + ")",
+                             0, 0, id);
                     markDropped("recipes", id);
                     continue;
                 }
@@ -5244,18 +5469,20 @@ private:
                     std::string cat = rj["category"].get<std::string>();
                     if (!expr::isValidSlugId(cat)) {
                         addError("V-ID-1", item.file, item.json_pointer + "/category",
-                                 "invalid category '" + cat + "' (must match [a-z0-9_-]+)");
+                                 "invalid category '" + cat + "' (must match [a-z0-9_-]+)", 0, 0, cat);
                         ok = false;
                     } else {
                         rec.category = cat;
                         auto it = m_pkg.category_to_machines.find(cat);
                         if (it == m_pkg.category_to_machines.end() || it->second.empty()) {
                             if (m_categoriesOfFailedMachines.count(cat)) {
-                                cascade = true;
+                                auto cause_it = m_failedCategoryCause.find(cat);
+                                setCause(cascade_root,
+                                         cause_it != m_failedCategoryCause.end() ? cause_it->second : std::string{});
                                 ok = false;
                             } else {
                                 addError("V-REF-3", item.file, item.json_pointer,
-                                         "no machine has category '" + cat + "'");
+                                         "no machine has category '" + cat + "'", 0, 0, cat);
                                 ok = false;
                             }
                         } else {
@@ -5277,7 +5504,7 @@ private:
                              "recipe 'machines' list cannot be empty");
                     ok = false;
                 } else {
-                    bool had_failed_machine = false;
+                    std::string first_failed_machine;
                     for (size_t mi = 0; mi < rj["machines"].size(); ++mi) {
                         const json& me = rj["machines"][mi];
                         std::string mptr = item.json_pointer + "/machines/" + std::to_string(mi);
@@ -5291,10 +5518,12 @@ private:
                         const Machine* mptr_obj = m_pkg.findMachine(mid);
                         if (mptr_obj == nullptr) {
                             if (m_failedMachines.count(mid)) {
-                                had_failed_machine = true;
+                                if (first_failed_machine.empty()) {
+                                    first_failed_machine = mid;
+                                }
                             } else {
                                 addError("V-REF-2", item.file, mptr,
-                                         "unknown machine '" + mid + "'");
+                                         "unknown machine '" + mid + "'", 0, 0, mid);
                                 ok = false;
                             }
                         } else {
@@ -5304,8 +5533,8 @@ private:
                             m_usedMachines.insert(mid);
                         }
                     }
-                    if (rec.compatible_machine_ids.empty() && had_failed_machine) {
-                        cascade = true;
+                    if (rec.compatible_machine_ids.empty() && !first_failed_machine.empty()) {
+                        setCause(cascade_root, "machine:" + first_failed_machine);
                         ok = false;
                     }
                 }
@@ -5331,11 +5560,11 @@ private:
                         double s_amt = se[1].get<double>();
                         if (m_pkg.findResource(s_res) == nullptr) {
                             if (m_failedResources.count(s_res)) {
-                                cascade = true;
+                                setCause(cascade_root, "resource:" + s_res);
                                 ok = false;
                             } else {
                                 addError("V-REF-1", item.file, sptr + "/0",
-                                         "unknown resource '" + s_res + "'");
+                                         "unknown resource '" + s_res + "'", 0, 0, s_res);
                                 ok = false;
                             }
                         } else {
@@ -5357,7 +5586,7 @@ private:
                         "recipe", "/attributes/recipe",
                         m_pkg.attributes["recipe"], m_failedAttrs["recipe"],
                         rj["attrs"], item.file, item.json_pointer + "/attrs",
-                        rec.attrs, cascade)) {
+                        rec.attrs, cascade_root)) {
                     ok = false;
                 }
             }
@@ -5367,14 +5596,14 @@ private:
             if (rj.contains("in")) {
                 if (!parseRecipePortList(
                         rj["in"], "in", item.file, item.json_pointer + "/in",
-                        rec.in, seen_resource_params_on_recipe, cascade)) {
+                        rec.in, seen_resource_params_on_recipe, cascade_root)) {
                     ok = false;
                 }
             }
             if (rj.contains("out")) {
                 if (!parseRecipePortList(
                         rj["out"], "out", item.file, item.json_pointer + "/out",
-                        rec.out, seen_resource_params_on_recipe, cascade)) {
+                        rec.out, seen_resource_params_on_recipe, cascade_root)) {
                     ok = false;
                 }
             }
@@ -5407,7 +5636,7 @@ private:
             validateRecipeResourceParamPorts(rec.in, "in");
             validateRecipeResourceParamPorts(rec.out, "out");
 
-            if (rec.in.empty() && rec.out.empty() && !cascade) {
+            if (rec.in.empty() && rec.out.empty() && cascade_root.empty()) {
                 if ((!rj.contains("in") || (rj["in"].is_array() && rj["in"].empty())) &&
                     (!rj.contains("out") || (rj["out"].is_array() && rj["out"].empty()))) {
                     addError("V-NUM-4", item.file, item.json_pointer,
@@ -5628,7 +5857,7 @@ private:
 
             // Compile overrides and port formulas against each unique compatible profile (§2.9 item 2)
             std::unordered_set<std::string> recipe_formula_params;
-            if (ok && !cascade) {
+            if (ok && cascade_root.empty()) {
                 for (const std::string& prof_id : rec.compatible_profile_ids) {
                     const Profile* prof_ptr = m_pkg.findProfile(prof_id);
                     if (prof_ptr == nullptr) continue;
@@ -5648,16 +5877,16 @@ private:
                     if (!validateAndCompileRecipeForProfile(
                             rec, *prof_ptr, rep_mach, item.file, item.json_pointer,
                             base_env, seen_resource_params_on_recipe, crp,
-                            recipe_formula_params, cascade)) {
+                            recipe_formula_params, cascade_root)) {
                         ok = false;
-                        if (cascade) break;
+                        if (!cascade_root.empty()) break;
                     } else {
                         rec.compiled_by_profile.emplace(prof_id, std::move(crp));
                     }
                 }
             }
 
-            if (ok && !cascade && !rec.id.empty()) {
+            if (ok && cascade_root.empty() && !rec.id.empty()) {
                 for (const std::string& rp : seen_resource_params_on_recipe) {
                     params_used_as_recipe_port_param.insert(rp);
                     auto pit = m_pkg.parameter_index.find(rp);
@@ -5668,9 +5897,13 @@ private:
                 for (const std::string& fp : recipe_formula_params) {
                     params_used_outside_resource_param.insert(fp);
                 }
+                incrementFileRecipes(item.file);
                 m_pkg.recipe_index[rec.id] = m_pkg.recipes.size();
                 m_pkg.recipes.push_back(std::move(rec));
             } else if (!id.empty()) {
+                if (!cascade_root.empty() && m_report.errors.size() == errors_before) {
+                    recordCascadeDrop("recipe", id, cascade_root);
+                }
                 m_failedRecipes.insert(id);
                 markDropped("recipes", id);
             }
@@ -5741,42 +5974,44 @@ private:
                 if (!m_usedParameters.count(p.id)) {
                     const RawEntry& raw = m_rawParameters.at(p.id);
                     addWarning("V-W-2", raw.file, raw.json_pointer,
-                               "defined but not used by any profile");
+                               "defined but not used by any profile", p.id);
                 }
             }
             for (const auto& oset : m_pkg.option_sets) {
                 if (!m_usedOptionSets.count(oset.id)) {
                     const RawEntry& raw = m_rawOptionSets.at(oset.id);
                     addWarning("V-W-2", raw.file, raw.json_pointer,
-                               "option_set '" + oset.id + "' is defined but not used by any parameter or global");
+                               "option_set '" + oset.id + "' is defined but not used by any parameter or global",
+                               oset.id);
                 }
             }
             for (const auto& tbl : m_pkg.tables) {
                 if (!m_usedTables.count(tbl.id)) {
                     const RawEntry& raw = m_rawTables.at(tbl.id);
                     addWarning("V-W-2", raw.file, raw.json_pointer,
-                               "table '" + tbl.id + "' is defined but not used by any expression");
+                               "table '" + tbl.id + "' is defined but not used by any expression", tbl.id);
                 }
             }
             for (const auto& met : m_pkg.metrics) {
                 if (!m_usedMetrics.count(met.id)) {
                     const RawEntry& raw = m_rawMetrics.at(met.id);
                     addWarning("V-W-2", raw.file, raw.json_pointer,
-                               "metric '" + met.id + "' is defined but not used by any profile or recipe");
+                               "metric '" + met.id + "' is defined but not used by any profile or recipe", met.id);
                 }
             }
             for (size_t i = 0; i < m_pkg.machines.size(); ++i) {
                 const auto& mach = m_pkg.machines[i];
                 if (!m_usedMachines.count(mach.id)) {
                     addWarning("V-W-2", "game.json", "/machines/" + std::to_string(i),
-                               "machine '" + mach.id + "' cannot run any loaded recipe");
+                               "machine '" + mach.id + "' cannot run any loaded recipe", mach.id);
                 }
             }
             for (size_t i = 0; i < m_pkg.resources.size(); ++i) {
                 const auto& res = m_pkg.resources[i];
                 if (!m_usedResources.count(res.id)) {
                     addWarning("V-W-2", "game.json", "/resources/" + std::to_string(i),
-                               "resource '" + res.id + "' is not referenced by any recipe, profile, or parameter");
+                               "resource '" + res.id + "' is not referenced by any recipe, profile, or parameter",
+                               res.id);
                 }
             }
         }
@@ -5868,6 +6103,7 @@ private:
     std::unordered_map<std::string, std::unordered_set<std::string>> m_failedAttrs;
     std::unordered_set<std::string> m_failedResources;
     std::unordered_set<std::string> m_tagsOfFailedResources;
+    std::unordered_map<std::string, std::string> m_failedTagCause;
     std::unordered_set<std::string> m_failedOptionSets;
     std::unordered_set<std::string> m_failedTables;
     std::unordered_set<std::string> m_failedParameters;
@@ -5876,7 +6112,11 @@ private:
     std::unordered_set<std::string> m_failedProfiles;
     std::unordered_set<std::string> m_failedMachines;
     std::unordered_set<std::string> m_categoriesOfFailedMachines;
+    std::unordered_map<std::string, std::string> m_failedCategoryCause;
     std::unordered_set<std::string> m_failedRecipes;
+
+    std::string m_currentEntity;
+    std::unordered_map<std::string, size_t> m_loadedFileIndex;
 
     // Usage sets for V-W-2 single-pass marking (§2.9 item 5)
     std::unordered_set<std::string> m_usedParameters;
@@ -5926,6 +6166,7 @@ bool loadGamePackage(
         return false;
     }
 
+    const auto io_start = std::chrono::steady_clock::now();
     std::ifstream ifs(manifest_path, std::ios::binary);
     if (!ifs) {
         loader.addFatal("F-1", manifest_path.generic_string(), "", "cannot open file");
@@ -5933,13 +6174,18 @@ bool loadGamePackage(
     }
     std::ostringstream ss;
     ss << ifs.rdbuf();
+    const double manifest_io_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - io_start).count();
 
     std::string rel_name = manifest_path.filename().generic_string();
     if (rel_name.empty()) {
         rel_name = "game.json";
     }
 
-    if (!loader.loadFromManifestText(ss.str(), rel_name)) {
+    const bool stage_ok = loader.loadFromManifestText(ss.str(), rel_name);
+    outReport.timing_ms.parse += manifest_io_ms;
+    outReport.timing_ms.total += manifest_io_ms;
+    if (!stage_ok) {
         return false;
     }
 
@@ -5996,6 +6242,7 @@ void checkMissingIcons(const GamePackage& package, LoadReport& inOutReport) {
             d.rule_id = "V-W-1";
             d.file = (std::filesystem::path("icons") / rel_icon).generic_string();
             d.json_pointer = json_ptr;
+            d.subject = d.file;
             d.message = d.file + " not found";
             d.formatted = d.message;
             inOutReport.warnings.push_back(std::move(d));
@@ -6118,18 +6365,15 @@ void ensureV3CompatProfile(GamePackage& pkg) {
 void upsertResource(
     GamePackage& pkg,
     std::string id,
-    std::string name,
-    unsigned long long texture) {
+    std::string name) {
     if (auto* existing = pkg.findResourceMut(id)) {
         if (!name.empty()) existing->name = std::move(name);
-        if (texture != 0) existing->texture = texture;
         pkg.base_eval_env.resources[id] = expr::ResourceEvalData{existing->tag_set, existing->attrs};
         return;
     }
     Resource r;
     r.id = id;
     r.name = name.empty() ? id : std::move(name);
-    r.texture = texture;
     pkg.base_eval_env.resources[id] = expr::ResourceEvalData{r.tag_set, r.attrs};
     pkg.resource_index[id] = pkg.resources.size();
     pkg.resources.push_back(std::move(r));
@@ -6141,8 +6385,7 @@ void upsertMachine(
     std::string name,
     double speed,
     std::string profile,
-    std::vector<std::string> categories,
-    unsigned long long texture) {
+    std::vector<std::string> categories) {
     if (profile.empty()) {
         profile = "default";
     }
@@ -6156,7 +6399,6 @@ void upsertMachine(
         existing->speed = speed;
         existing->profile = std::move(profile);
         existing->categories = std::move(categories);
-        if (texture != 0) existing->texture = texture;
         return;
     }
     Machine m;
@@ -6165,7 +6407,6 @@ void upsertMachine(
     m.speed = speed;
     m.profile = std::move(profile);
     m.categories = std::move(categories);
-    m.texture = texture;
     pkg.machine_index[id] = pkg.machines.size();
     pkg.machines.push_back(std::move(m));
 }

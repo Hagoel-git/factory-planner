@@ -1,6 +1,7 @@
 #ifndef FILESYSTEMUTILS_H
 #define FILESYSTEMUTILS_H
 #include <filesystem>
+#include <fstream>
 #include <optional>
 #include <vector>
 #include <string>
@@ -176,6 +177,78 @@ inline std::filesystem::path ensureProjectExtension(const std::filesystem::path&
     std::filesystem::path result = path;
     result += ".fpp";
     return result;
+}
+
+inline bool atomicWriteFile(
+    const std::filesystem::path& path,
+    std::string_view content,
+    std::string* outError = nullptr) {
+    if (outError) {
+        outError->clear();
+    }
+    if (path.empty()) {
+        if (outError) *outError = "target path is empty";
+        return false;
+    }
+
+    std::error_code ec;
+    const std::filesystem::path parent = path.parent_path();
+    if (!parent.empty()) {
+        std::filesystem::create_directories(parent, ec);
+        if (ec) {
+            if (outError) {
+                *outError = "cannot create directory '" + pathToUtf8(parent) + "': " + ec.message();
+            }
+            return false;
+        }
+    }
+
+    std::filesystem::path tmp = path;
+    tmp += ".tmp";
+
+    {
+        std::ofstream ofs(tmp, std::ios::binary | std::ios::trunc);
+        if (!ofs) {
+            if (outError) {
+                *outError = "cannot open temporary file '" + pathToUtf8(tmp) + "' for writing";
+            }
+            return false;
+        }
+        if (!content.empty()) {
+            ofs.write(content.data(), static_cast<std::streamsize>(content.size()));
+        }
+        ofs.flush();
+        if (!ofs.good()) {
+            ofs.close();
+            std::error_code rmEc;
+            std::filesystem::remove(tmp, rmEc);
+            if (outError) {
+                *outError = "failed writing temporary file '" + pathToUtf8(tmp) + "'";
+            }
+            return false;
+        }
+        ofs.close();
+        if (!ofs.good()) {
+            std::error_code rmEc;
+            std::filesystem::remove(tmp, rmEc);
+            if (outError) {
+                *outError = "failed closing temporary file '" + pathToUtf8(tmp) + "'";
+            }
+            return false;
+        }
+    }
+
+    std::filesystem::rename(tmp, path, ec);
+    if (ec) {
+        std::error_code rmEc;
+        std::filesystem::remove(tmp, rmEc);
+        if (outError) {
+            *outError = "failed renaming '" + pathToUtf8(tmp) + "' to '" + pathToUtf8(path) + "': " + ec.message();
+        }
+        return false;
+    }
+
+    return true;
 }
 
 #endif //FILESYSTEMUTILS_H
