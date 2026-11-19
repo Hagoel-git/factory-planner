@@ -2,6 +2,7 @@
 
 #include "common/FilesystemUtils.h"
 #include "core/data/GameDataLoader.h"
+#include "tools/gamedata_tool/IconToolUtils.h"
 
 #include <nlohmann/json.hpp>
 
@@ -45,65 +46,6 @@ std::string formatWithCommas(uint64_t value) {
         out.push_back(raw[i]);
     }
     return out;
-}
-
-struct IconCoverage {
-    std::string mode = "none"; // "none" | "loose" | "pak"
-    size_t resources_present = 0;
-    size_t resources_total = 0;
-    size_t machines_present = 0;
-    size_t machines_total = 0;
-    size_t options_present = 0;
-    size_t options_total = 0;
-};
-
-// Isolated icon coverage helper: in Task 4a checks pak presence and loose PNGs under icon_root.
-// Task 4b will extend this to read IconPak indices in T8 order.
-IconCoverage computeIconCoverage(const gamedata::GamePackage& pkg) {
-    IconCoverage cov;
-    cov.resources_total = pkg.resources.size();
-    cov.machines_total = pkg.machines.size();
-    for (const auto& oset : pkg.option_sets) {
-        cov.options_total += oset.options.size();
-    }
-
-    std::error_code ec;
-    const bool hasRootPak = !pkg.package_root.empty() &&
-        std::filesystem::is_regular_file(pkg.package_root / "icons.pak", ec);
-    const bool hasIconDirPak = !pkg.icon_root.empty() &&
-        std::filesystem::is_regular_file(pkg.icon_root / "icons.pak", ec);
-    const bool hasLooseDir = !pkg.icon_root.empty() &&
-        std::filesystem::is_directory(pkg.icon_root, ec);
-
-    if (hasRootPak || hasIconDirPak) {
-        cov.mode = "pak";
-        return cov;
-    }
-    if (!hasLooseDir) {
-        cov.mode = "none";
-        return cov;
-    }
-
-    cov.mode = "loose";
-    for (const auto& r : pkg.resources) {
-        if (std::filesystem::is_regular_file(pkg.icon_root / "resources" / (r.id + ".png"), ec)) {
-            ++cov.resources_present;
-        }
-    }
-    for (const auto& m : pkg.machines) {
-        if (std::filesystem::is_regular_file(pkg.icon_root / "machines" / (m.id + ".png"), ec)) {
-            ++cov.machines_present;
-        }
-    }
-    for (const auto& oset : pkg.option_sets) {
-        for (const auto& opt : oset.options) {
-            if (std::filesystem::is_regular_file(
-                    pkg.icon_root / "options" / oset.id / (opt.key + ".png"), ec)) {
-                ++cov.options_present;
-            }
-        }
-    }
-    return cov;
 }
 
 std::vector<std::pair<std::string, size_t>> sortedByCountDesc(const std::map<std::string, size_t>& m) {
@@ -206,7 +148,7 @@ int runStats(const Args& args, std::ostream& out, std::ostream& err) {
         totalJsonBytes += f.bytes;
     }
 
-    const IconCoverage icons = computeIconCoverage(pkg);
+    const PackageIconCoverage icons = computePackageIconCoverage(pkg);
 
     if (args.json_output) {
         json doc;
@@ -334,16 +276,14 @@ int runStats(const Args& args, std::ostream& out, std::ostream& err) {
     }
 
     out << "\nIcons (mode: " << icons.mode << "):\n";
-    if (icons.mode == "loose") {
+    if (icons.mode == "none") {
+        out << "  none (using fallback icons)\n";
+    } else {
         out << "  resources: " << icons.resources_present << "/" << icons.resources_total << "\n";
         out << "  machines:  " << icons.machines_present << "/" << icons.machines_total << "\n";
         if (icons.options_total > 0) {
             out << "  options:   " << icons.options_present << "/" << icons.options_total << "\n";
         }
-    } else if (icons.mode == "none") {
-        out << "  none (using fallback icons)\n";
-    } else {
-        out << "  icons.pak detected\n";
     }
 
     return kExitOk;

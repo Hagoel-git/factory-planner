@@ -82,14 +82,17 @@ void printTopLevelHelp(std::ostream& out) {
     out << "Usage: gamedata_tool <command> [options]\n"
         << "\n"
         << "Commands:\n"
-        << "  init <dir>        Create a minimal valid GameData v4 package scaffold\n"
-        << "  validate <pkg>    Load, compile, validate, and group diagnostics\n"
-        << "  eval <pkg>        Evaluate a recipe/machine or run regression --cases\n"
-        << "  stats <pkg>       Print entity counts, distributions, and load timing\n"
+        << "  init <dir>         Create a minimal valid GameData v4 package scaffold\n"
+        << "  validate <pkg>     Load, compile, validate, and group diagnostics\n"
+        << "  eval <pkg>         Evaluate a recipe/machine or run regression --cases\n"
+        << "  stats <pkg>        Print entity counts, distributions, and load timing\n"
+        << "  check-icons <pkg>  Check missing, unreferenced, invalid, or stale icons\n"
+        << "  prune-icons <pkg>  List or delete unreferenced loose PNG icons\n"
+        << "  pack-icons <pkg>   Build or inspect an icons.pak container\n"
         << "\n"
         << "Options:\n"
-        << "  -h, --help        Show this help (or command help: gamedata_tool <cmd> --help)\n"
-        << "  -V, --version     Print tool version and schema version\n";
+        << "  -h, --help         Show this help (or command help: gamedata_tool <cmd> --help)\n"
+        << "  -V, --version      Print tool version and schema version\n";
 }
 
 void printCommandHelp(const std::string& command, std::ostream& out) {
@@ -132,6 +135,24 @@ void printCommandHelp(const std::string& command, std::ostream& out) {
             << "  --timing                 Highlight timing summary\n"
             << "  --ignore-errors          Allow degraded package loads\n"
             << "  --json                   Emit JSON output on stdout\n";
+    } else if (command == "check-icons") {
+        out << "Usage: gamedata_tool check-icons <pkg> [options]\n"
+            << "  --from <dir>             Loose icon directory (default: <icon_root>)\n"
+            << "  --werror                 Fail on missing, unreferenced, case mismatch, or stale pak\n"
+            << "  --json                   Emit JSON output on stdout\n";
+    } else if (command == "prune-icons") {
+        out << "Usage: gamedata_tool prune-icons <pkg> [options]\n"
+            << "  --from <dir>             Loose icon directory (default: <icon_root>)\n"
+            << "  --apply                  Actually delete unreferenced PNGs (dry run by default)\n"
+            << "  --json                   Emit JSON output on stdout\n";
+    } else if (command == "pack-icons") {
+        out << "Usage: gamedata_tool pack-icons <pkg> [options]\n"
+            << "   or: gamedata_tool pack-icons --list <file> [--json]\n"
+            << "  --from <dir>             Loose icon directory (default: <icon_root>)\n"
+            << "  -o, --output <file>      Output pak path (default: <package_root>/icons.pak)\n"
+            << "  --verify                 Read packed file back and compare byte-for-byte\n"
+            << "  --list <file>            Print the index of an existing icons.pak\n"
+            << "  --json                   Emit JSON output on stdout\n";
     } else {
         printTopLevelHelp(out);
     }
@@ -156,8 +177,11 @@ ParseResult parseArgs(const std::vector<std::string>& argv) {
         return res;
     }
 
-    if (first != "init" && first != "validate" && first != "eval" && first != "stats") {
-        return usageError("unknown command '" + first + "' (expected init, validate, eval, or stats)");
+    if (first != "init" && first != "validate" && first != "eval" && first != "stats" &&
+        first != "check-icons" && first != "prune-icons" && first != "pack-icons") {
+        return usageError(
+            "unknown command '" + first +
+            "' (expected init, validate, eval, stats, check-icons, prune-icons, or pack-icons)");
     }
 
     Args& a = res.args;
@@ -337,16 +361,66 @@ ParseResult parseArgs(const std::vector<std::string>& argv) {
             } else {
                 return usageError("unknown flag '" + std::string(flag) + "' for 'stats'");
             }
+        } else if (a.command == "check-icons") {
+            if (flag == "--from") {
+                if (!consumeValue(argv, i, inlineVal, a.from_dir) || a.from_dir.empty()) {
+                    return usageError("missing value for '--from'");
+                }
+            } else if (flag == "--werror") {
+                if (!requireNoVal()) return usageError("flag '--werror' does not take a value");
+                a.werror = true;
+            } else {
+                return usageError("unknown flag '" + std::string(flag) + "' for 'check-icons'");
+            }
+        } else if (a.command == "prune-icons") {
+            if (flag == "--from") {
+                if (!consumeValue(argv, i, inlineVal, a.from_dir) || a.from_dir.empty()) {
+                    return usageError("missing value for '--from'");
+                }
+            } else if (flag == "--apply") {
+                if (!requireNoVal()) return usageError("flag '--apply' does not take a value");
+                a.apply = true;
+            } else {
+                return usageError("unknown flag '" + std::string(flag) + "' for 'prune-icons'");
+            }
+        } else if (a.command == "pack-icons") {
+            if (flag == "--from") {
+                if (!consumeValue(argv, i, inlineVal, a.from_dir) || a.from_dir.empty()) {
+                    return usageError("missing value for '--from'");
+                }
+            } else if (flag == "-o" || flag == "--output") {
+                if (!consumeValue(argv, i, inlineVal, a.out_pak) || a.out_pak.empty()) {
+                    return usageError("missing value for '" + std::string(flag) + "'");
+                }
+            } else if (flag == "--verify") {
+                if (!requireNoVal()) return usageError("flag '--verify' does not take a value");
+                a.verify = true;
+            } else if (flag == "--list") {
+                if (!consumeValue(argv, i, inlineVal, a.list_pak) || a.list_pak.empty()) {
+                    return usageError("missing value for '--list'");
+                }
+            } else {
+                return usageError("unknown flag '" + std::string(flag) + "' for 'pack-icons'");
+            }
         }
     }
 
-    if (positionals.empty()) {
-        return usageError("missing required path argument for '" + a.command + "'");
+    if (a.command == "pack-icons" && !a.list_pak.empty()) {
+        if (!positionals.empty()) {
+            return usageError("--list cannot be combined with a package argument");
+        }
+        if (!a.from_dir.empty() || !a.out_pak.empty() || a.verify) {
+            return usageError("--list cannot be combined with --from, -o, or --verify");
+        }
+    } else {
+        if (positionals.empty()) {
+            return usageError("missing required path argument for '" + a.command + "'");
+        }
+        if (positionals.size() > 1) {
+            return usageError("unexpected positional argument '" + positionals[1] + "'");
+        }
+        a.target = positionals.front();
     }
-    if (positionals.size() > 1) {
-        return usageError("unexpected positional argument '" + positionals[1] + "'");
-    }
-    a.target = positionals.front();
 
     if (a.command == "eval") {
         if (!a.cases_path.empty()) {
@@ -402,6 +476,15 @@ int runCommand(const std::vector<std::string>& argv, std::ostream& out, std::ost
     }
     if (args.command == "stats") {
         return runStats(args, out, err);
+    }
+    if (args.command == "check-icons") {
+        return runCheckIcons(args, out, err);
+    }
+    if (args.command == "prune-icons") {
+        return runPruneIcons(args, out, err);
+    }
+    if (args.command == "pack-icons") {
+        return runPackIcons(args, out, err);
     }
 
     err << "error: unknown command '" << args.command << "'\n";

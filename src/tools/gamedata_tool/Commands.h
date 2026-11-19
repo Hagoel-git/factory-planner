@@ -19,6 +19,9 @@ int runInit(const Args& args, std::ostream& out, std::ostream& err);
 int runValidate(const Args& args, std::ostream& out, std::ostream& err);
 int runEval(const Args& args, std::ostream& out, std::ostream& err);
 int runStats(const Args& args, std::ostream& out, std::ostream& err);
+int runCheckIcons(const Args& args, std::ostream& out, std::ostream& err);
+int runPruneIcons(const Args& args, std::ostream& out, std::ostream& err);
+int runPackIcons(const Args& args, std::ostream& out, std::ostream& err);
 
 // Top-level entry point suitable for both main() and in-process unit tests.
 // `argv` should NOT include argv[0] (program name); it starts with the subcommand or flag.
