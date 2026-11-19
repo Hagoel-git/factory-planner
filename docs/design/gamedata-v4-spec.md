@@ -73,6 +73,8 @@ data/game_data/<game>/<package>/
 - `"icon_root"` in the manifest (default `"icons"`) may point to a shared directory such as `"../icons"`. It must resolve to a path inside `<game>/`.
 - All entity `id`s and option `key`s are lowercase slugs matching `[a-z0-9_-]+` (generated via `StringUtils::slugify()` by importers and converters, V-ID-1), so `<id>.png` and `<key>.png` are always flat, cross-platform filenames on both Windows and Linux.
 - Icons are optional and **loaded lazily** (on first UI display, falling back to the placeholder texture if absent). The v3 loader loads every texture eagerly, which does not scale to 50k entries. Missing-icon warnings (`V-W-1`) are checked on demand (e.g. in `gamedata_tool validate` or when an icon is first requested), not by `stat()`-scanning every entity at package load.
+- Icons must be **square PNGs of at most 64×64** (`V-ICON-1`, checked by `gamedata_tool` only). Release packages ship them packed in **`<package_root>/icons.pak`** (index + raw PNG bytes, no atlases, D13). Lookup order: `<package_root>/icons.pak` → `<icon_root>/icons.pak` → loose `<icon_root>/<key>.png` (local authoring).
+- A package with neither `icons.pak` nor `<icon_root>/` is in valid **"no icons" mode** (one info note, no `V-W-1`). Borrowing icons from other installed packs is an app setting, not game data. See `docs/design/gamedata-tool.md`.
 
 ### 2.2 Manifest (`game.json`) top level
 
@@ -810,7 +812,8 @@ Severity: **F** = fatal, **E** = error (droppable), **W** = warning. "Drops" = w
 | V-OVR-1 | E | Override key not overridable; override `let` name not defined in the profile | the recipe | `recipes/py.json: /recipes/3/overrides/params: 'params' cannot be overridden per recipe` |
 | V-OVR-2 | E | Override or recipe port formula/parameter fails to compile, changes the result type of an overridden `let` variable, or introduces a `let` cycle for any compatible machine profile | the recipe | `recipes/py.json: /recipes/3/overrides/craft_time: 'param.clock' unknown in profile 'py_furnace' (machine 'stone-furnace')` |
 | V-MET-1 | E | Bad `aggregate`/`display`; `split_sign` with `aggregate` ≠ `sum` | the metric (removed from profiles/overrides) | `game.json: /metrics/power/split_sign: requires aggregate 'sum'` |
-| V-W-1 | W | Icon file missing (checked on demand / in `gamedata_tool validate`) | — | `icons/machines/foundry.png not found` |
+| V-W-1 | W | Icon file missing (checked on demand / in `gamedata_tool validate`; not emitted in "no icons" mode, §2.1) | — | `icons/machines/foundry.png not found` |
+| V-ICON-1 | E | Icon is not a PNG, not square, or larger than 64×64 (`gamedata_tool` only; the app never checks it at load) | — | `icons/resources/iron-ore.png: 128x96 (must be square and <= 64x64)` |
 | V-W-2 | W | Unused parameter, option set, table or metric; machine that no recipe can use; resource not referenced by any recipe (`in`, `out`, `setup`), profile (`extra_ports`), or parameter (`resource_choice`) | — | `game.json: /parameters/old_clock: defined but not used by any profile` |
 | V-W-3 | W | Same static resource twice in one recipe's `in` (or `out`) with identical `chance`, `catalyst`, `attrs`, `enabled`, and `amount_expr` | — | `recipes/gt.json: /recipes/88/out: resource 'stone_dust' listed twice` |
 
@@ -1226,7 +1229,7 @@ Notes:
 - **Feeding metrics back into the graph**, e.g. sizing generators automatically from total power. Metrics are linear, so a later step may add this as an LP feature.
 - **Language features:** user-defined functions, loops, assignment, indexing by computed names (e.g. a per-recipe research level `global[recipe.research_id]`, a known limitation: use a recipe attribute plus a fixed set of globals), string operations, and list literals.
 - **Localization** of names and labels.
-- **Binary cache** of parsed data, icon atlases (only revisited if the R3 budget is missed).
+- **Binary cache** of parsed data (only revisited if the R3 budget is missed). **Icon atlases** are rejected (D13): icons use `icons.pak` + async lazy loading, see `docs/design/gamedata-tool.md`.
 - **In-app data editing** (D2) and **v3 data or project compatibility** (D4). v3 files are converted once in 3g.
 - **Per-project display units for resource kinds.** Only the rate unit is per project.
 
