@@ -351,47 +351,69 @@ Then, in a short follow-up (Opus if the issues are deep, otherwise Flash): *"App
 
 ---
 
-### Step 4 — `gamedata_tool`, `factory-planner-packs` & GTNH import · conversation to come (decisions D3, D8, D12, D13)
+### Step 4 — `gamedata_tool`, `factory-planner-packs` & GTNH import (decisions D3, D8, D12, D13)
 
-You'll start this design conversation yourself. Starter prompt:
+**Design:** ✅ done → `docs/design/gamedata-tool.md` (decisions T1–T13). Each task below implements one part of it. Measure the 50k budgets (§4.5 of the design) on the synthetic package in 4a–4c and on real GTNH in 4e.
+
+#### 4a. Tool core · **Opus** · `/plan` · branch `feat/gamedata-tool-core`
 
 > ```
 > /plan
-> Read docs/ROADMAP.md (D3, D8, D12, D13), docs/design/gamedata-v4-spec.md and
-> docs/design/mechanics-matrix.md (data availability section).
->
-> Task: design the Step 4 tooling, 50k-scale runtime loading, AI-assisted authoring
-> workflow, and pack distribution split. Output: docs/design/gamedata-tool.md.
->
-> Cover:
-> 1. `gamedata_tool` (pure C++ CLI built on a headless `core_gamedata` library shared
->    with the app — NO hardcoded per-game dump parsers, NO Data Browser / hot reload):
->    - `init` (minimal valid v4 package scaffold),
->    - `validate` (full loader/compiler/validator + missing-icon `V-W-1` + unused `V-W-2`,
->      grouping cascading errors by root cause so 1 profile mistake doesn't flood 50k lines;
->      optional `--json` output),
->    - `eval` (headless CLI `NodeEvaluator` check for a recipe + machine + params),
->    - `stats` + `check-icons` / `prune-icons` (counts, unreferenced icons, checking icons
->      are square PNGs <= 64x64),
->    - `pack-icons` (packs loose PNGs into an uncompressed `icons.pak` = index + raw PNG
->      bytes for release distribution; no texture atlases per D13).
-> 2. Async lazy icon loading & 50k picker smoothness in the app:
->    - Replace eager `GameDataManager::loadTextures()` with on-demand async background
->      decoding + capped per-frame OpenGL upload (with optional LRU eviction), reading
->      `icons.pak` first and falling back to loose PNGs for local authoring.
-> 3. Authoring workflow + reusable AI agent prompt/guide (`factory-planner-packs`):
->    - How human + AI co-design the small schema/profile template (`game.json` mechanics,
->      params, metrics, UI hints) while deterministic converter scripts in the public
->      `factory-planner-packs` repo transform raw dumps & resize icons into v4 packages
->      verified in a loop with `gamedata_tool validate` / `eval`.
-> 4. Migration plan (at the end of Step 4, after importing GTNH first + any extra packs):
->    - Move `data/game_data/` into `factory-planner-packs`, adapt `tests/test_gamedata_v4.cpp`
->      tests so CI unit tests run standalone, and update `.github/workflows/release.yml`
->      to fetch `factory-planner-packs`, build `icons.pak`, validate packs, and ship an
->      all-in-one release archive.
+> Read docs/ROADMAP.md, the rules file and docs/design/gamedata-tool.md (§0–§2, §8, §9).
+> Implement task 4a exactly as specified: the headless core_gamedata CMake target (remove
+> texture fields and ImTextureID from core), LoadDiagnostic::subject, LoadReport::drop_root
+> and LoadReport::notes, ReportGrouping, the gamedata_tool skeleton (gamedata_tool_lib +
+> exe, exit codes, --json), and the commands init, validate (root-cause grouping, JSON
+> schema v1), eval (+ --cases) and stats. Add a synthetic 50k package generator in the
+> test helpers and report the load time. Tests per §9. Don't start 4b/4c work.
 > ```
 
-Things to bring into that conversation: verify **GTNH** (50k+ recipes) load speed, `icons.pak` build/read latency, and recipe/machine picker usability end-to-end.
+#### 4b. Icon tooling · Flash · branch `feat/gamedata-tool-icons`
+
+> ```
+> Read docs/ROADMAP.md, the rules file and docs/design/gamedata-tool.md (§2.2, §2.6, §3, §9).
+> Implement task 4b: IconPak reader/writer (v1 format with name_slug), PngInfo, V-ICON-1,
+> the "no icons" info note, icon checks in validate (lookup order T8), and check-icons /
+> prune-icons / pack-icons with --from. Tests per §9 (Icons, IconPak rows).
+> ```
+
+#### 4c. Lazy icons + 50k pickers · **Opus** · `/plan` · branch `feat/lazy-icons`
+
+> ```
+> /plan
+> Read docs/ROADMAP.md, the rules file and docs/design/gamedata-tool.md (§4, §9).
+> Implement task 4c: IconLoader (GL-free scheduling core) + IconCache replacing
+> GameDataManager::loadTextures(), T8 source resolution and "no icons" mode, the cross-pack
+> icon fallback with its Settings UI, RecipeSearchIndex, and ImGuiListClipper-based pickers.
+> Report picker timing on the synthetic 50k package. Add a CHANGELOG entry.
+> ```
+
+#### 4d. Authoring docs + packs repo bootstrap · **Opus** · branch `docs/pack-authoring`
+
+> ```
+> Read docs/ROADMAP.md, the rules file, docs/design/gamedata-v4-spec.md,
+> docs/design/mechanics-matrix.md and docs/design/gamedata-tool.md (§2.7, §5, §6.1, App. A).
+> Write docs/gamedata-v4.md (author reference, §5.4) and docs/authoring/pack-author-prompt.md
+> (from Appendix A), embed both via `gamedata_tool guide`, and draft the factory-planner-packs
+> bootstrap text files (README, AUTHORING.md, .gitignore, validate.yml) under
+> docs/authoring/packs-repo-template/ for the human to copy into the new repo. No Python
+> in this repo (D3): stdlib helpers such as common/png_resize.py are written in the packs
+> repo during 4e.
+> ```
+
+#### 4e. Dogfood imports · you + an agent in the packs repo
+
+Use the bootstrap prompt (design Appendix A) on a **simpler game first** (Satisfactory from `Docs.json`, or DSP), then **GTNH**. Measure the §4.5 budgets, verify the recipe and machine pickers end-to-end, and turn any tool or app problems into small follow-up tasks.
+
+#### 4f. Packs split · Flash · branch `chore/packs-split`
+
+> ```
+> Read docs/ROADMAP.md, the rules file and docs/design/gamedata-tool.md (§6.2, §7).
+> Implement the migration in §7: frozen fixtures in tests/data/ (FP_TEST_DATA_DIR), remove
+> data/game_data/, FP_PACKS_DIR + --game_data_dir, packs.ref, release.yml (download pack
+> zips from the packs.ref tag, validate --werror, all-in-one archive incl. gamedata_tool),
+> ci.yml smoke test, README/AGENTS.md/CHANGELOG updates.
+> ```
 
 **→ Release v0.12-alpha.**
 

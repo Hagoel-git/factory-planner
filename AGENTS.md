@@ -173,6 +173,7 @@ The codebase is organized into modules under `src/`:
 ### Logging
 - Use Abseil logging macros (`LOG(INFO)`, `LOG(WARNING)`, `LOG(ERROR)`, `VLOG(1)`, `VLOG(2)`).
 - Never use `std::cout`, `printf`, or `<iostream>` for output in production code. The only exception is the existing `std::cerr` fallback in `main.cpp` used before logging is initialized. `snprintf` into buffers for UI text is fine.
+- **CLI tools exception (`src/tools/`, e.g. `gamedata_tool`):** a command's user-facing output (human text or `--json`) is written to a passed-in `std::ostream&` (stdout/stderr in `main`, `std::ostringstream` in tests). Diagnostics still use Abseil logging. See `docs/design/gamedata-tool.md` §1.3.
 
 ### Changelog Policy
 - `docs/CHANGELOG.md` is the **user-facing** changelog used for release notes, following [Keep a Changelog](https://keepachangelog.com/).
