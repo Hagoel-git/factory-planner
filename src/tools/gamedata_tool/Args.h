@@ -10,7 +10,7 @@
 namespace gamedata_tool {
 
 struct Args {
-    std::string command; // "init", "validate", "eval", "stats"
+    std::string command; // "init", "validate", "eval", "stats", "check-icons", "prune-icons", "pack-icons", "guide"
     bool show_help = false;
     bool show_version = false;
 
@@ -59,6 +59,9 @@ struct Args {
     std::string out_pak;
     bool verify = false;
     std::string list_pak;
+
+    // guide topic ("prompt", "reference", or empty for topic list)
+    std::string guide_topic;
 };
 
 struct ParseResult {

@@ -1,0 +1,33 @@
+// Auto-generated at build time from docs/authoring/pack-author-prompt.md and docs/gamedata-v4.md.
+// Do not edit directly.
+
+#include "tools/gamedata_tool/GuideEmbed.h"
+
+#include <cstddef>
+
+namespace gamedata_tool {
+namespace {
+
+constexpr unsigned char kGuidePromptBytes[] = {
+    @GUIDE_PROMPT_BYTES@0x00
+};
+
+constexpr unsigned char kGuideReferenceBytes[] = {
+    @GUIDE_REFERENCE_BYTES@0x00
+};
+
+} // namespace
+
+std::string_view embeddedGuidePrompt() {
+    return std::string_view(
+        reinterpret_cast<const char*>(kGuidePromptBytes),
+        sizeof(kGuidePromptBytes) - 1);
+}
+
+std::string_view embeddedGuideReference() {
+    return std::string_view(
+        reinterpret_cast<const char*>(kGuideReferenceBytes),
+        sizeof(kGuideReferenceBytes) - 1);
+}
+
+} // namespace gamedata_tool

@@ -863,5 +863,120 @@ TEST(GameDataToolStatsTest, Synthetic50kPackageLoadAndReportTiming) {
               << " ms, compile=" << compileMs << " ms, json=" << gen.total_json_bytes << " bytes)\n";
 }
 
+// ============================================================================
+// 6. `guide` command (embedded authoring docs, §2.7)
+// ============================================================================
+
+std::string normalizeLineEndings(std::string s) {
+    std::string out;
+    out.reserve(s.size());
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (s[i] == '\r' && i + 1 < s.size() && s[i + 1] == '\n') {
+            continue;
+        }
+        out.push_back(s[i]);
+    }
+    return out;
+}
+
+std::filesystem::path locateRepoRootForDocs() {
+    std::vector<std::filesystem::path> roots;
+    if (const char* ghWorkspace = std::getenv("GITHUB_WORKSPACE")) {
+        roots.emplace_back(ghWorkspace);
+    }
+    if (auto execDir = getExecutableDirectory(); execDir.has_value()) {
+        roots.push_back(*execDir);
+    }
+    roots.push_back(std::filesystem::current_path());
+
+    for (const auto& root : roots) {
+        std::filesystem::path cur = root;
+        for (int i = 0; i < 6; ++i) {
+            std::error_code ec;
+            if (std::filesystem::is_regular_file(cur / "docs" / "gamedata-v4.md", ec) &&
+                std::filesystem::is_regular_file(
+                    cur / "docs" / "authoring" / "pack-author-prompt.md", ec)) {
+                return cur;
+            }
+            if (!cur.has_parent_path() || cur == cur.parent_path()) break;
+            cur = cur.parent_path();
+        }
+    }
+    return {};
+}
+
+TEST(GameDataToolGuideTest, PrintsEmbeddedPromptAndReferenceMatchingDocsOnDisk) {
+    const std::filesystem::path repoRoot = locateRepoRootForDocs();
+    ASSERT_FALSE(repoRoot.empty()) << "Failed to locate repository root containing docs/";
+
+    const std::string diskPrompt =
+        normalizeLineEndings(readFileBytes(repoRoot / "docs" / "authoring" / "pack-author-prompt.md"));
+    const std::string diskReference =
+        normalizeLineEndings(readFileBytes(repoRoot / "docs" / "gamedata-v4.md"));
+    ASSERT_FALSE(diskPrompt.empty());
+    ASSERT_FALSE(diskReference.empty());
+
+    auto promptRes = runCli({"guide", "prompt"});
+    ASSERT_EQ(promptRes.code, kExitOk) << promptRes.err;
+    EXPECT_TRUE(promptRes.err.empty());
+    EXPECT_EQ(promptRes.out, diskPrompt);
+    EXPECT_NE(promptRes.out.find("NEVER rely on memory"), std::string::npos);
+    EXPECT_NE(promptRes.out.find("authoritative references"), std::string::npos);
+    EXPECT_NE(promptRes.out.find("CITE EXACT SOURCE + VERSION"), std::string::npos);
+
+    auto refRes = runCli({"guide", "reference"});
+    ASSERT_EQ(refRes.code, kExitOk) << refRes.err;
+    EXPECT_TRUE(refRes.err.empty());
+    EXPECT_EQ(refRes.out, diskReference);
+    EXPECT_NE(refRes.out.find("## 2. Schema Cheat Sheet"), std::string::npos);
+    EXPECT_NE(refRes.out.find("## 3. Expression Language"), std::string::npos);
+    EXPECT_NE(refRes.out.find("## 4. Validation Rules"), std::string::npos);
+    EXPECT_NE(refRes.out.find("## 6. Mechanic"), std::string::npos);
+    EXPECT_NE(refRes.out.find("## 9. `gamedata_tool` Command Reference"), std::string::npos);
+}
+
+TEST(GameDataToolGuideTest, TopicListJsonHelpAndUsageErrors) {
+    // Bare `guide` lists available topics
+    auto bare = runCli({"guide"});
+    ASSERT_EQ(bare.code, kExitOk) << bare.err;
+    EXPECT_NE(bare.out.find("prompt"), std::string::npos);
+    EXPECT_NE(bare.out.find("reference"), std::string::npos);
+
+    // `--json` forms
+    auto bareJson = runCli({"guide", "--json"});
+    ASSERT_EQ(bareJson.code, kExitOk) << bareJson.err;
+    nlohmann::json jBare = nlohmann::json::parse(bareJson.out);
+    ASSERT_EQ(jBare["topics"].size(), 2u);
+    EXPECT_EQ(jBare["topics"][0]["name"], "prompt");
+    EXPECT_EQ(jBare["topics"][1]["name"], "reference");
+
+    auto promptJson = runCli({"guide", "prompt", "--json"});
+    ASSERT_EQ(promptJson.code, kExitOk) << promptJson.err;
+    nlohmann::json jPrompt = nlohmann::json::parse(promptJson.out);
+    EXPECT_EQ(jPrompt["topic"], "prompt");
+    EXPECT_EQ(jPrompt["content"].get<std::string>(), runCli({"guide", "prompt"}).out);
+
+    auto refJson = runCli({"guide", "reference", "--json"});
+    ASSERT_EQ(refJson.code, kExitOk) << refJson.err;
+    nlohmann::json jRef = nlohmann::json::parse(refJson.out);
+    EXPECT_EQ(jRef["topic"], "reference");
+    EXPECT_EQ(jRef["content"].get<std::string>(), runCli({"guide", "reference"}).out);
+
+    // Help mentions guide
+    auto topHelp = runCli({"--help"});
+    ASSERT_EQ(topHelp.code, kExitOk);
+    EXPECT_NE(topHelp.out.find("guide"), std::string::npos);
+
+    auto guideHelp = runCli({"guide", "--help"});
+    ASSERT_EQ(guideHelp.code, kExitOk);
+    EXPECT_NE(guideHelp.out.find("prompt"), std::string::npos);
+    EXPECT_NE(guideHelp.out.find("reference"), std::string::npos);
+
+    // Usage errors
+    EXPECT_EQ(runCli({"guide", "unknown"}).code, kExitUsage);
+    EXPECT_EQ(runCli({"guide", "prompt", "extra"}).code, kExitUsage);
+    EXPECT_EQ(runCli({"guide", "--unknown-flag"}).code, kExitUsage);
+}
+
 } // namespace
 } // namespace gamedata_tool

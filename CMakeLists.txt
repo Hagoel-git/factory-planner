@@ -125,11 +125,36 @@ target_include_directories(core_gamedata PUBLIC
 target_link_libraries(core_gamedata PUBLIC absl::log)
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${CORE_GAMEDATA_SRC})
 
+# ---- gamedata_tool embedded authoring guides ----
+set(GUIDE_PROMPT_MD "${CMAKE_SOURCE_DIR}/docs/authoring/pack-author-prompt.md")
+set(GUIDE_REFERENCE_MD "${CMAKE_SOURCE_DIR}/docs/gamedata-v4.md")
+set(GUIDE_EMBED_TEMPLATE "${CMAKE_SOURCE_DIR}/src/tools/gamedata_tool/GuideEmbed.cpp.in")
+set(GUIDE_EMBED_SCRIPT "${CMAKE_SOURCE_DIR}/src/tools/gamedata_tool/EmbedGuideDocs.cmake")
+set(GUIDE_EMBED_CPP "${CMAKE_BINARY_DIR}/generated/GuideEmbed.cpp")
+
+add_custom_command(
+        OUTPUT "${GUIDE_EMBED_CPP}"
+        COMMAND ${CMAKE_COMMAND}
+                -DPROMPT_FILE=${GUIDE_PROMPT_MD}
+                -DREFERENCE_FILE=${GUIDE_REFERENCE_MD}
+                -DTEMPLATE_FILE=${GUIDE_EMBED_TEMPLATE}
+                -DOUTPUT_FILE=${GUIDE_EMBED_CPP}
+                -P ${GUIDE_EMBED_SCRIPT}
+        DEPENDS
+                "${GUIDE_PROMPT_MD}"
+                "${GUIDE_REFERENCE_MD}"
+                "${GUIDE_EMBED_TEMPLATE}"
+                "${GUIDE_EMBED_SCRIPT}"
+        COMMENT "Embedding GameData v4 authoring guides into GuideEmbed.cpp..."
+        VERBATIM
+)
+
 # ---- gamedata_tool CLI library + executable ----
 set(GAMEDATA_TOOL_LIB_SRC
         src/tools/gamedata_tool/Args.h
         src/tools/gamedata_tool/Args.cpp
         src/tools/gamedata_tool/Commands.h
+        src/tools/gamedata_tool/GuideEmbed.h
         src/tools/gamedata_tool/IconToolUtils.h
         src/tools/gamedata_tool/IconToolUtils.cpp
         src/tools/gamedata_tool/CmdInit.cpp
@@ -139,12 +164,29 @@ set(GAMEDATA_TOOL_LIB_SRC
         src/tools/gamedata_tool/CmdCheckIcons.cpp
         src/tools/gamedata_tool/CmdPruneIcons.cpp
         src/tools/gamedata_tool/CmdPackIcons.cpp
+        src/tools/gamedata_tool/CmdGuide.cpp
+        ${GUIDE_EMBED_CPP}
 )
 
 add_library(gamedata_tool_lib STATIC ${GAMEDATA_TOOL_LIB_SRC})
 target_link_libraries(gamedata_tool_lib PUBLIC core_gamedata)
 target_compile_definitions(gamedata_tool_lib PRIVATE GAMEDATA_TOOL_VERSION="${PROJECT_VERSION}")
-source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${GAMEDATA_TOOL_LIB_SRC})
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES
+        src/tools/gamedata_tool/Args.h
+        src/tools/gamedata_tool/Args.cpp
+        src/tools/gamedata_tool/Commands.h
+        src/tools/gamedata_tool/GuideEmbed.h
+        src/tools/gamedata_tool/IconToolUtils.h
+        src/tools/gamedata_tool/IconToolUtils.cpp
+        src/tools/gamedata_tool/CmdInit.cpp
+        src/tools/gamedata_tool/CmdValidate.cpp
+        src/tools/gamedata_tool/CmdEval.cpp
+        src/tools/gamedata_tool/CmdStats.cpp
+        src/tools/gamedata_tool/CmdCheckIcons.cpp
+        src/tools/gamedata_tool/CmdPruneIcons.cpp
+        src/tools/gamedata_tool/CmdPackIcons.cpp
+        src/tools/gamedata_tool/CmdGuide.cpp
+)
 
 add_executable(gamedata_tool src/tools/gamedata_tool/main.cpp)
 target_link_libraries(gamedata_tool

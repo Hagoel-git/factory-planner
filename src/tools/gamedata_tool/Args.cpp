@@ -89,6 +89,7 @@ void printTopLevelHelp(std::ostream& out) {
         << "  check-icons <pkg>  Check missing, unreferenced, invalid, or stale icons\n"
         << "  prune-icons <pkg>  List or delete unreferenced loose PNG icons\n"
         << "  pack-icons <pkg>   Build or inspect an icons.pak container\n"
+        << "  guide [topic]      Print embedded authoring docs (prompt | reference)\n"
         << "\n"
         << "Options:\n"
         << "  -h, --help         Show this help (or command help: gamedata_tool <cmd> --help)\n"
@@ -153,6 +154,11 @@ void printCommandHelp(const std::string& command, std::ostream& out) {
             << "  --verify                 Read packed file back and compare byte-for-byte\n"
             << "  --list <file>            Print the index of an existing icons.pak\n"
             << "  --json                   Emit JSON output on stdout\n";
+    } else if (command == "guide") {
+        out << "Usage: gamedata_tool guide [prompt|reference] [options]\n"
+            << "  prompt                   Print the embedded AI pack-authoring prompt\n"
+            << "  reference                Print the embedded GameData v4 author reference\n"
+            << "  --json                   Emit JSON output on stdout\n";
     } else {
         printTopLevelHelp(out);
     }
@@ -178,10 +184,11 @@ ParseResult parseArgs(const std::vector<std::string>& argv) {
     }
 
     if (first != "init" && first != "validate" && first != "eval" && first != "stats" &&
-        first != "check-icons" && first != "prune-icons" && first != "pack-icons") {
+        first != "check-icons" && first != "prune-icons" && first != "pack-icons" &&
+        first != "guide") {
         return usageError(
             "unknown command '" + first +
-            "' (expected init, validate, eval, stats, check-icons, prune-icons, or pack-icons)");
+            "' (expected init, validate, eval, stats, check-icons, prune-icons, pack-icons, or guide)");
     }
 
     Args& a = res.args;
@@ -402,10 +409,24 @@ ParseResult parseArgs(const std::vector<std::string>& argv) {
             } else {
                 return usageError("unknown flag '" + std::string(flag) + "' for 'pack-icons'");
             }
+        } else if (a.command == "guide") {
+            return usageError("unknown flag '" + std::string(flag) + "' for 'guide'");
         }
     }
 
-    if (a.command == "pack-icons" && !a.list_pak.empty()) {
+    if (a.command == "guide") {
+        if (positionals.size() > 1) {
+            return usageError("unexpected positional argument '" + positionals[1] + "'");
+        }
+        if (positionals.size() == 1) {
+            const std::string& topic = positionals.front();
+            if (topic != "prompt" && topic != "reference") {
+                return usageError(
+                    "unknown guide topic '" + topic + "' (expected 'prompt' or 'reference')");
+            }
+            a.guide_topic = topic;
+        }
+    } else if (a.command == "pack-icons" && !a.list_pak.empty()) {
         if (!positionals.empty()) {
             return usageError("--list cannot be combined with a package argument");
         }
@@ -485,6 +506,9 @@ int runCommand(const std::vector<std::string>& argv, std::ostream& out, std::ost
     }
     if (args.command == "pack-icons") {
         return runPackIcons(args, out, err);
+    }
+    if (args.command == "guide") {
+        return runGuide(args, out, err);
     }
 
     err << "error: unknown command '" << args.command << "'\n";
