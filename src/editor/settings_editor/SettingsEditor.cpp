@@ -1,10 +1,12 @@
 #include "SettingsEditor.h"
+#include "services/IconCache.h"
 #include "services/SettingsManager.h"
 #include "imgui.h"
 #include "nfd.h"
 
 #include <cstring>
 #include <thread>
+#include <utility>
 
 void SettingsEditor::draw() {
     if (!m_isOpen) return;
@@ -60,6 +62,7 @@ void SettingsEditor::drawRightPanel() {
                 std::strncpy(m_bufGameDataPath.data(), res.c_str(), m_bufGameDataPath.size() - 1);
                 m_bufGameDataPath[m_bufGameDataPath.size() - 1] = '\0';
                 m_editSettings.gameDataPath = res;
+                rescanGameDataForFallback();
                 m_isDirty = true;
             }
         }
@@ -148,6 +151,7 @@ void SettingsEditor::drawRightPanel() {
         std::string newGameDataPath = std::string(m_bufGameDataPath.data());
         if (newGameDataPath != m_editSettings.gameDataPath.string()) {
             m_editSettings.gameDataPath = newGameDataPath;
+            rescanGameDataForFallback();
             m_isDirty = true;
         }
 
@@ -282,6 +286,71 @@ void SettingsEditor::drawRightPanel() {
         }
         ImGui::SameLine();
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Base font size for scaling UI elements.");
+
+        ImGui::Spacing();
+        ImGui::SeparatorText("Icons");
+
+        if (ImGui::Checkbox("Use icons from other game packs when missing", &m_editSettings.iconFallback.enabled)) {
+            m_isDirty = true;
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip(
+                "When an icon is missing in the active pack, search other installed packs\n"
+                "(same game first, then the priority order below) by exact ID, then display name.");
+        }
+
+        ImGui::Spacing();
+        ImGui::TextUnformatted("Fallback game priority:");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Rescan")) {
+            rescanGameDataForFallback();
+            IconCache::instance().refreshScannedPackages(m_scannedPackages);
+            if (m_displayFallbackOrder != m_savedSettings.iconFallback.order) {
+                m_editSettings.iconFallback.order = m_displayFallbackOrder;
+                m_isDirty = true;
+            }
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Rescan Game Data Path for installed game packs.");
+        }
+
+        ImGui::BeginDisabled(!m_editSettings.iconFallback.enabled);
+        ImGui::BeginChild("##icon_fallback_order", ImVec2(0, 150), true);
+        if (m_displayFallbackOrder.empty()) {
+            ImGui::TextDisabled("No game packs found in Game Data Path.");
+        } else {
+            for (size_t i = 0; i < m_displayFallbackOrder.size(); ++i) {
+                ImGui::PushID(static_cast<int>(i));
+
+                ImGui::BeginDisabled(i == 0);
+                if (ImGui::SmallButton("Up")) {
+                    moveFallbackGame(i, -1);
+                }
+                ImGui::EndDisabled();
+
+                ImGui::SameLine();
+                ImGui::BeginDisabled(i + 1 >= m_displayFallbackOrder.size());
+                if (ImGui::SmallButton("Down")) {
+                    moveFallbackGame(i, 1);
+                }
+                ImGui::EndDisabled();
+
+                ImGui::SameLine();
+                const std::string& gid = m_displayFallbackOrder[i];
+                auto nameIt = m_scannedGameNames.find(gid);
+                if (nameIt != m_scannedGameNames.end() && !nameIt->second.empty() && nameIt->second != gid) {
+                    ImGui::Text("%s", gid.c_str());
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(%s)", nameIt->second.c_str());
+                } else {
+                    ImGui::Text("%s", gid.c_str());
+                }
+
+                ImGui::PopID();
+            }
+        }
+        ImGui::EndChild();
+        ImGui::EndDisabled();
     }
 
     ImGui::EndChild();
@@ -317,6 +386,35 @@ void SettingsEditor::drawBottomPanel() {
 }
 
 
+bool SettingsEditor::moveFallbackGame(size_t index, int delta) {
+    if (index >= m_displayFallbackOrder.size() || delta == 0) {
+        return false;
+    }
+    if (delta < 0 && index == 0) {
+        return false;
+    }
+    if (delta > 0 && index + 1 >= m_displayFallbackOrder.size()) {
+        return false;
+    }
+    const size_t targetIdx = (delta < 0) ? (index - 1) : (index + 1);
+    std::swap(m_displayFallbackOrder[index], m_displayFallbackOrder[targetIdx]);
+    m_editSettings.iconFallback.order = m_displayFallbackOrder;
+    m_isDirty = true;
+    return true;
+}
+
+void SettingsEditor::rescanGameDataForFallback() {
+    m_lastScannedGameDataPath = m_editSettings.gameDataPath;
+    m_scannedPackages = scanForGameData(m_editSettings.gameDataPath);
+    m_scannedGameNames.clear();
+    for (const auto& pkg : m_scannedPackages) {
+        if (!pkg.uuid.empty() && !m_scannedGameNames.contains(pkg.uuid)) {
+            m_scannedGameNames.emplace(pkg.uuid, pkg.gameName);
+        }
+    }
+    m_displayFallbackOrder = mergeIconFallbackOrder(m_editSettings.iconFallback.order, m_scannedPackages);
+}
+
 void SettingsEditor::startEditing() {
     // pull from SettingsManager
     m_savedSettings = SettingsManager::instance().getSettings();
@@ -333,6 +431,7 @@ void SettingsEditor::startEditing() {
     fillBuf(m_bufDefaultProjectPath, m_editSettings.defaultProjectPath);
     fillBuf(m_bufGameDataPath, m_editSettings.gameDataPath);
 
+    rescanGameDataForFallback();
     m_selCategory = "General";
 }
 
@@ -349,15 +448,29 @@ void SettingsEditor::revertChanges() {
                  m_savedSettings.gameDataPath.string().c_str(),
                  m_bufGameDataPath.size() - 1);
     m_bufGameDataPath[m_bufGameDataPath.size() - 1] = '\0';
+
+    rescanGameDataForFallback();
 }
 
 void SettingsEditor::applyChanges() {
     // Update any fields that may not be in sync (buffers -> paths)
     m_editSettings.defaultProjectPath = std::string(m_bufDefaultProjectPath.data());
     m_editSettings.gameDataPath = std::string(m_bufGameDataPath.data());
+    if (m_editSettings.gameDataPath != m_lastScannedGameDataPath) {
+        rescanGameDataForFallback();
+    }
+    m_editSettings.iconFallback.order = m_displayFallbackOrder;
+
+    const bool iconSettingsChanged =
+        (m_editSettings.iconFallback != m_savedSettings.iconFallback) ||
+        (m_editSettings.gameDataPath != m_savedSettings.gameDataPath);
 
     SettingsManager::instance().setSettings(m_editSettings);
     SettingsManager::instance().save();
+
+    if (iconSettingsChanged) {
+        IconCache::instance().updateSettings(m_editSettings.iconFallback, m_scannedPackages);
+    }
 
     ImFont* font = nullptr;
 

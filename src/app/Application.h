@@ -5,11 +5,13 @@
 #include <memory>
 #include <mutex>
 #include <atomic>
+#include <cstdint>
 #include <string>
 #include "common/CopyBuffer.h"
 #include "core/data/GameData.h"
 #include "core/data/GameDataScanner.h"
 #include "editor/settings_editor/SettingsEditor.h"
+#include "services/SettingsManager.h"
 
 class FactoryNodeEditor;
 enum class SaveAsMode;
@@ -69,6 +71,9 @@ private:
     std::string m_currentTheme;
     bool m_currentShowGrid = false;
     int m_currentNavButtonIndex = -1;
+    uint64_t m_frameIndex = 0;
+    IconFallbackSettings m_currentIconFallback;
+    std::filesystem::path m_currentGameDataPath;
 
     bool m_showUnsavedChangesDialog = false;
     bool m_applyToAllEditors = false;
@@ -137,5 +142,6 @@ private:
 
     // Utility
     std::string generateDefaultEditorName();
+    void syncIconCacheWithSettings(bool forceRescan);
 };
 #endif

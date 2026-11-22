@@ -1,8 +1,25 @@
 #ifndef SETTINGSMANAGER_H
 #define SETTINGSMANAGER_H
 #include <filesystem>
+#include <string>
+#include <vector>
 
 #include "common/FilesystemUtils.h"
+#include "core/data/GameDataScanner.h"
+
+struct IconFallbackSettings {
+    bool enabled = false;
+    std::vector<std::string> order;
+
+    bool operator==(const IconFallbackSettings&) const = default;
+};
+
+// Reconciles a saved fallback game-ID priority list against currently scanned packages:
+// preserves saved relative priority for installed games, removes deleted/uninstalled games,
+// and appends newly scanned game IDs in scan order.
+std::vector<std::string> mergeIconFallbackOrder(
+    const std::vector<std::string>& savedOrder,
+    const std::vector<GameDataPackage>& scannedPackages);
 
 struct AppSettings {
     std::filesystem::path executablePath = getExecutableDirectory().value_or(std::filesystem::current_path());
@@ -24,6 +41,8 @@ struct AppSettings {
     int windowWidth = 1280;
     int windowHeight = 720;
     bool windowMaximized = false;
+
+    IconFallbackSettings iconFallback;
 };
 
 class SettingsManager {

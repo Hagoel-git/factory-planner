@@ -3,8 +3,6 @@
 #include <absl/log/log.h>
 
 #include "core/data/GameDataLoader.h"
-#include "services/NotificationManager.h"
-#include "services/TextureManager.h"
 
 GameDataManager::GameDataManager() {
     clear();
@@ -22,18 +20,6 @@ void GameDataManager::clear() {
     m_data = {};
     m_lastReport = {};
     gamedata::ensureBuiltInDefaultProfile(m_data);
-}
-
-void GameDataManager::loadTextures() {
-    if (m_data.icon_root.empty()) {
-        return;
-    }
-    for (const auto& res : m_data.resources) {
-        TextureManager::instance().loadEntityIcon(m_data.icon_root, "resources", res.id);
-    }
-    for (const auto& mac : m_data.machines) {
-        TextureManager::instance().loadEntityIcon(m_data.icon_root, "machines", mac.id);
-    }
 }
 
 bool GameDataManager::loadFromFile(const std::filesystem::path& path, std::string& outError, bool ignoreErrors) {
@@ -55,7 +41,6 @@ bool GameDataManager::loadFromFile(const std::filesystem::path& path, std::strin
     }
 
     m_data = std::move(loaded);
-    loadTextures();
     LOG(INFO) << "GameData v4 loaded successfully from: " << path;
     return true;
 }

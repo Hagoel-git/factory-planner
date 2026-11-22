@@ -14,6 +14,7 @@
 #include <imgui_internal.h>
 #include <imgui_node_editor_internal.h>
 #include "services/NotificationManager.h"
+#include "services/IconCache.h"
 #include <GLFW/glfw3.h>
 #include <filesystem>
 #include <fstream>
@@ -315,6 +316,29 @@ protected:
 
     std::string getPinConstraintBuffer(const FactoryNodeEditor& editor) const {
         return editor.m_contextPinConstraintBuf;
+    }
+
+    size_t getLastRecipePickerDrawnRows(const FactoryNodeEditor& editor) const {
+        return editor.m_lastRecipePickerDrawnRows;
+    }
+
+    void drawRecipePickerPopupFrame(FactoryNodeEditor& editor, bool openPopupThisFrame) {
+        ImGui::NewFrame();
+        ImGui::SetNextWindowPos(ImVec2(0, 0));
+        ImGui::SetNextWindowSize(ImVec2(1280, 720));
+        ImGui::Begin("EditorHost", nullptr, ImGuiWindowFlags_NoDecoration);
+        ax::NodeEditor::SetCurrentEditor(editor.getContext());
+        ax::NodeEditor::Begin(editor.getName().c_str());
+        if (openPopupThisFrame) {
+            ax::NodeEditor::Suspend();
+            ImGui::OpenPopup("Create new node");
+            ax::NodeEditor::Resume();
+        }
+        editor.handlePopups();
+        ax::NodeEditor::End();
+        ax::NodeEditor::SetCurrentEditor(nullptr);
+        ImGui::End();
+        ImGui::Render();
     }
 };
 
@@ -3052,5 +3076,176 @@ TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_ResourceKindDisplayScaleAndUn
     EXPECT_EQ(graph->formatResourceRateSuffix("water"), "kL/min");
     EXPECT_EQ(graph->formatResourceRateSuffix("coolant"), "m³/min");
     EXPECT_EQ(graph->formatResourceRateSuffix("iron_ore"), "/min");
+}
+
+// -----------------------------------------------------------------------------
+// Step 4c Integration Tests: IconCache FramePacer Wakeup, Settings UI & Clipped Picker
+// -----------------------------------------------------------------------------
+
+TEST_F(ApplicationLifecycleTest, Application_HasActiveAnimationsReflectsIconCacheBusy) {
+    struct IconCacheGuard {
+        ~IconCacheGuard() { IconCache::instance().shutdown(); }
+    } cacheGuard;
+
+    Application app;
+    EXPECT_FALSE(app.hasActiveAnimations());
+
+    // Enqueue a batch of icon lookups in IconCache; while workers/ready queue are non-empty,
+    // Application::hasActiveAnimations() must report true so FramePacer stays awake.
+    IconCache::instance().beginFrame(1);
+    for (int i = 0; i < 64; ++i) {
+        IconCache::instance().get({"busy_test_pkg", IconKind::Resource, "item_" + std::to_string(i), "Item"});
+    }
+    EXPECT_TRUE(IconCache::instance().busy());
+    EXPECT_TRUE(app.hasActiveAnimations());
+
+    // Drain ready queue across frames until idle.
+    uint64_t frame = 2;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (IconCache::instance().busy() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        IconCache::instance().beginFrame(frame++);
+    }
+    EXPECT_FALSE(IconCache::instance().busy());
+    EXPECT_FALSE(app.hasActiveAnimations());
+}
+
+TEST_F(ApplicationLifecycleTest, SettingsEditor_IconFallbackRemovesDeletedPacksAndPersistsOrder) {
+    const fs::path gdRoot = tempRoot / "game_data";
+    auto writeMinimalManifest = [&](const std::string& dirName, const std::string& gameId, const std::string& gameName) {
+        const fs::path p = gdRoot / dirName / "game.json";
+        const std::string json =
+            "{\"schema_version\":4,\"game\":{\"id\":\"" + gameId + "\",\"name\":\"" + gameName +
+            "\"},\"units\":{\"recipe_time\":\"s\",\"default_rate\":\"s\"},"
+            "\"resources\":[{\"id\":\"ore\",\"name\":\"Ore\"}],"
+            "\"machines\":[{\"id\":\"m\",\"name\":\"M\",\"categories\":[\"c\"]}],"
+            "\"recipes\":[{\"id\":\"r\",\"category\":\"c\",\"time\":1,\"in\":[[\"ore\",1]],\"out\":[[\"ore\",1]]}]}";
+        ASSERT_TRUE(atomicWriteFile(p, json));
+    };
+
+    writeMinimalManifest("alpha", "alpha", "Alpha Game");
+    writeMinimalManifest("beta", "beta", "Beta Game");
+
+    const AppSettings orig = SettingsManager::instance().getSettings();
+    const fs::path settingsPath =
+        getExecutableDirectory().value_or(fs::current_path()) / "app_settings.json";
+    std::optional<std::string> origFileContent;
+    if (fs::exists(settingsPath)) {
+        std::ifstream ifs(settingsPath, std::ios::binary);
+        origFileContent = std::string((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+    }
+    struct Guard {
+        AppSettings origSettings;
+        fs::path path;
+        std::optional<std::string> origContent;
+        ~Guard() {
+            IconCache::instance().shutdown();
+            SettingsManager::instance().setSettings(origSettings);
+            std::error_code ec;
+            if (origContent.has_value()) {
+                atomicWriteFile(path, *origContent);
+            } else {
+                fs::remove(path, ec);
+            }
+        }
+    } guard{orig, settingsPath, origFileContent};
+
+    // Start with a deleted pack ("deleted_pack") in saved order.
+    AppSettings s = orig;
+    s.gameDataPath = gdRoot;
+    s.iconFallback.enabled = false;
+    s.iconFallback.order = {"deleted_pack", "beta", "alpha"};
+    SettingsManager::instance().setSettings(s);
+
+    SettingsEditor editor;
+    editor.setOpen(true);
+
+    // Deleted pack must be removed from the displayed priority list, preserving beta before alpha.
+    EXPECT_EQ(editor.getDisplayFallbackOrder(), (std::vector<std::string>{"beta", "alpha"}));
+
+    // Reorder: move alpha up -> ["alpha", "beta"], enable fallback, and apply.
+    editor.setEditIconFallbackEnabled(true);
+    EXPECT_TRUE(editor.moveFallbackGame(1, -1));
+    EXPECT_EQ(editor.getDisplayFallbackOrder(), (std::vector<std::string>{"alpha", "beta"}));
+    editor.applyChangesForTest();
+
+    const auto& applied = SettingsManager::instance().getSettings().iconFallback;
+    EXPECT_TRUE(applied.enabled);
+    EXPECT_EQ(applied.order, (std::vector<std::string>{"alpha", "beta"}));
+
+    // Delete "beta" from disk and rescan: "beta" is removed from priority list.
+    std::error_code ec;
+    fs::remove_all(gdRoot / "beta", ec);
+    editor.triggerRescanForTest();
+    EXPECT_EQ(editor.getDisplayFallbackOrder(), (std::vector<std::string>{"alpha"}));
+    editor.applyChangesForTest();
+    EXPECT_EQ(SettingsManager::instance().getSettings().iconFallback.order, (std::vector<std::string>{"alpha"}));
+}
+
+TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_ClippedRecipePickerOnlyDrawsVisibleRows) {
+    struct IconCacheGuard {
+        ~IconCacheGuard() { IconCache::instance().shutdown(); }
+    } cacheGuard;
+
+    // Build an in-memory GameData with 2,000 recipes (each with a unique resource).
+    GameData gd;
+    gd.game.id = "clipper_test";
+    gd.game.name = "Clipper Test";
+    gd.package_root = tempRoot / "clipper_pkg";
+    gd.icon_root = gd.package_root / "icons";
+    fs::create_directories(gd.package_root);
+
+    Machine m;
+    m.id = "assembler";
+    m.name = "Assembler";
+    m.categories = {"craft"};
+    gd.machines.push_back(m);
+    gd.machine_index["assembler"] = 0;
+
+    constexpr size_t kRecipeCount = 2000;
+    gd.resources.reserve(kRecipeCount);
+    gd.recipes.reserve(kRecipeCount);
+    for (size_t i = 0; i < kRecipeCount; ++i) {
+        Resource r;
+        r.id = "res_" + std::to_string(i);
+        r.name = "Resource " + std::to_string(i);
+        gd.resource_index[r.id] = gd.resources.size();
+        gd.resources.push_back(r);
+
+        Recipe rec;
+        rec.id = "rec_" + std::to_string(i);
+        rec.name = "Recipe " + std::to_string(i);
+        rec.time_seconds = 1.0;
+        rec.compatible_machine_ids = {"assembler"};
+        RecipePort inP;
+        inP.dir = "in";
+        inP.index = 0;
+        inP.slot_key = "in:0";
+        inP.res = r.id;
+        inP.amount = 1.0;
+        rec.in.push_back(inP);
+        RecipePort outP;
+        outP.dir = "out";
+        outP.index = 0;
+        outP.slot_key = "out:0";
+        outP.res = r.id;
+        outP.amount = 1.0;
+        rec.out.push_back(outP);
+        gd.recipe_index[rec.id] = gd.recipes.size();
+        gd.recipes.push_back(std::move(rec));
+    }
+
+    FactoryNodeEditor editor(gd, tempRoot / "clipper_proj.fpp", "ClipperProj");
+    ASSERT_TRUE(editor.isLoadedSuccessfully());
+
+    IconCache::instance().beginFrame(1);
+    drawRecipePickerPopupFrame(editor, /*openPopupThisFrame=*/true);
+    IconCache::instance().beginFrame(2);
+    drawRecipePickerPopupFrame(editor, /*openPopupThisFrame=*/false);
+
+    // Table viewport is 480 px tall (~25-40 rows visible), NOT all 2,000 rows!
+    const size_t drawnRows = getLastRecipePickerDrawnRows(editor);
+    EXPECT_GT(drawnRows, 0u);
+    EXPECT_LT(drawnRows, 100u);
 }
 

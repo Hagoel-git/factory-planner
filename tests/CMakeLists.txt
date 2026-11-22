@@ -14,6 +14,7 @@ add_executable(
         test_gamedata_v4.cpp
         test_gamedata_tool.cpp
         test_gamedata_icons.cpp
+        test_lazy_icons.cpp
 )
 
 target_link_libraries(

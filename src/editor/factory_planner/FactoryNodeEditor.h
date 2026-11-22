@@ -3,6 +3,7 @@
 #include "imgui_node_editor.h"
 #include "services/UndoRedoSystem.h"
 #include "pvigier/Quadtree.h"
+#include "core/data/RecipeSearchIndex.h"
 #include "core/graph/FactorySolver.h"
 #include "core/graph/FactoryGraph.h"
 #include <GLFW/glfw3.h>
@@ -117,6 +118,7 @@ public:
     const DebugInfo& getDebugInfo() const { return m_debugInfo; }
 
     const std::string& getName() const { return m_editorName; }
+    const std::string& getIconPackageId() const { return m_iconPackageId; }
     const std::filesystem::path& getProjectFilePath() const { return m_projectFilePath; }
     void setName(const std::string& newName) { m_editorName = newName; }
     bool isLoadedSuccessfully() const { return m_loadedSuccessfully; }
@@ -164,6 +166,10 @@ private:
     bool m_isContextMenuInitialized = false;
 
     char m_recipeSearchBuffer[128] = "";
+    std::string m_iconPackageId;
+    gamedata::RecipeSearchIndex m_recipeSearchIndex;
+    gamedata::RecipeSearchState m_recipeSearchState;
+    size_t m_lastRecipePickerDrawnRows = 0;
 
     bool m_showFitViewConfirmation = false;
 

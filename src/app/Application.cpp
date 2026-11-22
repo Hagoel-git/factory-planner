@@ -13,11 +13,11 @@
 #include "common/FilesystemUtils.h"
 #include "core/data/GameDataManager.h"
 #include "core/data/GameDataScanner.h"
+#include "services/IconCache.h"
 #include "services/NotificationManager.h"
 #include "services/SettingsManager.h"
 #include "services/RecentFiles.h"
 #include "services/SessionManager.h"
-#include "services/TextureManager.h"
 
 namespace {
 
@@ -88,6 +88,9 @@ Application::Application() {
     VLOG(2) << "Application starting up.";
     SettingsManager::instance().load();
     RecentFiles::instance().load();
+
+    // Configure IconCache before restoring session tabs (and before font-loading early returns).
+    syncIconCacheWithSettings(/*forceRescan=*/true);
 
     if (SettingsManager::instance().getSettings().restorePreviousSession) {
         restoreSession();
@@ -164,10 +167,39 @@ Application::~Application() {
     RecentFiles::instance().save();
     saveSession();
     m_editors.clear();
-    TextureManager::instance().cleanup();
+    IconCache::instance().shutdown();
+}
+
+void Application::syncIconCacheWithSettings(bool forceRescan) {
+    AppSettings settings = SettingsManager::instance().getSettings();
+    const bool pathChanged = forceRescan || (settings.gameDataPath != m_currentGameDataPath);
+
+    if (pathChanged) {
+        m_currentGameDataPath = settings.gameDataPath;
+        m_cachedGameDataPackages = scanForGameData(m_currentGameDataPath);
+
+        std::error_code ec;
+        if (std::filesystem::is_directory(m_currentGameDataPath, ec) &&
+            (!settings.iconFallback.order.empty() || settings.iconFallback.enabled)) {
+            auto reconciled = mergeIconFallbackOrder(settings.iconFallback.order, m_cachedGameDataPackages);
+            if (reconciled != settings.iconFallback.order) {
+                settings.iconFallback.order = std::move(reconciled);
+                SettingsManager::instance().setSettings(settings);
+            }
+        }
+
+        m_currentIconFallback = settings.iconFallback;
+        IconCache::instance().updateSettings(m_currentIconFallback, m_cachedGameDataPackages);
+    } else if (settings.iconFallback != m_currentIconFallback) {
+        m_currentIconFallback = settings.iconFallback;
+        IconCache::instance().updateSettings(m_currentIconFallback, m_cachedGameDataPackages);
+    }
 }
 
 void Application::draw() {
+    syncIconCacheWithSettings(/*forceRescan=*/false);
+    IconCache::instance().beginFrame(++m_frameIndex);
+
     if (SettingsManager::instance().getSettings().themeName != m_currentTheme || SettingsManager::instance().getSettings().showGrid != m_currentShowGrid ||
         SettingsManager::instance().getSettings().navigationButtonIndex != m_currentNavButtonIndex) {
         VLOG(1) << "Theme or grid setting changed, updating editors.";
@@ -424,6 +456,15 @@ void Application::drawDebugWindow() {
     ImGui::Text("Number of open editors: %zu", m_editors.size());
     ImGui::Text("Active editor index: %d", m_activeEditor);
     ImGui::Text("Copy buffer size: Nodes: %zu, Ports: %zu, Connections: %zu", m_copyBuffer.nodes.size(), m_copyBuffer.ports.size(), m_copyBuffer.connections.size());
+    const IconLoaderStats iconStats = IconCache::instance().getStats();
+    ImGui::Text("IconCache: %zu / %zu resident, %zu missing, %zu pending, %zu in-flight, %zu ready (%s)",
+                iconStats.resident_textures,
+                iconStats.max_resident_textures,
+                iconStats.missing_entries,
+                iconStats.pending_requests,
+                iconStats.in_flight_decodes,
+                iconStats.ready_to_upload,
+                iconStats.busy ? "busy" : "idle");
 
     ImGui::SeparatorText("Editor Specific");
     if (m_activeEditor != -1 && m_activeEditor < static_cast<int>(m_editors.size()) && m_editors[m_activeEditor]) {
@@ -779,8 +820,7 @@ void Application::drawNewProjectDialog() {
     }
 
     if (ImGui::IsWindowAppearing()) {
-        std::filesystem::path gameDataPath = SettingsManager::instance().getSettings().gameDataPath;
-        m_cachedGameDataPackages = scanForGameData(gameDataPath);
+        syncIconCacheWithSettings(/*forceRescan=*/true);
 
         selectedGameDataFile = m_cachedGameDataPackages.empty() ? -1 : 0;
 
@@ -1729,7 +1769,9 @@ void Application::closeEditor(int index) {
     }
 
     auto &editor = m_editors[index];
+    std::string closedPkgId;
     if (editor) {
+        closedPkgId = editor->getIconPackageId();
         std::filesystem::path projectPath = editor->getProjectFilePath();
         if (!projectPath.empty() && std::filesystem::exists(projectPath)) {
             m_closedEditorHistory.push_back(projectPath);
@@ -1737,6 +1779,15 @@ void Application::closeEditor(int index) {
     }
 
     m_editors.erase(m_editors.begin() + index);
+
+    if (!closedPkgId.empty()) {
+        const bool stillInUse = std::any_of(m_editors.begin(), m_editors.end(), [&](const auto& ed) {
+            return ed && ed->getIconPackageId() == closedPkgId;
+        });
+        if (!stillInUse) {
+            IconCache::instance().invalidate(closedPkgId);
+        }
+    }
 
     // Adjust activeEditor:
     if (m_editors.empty()) {
@@ -1902,6 +1953,9 @@ std::string Application::generateDefaultEditorName() {
 }
 
 bool Application::hasActiveAnimations() const {
+    if (IconCache::instance().busy()) {
+        return true;
+    }
     if (NotificationManager::instance().hasActiveNotifications()) {
         return true;
     }

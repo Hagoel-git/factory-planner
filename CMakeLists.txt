@@ -113,6 +113,8 @@ set(CORE_GAMEDATA_SRC
         src/core/data/PngInfo.cpp
         src/core/data/IconPak.h
         src/core/data/IconPak.cpp
+        src/core/data/RecipeSearchIndex.h
+        src/core/data/RecipeSearchIndex.cpp
 )
 
 add_library(core_gamedata STATIC ${CORE_GAMEDATA_SRC})
@@ -190,6 +192,12 @@ set(FACTORY_PLANNER_LIB_SRC
         src/common/TextureUtils.cpp
         src/services/TextureManager.h
         src/services/TextureManager.cpp
+        src/services/IconSourceResolver.h
+        src/services/IconSourceResolver.cpp
+        src/services/IconLoader.h
+        src/services/IconLoader.cpp
+        src/services/IconCache.h
+        src/services/IconCache.cpp
         src/services/NotificationManager.cpp
         src/services/NotificationManager.h
         src/common/FramePacer.h

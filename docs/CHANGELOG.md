@@ -5,10 +5,13 @@ This document holds the user-facing changelog that is also used in release notes
 ## Unreleased
 
 ### Added
+- Added asynchronous lazy icon loading (`IconCache` / `IconLoader`) with `icons.pak` support (`<package_root>/icons.pak` → `<icon_root>/icons.pak` → loose PNGs), "no icons" mode, capped per-frame GPU texture uploads, and LRU texture eviction instead of eager startup loading.
+- Added a cross-pack icon fallback setting (disabled by default) and Settings UI under **Appearance → Icons** to resolve missing icons from other installed game packs by exact ID or display name in a user-ordered priority list.
 - Added an explicit `format_version` (`1`) to `.fpp` project files and reject missing, unknown, or newer format versions with a clear error notification.
 - Added schema-driven node parameter widgets (`Number`, `Int`, `Bool`, `Enum`, `ResourceChoice`, and `Slots`) generated from GameData v4 parameter definitions, respecting dynamic ranges, `visible_if`, `allowed_if`, and `ui` hints (`widget`, `format`, `group`, `placement`, `unit`, `step`, `tooltip`) with full undo/redo support.
 
 ### Changed
+- Indexed recipe search (`RecipeSearchIndex` with incremental query narrowing and direct resource-context lookup) and virtualized (`ImGuiListClipper`) the recipe, machine, resource-choice, enum, and slot pickers for smooth scrolling on 50k-recipe game packs.
 - Converted the bundled Satisfactory (`1.1`) and Mindustry (`build-154-3`) game data packages to GameData v4 (`game.json`), adding fluid unit formatting (`m³`), Satisfactory Clock Speed (`1–250%`), Somersloops amplification, Power Shards, and Power (`MW`) metrics, plus Mindustry Overdrive and Efficiency speed parameters.
 - Replaced the hardcoded node context menu parameters with dynamic GameData v4 profile parameter controls supporting live editing and undoable commits.
 - Updated pin rate labels, pin/link hover tooltips, and Pin Context Menu constraint input and flow readouts to display and parse values in the active project rate unit (`/tick`, `/s`, `/min`, `/h`).

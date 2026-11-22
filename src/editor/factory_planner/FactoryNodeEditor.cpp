@@ -20,10 +20,10 @@
 #include "common/IdUtils.h"
 #include "common/CopyBuffer.h"
 #include "common/FilesystemUtils.h"
+#include "services/IconCache.h"
 #include "services/NotificationManager.h"
 #include "services/ProjectIo.h"
 #include "services/SettingsManager.h"
-#include "services/TextureManager.h"
 namespace ed = ax::NodeEditor;
 
 namespace {
@@ -304,6 +304,17 @@ FactoryNodeEditor::FactoryNodeEditor(const GameData& game_data, const std::files
             if (!ProjectIO::loadProject(projectFilePath, *m_graph)) {
                 m_loadedSuccessfully = false;
             }
+        }
+
+        // Register package with IconCache and build RecipeSearchIndex after final GameData is loaded.
+        m_iconPackageId = IconCache::instance().registerPackage(m_graph->getGameData());
+        {
+            const auto indexStart = std::chrono::steady_clock::now();
+            m_recipeSearchIndex = gamedata::RecipeSearchIndex::build(m_graph->getGameData());
+            const double indexMs = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - indexStart).count();
+            LOG(INFO) << "Built RecipeSearchIndex for " << m_recipeSearchIndex.recipeCount()
+                      << " recipes in " << indexMs << " ms.";
         }
 
         // Initialize quadtree dynamically based on graph nodes or default minimum size
@@ -1253,7 +1264,7 @@ void FactoryNodeEditor::drawNodes() {
                     ImGui::GetWindowDrawList()->AddRectFilled(iconPos, ImVec2(iconPos.x + iconSize.x, iconPos.y + iconSize.y), bgColor, 0.0f);
                 }
                 ImGui::Image(
-                    TextureManager::instance().loadEntityIcon(gameData.icon_root, "resources", res.id),
+                    IconCache::instance().getResourceIcon(m_iconPackageId, res),
                     ImVec2(port_img_h, port_img_h));
                 if (m_solver->isGoalBottlenecked(p->id)) {
                     ImGui::GetWindowDrawList()->AddRect(
@@ -1322,7 +1333,7 @@ void FactoryNodeEditor::drawNodes() {
                 ImGui::SetCursorPosX(groupStartX + (middleWidth - machine_h) * 0.5f);
             }
             ImGui::Image(
-                TextureManager::instance().loadEntityIcon(gameData.icon_root, "machines", machPtr->id),
+                IconCache::instance().getMachineIcon(m_iconPackageId, *machPtr),
                 ImVec2(machine_h, machine_h));
             if (deferredTooltip.empty() && nodeDeferredTip.empty() && ImGui::IsItemHovered()) {
                 nodeDeferredTip = buildNodeTooltipText(*node, nodeEval, nodeMetrics);
@@ -1453,7 +1464,7 @@ void FactoryNodeEditor::drawNodes() {
                     ImGui::GetWindowDrawList()->AddRectFilled(iconPos, ImVec2(iconPos.x + iconSize.x, iconPos.y + iconSize.y), bgColor, 0.0f);
                 }
                 ImGui::Image(
-                    TextureManager::instance().loadEntityIcon(gameData.icon_root, "resources", res.id),
+                    IconCache::instance().getResourceIcon(m_iconPackageId, res),
                     ImVec2(port_img_h, port_img_h));
                 if (m_solver->isGoalBottlenecked(p->id)) {
                     ImGui::GetWindowDrawList()->AddRect(
@@ -1745,8 +1756,7 @@ void FactoryNodeEditor::handlePopups() {
         if (node) {
             m_isNodeContextMenuInitialized = true;
             if (const Machine* nodeMach = gameData.findMachine(node->machine_key)) {
-                ImTextureID icon = TextureManager::instance().loadEntityIcon(
-                    gameData.icon_root, "machines", nodeMach->id);
+                ImTextureID icon = IconCache::instance().getMachineIcon(m_iconPackageId, *nodeMach);
                 ImGui::Image(icon, ImVec2(fontSize, fontSize));
                 ImGui::SameLine();
             }
@@ -1802,35 +1812,50 @@ void FactoryNodeEditor::handlePopups() {
 
                 ImGui::SetNextItemWidth(200.0f);
                 if (ImGui::BeginCombo("##machine_selector", currentMachineName.c_str())) {
+                    std::vector<const Machine*> validMachines;
+                    validMachines.reserve(allowedMachines.size());
+                    int selectedIdx = -1;
                     for (const auto& mKey : allowedMachines) {
                         const Machine* machPtr = gameData.findMachine(mKey);
                         if (!machPtr) continue;
+                        if (node->machine_key == mKey) {
+                            selectedIdx = static_cast<int>(validMachines.size());
+                        }
+                        validMachines.push_back(machPtr);
+                    }
 
-                        const auto& machine = *machPtr;
-                        bool isSelected = (node->machine_key == mKey);
+                    ImGuiListClipper clipper;
+                    clipper.Begin(static_cast<int>(validMachines.size()));
+                    if (selectedIdx >= 0) {
+                        clipper.IncludeItemByIndex(selectedIdx);
+                    }
+                    while (clipper.Step()) {
+                        for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+                            const Machine& machine = *validMachines[static_cast<size_t>(i)];
+                            const bool isSelected = (node->machine_key == machine.id);
 
-                        ImGui::PushID(mKey.c_str());
+                            ImGui::PushID(machine.id.c_str());
 
+                            ImGui::Image(
+                                IconCache::instance().getMachineIcon(m_iconPackageId, machine),
+                                ImVec2(fontSize, fontSize));
+                            ImGui::SameLine();
 
-                        ImGui::Image(
-                            TextureManager::instance().loadEntityIcon(gameData.icon_root, "machines", machine.id),
-                            ImVec2(fontSize, fontSize));
-                        ImGui::SameLine();
-
-                        if (ImGui::Selectable(machine.name.c_str(), isSelected)) {
-                            if (node->machine_key != mKey) {
-                                executeCommand(std::make_unique<ChangeMachineCommand>(
-                                    node->id, node->machine_key, mKey
-                                ));
+                            if (ImGui::Selectable(machine.name.c_str(), isSelected)) {
+                                if (node->machine_key != machine.id) {
+                                    executeCommand(std::make_unique<ChangeMachineCommand>(
+                                        node->id, node->machine_key, machine.id
+                                    ));
+                                }
                             }
-                        }
 
-                        if (ImGui::IsItemHovered()) {
-                            ImGui::SetTooltip("Speed: %.2fx", machine.speed);
-                        }
+                            if (ImGui::IsItemHovered()) {
+                                ImGui::SetTooltip("Speed: %.2fx", machine.speed);
+                            }
 
-                        if (isSelected) ImGui::SetItemDefaultFocus();
-                        ImGui::PopID();
+                            if (isSelected) ImGui::SetItemDefaultFocus();
+                            ImGui::PopID();
+                        }
                     }
                     ImGui::EndCombo();
                 }
@@ -1891,9 +1916,9 @@ void FactoryNodeEditor::handlePopups() {
             }
 
             if (const Resource* res = gameData.findResource(port->resource_key)) {
-                double imageSize = ImGui::GetFontSize();
+                float imageSize = ImGui::GetFontSize();
                 ImGui::Image(
-                    TextureManager::instance().loadEntityIcon(gameData.icon_root, "resources", res->id),
+                    IconCache::instance().getResourceIcon(m_iconPackageId, *res),
                     ImVec2(imageSize, imageSize));
                 ImGui::SameLine();
                 ImGui::Text("%s", res->name.c_str());
@@ -2017,7 +2042,7 @@ void FactoryNodeEditor::handlePopups() {
         if (connection) {
             if (const Resource* res = gameData.findResource(connection->resource_key)) {
                 ImGui::Image(
-                    TextureManager::instance().loadEntityIcon(gameData.icon_root, "resources", res->id),
+                    IconCache::instance().getResourceIcon(m_iconPackageId, *res),
                     ImVec2(24, 24));
                 ImGui::SameLine();
                 ImGui::Text("%s Flow", res->name.c_str());
@@ -2054,6 +2079,7 @@ void FactoryNodeEditor::handlePopups() {
         if (ImGui::IsWindowAppearing()) {
             ImGui::SetKeyboardFocusHere();
             m_recipeSearchBuffer[0] = '\0';
+            m_recipeSearchState.reset();
         }
         ImGui::SetNextItemWidth(-1);
         ImGui::InputTextWithHint("##search", "Search Recipe...", m_recipeSearchBuffer, sizeof(m_recipeSearchBuffer));
@@ -2061,15 +2087,13 @@ void FactoryNodeEditor::handlePopups() {
         ImGui::Separator();
 
         const float iconSize = ImGui::GetFontSize();
+        const float rowHeight = std::max(iconSize, ImGui::GetTextLineHeight());
         const float sideColWidth = 158.0f;
         ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(0.0f, 0.0f));
         if (ImGui::BeginTable("RecipeList", 3, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg, ImVec2(640, 480))) {
             ImGui::TableSetupColumn("Inputs", ImGuiTableColumnFlags_WidthFixed, sideColWidth);
             ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
             ImGui::TableSetupColumn("Outputs", ImGuiTableColumnFlags_WidthFixed, sideColWidth);
-
-            std::string filter = m_recipeSearchBuffer;
-            std::transform(filter.begin(), filter.end(), filter.begin(), ::tolower);
 
             std::string portResourceKey;
             bool portIsInput = false;
@@ -2084,182 +2108,154 @@ void FactoryNodeEditor::handlePopups() {
                 }
             }
 
-            for (const auto& recipe : gameData.recipes) {
+            const gamedata::RecipeSearchContextKind ctxKind = !hasContext
+                ? gamedata::RecipeSearchContextKind::All
+                : (portIsInput ? gamedata::RecipeSearchContextKind::ProducingResource
+                               : gamedata::RecipeSearchContextKind::ConsumingResource);
+            const bool filterChanged = m_recipeSearchState.update(
+                m_recipeSearchIndex, m_recipeSearchBuffer, ctxKind, portResourceKey);
+            if (filterChanged) {
+                ImGui::SetScrollY(0.0f);
+            }
 
-                if (hasContext) {
-                    bool compatible = false;
-                    const auto& targetPorts = portIsInput ? recipe.out : recipe.in;
-                    for (const auto& p : targetPorts) {
-                        if (p.res.value_or("") == portResourceKey) {
-                            compatible = true;
-                            break;
-                        }
-                    }
-                    if (!compatible) continue;
-                }
+            const auto& matchingIndices = m_recipeSearchState.results();
+            m_lastRecipePickerDrawnRows = 0;
 
-                bool match = false;
-                if (filter.empty()) {
-                    match = true;
-                } else {
-                    std::string nameLower = recipe.name;
-                    std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
-                    if (nameLower.find(filter) != std::string::npos) match = true;
+            ImGuiListClipper clipper;
+            clipper.Begin(static_cast<int>(matchingIndices.size()), rowHeight);
+            while (clipper.Step()) {
+                for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
+                    const uint32_t recipeIdx = matchingIndices[static_cast<size_t>(row)];
+                    if (recipeIdx >= gameData.recipes.size()) continue;
+                    const Recipe& recipe = gameData.recipes[recipeIdx];
+                    ++m_lastRecipePickerDrawnRows;
 
-                    if (!match) {
-                        for (const auto& p : recipe.in) {
-                            std::string rKey = p.res.value_or("");
-                            if (const Resource* res = gameData.findResource(rKey)) {
-                                std::string resName = res->name;
-                                std::transform(resName.begin(), resName.end(), resName.begin(), ::tolower);
-                                if (resName.find(filter) != std::string::npos) {
-                                    match = true;
-                                    break;
-                                }
-                            }
-                        }
-                    }
+                    ImGui::PushID(static_cast<int>(recipeIdx));
+                    ImGui::TableNextRow(ImGuiTableRowFlags_None, rowHeight);
 
-                    if (!match) {
-                        for (const auto& p : recipe.out) {
-                            std::string rKey = p.res.value_or("");
-                            if (const Resource* res = gameData.findResource(rKey)) {
-                                std::string resName = res->name;
-                                std::transform(resName.begin(), resName.end(), resName.begin(), ::tolower);
-                                if (resName.find(filter) != std::string::npos) {
-                                    match = true;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (!match) continue;
-
-                ImGui::TableNextRow();
-
-                ImGui::TableNextColumn();
-                for (const auto& p : recipe.in) {
-                    std::string rKey = p.res.value_or("");
-                    if (rKey.empty()) continue;
-                    if (const Resource* res = gameData.findResource(rKey)) {
-                        ImGui::Image(
-                            TextureManager::instance().loadEntityIcon(gameData.icon_root, "resources", res->id),
-                            ImVec2(iconSize, iconSize));
-                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", res->name.c_str());
-                        ImGui::SameLine();
-                    }
-                }
-
-                ImGui::TableNextColumn();
-                ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.5f, 0.5f));
-                if (ImGui::Selectable(recipe.name.c_str(), false, ImGuiSelectableFlags_SpanAllColumns)) {
-                    uint64_t fromPort = hasContext ? m_selectedPortId : static_cast<uint64_t>(-1);
-                    ImVec2 nodePos = hasContext ? ed::ScreenToCanvas(m_storedPopupPosition) : ed::ScreenToCanvas(ImGui::GetMousePosOnOpeningCurrentPopup());
-
-                    if (hasContext) {
-                        // 1. Setup Style Constants
-                        auto& style = ImGui::GetStyle();
-                        const float port_h = std::max(24.0f, ImGui::GetFontSize()); // Height of one port row
-                        const float space_y = style.ItemSpacing.y;
-                        const float space_x = style.ItemSpacing.x;
-                        const float pad_y = ed::GetStyle().NodePadding.y;
-                        const float pad_x = ed::GetStyle().NodePadding.x;
-
-                        // 2. Helper Lambda to calculate Column Metrics (Height & Max Width)
-                        // Returns {column_height, max_width, target_index}
-                        auto getColMetrics = [&](const std::vector<RecipePort>& ports, const std::string& targetKey) {
-                            float max_w = 0.0f;
-                            int count = 0;
-                            int target_idx = -1;
-
-                            for (const auto& p : ports) {
-                                std::string rKey = p.res.value_or("");
-                                if (rKey.empty()) continue;
-
-                                // Track target index
-                                if (rKey == targetKey) target_idx = count;
-
-                                // Calculate width (Icon + Spacing + Rate + Spacing + Optional Text)
-                                float w = 24.0f + 30.0f + space_x;
-                                if (SettingsManager::instance().getSettings().showResourceNames) {
-                                    if (const Resource* res = gameData.findResource(rKey)) {
-                                        w += space_x + ImGui::CalcTextSize(res->name.c_str()).x;
-                                    }
-                                }
-                                max_w = std::max(max_w, w);
-                                count++;
-                            }
-
-                            float h = (count > 0) ? (count * port_h + (count - 1) * space_y) : 0.0f;
-                            return std::make_tuple(h, max_w, target_idx);
-                        };
-
-                        // 3. Calculate Metrics
-                        // If dragging FROM Input, we connect TO Output (target is output), and vice versa
-                        bool is_target_input = !portIsInput;
-
-                        auto [in_h, in_w, in_idx]    = getColMetrics(recipe.in,  is_target_input ? portResourceKey : "");
-                        auto [out_h, out_w, out_idx] = getColMetrics(recipe.out, !is_target_input ? portResourceKey : "");
-
-                        // 4. Apply Offsets
-                        int target_idx = is_target_input ? in_idx : out_idx;
-
-                        if (target_idx != -1) {
-                            float node_h = std::max(48.0f, std::max(in_h, out_h)); // 48.0f is machine_h
-                            float col_h  = is_target_input ? in_h : out_h;
-
-                            // Vertical: Center of node -> Center of column -> Center of specific port
-                            float col_offset_y = (node_h - col_h) * 0.5f;
-                            float port_y_rel = pad_y + col_offset_y + target_idx * (port_h + space_y) + (port_h * 0.5f);
-
-                            nodePos.y -= port_y_rel;
-
-                            // Horizontal: If target is Output (Right side), shift node left by full width
-                            if (!is_target_input) {
-                                float node_w = pad_x + in_w + space_x + 48.0f + space_x + out_w + pad_x;
-                                nodePos.x -= node_w;
-                            }
-                        }
-                    }
-                    executeCommand(std::make_unique<AddNodeCommand>(recipe.name, recipe.id, fromPort, nodePos));
-                    m_selectedPortId = static_cast<uint64_t>(-1);
-                    ImGui::CloseCurrentPopup();
-                }
-                ImGui::PopStyleVar();
-
-                ImGui::TableNextColumn();
-                float contentWidth = 0.0f;
-                int count = 0;
-                for (const auto& p : recipe.out) {
-                    std::string rKey = p.res.value_or("");
-                    if (!rKey.empty() && gameData.findResource(rKey) != nullptr) count++;
-                }
-
-                if (count > 0) {
-                    contentWidth = (count * iconSize) + ((count - 1) * ImGui::GetStyle().ItemSpacing.x);
-
-                    float avail = ImGui::GetContentRegionAvail().x;
-                    float off = avail - contentWidth;
-                    if (off > 0.0f) {
-                        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + off);
-                    }
-
-                    bool first = true;
-                    for (auto it = recipe.out.rbegin(); it != recipe.out.rend(); ++it) {
-                        const auto& p = *it;
+                    ImGui::TableNextColumn();
+                    for (const auto& p : recipe.in) {
                         std::string rKey = p.res.value_or("");
                         if (rKey.empty()) continue;
                         if (const Resource* res = gameData.findResource(rKey)) {
-                            if (!first) ImGui::SameLine();
                             ImGui::Image(
-                            TextureManager::instance().loadEntityIcon(gameData.icon_root, "resources", res->id),
-                            ImVec2(iconSize, iconSize));
+                                IconCache::instance().getResourceIcon(m_iconPackageId, *res),
+                                ImVec2(iconSize, iconSize));
                             if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", res->name.c_str());
-                            first = false;
+                            ImGui::SameLine();
                         }
                     }
+
+                    ImGui::TableNextColumn();
+                    ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.5f, 0.5f));
+                    if (ImGui::Selectable(recipe.name.c_str(), false, ImGuiSelectableFlags_SpanAllColumns, ImVec2(0.0f, rowHeight))) {
+                        uint64_t fromPort = hasContext ? m_selectedPortId : static_cast<uint64_t>(-1);
+                        ImVec2 nodePos = hasContext ? ed::ScreenToCanvas(m_storedPopupPosition) : ed::ScreenToCanvas(ImGui::GetMousePosOnOpeningCurrentPopup());
+
+                        if (hasContext) {
+                            // 1. Setup Style Constants
+                            auto& style = ImGui::GetStyle();
+                            const float port_h = std::max(24.0f, ImGui::GetFontSize()); // Height of one port row
+                            const float space_y = style.ItemSpacing.y;
+                            const float space_x = style.ItemSpacing.x;
+                            const float pad_y = ed::GetStyle().NodePadding.y;
+                            const float pad_x = ed::GetStyle().NodePadding.x;
+
+                            // 2. Helper Lambda to calculate Column Metrics (Height & Max Width)
+                            // Returns {column_height, max_width, target_index}
+                            auto getColMetrics = [&](const std::vector<RecipePort>& ports, const std::string& targetKey) {
+                                float max_w = 0.0f;
+                                int count = 0;
+                                int target_idx = -1;
+
+                                for (const auto& p : ports) {
+                                    std::string rKey = p.res.value_or("");
+                                    if (rKey.empty()) continue;
+
+                                    // Track target index
+                                    if (rKey == targetKey) target_idx = count;
+
+                                    // Calculate width (Icon + Spacing + Rate + Spacing + Optional Text)
+                                    float w = 24.0f + 30.0f + space_x;
+                                    if (SettingsManager::instance().getSettings().showResourceNames) {
+                                        if (const Resource* res = gameData.findResource(rKey)) {
+                                            w += space_x + ImGui::CalcTextSize(res->name.c_str()).x;
+                                        }
+                                    }
+                                    max_w = std::max(max_w, w);
+                                    count++;
+                                }
+
+                                float h = (count > 0) ? (count * port_h + (count - 1) * space_y) : 0.0f;
+                                return std::make_tuple(h, max_w, target_idx);
+                            };
+
+                            // 3. Calculate Metrics
+                            // If dragging FROM Input, we connect TO Output (target is output), and vice versa
+                            bool is_target_input = !portIsInput;
+
+                            auto [in_h, in_w, in_idx]    = getColMetrics(recipe.in,  is_target_input ? portResourceKey : "");
+                            auto [out_h, out_w, out_idx] = getColMetrics(recipe.out, !is_target_input ? portResourceKey : "");
+
+                            // 4. Apply Offsets
+                            int target_idx = is_target_input ? in_idx : out_idx;
+
+                            if (target_idx != -1) {
+                                float node_h = std::max(48.0f, std::max(in_h, out_h)); // 48.0f is machine_h
+                                float col_h  = is_target_input ? in_h : out_h;
+
+                                // Vertical: Center of node -> Center of column -> Center of specific port
+                                float col_offset_y = (node_h - col_h) * 0.5f;
+                                float port_y_rel = pad_y + col_offset_y + target_idx * (port_h + space_y) + (port_h * 0.5f);
+
+                                nodePos.y -= port_y_rel;
+
+                                // Horizontal: If target is Output (Right side), shift node left by full width
+                                if (!is_target_input) {
+                                    float node_w = pad_x + in_w + space_x + 48.0f + space_x + out_w + pad_x;
+                                    nodePos.x -= node_w;
+                                }
+                            }
+                        }
+                        executeCommand(std::make_unique<AddNodeCommand>(recipe.name, recipe.id, fromPort, nodePos));
+                        m_selectedPortId = static_cast<uint64_t>(-1);
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::PopStyleVar();
+
+                    ImGui::TableNextColumn();
+                    float contentWidth = 0.0f;
+                    int count = 0;
+                    for (const auto& p : recipe.out) {
+                        std::string rKey = p.res.value_or("");
+                        if (!rKey.empty() && gameData.findResource(rKey) != nullptr) count++;
+                    }
+
+                    if (count > 0) {
+                        contentWidth = (count * iconSize) + ((count - 1) * ImGui::GetStyle().ItemSpacing.x);
+
+                        float avail = ImGui::GetContentRegionAvail().x;
+                        float off = avail - contentWidth;
+                        if (off > 0.0f) {
+                            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + off);
+                        }
+
+                        bool first = true;
+                        for (auto it = recipe.out.rbegin(); it != recipe.out.rend(); ++it) {
+                            const auto& p = *it;
+                            std::string rKey = p.res.value_or("");
+                            if (rKey.empty()) continue;
+                            if (const Resource* res = gameData.findResource(rKey)) {
+                                if (!first) ImGui::SameLine();
+                                ImGui::Image(
+                                    IconCache::instance().getResourceIcon(m_iconPackageId, *res),
+                                    ImVec2(iconSize, iconSize));
+                                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", res->name.c_str());
+                                first = false;
+                            }
+                        }
+                    }
+                    ImGui::PopID();
                 }
             }
             ImGui::EndTable();
@@ -2389,6 +2385,7 @@ void handleHoverParamTooltip(
 template <typename OnSelectFn>
 void renderChoiceListItems(
     const GameData& gameData,
+    std::string_view iconPackageId,
     const gamedata::ParameterDef& pdef,
     const gamedata::EvaluatedParamUi& ui,
     const gamedata::ParamValue& currentVal,
@@ -2418,58 +2415,91 @@ void renderChoiceListItems(
         if (ui.allowed_options.empty() && !pdef.allow_none) {
             ImGui::TextDisabled("(No allowed options)");
         }
-        for (const std::string& key : ui.allowed_options) {
-            bool selected = curKey.has_value() && (*curKey == key);
-            std::string disp = getOptionDisplayLabel(os, key);
-            ImGui::PushID(key.c_str());
-            if (ImGui::Selectable(disp.c_str(), selected)) {
-                if (!selected) {
-                    onSelect(gamedata::ParamValue::string(key));
-                }
-                if (closePopupOnSelect) {
-                    ImGui::CloseCurrentPopup();
+        int selectedIdx = -1;
+        if (curKey.has_value()) {
+            for (size_t i = 0; i < ui.allowed_options.size(); ++i) {
+                if (ui.allowed_options[i] == *curKey) {
+                    selectedIdx = static_cast<int>(i);
+                    break;
                 }
             }
-            if (os) {
-                if (const auto* optDef = os->findOption(key); optDef && !optDef->notes.empty() && ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("%s", optDef->notes.c_str());
+        }
+        ImGuiListClipper clipper;
+        clipper.Begin(static_cast<int>(ui.allowed_options.size()));
+        if (selectedIdx >= 0) {
+            clipper.IncludeItemByIndex(selectedIdx);
+        }
+        while (clipper.Step()) {
+            for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+                const std::string& key = ui.allowed_options[static_cast<size_t>(i)];
+                bool selected = curKey.has_value() && (*curKey == key);
+                std::string disp = getOptionDisplayLabel(os, key);
+                ImGui::PushID(key.c_str());
+                if (ImGui::Selectable(disp.c_str(), selected)) {
+                    if (!selected) {
+                        onSelect(gamedata::ParamValue::string(key));
+                    }
+                    if (closePopupOnSelect) {
+                        ImGui::CloseCurrentPopup();
+                    }
                 }
+                if (os) {
+                    if (const auto* optDef = os->findOption(key); optDef && !optDef->notes.empty() && ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip("%s", optDef->notes.c_str());
+                    }
+                }
+                if (selected) {
+                    ImGui::SetItemDefaultFocus();
+                }
+                ImGui::PopID();
             }
-            if (selected) {
-                ImGui::SetItemDefaultFocus();
-            }
-            ImGui::PopID();
         }
     } else if (pdef.type == gamedata::ParameterType::ResourceChoice) {
         if (ui.allowed_resources.empty() && !pdef.allow_none) {
             ImGui::TextDisabled("(No allowed resources)");
         }
         const float iconSz = ImGui::GetFontSize();
-        for (const std::string& resId : ui.allowed_resources) {
-            bool selected = curKey.has_value() && (*curKey == resId);
-            const Resource* res = gameData.findResource(resId);
-            std::string disp = getResourceDisplayName(gameData, resId);
-            ImGui::PushID(resId.c_str());
-            if (res) {
-                ImTextureID resTex = TextureManager::instance().loadEntityIcon(
-                    gameData.icon_root, "resources", res->id);
-                if (resTex != 0) {
-                    ImGui::Image(resTex, ImVec2(iconSz, iconSz));
-                    ImGui::SameLine();
+        int selectedIdx = -1;
+        if (curKey.has_value()) {
+            for (size_t i = 0; i < ui.allowed_resources.size(); ++i) {
+                if (ui.allowed_resources[i] == *curKey) {
+                    selectedIdx = static_cast<int>(i);
+                    break;
                 }
             }
-            if (ImGui::Selectable(disp.c_str(), selected)) {
-                if (!selected) {
-                    onSelect(gamedata::ParamValue::string(resId));
+        }
+        ImGuiListClipper clipper;
+        clipper.Begin(static_cast<int>(ui.allowed_resources.size()));
+        if (selectedIdx >= 0) {
+            clipper.IncludeItemByIndex(selectedIdx);
+        }
+        while (clipper.Step()) {
+            for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+                const std::string& resId = ui.allowed_resources[static_cast<size_t>(i)];
+                bool selected = curKey.has_value() && (*curKey == resId);
+                const Resource* res = gameData.findResource(resId);
+                std::string disp = getResourceDisplayName(gameData, resId);
+                ImGui::PushID(resId.c_str());
+                if (res) {
+                    ImTextureID resTex = IconCache::instance().getResourceIcon(iconPackageId, *res);
+                    if (resTex != 0) {
+                        ImGui::Image(resTex, ImVec2(iconSz, iconSz));
+                        ImGui::SameLine();
+                    }
                 }
-                if (closePopupOnSelect) {
-                    ImGui::CloseCurrentPopup();
+                if (ImGui::Selectable(disp.c_str(), selected)) {
+                    if (!selected) {
+                        onSelect(gamedata::ParamValue::string(resId));
+                    }
+                    if (closePopupOnSelect) {
+                        ImGui::CloseCurrentPopup();
+                    }
                 }
+                if (selected) {
+                    ImGui::SetItemDefaultFocus();
+                }
+                ImGui::PopID();
             }
-            if (selected) {
-                ImGui::SetItemDefaultFocus();
-            }
-            ImGui::PopID();
         }
     }
 }
@@ -2506,27 +2536,44 @@ void renderSlotListItems(
     if (ui.allowed_options.empty() && !pdef.allow_empty) {
         ImGui::TextDisabled("(No allowed options)");
     }
-    for (const std::string& key : ui.allowed_options) {
-        bool selected = curKey.has_value() && (*curKey == key);
-        std::string disp = getOptionDisplayLabel(os, key);
-        ImGui::PushID(key.c_str());
-        if (ImGui::Selectable(disp.c_str(), selected)) {
-            if (!selected) {
-                gamedata::ParamValue::SlotsArray next = curSlots;
-                next[slotIdx] = key;
-                onSelect(gamedata::ParamValue::slots(std::move(next)));
-            }
-            ImGui::CloseCurrentPopup();
-        }
-        if (os) {
-            if (const auto* optDef = os->findOption(key); optDef && !optDef->notes.empty() && ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("%s", optDef->notes.c_str());
+    int selectedIdx = -1;
+    if (curKey.has_value()) {
+        for (size_t i = 0; i < ui.allowed_options.size(); ++i) {
+            if (ui.allowed_options[i] == *curKey) {
+                selectedIdx = static_cast<int>(i);
+                break;
             }
         }
-        if (selected) {
-            ImGui::SetItemDefaultFocus();
+    }
+    ImGuiListClipper clipper;
+    clipper.Begin(static_cast<int>(ui.allowed_options.size()));
+    if (selectedIdx >= 0) {
+        clipper.IncludeItemByIndex(selectedIdx);
+    }
+    while (clipper.Step()) {
+        for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+            const std::string& key = ui.allowed_options[static_cast<size_t>(i)];
+            bool selected = curKey.has_value() && (*curKey == key);
+            std::string disp = getOptionDisplayLabel(os, key);
+            ImGui::PushID(key.c_str());
+            if (ImGui::Selectable(disp.c_str(), selected)) {
+                if (!selected) {
+                    gamedata::ParamValue::SlotsArray next = curSlots;
+                    next[slotIdx] = key;
+                    onSelect(gamedata::ParamValue::slots(std::move(next)));
+                }
+                ImGui::CloseCurrentPopup();
+            }
+            if (os) {
+                if (const auto* optDef = os->findOption(key); optDef && !optDef->notes.empty() && ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("%s", optDef->notes.c_str());
+                }
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+            ImGui::PopID();
         }
-        ImGui::PopID();
     }
 }
 
@@ -2906,7 +2953,7 @@ void FactoryNodeEditor::drawSingleParameterWidget(
                 ImGui::SetNextItemWidth(itemWidth);
                 if (ImGui::BeginCombo("##val", preview.c_str())) {
                     renderChoiceListItems(
-                        gameData, pdef, ui, currentVal, false,
+                        gameData, m_iconPackageId, pdef, ui, currentVal, false,
                         [&](const gamedata::ParamValue& chosen) {
                             executeParamChangeCommand(node.id, pdef.id, chosen);
                         });
@@ -2965,6 +3012,9 @@ void FactoryNodeEditor::drawSingleParameterWidget(
                 }
                 handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
 
+                if (!inNodeBody && ImGui::IsPopupOpen("##slot_picker")) {
+                    ImGui::SetNextWindowSizeConstraints(ImVec2(180.0f, 0.0f), ImVec2(420.0f, 360.0f));
+                }
                 if (!inNodeBody && ImGui::BeginPopup("##slot_picker")) {
                     renderSlotListItems(
                         gameData, pdef, ui, curSlots, i,
@@ -2984,6 +3034,9 @@ void FactoryNodeEditor::drawSingleParameterWidget(
 
 void FactoryNodeEditor::drawDeferredBodyParamPopup() {
     ed::Suspend();
+    if (ImGui::IsPopupOpen("##body_param_popup")) {
+        ImGui::SetNextWindowSizeConstraints(ImVec2(180.0f, 0.0f), ImVec2(420.0f, 360.0f));
+    }
     if (ImGui::BeginPopup("##body_param_popup")) {
         const auto& gameData = m_graph->getGameData();
         const Node* node = m_graph->getNode(m_activeBodyParamPopup.nodeId);
@@ -3023,7 +3076,7 @@ void FactoryNodeEditor::drawDeferredBodyParamPopup() {
         } else if (pdef->type == gamedata::ParameterType::Enum ||
                    pdef->type == gamedata::ParameterType::ResourceChoice) {
             renderChoiceListItems(
-                gameData, *pdef, ui, currentVal, true,
+                gameData, m_iconPackageId, *pdef, ui, currentVal, true,
                 [&](const gamedata::ParamValue& chosen) {
                     executeParamChangeCommand(node->id, pdef->id, chosen);
                 });

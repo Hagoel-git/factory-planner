@@ -20,7 +20,6 @@ public:
 
     const gamedata::LoadReport& lastReport() const { return m_lastReport; }
 
-    void loadTextures();
     void clear();
 
 private:

@@ -256,7 +256,7 @@ For a package, resolution follows **T8**: `<package_root>/icons.pak` → `<icon_
 "icon_fallback": { "enabled": false, "order": ["gtnh", "factorio", "satisfactory"] }
 ```
 
-- **Settings UI:** a "Use icons from other game packs when missing" checkbox, and a list of all **scanned game ids** reordered with up/down buttons. Newly scanned games are appended in scan order. Games that are listed but no longer installed are kept and shown greyed out. Off by default.
+- **Settings UI:** a "Use icons from other game packs when missing" checkbox, and a list of all **scanned game ids** reordered with up/down buttons. Newly scanned games are appended in scan order. Games that are listed but no longer installed are removed from the priority list. Off by default.
 - **Candidate order:** the current package is never its own fallback. Other packages of the **same game** come first (in scan order), then the games in `order`.
 - **Matching (same kind only):** resources match resources and machines match machines.
   1. exact key (`resources/iron-plate`);

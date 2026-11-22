@@ -2,10 +2,50 @@
 
 #include <fstream>
 #include <algorithm>
+#include <unordered_set>
 #include <absl/log/log.h>
 #include <nlohmann/json.hpp>
 
 using json = nlohmann::json;
+
+std::vector<std::string> mergeIconFallbackOrder(
+    const std::vector<std::string>& savedOrder,
+    const std::vector<GameDataPackage>& scannedPackages) {
+    std::unordered_set<std::string> installedIds;
+    installedIds.reserve(scannedPackages.size());
+    for (const auto& pkg : scannedPackages) {
+        if (!pkg.uuid.empty()) {
+            installedIds.insert(pkg.uuid);
+        }
+    }
+
+    std::vector<std::string> merged;
+    merged.reserve(installedIds.size());
+    std::unordered_set<std::string> seen;
+    seen.reserve(installedIds.size());
+
+    // Keep installed games in their saved priority order; remove deleted/uninstalled games.
+    for (const auto& id : savedOrder) {
+        if (id.empty() || !installedIds.contains(id)) {
+            continue;
+        }
+        if (seen.insert(id).second) {
+            merged.push_back(id);
+        }
+    }
+
+    // Append newly scanned installed games in scan order.
+    for (const auto& pkg : scannedPackages) {
+        if (pkg.uuid.empty()) {
+            continue;
+        }
+        if (seen.insert(pkg.uuid).second) {
+            merged.push_back(pkg.uuid);
+        }
+    }
+
+    return merged;
+}
 
 SettingsManager& SettingsManager::instance() {
     static SettingsManager instance;
@@ -119,6 +159,24 @@ void SettingsManager::loadAppSettings() {
         if (j.contains("windowMaximized") && j["windowMaximized"].is_boolean()) {
             m_settings.windowMaximized = j["windowMaximized"].get<bool>();
         }
+        if (j.contains("icon_fallback") && j["icon_fallback"].is_object()) {
+            const auto& fb = j["icon_fallback"];
+            if (fb.contains("enabled") && fb["enabled"].is_boolean()) {
+                m_settings.iconFallback.enabled = fb["enabled"].get<bool>();
+            }
+            if (fb.contains("order") && fb["order"].is_array()) {
+                m_settings.iconFallback.order.clear();
+                std::unordered_set<std::string> seen;
+                for (const auto& item : fb["order"]) {
+                    if (!item.is_string()) continue;
+                    std::string gid = item.get<std::string>();
+                    if (gid.empty()) continue;
+                    if (seen.insert(gid).second) {
+                        m_settings.iconFallback.order.push_back(std::move(gid));
+                    }
+                }
+            }
+        }
 
     } catch (const std::exception& e) {
         LOG(ERROR) << "Failed to parse settings file: " << e.what();
@@ -146,6 +204,10 @@ void SettingsManager::saveAppSettings() const {
     j["windowWidth"] = m_settings.windowWidth;
     j["windowHeight"] = m_settings.windowHeight;
     j["windowMaximized"] = m_settings.windowMaximized;
+    j["icon_fallback"] = {
+        {"enabled", m_settings.iconFallback.enabled},
+        {"order", m_settings.iconFallback.order}
+    };
     const auto path = getExecutableDirectory().value_or(std::filesystem::current_path()) / "app_settings.json";
     std::filesystem::path tmp = path;
     tmp += ".tmp";
