@@ -2646,5 +2646,137 @@ TEST(GameDataV4EvaluationTest, ResolveProjectGlobalsPopulatesEvaluatedParamUi) {
               (std::vector<std::string>{"t1", "t2", "t3"}));
 }
 
+TEST(GameDataV4Test, WarningWaiverGlobMatching) {
+    EXPECT_TRUE(matchesWarningWaiverGlob("options/*_mults/*", "options/mining_mults/2x"));
+    EXPECT_TRUE(matchesWarningWaiverGlob("options/*_mults/*", "options/craft_mults/0_5x"));
+    EXPECT_FALSE(matchesWarningWaiverGlob("options/*_mults/*", "options/gt_tiers/lv"));
+    EXPECT_FALSE(matchesWarningWaiverGlob("options/*_mults/*", "resources/mining_mults"));
+    EXPECT_TRUE(matchesWarningWaiverGlob("options/*", "options/mining_mults/2x"));
+    EXPECT_TRUE(matchesWarningWaiverGlob("resources/item-?", "resources/item-a"));
+    EXPECT_FALSE(matchesWarningWaiverGlob("resources/item-?", "resources/item-ab"));
+    EXPECT_TRUE(matchesWarningWaiverGlob("a*b*c", "axbxbxc"));
+    EXPECT_TRUE(matchesWarningWaiverGlob("*", "anything/at/all"));
+    EXPECT_FALSE(matchesWarningWaiverGlob("exact", "exact2"));
+}
+
+TEST(GameDataV4Test, WarningWaiverShardWaivesAllWarningRulesAndCombinesNote) {
+    const std::string manifest = R"JSON({
+      "schema_version": 4,
+      "game": { "id": "waiver-test", "name": "Waiver Test" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "include": ["waivers.json"],
+      "option_sets": {
+        "mining_mults": {
+          "options": [
+            { "key": "1x", "label": "1x" },
+            { "key": "2x", "label": "2x" }
+          ]
+        },
+        "unused_set": {
+          "options": [{ "key": "a", "label": "A" }]
+        }
+      },
+      "globals": {
+        "mining_mult": {
+          "type": "enum",
+          "option_set": "mining_mults",
+          "default": "1x",
+          "ui": { "widget": "slider" }
+        }
+      },
+      "parameters": {
+        "unused_param": { "type": "bool", "default": false, "ui": { "widget": "slider" } }
+      },
+      "tables": { "unused_tbl": [1, 2] },
+      "metrics": { "unused_met": { "label": "Unused" } },
+      "resources": [
+        { "id": "ore", "name": "Ore" },
+        { "id": "plate", "name": "Plate" },
+        { "id": "unused-res", "name": "Unused" }
+      ],
+      "machines": [
+        { "id": "smelter", "name": "Smelter", "categories": ["smelt"] },
+        { "id": "unused-mach", "name": "Unused Machine", "categories": ["other"] }
+      ],
+      "recipes": [
+        {
+          "id": "smelt-ore",
+          "category": "smelt",
+          "time": 1,
+          "in": [["ore", 1]],
+          "out": [["plate", 1], ["plate", 2]]
+        }
+      ]
+    })JSON";
+
+    const std::string waiversShard = R"JSON({
+      "waive_warnings": [
+        { "rule": "V-PAR-5", "match": "globals/mining_mult", "reason": "Intentional test waiver" },
+        { "rule": "V-PAR-5", "match": "parameters/unused_param" },
+        { "rule": "V-W-2", "match": "parameters/unused_param" },
+        { "rule": "V-W-2", "match": "option_sets/unused_set" },
+        { "rule": "V-W-2", "match": "tables/unused_tbl" },
+        { "rule": "V-W-2", "match": "metrics/unused_met" },
+        { "rule": "V-W-2", "match": "machines/unused-*" },
+        { "rule": "V-W-2", "match": "resources/unused-*" },
+        { "rule": "V-W-3", "match": "recipes/smelt-ore/out/plate", "reason": "Intentional split output" },
+        { "rule": "V-W-1", "match": "options/*_mults/*", "reason": "Text-only global presets" },
+        { "rule": "V-W-1", "match": "options/unused_set/*" }
+      ]
+    })JSON";
+
+    GamePackage pkg;
+    LoadReport report;
+    ASSERT_TRUE(loadGamePackageFromMemory(manifest, {{"waivers.json", waiversShard}}, pkg, report))
+        << (report.errors.empty() ? "" : report.errors.front().formatted);
+    EXPECT_TRUE(report.warnings.empty());
+    EXPECT_EQ(report.waived_warnings["V-PAR-5"], 2u);
+    EXPECT_EQ(report.waived_warnings["V-W-2"], 6u);
+    EXPECT_EQ(report.waived_warnings["V-W-3"], 1u);
+    EXPECT_EQ(report.totalWaivedWarnings(), 9u);
+    ASSERT_EQ(report.notes.size(), 1u);
+    EXPECT_EQ(report.notes[0].message, "9 warnings waived (V-PAR-5: 2, V-W-2: 6, V-W-3: 1)");
+
+    // checkMissingIcons also honors V-W-1 waivers and updates the single combined note in place
+    pkg.icon_root = std::filesystem::path("/nonexistent_fp_waiver_icons_dir");
+    checkMissingIcons(pkg, report);
+    // Resources (3) + machines (2) = 5 unwaived missing icons; 3 option keys waived
+    EXPECT_EQ(report.warnings.size(), 5u);
+    EXPECT_EQ(report.waived_warnings["V-W-1"], 3u);
+    EXPECT_EQ(report.totalWaivedWarnings(), 12u);
+    ASSERT_EQ(report.notes.size(), 1u);
+    EXPECT_EQ(report.notes[0].message,
+              "12 warnings waived (V-PAR-5: 2, V-W-1: 3, V-W-2: 6, V-W-3: 1)");
+}
+
+TEST(GameDataV4Test, WarningWaiverRejectsErrorsAndMalformedEntries) {
+    const std::string manifest = R"JSON({
+      "schema_version": 4,
+      "game": { "id": "bad-waivers", "name": "Bad Waivers" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "include": ["waivers.json"]
+    })JSON";
+
+    const std::string badShard = R"JSON({
+      "waive_warnings": [
+        { "rule": "V-REF-1", "match": "*" },
+        { "rule": "V-ICON-1", "match": "resources/*" },
+        { "rule": "F-1", "match": "*" },
+        { "rule": "V-W-1", "match": "" },
+        { "rule": "V-W-1", "match": "options/*", "extra_field": true },
+        { "rule": "V-W-1", "match": "options/*", "reason": 42 },
+        "not-an-object"
+      ]
+    })JSON";
+
+    GamePackage pkg;
+    LoadReport report;
+    EXPECT_FALSE(loadGamePackageFromMemory(manifest, {{"waivers.json", badShard}}, pkg, report));
+    EXPECT_FALSE(report.fatal);
+    EXPECT_TRUE(report.hasRule("V-STRUCT-1"));
+    EXPECT_TRUE(report.hasRule("V-STRUCT-2"));
+    EXPECT_GE(report.errors.size(), 7u);
+}
+
 } // namespace
 } // namespace gamedata

@@ -348,8 +348,15 @@ void checkPackageIconsForValidate(const gamedata::GamePackage& pkg, gamedata::Lo
             }
         }
 
+        if (pkg.isWarningWaived("V-W-1", ref.key)) {
+            report.recordWaivedWarning("V-W-1");
+            continue;
+        }
+
         report.warnings.push_back(makeIconMissingWarning(displayFile, ref.json_pointer, ref.key));
     }
+
+    report.syncWaivedWarningsNote();
 }
 
 PackageIconCoverage computePackageIconCoverage(const gamedata::GamePackage& pkg) {
@@ -395,6 +402,18 @@ PackageIconCoverage computePackageIconCoverage(const gamedata::GamePackage& pkg)
                     break;
                 case ReferencedIcon::Kind::Option:
                     ++cov.options_present;
+                    break;
+            }
+        } else if (pkg.isWarningWaived("V-W-1", ref.key)) {
+            switch (ref.kind) {
+                case ReferencedIcon::Kind::Resource:
+                    ++cov.resources_waived;
+                    break;
+                case ReferencedIcon::Kind::Machine:
+                    ++cov.machines_waived;
+                    break;
+                case ReferencedIcon::Kind::Option:
+                    ++cov.options_waived;
                     break;
             }
         }

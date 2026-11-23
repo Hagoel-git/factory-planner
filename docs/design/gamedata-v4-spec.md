@@ -92,6 +92,7 @@ data/game_data/<game>/<package>/
 | `metrics` | no | object | Metric registry (§6). |
 | `profiles` | no | object | §4. |
 | `resources`, `machines`, `recipes` | no | arrays | §2.6–§2.8. |
+| `waive_warnings` | no | array | Scoped warning waivers (recommended in a dedicated shard such as `waivers.json`, §9.3). |
 | `include` | no | array of strings | Shard files or directories (§2.9). |
 | `icon_root` | no | string | See §2.1. |
 | `notes` | no | string | Ignored by the loader. |
@@ -816,6 +817,32 @@ Severity: **F** = fatal, **E** = error (droppable), **W** = warning. "Drops" = w
 | V-ICON-1 | E | Icon is not a PNG, not square, or larger than 64×64 (`gamedata_tool` only; the app never checks it at load) | — | `icons/resources/iron-ore.png: 128x96 (must be square and <= 64x64)` |
 | V-W-2 | W | Unused parameter, option set, table or metric; machine that no recipe can use; resource not referenced by any recipe (`in`, `out`, `setup`), profile (`extra_ports`), or parameter (`resource_choice`) | — | `game.json: /parameters/old_clock: defined but not used by any profile` |
 | V-W-3 | W | Same static resource twice in one recipe's `in` (or `out`) with identical `chance`, `catalyst`, `attrs`, `enabled`, and `amount_expr` | — | `recipes/gt.json: /recipes/88/out: resource 'stone_dust' listed twice` |
+
+### 9.3 Warning waivers (`waive_warnings`)
+
+Packs can locally waive expected warnings (for example, `V-W-1` on text-only `option_sets` such as Project Globals multiplier presets) using the top-level `"waive_warnings"` array. Like `resources`, `machines`, and `recipes`, `"waive_warnings"` is shardable and is recommended in a dedicated shard file (e.g. `waivers.json`) listed under `"include"`:
+
+```json
+{
+  "waive_warnings": [
+    {
+      "rule": "V-W-1",
+      "match": "options/*_mults/*",
+      "reason": "Project global multiplier presets are text-only"
+    }
+  ]
+}
+```
+
+- **Fields:** `"rule"` (required string), `"match"` (required non-empty glob pattern supporting `*` and `?`), `"reason"` (optional string, recommended), `"notes"` (optional string). Unknown keys are rejected (`V-STRUCT-1`).
+- **Warnings only:** `"rule"` must be one of the four warning rules: `V-W-1`, `V-W-2`, `V-W-3`, or `V-PAR-5`. Attempting to waive an error (`E`), fatal error (`F`), or unknown rule is rejected as a validation error (`V-STRUCT-2`).
+- **Canonical match targets:**
+  - `V-W-1`: icon key — `resources/<id>`, `machines/<id>`, or `options/<set>/<key>`
+  - `V-W-2`: `<section>/<id>` — `resources/<id>`, `machines/<id>`, `parameters/<id>`, `option_sets/<id>`, `tables/<id>`, or `metrics/<id>`
+  - `V-W-3`: `recipes/<recipe_id>/<dir>/<resource_id>` (`dir` is `in` or `out`)
+  - `V-PAR-5`: `parameters/<id>` or `globals/<id>`
+- **Optional icon semantics (`V-W-1`):** Waiving `V-W-1` treats the matched icon key as optional. If the icon is absent, no `V-W-1` warning is emitted; if a PNG is present, it is still validated for `V-ICON-1`, packed by `pack-icons`, and never flagged as unreferenced by `check-icons` or deleted by `prune-icons`.
+- **Reporting:** Suppressed warnings are summarized in a single info note (e.g. `24 warnings waived (V-W-1)`), visible in text and `--json` output without failing `--werror`.
 
 ---
 

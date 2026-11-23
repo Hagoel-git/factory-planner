@@ -92,10 +92,13 @@ void checkPackageIconsForValidate(const gamedata::GamePackage& pkg, gamedata::Lo
 struct PackageIconCoverage {
     std::string mode = "none"; // "none" | "loose" | "pak"
     size_t resources_present = 0;
+    size_t resources_waived = 0;
     size_t resources_total = 0;
     size_t machines_present = 0;
+    size_t machines_waived = 0;
     size_t machines_total = 0;
     size_t options_present = 0;
+    size_t options_waived = 0;
     size_t options_total = 0;
 };
 

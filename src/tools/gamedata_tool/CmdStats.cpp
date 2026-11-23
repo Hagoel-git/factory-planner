@@ -202,9 +202,9 @@ int runStats(const Args& args, std::ostream& out, std::ostream& err) {
 
         doc["icons"] = {
             {"mode", icons.mode},
-            {"resources", {{"present", icons.resources_present}, {"total", icons.resources_total}}},
-            {"machines", {{"present", icons.machines_present}, {"total", icons.machines_total}}},
-            {"options", {{"present", icons.options_present}, {"total", icons.options_total}}}
+            {"resources", {{"present", icons.resources_present}, {"waived", icons.resources_waived}, {"total", icons.resources_total}}},
+            {"machines", {{"present", icons.machines_present}, {"waived", icons.machines_waived}, {"total", icons.machines_total}}},
+            {"options", {{"present", icons.options_present}, {"waived", icons.options_waived}, {"total", icons.options_total}}}
         };
 
         doc["timing_ms"] = {
@@ -279,10 +279,17 @@ int runStats(const Args& args, std::ostream& out, std::ostream& err) {
     if (icons.mode == "none") {
         out << "  none (using fallback icons)\n";
     } else {
-        out << "  resources: " << icons.resources_present << "/" << icons.resources_total << "\n";
-        out << "  machines:  " << icons.machines_present << "/" << icons.machines_total << "\n";
+        auto printCoverageLine = [&](const char* label, size_t present, size_t waived, size_t total) {
+            out << "  " << label << present << "/" << total;
+            if (waived > 0) {
+                out << " (" << waived << " waived)";
+            }
+            out << "\n";
+        };
+        printCoverageLine("resources: ", icons.resources_present, icons.resources_waived, icons.resources_total);
+        printCoverageLine("machines:  ", icons.machines_present, icons.machines_waived, icons.machines_total);
         if (icons.options_total > 0) {
-            out << "  options:   " << icons.options_present << "/" << icons.options_total << "\n";
+            printCoverageLine("options:   ", icons.options_present, icons.options_waived, icons.options_total);
         }
     }
 

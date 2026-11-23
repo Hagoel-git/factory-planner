@@ -70,11 +70,13 @@ int runCheckIcons(const Args& args, std::ostream& out, std::ostream& err) {
                 {"referenced", collectReferencedIcons(pkg).size()},
                 {"present", 0},
                 {"missing", 0},
+                {"waived", 0},
                 {"invalid", 0},
                 {"unreferenced", 0},
                 {"case_mismatches", 0}
             };
             doc["missing"] = json::array();
+            doc["waived"] = json::array();
             doc["invalid"] = json::array();
             doc["unreferenced"] = json::array();
             doc["case_mismatches"] = json::array();
@@ -98,6 +100,7 @@ int runCheckIcons(const Args& args, std::ostream& out, std::ostream& err) {
 
     std::vector<bool> matchedLoose(scanned.files.size(), false);
     std::vector<std::string> missing;
+    std::vector<std::string> waived;
     std::vector<InvalidIcon> invalid;
     std::vector<CaseMismatch> caseMismatches;
     std::vector<std::string> unreferenced;
@@ -151,7 +154,11 @@ int runCheckIcons(const Args& args, std::ostream& out, std::ostream& err) {
                 checkLooseFile(idx, ref, false);
                 continue;
             }
-            missing.push_back(ref.key);
+            if (pkg.isWarningWaived("V-W-1", ref.key)) {
+                waived.push_back(ref.key);
+            } else {
+                missing.push_back(ref.key);
+            }
             continue;
         }
 
@@ -209,7 +216,11 @@ int runCheckIcons(const Args& args, std::ostream& out, std::ostream& err) {
         }
 
         if (!resolved) {
-            missing.push_back(ref.key);
+            if (pkg.isWarningWaived("V-W-1", ref.key)) {
+                waived.push_back(ref.key);
+            } else {
+                missing.push_back(ref.key);
+            }
         }
     }
 
@@ -250,6 +261,7 @@ int runCheckIcons(const Args& args, std::ostream& out, std::ostream& err) {
     }
 
     std::sort(missing.begin(), missing.end());
+    std::sort(waived.begin(), waived.end());
     std::sort(unreferenced.begin(), unreferenced.end());
     std::sort(caseMismatches.begin(), caseMismatches.end(), [](const CaseMismatch& a, const CaseMismatch& b) {
         return a.expected < b.expected;
@@ -258,6 +270,11 @@ int runCheckIcons(const Args& args, std::ostream& out, std::ostream& err) {
         if (a.key != b.key) return a.key < b.key;
         return a.file < b.file;
     });
+
+    std::vector<std::string> notes;
+    if (!waived.empty()) {
+        notes.push_back(gamedata::formatWaivedWarningsNote({{"V-W-1", waived.size()}}));
+    }
 
     const bool hasErrors = !invalid.empty();
     const bool hasWarnings =
@@ -278,11 +295,13 @@ int runCheckIcons(const Args& args, std::ostream& out, std::ostream& err) {
             {"referenced", refs.size()},
             {"present", presentCount},
             {"missing", missing.size()},
+            {"waived", waived.size()},
             {"invalid", invalid.size()},
             {"unreferenced", unreferenced.size()},
             {"case_mismatches", caseMismatches.size()}
         };
         doc["missing"] = missing;
+        doc["waived"] = waived;
 
         json invArr = json::array();
         for (const auto& inv : invalid) {
@@ -305,7 +324,7 @@ int runCheckIcons(const Args& args, std::ostream& out, std::ostream& err) {
         doc["case_mismatches"] = std::move(cmArr);
         doc["pak_stale"] = pakStale;
         doc["pak_stale_reasons"] = pakStaleReasons;
-        doc["notes"] = json::array();
+        doc["notes"] = notes;
         out << doc.dump(2) << "\n";
         return exitCode;
     }
@@ -345,9 +364,13 @@ int runCheckIcons(const Args& args, std::ostream& out, std::ostream& err) {
             out << "W STALE-PAK " << reason << "\n";
         }
     }
+    for (const auto& note : notes) {
+        out << "I " << note << "\n";
+    }
 
     out << "Icons (" << mode << "): " << presentCount << "/" << refs.size() << " present, "
-        << missing.size() << " missing, "
+        << missing.size() << " missing"
+        << (waived.empty() ? "" : (", " + std::to_string(waived.size()) + " waived")) << ", "
         << invalid.size() << " invalid, "
         << unreferenced.size() << " unreferenced, "
         << caseMismatches.size() << " case mismatches"

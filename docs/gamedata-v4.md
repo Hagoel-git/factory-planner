@@ -69,6 +69,7 @@ Factory Planner discovers packages at `<game_data_dir>/<game>/<package>/game.jso
 | `metrics` | no | object | Post-solve metric registry (§2.5). |
 | `profiles` | no | object | Reusable formula sets attached to machines (§2.6). |
 | `resources`, `machines`, `recipes` | no | arrays | Entity lists (§2.7). |
+| `waive_warnings` | no | array | Scoped warning waivers; recommended in a separate `waivers.json` shard (§4.1). |
 | `include` | no | string[] | Shard files or directories (§1.2). |
 | `icon_root` | no | string | Relative icon directory inside `<game>/` (default `"icons"`). |
 | `notes` | no | string | Free-text author note (allowed on any entity/section). |
@@ -346,9 +347,34 @@ Cascade order: broken shards → resource kinds/attributes → resources → opt
 | `V-OVR-2` | E | Recipe override or port expr fails to compile, changes `let` type, or adds cycle for some compatible machine profile | Ensure every compatible machine's profile supports the override, or narrow recipe `category`/`machines`. |
 | `V-MET-1` | E | Invalid `aggregate`/`display`, or `split_sign: true` when `aggregate != "sum"` | Use valid enum strings and `"aggregate": "sum"` with `split_sign`. |
 | `V-ICON-1` | E | Icon not a valid PNG, not square, or > 64×64 (`gamedata_tool` only) | Convert/pad transparently and downscale to square PNG ≤ 64×64; re-run `check-icons --from`. |
-| `V-W-1` | W | Referenced icon missing (not emitted in "no icons" mode) | Add the missing `<kind>/<id>.png`, or omit icons entirely ("no icons" mode). |
-| `V-W-2` | W | Unused resource, machine, parameter, option set, table, or metric | Prune unreferenced entities in the converter so `--werror` passes cleanly. |
-| `V-W-3` | W | Identical duplicate static resource port in one recipe's `in` or `out` | Sum amounts of identical duplicate ports in the converter before writing. |
+| `V-W-1` | W | Referenced icon missing (not emitted in "no icons" mode) | Add the missing `<kind>/<id>.png`, waive intentionally icon-less keys in `waivers.json` (§4.1), or omit icons entirely ("no icons" mode). |
+| `V-W-2` | W | Unused resource, machine, parameter, option set, table, or metric | Prune unreferenced entities in the converter so `--werror` passes cleanly (or waive in `waivers.json` if intentionally kept). |
+| `V-W-3` | W | Identical duplicate static resource port in one recipe's `in` or `out` | Sum amounts of identical duplicate ports in the converter before writing (or waive in `waivers.json` if intentional). |
+
+### 4.1 Waiving intentional warnings (`waive_warnings`)
+
+To pass `--werror` when specific warnings are intentional (such as text-only `option_sets` without icons), add a dedicated waiver shard file (e.g. `waivers.json`) and list it in `game.json`'s `"include"` array:
+
+```json
+{
+  "waive_warnings": [
+    {
+      "rule": "V-W-1",
+      "match": "options/*_mults/*",
+      "reason": "Project global multiplier presets are text-only"
+    }
+  ]
+}
+```
+
+- Only warning rules (`V-W-1`, `V-W-2`, `V-W-3`, `V-PAR-5`) may be waived; attempting to waive errors (`E`/`F`) fails validation (`V-STRUCT-2`).
+- `"match"` is a glob (`*` matches any characters, `?` matches one character) against the canonical warning target:
+  - `V-W-1`: `resources/<id>`, `machines/<id>`, `options/<set>/<key>`
+  - `V-W-2`: `resources/<id>`, `machines/<id>`, `parameters/<id>`, `option_sets/<id>`, `tables/<id>`, `metrics/<id>`
+  - `V-W-3`: `recipes/<recipe_id>/<dir>/<resource_id>` (`dir` is `in` or `out`)
+  - `V-PAR-5`: `parameters/<id>`, `globals/<id>`
+- Waived `V-W-1` icons are **optional**: missing PNGs emit no warning, while any PNG that *does* exist is still validated (`V-ICON-1`), packed by `pack-icons`, and never flagged as unreferenced by `check-icons` or deleted by `prune-icons`.
+- Waived warnings are summarized as a single info note (e.g. `I 24 warnings waived (V-W-1)`) in `validate` and `check-icons` output and `--json` `notes[]`, which never fails `--werror`.
 
 ---
 

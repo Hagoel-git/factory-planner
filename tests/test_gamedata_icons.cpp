@@ -915,5 +915,220 @@ TEST(GameDataToolIconsTest, EdgeCasesCorruptPakValidateListAndUsageErrors) {
     EXPECT_EQ(runCli({"pack-icons", "--help"}).code, kExitOk);
 }
 
+TEST(GameDataToolIconsTest, WarningWaiverShardHandlesMissingOptionalAndInvalidIcons) {
+    TempDirGuard tmp("waiver_icons");
+    const std::filesystem::path pkgDir = tmp.path() / "pkg";
+
+    nlohmann::json manifest = {
+        {"schema_version", 4},
+        {"game", {{"id", "waiver-icons"}, {"name", "Waiver Icons"}}},
+        {"units", {{"recipe_time", "s"}, {"default_rate", "s"}}},
+        {"include", {"waivers.json"}},
+        {"option_sets", {
+            {"tiers", {
+                {"options", {
+                    {{"key", "lv"}, {"label", "Low Voltage"}}
+                }}
+            }},
+            {"mining_mults", {
+                {"options", {
+                    {{"key", "1x"}, {"label", "1x"}},
+                    {{"key", "2x"}, {"label", "2x"}},
+                    {{"key", "4x"}, {"label", "4x"}}
+                }}
+            }},
+            {"craft_mults", {
+                {"options", {
+                    {{"key", "0_5x"}, {"label", "0.5x"}},
+                    {{"key", "1x"}, {"label", "1x"}},
+                    {{"key", "2x"}, {"label", "2x"}}
+                }}
+            }}
+        }},
+        {"globals", {
+            {"mining_mult", {{"type", "enum"}, {"option_set", "mining_mults"}, {"default", "1x"}}},
+            {"craft_mult", {{"type", "enum"}, {"option_set", "craft_mults"}, {"default", "1x"}}}
+        }},
+        {"parameters", {
+            {"tier", {{"type", "enum"}, {"option_set", "tiers"}, {"default", "lv"}}}
+        }},
+        {"profiles", {
+            {"p", {{"params", {"tier"}}}}
+        }},
+        {"resources", {
+            {{"id", "iron-ore"}, {"name", "Iron Ore"}},
+            {{"id", "iron-plate"}, {"name", "Iron Plate"}}
+        }},
+        {"machines", {
+            {{"id", "smelter"}, {"name", "Smelter"}, {"profile", "p"}, {"categories", {"smelt"}}}
+        }},
+        {"recipes", {
+            {
+                {"id", "r1"},
+                {"category", "smelt"},
+                {"time", 1},
+                {"in", nlohmann::json::array({nlohmann::json::array({"iron-ore", 1})})},
+                {"out", nlohmann::json::array({nlohmann::json::array({"iron-plate", 1})})}
+            }
+        }}
+    };
+    nlohmann::json waivers = {
+        {"waive_warnings", {
+            {
+                {"rule", "V-W-1"},
+                {"match", "options/*_mults/*"},
+                {"reason", "Project global multiplier presets are text-only"}
+            }
+        }}
+    };
+    ASSERT_TRUE(atomicWriteFile(pkgDir / "game.json", manifest.dump(2) + "\n"));
+    ASSERT_TRUE(atomicWriteFile(pkgDir / "waivers.json", waivers.dump(2) + "\n"));
+
+    const auto png16 = makeTestPng(16, 16, 30, 80, 140);
+    const auto pngNonSquare = makeTestPng(32, 16);
+    const std::filesystem::path iconsDir = pkgDir / "icons";
+
+    // Provide icons for resources, machine, and unwaived option (tiers/lv), but omit all 6 *_mults options.
+    writeFileBytes(iconsDir / "resources" / "iron-ore.png", png16);
+    writeFileBytes(iconsDir / "resources" / "iron-plate.png", png16);
+    writeFileBytes(iconsDir / "machines" / "smelter.png", png16);
+    writeFileBytes(iconsDir / "options" / "tiers" / "lv.png", png16);
+
+    // 1. validate --werror passes with 0 warnings and 1 waived info note
+    {
+        auto valJson = runCli({"validate", pathToUtf8(pkgDir), "--werror", "--json"});
+        ASSERT_EQ(valJson.code, kExitOk) << valJson.out << valJson.err;
+        nlohmann::json j = nlohmann::json::parse(valJson.out);
+        EXPECT_TRUE(j["ok"].get<bool>());
+        EXPECT_EQ(j["counts"]["errors"], 0);
+        EXPECT_EQ(j["counts"]["warnings"], 0);
+        EXPECT_EQ(j["counts"]["notes"], 1);
+        ASSERT_EQ(j["notes"].size(), 1u);
+        EXPECT_EQ(j["notes"][0], "6 warnings waived (V-W-1)");
+
+        auto valText = runCli({"validate", pathToUtf8(pkgDir), "--werror"});
+        ASSERT_EQ(valText.code, kExitOk) << valText.out << valText.err;
+        EXPECT_NE(valText.out.find("I 6 warnings waived (V-W-1)"), std::string::npos);
+    }
+
+    // 2. check-icons --werror passes with 0 missing, 6 waived, and info note
+    {
+        auto chkJson = runCli({"check-icons", pathToUtf8(pkgDir), "--werror", "--json"});
+        ASSERT_EQ(chkJson.code, kExitOk) << chkJson.out << chkJson.err;
+        nlohmann::json j = nlohmann::json::parse(chkJson.out);
+        EXPECT_TRUE(j["ok"].get<bool>());
+        EXPECT_EQ(j["counts"]["referenced"], 10);
+        EXPECT_EQ(j["counts"]["present"], 4);
+        EXPECT_EQ(j["counts"]["missing"], 0);
+        EXPECT_EQ(j["counts"]["waived"], 6);
+        EXPECT_EQ(j["counts"]["unreferenced"], 0);
+        ASSERT_EQ(j["waived"].size(), 6u);
+        ASSERT_EQ(j["notes"].size(), 1u);
+        EXPECT_EQ(j["notes"][0], "6 warnings waived (V-W-1)");
+
+        auto chkText = runCli({"check-icons", pathToUtf8(pkgDir), "--werror"});
+        ASSERT_EQ(chkText.code, kExitOk) << chkText.out << chkText.err;
+        EXPECT_NE(chkText.out.find("I 6 warnings waived (V-W-1)"), std::string::npos);
+        EXPECT_NE(chkText.out.find("6 waived"), std::string::npos);
+    }
+
+    // 3. pack-icons --verify + validate --werror + stats with icons.pak
+    {
+        auto packRes = runCli({"pack-icons", pathToUtf8(pkgDir), "--verify", "--json"});
+        ASSERT_EQ(packRes.code, kExitOk) << packRes.out << packRes.err;
+        nlohmann::json jp = nlohmann::json::parse(packRes.out);
+        EXPECT_EQ(jp["count"], 4);
+
+        auto valPak = runCli({"validate", pathToUtf8(pkgDir), "--werror", "--json"});
+        ASSERT_EQ(valPak.code, kExitOk) << valPak.out << valPak.err;
+        nlohmann::json jv = nlohmann::json::parse(valPak.out);
+        EXPECT_EQ(jv["counts"]["warnings"], 0);
+        EXPECT_EQ(jv["notes"][0], "6 warnings waived (V-W-1)");
+
+        auto statsJson = runCli({"stats", pathToUtf8(pkgDir), "--json"});
+        ASSERT_EQ(statsJson.code, kExitOk) << statsJson.err;
+        nlohmann::json js = nlohmann::json::parse(statsJson.out);
+        EXPECT_EQ(js["icons"]["options"]["present"], 1);
+        EXPECT_EQ(js["icons"]["options"]["waived"], 6);
+        EXPECT_EQ(js["icons"]["options"]["total"], 7);
+
+        auto statsText = runCli({"stats", pathToUtf8(pkgDir)});
+        ASSERT_EQ(statsText.code, kExitOk);
+        EXPECT_NE(statsText.out.find("1/7 (6 waived)"), std::string::npos);
+    }
+
+    // 4. Optional semantics: a valid PNG for a waived key is packed, never unreferenced, and never pruned
+    const std::filesystem::path optDir = tmp.path() / "optional_icons";
+    writeFileBytes(optDir / "resources" / "iron-ore.png", png16);
+    writeFileBytes(optDir / "resources" / "iron-plate.png", png16);
+    writeFileBytes(optDir / "machines" / "smelter.png", png16);
+    writeFileBytes(optDir / "options" / "tiers" / "lv.png", png16);
+    writeFileBytes(optDir / "options" / "mining_mults" / "1x.png", png16);
+    {
+        // Repack so icons.pak isn't stale vs optDir
+        auto packOpt = runCli({"pack-icons", pathToUtf8(pkgDir), "--from", pathToUtf8(optDir), "--verify", "--json"});
+        ASSERT_EQ(packOpt.code, kExitOk) << packOpt.out << packOpt.err;
+        nlohmann::json jp = nlohmann::json::parse(packOpt.out);
+        EXPECT_EQ(jp["count"], 5);
+
+        auto chkOpt = runCli({"check-icons", pathToUtf8(pkgDir), "--from", pathToUtf8(optDir), "--werror", "--json"});
+        ASSERT_EQ(chkOpt.code, kExitOk) << chkOpt.out << chkOpt.err;
+        nlohmann::json jc = nlohmann::json::parse(chkOpt.out);
+        EXPECT_EQ(jc["counts"]["present"], 5);
+        EXPECT_EQ(jc["counts"]["missing"], 0);
+        EXPECT_EQ(jc["counts"]["waived"], 5);
+        EXPECT_EQ(jc["counts"]["unreferenced"], 0);
+
+        auto pruneOpt = runCli({"prune-icons", pathToUtf8(pkgDir), "--from", pathToUtf8(optDir), "--apply", "--json"});
+        ASSERT_EQ(pruneOpt.code, kExitOk) << pruneOpt.err;
+        nlohmann::json jpr = nlohmann::json::parse(pruneOpt.out);
+        EXPECT_TRUE(jpr["deleted"].empty());
+        EXPECT_TRUE(std::filesystem::exists(optDir / "options" / "mining_mults" / "1x.png"));
+    }
+
+    // 5. Optional semantics: an INVALID PNG for a waived key still fails V-ICON-1
+    writeFileBytes(optDir / "options" / "mining_mults" / "2x.png", pngNonSquare);
+    {
+        auto chkBad = runCli({"check-icons", pathToUtf8(pkgDir), "--from", pathToUtf8(optDir), "--json"});
+        EXPECT_EQ(chkBad.code, kExitError);
+        nlohmann::json jb = nlohmann::json::parse(chkBad.out);
+        EXPECT_EQ(jb["counts"]["invalid"], 1);
+        EXPECT_EQ(jb["invalid"][0]["key"], "options/mining_mults/2x");
+    }
+    // Also verify validate catches V-ICON-1 for a waived loose PNG when icons.pak is removed
+    std::error_code ec;
+    std::filesystem::remove(pkgDir / "icons.pak", ec);
+    writeFileBytes(iconsDir / "options" / "mining_mults" / "2x.png", pngNonSquare);
+    {
+        auto valBad = runCli({"validate", pathToUtf8(pkgDir), "--json"});
+        EXPECT_EQ(valBad.code, kExitError);
+        nlohmann::json jvb = nlohmann::json::parse(valBad.out);
+        EXPECT_EQ(jvb["counts"]["errors"], 1);
+        EXPECT_EQ(jvb["groups"][0]["rule"], "V-ICON-1");
+        EXPECT_EQ(jvb["groups"][0]["subject"], "options/mining_mults/2x");
+    }
+
+    // 6. Removing an UNWAIVED icon (options/tiers/lv.png) still fails --werror
+    std::filesystem::remove(iconsDir / "options" / "mining_mults" / "2x.png", ec);
+    std::filesystem::remove(iconsDir / "options" / "tiers" / "lv.png", ec);
+    {
+        auto valMiss = runCli({"validate", pathToUtf8(pkgDir), "--werror", "--json"});
+        EXPECT_EQ(valMiss.code, kExitError);
+        nlohmann::json jvm = nlohmann::json::parse(valMiss.out);
+        EXPECT_EQ(jvm["counts"]["errors"], 0);
+        EXPECT_EQ(jvm["counts"]["warnings"], 1);
+        EXPECT_EQ(jvm["groups"][0]["rule"], "V-W-1");
+        EXPECT_EQ(jvm["groups"][0]["subject"], "options/tiers/lv");
+        EXPECT_EQ(jvm["notes"][0], "6 warnings waived (V-W-1)");
+
+        auto chkMiss = runCli({"check-icons", pathToUtf8(pkgDir), "--werror", "--json"});
+        EXPECT_EQ(chkMiss.code, kExitError);
+        nlohmann::json jcm = nlohmann::json::parse(chkMiss.out);
+        EXPECT_EQ(jcm["counts"]["missing"], 1);
+        EXPECT_EQ(jcm["missing"][0], "options/tiers/lv");
+        EXPECT_EQ(jcm["counts"]["waived"], 6);
+    }
+}
+
 } // namespace
 } // namespace gamedata_tool

@@ -699,7 +699,12 @@ private:
         std::string file,
         std::string json_pointer,
         std::string message,
-        std::string subject = {}) {
+        std::string subject = {},
+        std::string_view waiver_target = {}) {
+        if (!waiver_target.empty() && m_pkg.isWarningWaived(rule_id, waiver_target)) {
+            m_report.recordWaivedWarning(rule_id);
+            return;
+        }
         LoadDiagnostic d;
         d.severity = DiagnosticSeverity::Warning;
         d.rule_id = std::move(rule_id);
@@ -918,12 +923,13 @@ private:
         static const std::vector<std::string> kManifestKeys = {
             "attributes", "game", "globals", "icon_root", "include", "machines",
             "metrics", "notes", "option_sets", "parameters", "profiles",
-            "recipes", "resource_kinds", "resources", "schema_version", "tables", "units"
+            "recipes", "resource_kinds", "resources", "schema_version", "tables",
+            "units", "waive_warnings"
         };
         static const std::vector<std::string> kShardKeys = {
             "attributes", "globals", "machines", "metrics", "notes",
             "option_sets", "parameters", "profiles", "recipes",
-            "resource_kinds", "resources", "tables"
+            "resource_kinds", "resources", "tables", "waive_warnings"
         };
         static const std::unordered_set<std::string> kManifestOnlyKeys = {
             "schema_version", "game", "units", "include", "icon_root"
@@ -1067,6 +1073,7 @@ private:
         appendArraySection("resources", m_rawResources);
         appendArraySection("machines", m_rawMachines);
         appendArraySection("recipes", m_rawRecipes);
+        appendArraySection("waive_warnings", m_rawWaivers);
 
         return true;
     }
@@ -1587,6 +1594,88 @@ private:
                     m_failedAttrs[ek].insert(attr_name);
                     markDropped("attributes", std::string(ek) + "." + attr_name);
                 }
+            }
+        }
+
+        // 4. Validate warning waivers (/waive_warnings/*, §9.3)
+        static const std::vector<std::string> kWaiverKeys = {
+            "match", "notes", "reason", "rule"
+        };
+        static const std::vector<std::string> kWaivableRules = {
+            "V-PAR-5", "V-W-1", "V-W-2", "V-W-3"
+        };
+        for (const auto& item : m_rawWaivers) {
+            const json& wj = item.value;
+            bool ok = true;
+            if (!wj.is_object()) {
+                addError("V-STRUCT-2", item.file, item.json_pointer,
+                         "expected object for warning waiver, got " + jsonTypeName(wj));
+                markDropped("waive_warnings", item.json_pointer);
+                continue;
+            }
+            if (!checkAllowedKeys(wj, item.file, item.json_pointer, kWaiverKeys)) {
+                ok = false;
+            }
+
+            WarningWaiver w;
+            if (!wj.contains("rule")) {
+                addError("V-STRUCT-2", item.file, item.json_pointer + "/rule",
+                         "warning waiver requires string 'rule'");
+                ok = false;
+            } else if (!wj["rule"].is_string()) {
+                addError("V-STRUCT-2", item.file, item.json_pointer + "/rule",
+                         "expected string for 'rule', got " + jsonTypeName(wj["rule"]));
+                ok = false;
+            } else {
+                w.rule = wj["rule"].get<std::string>();
+                if (!isWaivableWarningRule(w.rule)) {
+                    std::string msg = "cannot waive rule '" + w.rule +
+                                      "' (only warning rules V-W-1, V-W-2, V-W-3, V-PAR-5 can be waived)";
+                    auto sug = expr::findBestSuggestion(w.rule, kWaivableRules, &m_suggestionBudget);
+                    if (sug.has_value()) {
+                        msg += " (did you mean '" + *sug + "'?)";
+                    }
+                    addError("V-STRUCT-2", item.file, item.json_pointer + "/rule",
+                             std::move(msg), 0, 0, w.rule);
+                    ok = false;
+                }
+            }
+
+            if (!wj.contains("match")) {
+                addError("V-STRUCT-2", item.file, item.json_pointer + "/match",
+                         "warning waiver requires non-empty string 'match'");
+                ok = false;
+            } else if (!wj["match"].is_string()) {
+                addError("V-STRUCT-2", item.file, item.json_pointer + "/match",
+                         "expected string for 'match', got " + jsonTypeName(wj["match"]));
+                ok = false;
+            } else {
+                w.match = wj["match"].get<std::string>();
+                if (w.match.empty()) {
+                    addError("V-STRUCT-2", item.file, item.json_pointer + "/match",
+                             "warning waiver 'match' pattern cannot be empty");
+                    ok = false;
+                }
+            }
+
+            if (wj.contains("reason")) {
+                if (!wj["reason"].is_string()) {
+                    addError("V-STRUCT-2", item.file, item.json_pointer + "/reason",
+                             "expected string for 'reason', got " + jsonTypeName(wj["reason"]));
+                    ok = false;
+                } else {
+                    w.reason = wj["reason"].get<std::string>();
+                }
+            }
+
+            if (wj.contains("notes") && wj["notes"].is_string()) {
+                w.notes = wj["notes"].get<std::string>();
+            }
+
+            if (ok) {
+                m_pkg.warning_waivers.push_back(std::move(w));
+            } else {
+                markDropped("waive_warnings", item.json_pointer);
             }
         }
     }
@@ -2783,7 +2872,9 @@ private:
                             addWarning("V-PAR-5", raw.file, ui_ptr + "/widget",
                                        "'" + w_str + "' unsuitable for " +
                                            parameterTypeToString(out_def.type) + ", using '" +
-                                           uiWidgetToString(fallback_w) + "'");
+                                           uiWidgetToString(fallback_w) + "'",
+                                       out_def.id,
+                                       std::string(drop_kind) + "/" + out_def.id);
                             out_def.ui.widget = fallback_w;
                         } else {
                             out_def.ui.widget = *w_opt;
@@ -2793,7 +2884,6 @@ private:
             }
         }
 
-        (void)drop_kind;
         return ok;
     }
 
@@ -4599,6 +4689,7 @@ private:
 
     bool parseRecipePortList(
         const json& ports_j,
+        const std::string& recipe_id,
         const std::string& dir,
         const std::string& file,
         const std::string& base_ptr,
@@ -4901,7 +4992,9 @@ private:
                     }
                     if (same_attrs) {
                         addWarning("V-W-3", file, base_ptr,
-                                   "resource '" + *p1.res + "' listed twice", *p1.res);
+                                   "resource '" + *p1.res + "' listed twice",
+                                   *p1.res,
+                                   "recipes/" + recipe_id + "/" + dir + "/" + *p1.res);
                         break;
                     }
                 }
@@ -5595,14 +5688,14 @@ private:
             std::unordered_set<std::string> seen_resource_params_on_recipe;
             if (rj.contains("in")) {
                 if (!parseRecipePortList(
-                        rj["in"], "in", item.file, item.json_pointer + "/in",
+                        rj["in"], rec.id, "in", item.file, item.json_pointer + "/in",
                         rec.in, seen_resource_params_on_recipe, cascade_root)) {
                     ok = false;
                 }
             }
             if (rj.contains("out")) {
                 if (!parseRecipePortList(
-                        rj["out"], "out", item.file, item.json_pointer + "/out",
+                        rj["out"], rec.id, "out", item.file, item.json_pointer + "/out",
                         rec.out, seen_resource_params_on_recipe, cascade_root)) {
                     ok = false;
                 }
@@ -5974,7 +6067,8 @@ private:
                 if (!m_usedParameters.count(p.id)) {
                     const RawEntry& raw = m_rawParameters.at(p.id);
                     addWarning("V-W-2", raw.file, raw.json_pointer,
-                               "defined but not used by any profile", p.id);
+                               "defined but not used by any profile", p.id,
+                               "parameters/" + p.id);
                 }
             }
             for (const auto& oset : m_pkg.option_sets) {
@@ -5982,28 +6076,32 @@ private:
                     const RawEntry& raw = m_rawOptionSets.at(oset.id);
                     addWarning("V-W-2", raw.file, raw.json_pointer,
                                "option_set '" + oset.id + "' is defined but not used by any parameter or global",
-                               oset.id);
+                               oset.id,
+                               "option_sets/" + oset.id);
                 }
             }
             for (const auto& tbl : m_pkg.tables) {
                 if (!m_usedTables.count(tbl.id)) {
                     const RawEntry& raw = m_rawTables.at(tbl.id);
                     addWarning("V-W-2", raw.file, raw.json_pointer,
-                               "table '" + tbl.id + "' is defined but not used by any expression", tbl.id);
+                               "table '" + tbl.id + "' is defined but not used by any expression", tbl.id,
+                               "tables/" + tbl.id);
                 }
             }
             for (const auto& met : m_pkg.metrics) {
                 if (!m_usedMetrics.count(met.id)) {
                     const RawEntry& raw = m_rawMetrics.at(met.id);
                     addWarning("V-W-2", raw.file, raw.json_pointer,
-                               "metric '" + met.id + "' is defined but not used by any profile or recipe", met.id);
+                               "metric '" + met.id + "' is defined but not used by any profile or recipe", met.id,
+                               "metrics/" + met.id);
                 }
             }
             for (size_t i = 0; i < m_pkg.machines.size(); ++i) {
                 const auto& mach = m_pkg.machines[i];
                 if (!m_usedMachines.count(mach.id)) {
                     addWarning("V-W-2", "game.json", "/machines/" + std::to_string(i),
-                               "machine '" + mach.id + "' cannot run any loaded recipe", mach.id);
+                               "machine '" + mach.id + "' cannot run any loaded recipe", mach.id,
+                               "machines/" + mach.id);
                 }
             }
             for (size_t i = 0; i < m_pkg.resources.size(); ++i) {
@@ -6011,10 +6109,12 @@ private:
                 if (!m_usedResources.count(res.id)) {
                     addWarning("V-W-2", "game.json", "/resources/" + std::to_string(i),
                                "resource '" + res.id + "' is not referenced by any recipe, profile, or parameter",
-                               res.id);
+                               res.id,
+                               "resources/" + res.id);
                 }
             }
         }
+        m_report.syncWaivedWarningsNote();
 
         // Populate m_pkg.base_eval_env
         expr::EvalEnv& env = m_pkg.base_eval_env;
@@ -6097,6 +6197,7 @@ private:
     std::vector<RawArrayItem> m_rawResources;
     std::vector<RawArrayItem> m_rawMachines;
     std::vector<RawArrayItem> m_rawRecipes;
+    std::vector<RawArrayItem> m_rawWaivers;
 
     // Failed entity sets for secondary error suppression (§9.1)
     std::unordered_set<std::string> m_failedResourceKinds;
@@ -6234,15 +6335,21 @@ bool loadGamePackageFromMemory(
 
 void checkMissingIcons(const GamePackage& package, LoadReport& inOutReport) {
     std::error_code ec;
-    auto checkFile = [&](const std::filesystem::path& rel_icon, const std::string& json_ptr) {
+    auto checkFile = [&](const std::filesystem::path& rel_icon,
+                         const std::string& icon_key,
+                         const std::string& json_ptr) {
         std::filesystem::path full = package.icon_root / rel_icon;
         if (!std::filesystem::exists(full, ec)) {
+            if (package.isWarningWaived("V-W-1", icon_key)) {
+                inOutReport.recordWaivedWarning("V-W-1");
+                return;
+            }
             LoadDiagnostic d;
             d.severity = DiagnosticSeverity::Warning;
             d.rule_id = "V-W-1";
             d.file = (std::filesystem::path("icons") / rel_icon).generic_string();
             d.json_pointer = json_ptr;
-            d.subject = d.file;
+            d.subject = icon_key;
             d.message = d.file + " not found";
             d.formatted = d.message;
             inOutReport.warnings.push_back(std::move(d));
@@ -6252,20 +6359,24 @@ void checkMissingIcons(const GamePackage& package, LoadReport& inOutReport) {
     for (size_t i = 0; i < package.resources.size(); ++i) {
         checkFile(
             std::filesystem::path("resources") / (package.resources[i].id + ".png"),
+            "resources/" + package.resources[i].id,
             "/resources/" + std::to_string(i));
     }
     for (size_t i = 0; i < package.machines.size(); ++i) {
         checkFile(
             std::filesystem::path("machines") / (package.machines[i].id + ".png"),
+            "machines/" + package.machines[i].id,
             "/machines/" + std::to_string(i));
     }
     for (const auto& oset : package.option_sets) {
         for (size_t i = 0; i < oset.options.size(); ++i) {
             checkFile(
                 std::filesystem::path("options") / oset.id / (oset.options[i].key + ".png"),
+                "options/" + oset.id + "/" + oset.options[i].key,
                 "/option_sets/" + oset.id + "/options/" + std::to_string(i));
         }
     }
+    inOutReport.syncWaivedWarningsNote();
 }
 
 void ensureBuiltInDefaultProfile(GamePackage& pkg) {

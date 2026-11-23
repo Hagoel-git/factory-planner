@@ -166,7 +166,10 @@ Phase 5 — Verify & Icons
   - Resize/pad transparently to square PNG <= 64x64 (area/box downscale) into `.tmp_icons/` (or
     `packs/<game>/<pkg>/icons/`) using stdlib / `common/png_resize.py` / existing system tool.
   - Loop `gamedata_tool check-icons packs/<game>/<pkg> --from <dir> --json` until `V-ICON-1 == 0`
-    and `case_mismatches == 0` (optionally run `prune-icons --from <dir> --apply`).
+    and `case_mismatches == 0` (optionally run `prune-icons --from <dir> --apply`). For
+    intentionally text-only option sets or entities without icons, waive `V-W-1` locally in a
+    dedicated `waivers.json` shard included from `game.json` (`"waive_warnings"`) instead of
+    generating dummy PNGs.
   - Run `gamedata_tool pack-icons packs/<game>/<pkg> --from <dir> --verify`.
   - Run `gamedata_tool validate packs/<game>/<pkg> --werror` (now verifying packed icons too).
 - If the user has no icons: confirm NO `icons/` directory or `icons.pak` was written and

@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -657,6 +658,86 @@ struct LoadedFileInfo {
     size_t recipes = 0;
 };
 
+struct WarningWaiver {
+    std::string rule;   // "V-W-1", "V-W-2", "V-W-3", "V-PAR-5"
+    std::string match;  // glob pattern (* and ? wildcards)
+    std::string reason; // optional human explanation
+    std::string notes;  // optional notes
+};
+
+inline bool isWaivableWarningRule(std::string_view rule_id) {
+    return rule_id == "V-W-1" || rule_id == "V-W-2" ||
+           rule_id == "V-W-3" || rule_id == "V-PAR-5";
+}
+
+// Iterative O(|pattern| * |text|) glob matcher supporting '*' (any chars) and '?' (single char).
+inline bool matchesWarningWaiverGlob(std::string_view pattern, std::string_view text) {
+    size_t p = 0;
+    size_t t = 0;
+    size_t star_p = std::string_view::npos;
+    size_t star_t = 0;
+    while (t < text.size()) {
+        if (p < pattern.size() && (pattern[p] == '?' || pattern[p] == text[t])) {
+            ++p;
+            ++t;
+        } else if (p < pattern.size() && pattern[p] == '*') {
+            star_p = p++;
+            star_t = t;
+        } else if (star_p != std::string_view::npos) {
+            p = star_p + 1;
+            t = ++star_t;
+        } else {
+            return false;
+        }
+    }
+    while (p < pattern.size() && pattern[p] == '*') {
+        ++p;
+    }
+    return p == pattern.size();
+}
+
+inline std::string formatWaivedCountWithCommas(size_t value) {
+    std::string raw = std::to_string(value);
+    std::string out;
+    out.reserve(raw.size() + raw.size() / 3);
+    for (size_t i = 0; i < raw.size(); ++i) {
+        if (i > 0 && (raw.size() - i) % 3 == 0) {
+            out.push_back(',');
+        }
+        out.push_back(raw[i]);
+    }
+    return out;
+}
+
+inline std::string formatWaivedWarningsNote(const std::map<std::string, size_t>& waived) {
+    size_t total = 0;
+    size_t nonZeroRules = 0;
+    for (const auto& [_, cnt] : waived) {
+        if (cnt > 0) {
+            total += cnt;
+            ++nonZeroRules;
+        }
+    }
+    if (total == 0) {
+        return {};
+    }
+    std::string msg = formatWaivedCountWithCommas(total) +
+                      (total == 1 ? " warning waived (" : " warnings waived (");
+    bool first = true;
+    for (const auto& [rule, cnt] : waived) {
+        if (cnt == 0) continue;
+        if (!first) msg += ", ";
+        first = false;
+        msg += rule;
+        if (nonZeroRules > 1) {
+            msg += ": ";
+            msg += formatWaivedCountWithCommas(cnt);
+        }
+    }
+    msg += ")";
+    return msg;
+}
+
 struct LoadReport {
     bool fatal = false;
     bool degraded = false; // True when loaded via ignore_errors ("Load anyway") with errors
@@ -664,12 +745,43 @@ struct LoadReport {
     std::vector<LoadDiagnostic> errors;
     std::vector<LoadDiagnostic> warnings;
     std::vector<LoadDiagnostic> notes; // Info-level entries (e.g. "no icons" mode); never affect ok() or --werror
+    std::map<std::string, size_t> waived_warnings; // rule_id -> count of suppressed warnings
     std::unordered_map<std::string, std::vector<std::string>> dropped; // plural kind -> ordered [ids]
     std::unordered_map<std::string, std::string> drop_root;            // dropped "kind:id" -> root "kind:id" (singular kinds)
     LoadTimingMs timing_ms;
     std::vector<LoadedFileInfo> loaded_files;
 
     bool ok() const { return !fatal && errors.empty(); }
+
+    size_t totalWaivedWarnings() const {
+        size_t total = 0;
+        for (const auto& [_, count] : waived_warnings) {
+            total += count;
+        }
+        return total;
+    }
+
+    void recordWaivedWarning(std::string_view rule_id) {
+        ++waived_warnings[std::string(rule_id)];
+    }
+
+    void syncWaivedWarningsNote() {
+        const std::string msg = formatWaivedWarningsNote(waived_warnings);
+        for (auto it = notes.begin(); it != notes.end(); ++it) {
+            if (it->rule_id == "WAIVED") {
+                if (msg.empty()) {
+                    notes.erase(it);
+                } else {
+                    it->message = msg;
+                    it->formatted = msg;
+                }
+                return;
+            }
+        }
+        if (!msg.empty()) {
+            addNote(msg, "WAIVED");
+        }
+    }
 
     void addNote(
         std::string message,
@@ -756,8 +868,20 @@ struct GamePackage {
     // Optional ID alias map (old_id -> new_id or prefixed rec@/mac@/res@)
     std::unordered_map<std::string, std::string> id_aliases;
 
+    // Optional warning waivers loaded from manifest / waiver shards (§9.3)
+    std::vector<WarningWaiver> warning_waivers;
+
     // Pre-built static evaluation environment shared across all nodes in the package
     expr::EvalEnv base_eval_env;
+
+    bool isWarningWaived(std::string_view rule_id, std::string_view target) const {
+        for (const auto& w : warning_waivers) {
+            if (w.rule == rule_id && matchesWarningWaiverGlob(w.match, target)) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     // Entity lookup helpers
     const ResourceKindDef* findResourceKind(std::string_view id) const {
