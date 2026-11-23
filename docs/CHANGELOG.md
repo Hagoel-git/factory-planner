@@ -5,6 +5,7 @@ This document holds the user-facing changelog that is also used in release notes
 ## Unreleased
 
 ### Added
+- Added a **Project Globals** section to the **Summary & Inspector** side panel so GameData v4 `"globals"` (`Number`, `Int`, `Bool`, `Enum`, `ResourceChoice`, and `Slots`) are editable with `ui.group` sections, dynamic `visible_if`/`allowed_if`/bounds, live re-evaluation and solving, per-global validation diagnostics, an undoable **Reset to Defaults** action, and full undo/redo support.
 - Added asynchronous lazy icon loading (`IconCache` / `IconLoader`) with `icons.pak` support (`<package_root>/icons.pak` → `<icon_root>/icons.pak` → loose PNGs), "no icons" mode, capped per-frame GPU texture uploads, and LRU texture eviction instead of eager startup loading.
 - Added a cross-pack icon fallback setting (disabled by default) and Settings UI under **Appearance → Icons** to resolve missing icons from other installed game packs by exact ID or display name in a user-ordered priority list.
 - Added an explicit `format_version` (`1`) to `.fpp` project files and reject missing, unknown, or newer format versions with a clear error notification.

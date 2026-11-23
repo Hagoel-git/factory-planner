@@ -132,8 +132,8 @@ Parameters live under `"parameters"` (per node, opted into via `profile.params`)
 Common optional fields on all parameters: `label`, `tooltip`, `visible_if` (bool literal or static expr), `ui`:
 - `ui.widget`: `"slider"`, `"drag"`, `"input"`, `"stepper"`, `"checkbox"`, `"combo"`, `"slot_row"`.
 - `ui.format`: printf-style format (e.g. `"%.4g%%"`).
-- `ui.group`: collapsible/section label in Node Properties.
-- `ui.placement`: `"body"` (shown directly on node card) or `"panel"` (Node Properties panel only, default).
+- `ui.group`: section label in Node Properties (for parameters) and Project Globals (for globals).
+- `ui.placement`: `"body"` (shown directly on node card) or `"panel"` (Node Properties panel only, default). Applies only to node parameters — globals are always displayed in the **Project Globals** section of Summary & Inspector.
 
 **Resolution & fallback rules (pre-solve step 1):**
 1. Parameters resolve sequentially in `profile.params` order (so later params may read earlier `param.*` in `visible_if`, `allowed_if`, `min`, `max`, `count`).

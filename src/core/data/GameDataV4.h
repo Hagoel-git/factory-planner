@@ -996,6 +996,7 @@ struct ResolvedGlobals {
     std::unordered_map<std::string, ParamValue> resolved_values;
     std::unordered_map<std::string, expr::EvalValue> eval_values;
     std::unordered_map<std::string, bool> visible;
+    std::unordered_map<std::string, EvaluatedParamUi> param_ui;
     std::unordered_map<std::string, EvalStatus> status_by_global;
     std::unordered_map<std::string, std::vector<EvalMessage>> messages_by_global;
 };

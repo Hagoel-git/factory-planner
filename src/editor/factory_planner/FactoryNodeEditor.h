@@ -137,6 +137,10 @@ public:
         const GameData& gameData,
         const gamedata::NodeEval* eval,
         const gamedata::ParameterDef& pdef);
+    static gamedata::EvaluatedParamUi resolveEffectiveGlobalUi(
+        const GameData& gameData,
+        const gamedata::ResolvedGlobals& resolvedGlobals,
+        const gamedata::ParameterDef& gdef);
 private:
     std::unique_ptr<FactoryGraph> m_graph;
     std::unique_ptr<FactorySolver> m_solver;
@@ -192,6 +196,7 @@ private:
 
     struct ActiveParamEdit {
         bool active = false;
+        bool isGlobal = false;
         uint64_t nodeId = 0;
         std::string paramId;
         std::optional<gamedata::ParamValue> originalStoredValue;
@@ -220,15 +225,22 @@ private:
     void commitActivePinConstraintEdit();
     void commitPendingEdits();
     void applyLiveParamValue(uint64_t nodeId, const std::string& paramId, const gamedata::ParamValue& value);
+    void applyLiveGlobalValue(const std::string& paramId, const gamedata::ParamValue& value);
     void executeParamChangeCommand(uint64_t nodeId, const std::string& paramId, const gamedata::ParamValue& newValue);
+    void executeGlobalChangeCommand(const std::string& paramId, const gamedata::ParamValue& newValue);
+    void resetProjectGlobals();
 
     void drawNodeParameters(uint64_t nodeId, bool onlyBodyPlacement, bool inNodeBody, float itemWidth, std::string* hoveredTooltipOut);
+    void drawParameterWidget(bool isGlobal, uint64_t nodeId, const gamedata::ParameterDef& pdef,
+                             const gamedata::EvaluatedParamUi& rawUi, bool inNodeBody,
+                             float itemWidth, std::string* hoveredTooltipOut);
     void drawSingleParameterWidget(const Node& node, const gamedata::ParameterDef& pdef,
                                    const gamedata::EvaluatedParamUi& ui, bool inNodeBody,
                                    float itemWidth, std::string* hoveredTooltipOut);
     void drawDeferredBodyParamPopup();
     void drawSidePanel(const ImVec2& panelSize, const std::vector<uint64_t>& selectedNodeIds);
     void drawGraphTotalsSection();
+    void drawProjectGlobalsSection();
     void drawNodePropertiesSection(uint64_t nodeId);
     std::string buildNodeTooltipText(const Node& node, const gamedata::NodeEval* nodeEval,
                                      const gamedata::NodeMetricsResult* nodeMetrics) const;

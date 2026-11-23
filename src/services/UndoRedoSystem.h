@@ -321,9 +321,19 @@ public:
 
 class SetGlobalParamCommand : public Command {
 private:
+    struct ClearTag {};
+
     std::string paramId;
     std::optional<gamedata::ParamValue> oldValue;
-    gamedata::ParamValue newValue;
+    std::optional<gamedata::ParamValue> newValue;
+
+    SetGlobalParamCommand(ClearTag,
+                          std::string paramId,
+                          std::optional<gamedata::ParamValue> oldValue)
+        : paramId(std::move(paramId)),
+          oldValue(std::move(oldValue)),
+          newValue(std::nullopt) {
+    }
 public:
     SetGlobalParamCommand(std::string paramId,
                           std::optional<gamedata::ParamValue> oldValue,
@@ -341,11 +351,20 @@ public:
           newValue(std::move(newValue)) {
     }
 
+    static std::unique_ptr<SetGlobalParamCommand> createClear(
+        std::string paramId,
+        std::optional<gamedata::ParamValue> oldValue) {
+        return std::unique_ptr<SetGlobalParamCommand>(
+            new SetGlobalParamCommand(ClearTag{}, std::move(paramId), std::move(oldValue)));
+    }
+
     void execute(FactoryGraph& graph) override;
     void undo(FactoryGraph& graph) override;
     CommandFlags getFlags() const override { return CommandFlags{true, false}; }
     std::string getDescription() const override {
-        return "Set Global Parameter '" + paramId + "'";
+        return newValue.has_value()
+            ? ("Set Global Parameter '" + paramId + "'")
+            : ("Reset Global Parameter '" + paramId + "'");
     }
 };
 

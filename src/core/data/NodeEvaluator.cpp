@@ -938,6 +938,7 @@ ResolvedGlobals resolveProjectGlobals(
         }
 
         result.visible[gid] = gres.visible;
+        result.param_ui[gid] = std::move(gres.ui);
         result.status_by_global[gid] = gres.status;
         if (!gres.messages.empty()) {
             result.messages_by_global[gid] = std::move(gres.messages);
@@ -1636,6 +1637,7 @@ NodeMetricsResult evaluateNodeMetrics(
             globals.eval_values.empty() &&
             globals.status_by_global.empty() &&
             globals.visible.empty() &&
+            globals.param_ui.empty() &&
             globals.resolved_values.empty() &&
             globals.messages_by_global.empty();
         if (callerOmittedGlobals && !pkg.globals.empty()) {

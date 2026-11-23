@@ -598,7 +598,11 @@ void ChangeRecipeCommand::undo(FactoryGraph& graph) {
 }
 
 void SetGlobalParamCommand::execute(FactoryGraph& graph) {
-    graph.setGlobalParam(paramId, newValue);
+    if (newValue.has_value()) {
+        graph.setGlobalParam(paramId, *newValue);
+    } else {
+        graph.clearGlobalParam(paramId);
+    }
 }
 
 void SetGlobalParamCommand::undo(FactoryGraph& graph) {

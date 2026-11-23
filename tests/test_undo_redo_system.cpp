@@ -1391,6 +1391,69 @@ TEST(UndoRedoV4Test, SetGlobalParamCommand_UndoWhenPreviouslyUnset) {
     EXPECT_DOUBLE_EQ(g.getPortBySlot(nid, "out:0")->amount_per_craft, 30.0);
 }
 
+TEST(UndoRedoV4Test, SetGlobalParamCommand_CreateClearAndUndoRedo) {
+    const std::string pkg_json = R"({
+        "schema_version": 4,
+        "game": { "id": "clear_global_undo_test", "name": "Clear Global Undo Test" },
+        "units": { "recipe_time": "s", "default_rate": "s" },
+        "resources": [
+            { "id": "ore", "name": "Ore" },
+            { "id": "plate", "name": "Plate" }
+        ],
+        "globals": {
+            "difficulty": { "type": "int", "default": 1, "min": 1, "max": 5 }
+        },
+        "profiles": {
+            "p": {
+                "output_amount": "port.amount * global.difficulty"
+            }
+        },
+        "machines": [
+            { "id": "m", "name": "M", "profile": "p", "categories": ["c"] }
+        ],
+        "recipes": [
+            { "id": "r", "name": "R", "category": "c", "time": 1, "in": [["ore", 1]], "out": [["plate", 10]] }
+        ]
+    })";
+
+    gamedata::LoadReport report;
+    gamedata::GamePackage pkg;
+    ASSERT_TRUE(gamedata::loadGamePackageFromMemory(pkg_json, {}, pkg, report))
+        << (report.errors.empty() ? "" : report.errors.front().formatted);
+
+    FactoryGraph g(pkg);
+    uint64_t nid = g.addNode("Node", "r");
+    ASSERT_NE(nid, static_cast<uint64_t>(-1));
+
+    UndoRedoManager mgr;
+    mgr.executeCommand(
+        std::make_unique<SetGlobalParamCommand>("difficulty", std::optional<gamedata::ParamValue>{}, gamedata::ParamValue{int64_t(4)}),
+        g);
+    ASSERT_EQ(g.getGlobals().count("difficulty"), 1u);
+    EXPECT_DOUBLE_EQ(g.getPortBySlot(nid, "out:0")->amount_per_craft, 40.0);
+
+    mgr.executeCommand(
+        SetGlobalParamCommand::createClear("difficulty", g.getGlobals().at("difficulty")),
+        g);
+    EXPECT_EQ(g.getGlobals().count("difficulty"), 0u);
+    ASSERT_TRUE(g.getGlobalParam("difficulty").has_value());
+    EXPECT_DOUBLE_EQ(g.getGlobalParam("difficulty")->asNumber(), 1.0);
+    EXPECT_DOUBLE_EQ(g.getPortBySlot(nid, "out:0")->amount_per_craft, 10.0);
+    EXPECT_FALSE(g.serialize()["globals"].contains("difficulty"));
+
+    mgr.undo(g);
+    ASSERT_EQ(g.getGlobals().count("difficulty"), 1u);
+    EXPECT_DOUBLE_EQ(g.getGlobalParam("difficulty")->asNumber(), 4.0);
+    EXPECT_DOUBLE_EQ(g.getPortBySlot(nid, "out:0")->amount_per_craft, 40.0);
+    EXPECT_TRUE(g.serialize()["globals"].contains("difficulty"));
+
+    mgr.redo(g);
+    EXPECT_EQ(g.getGlobals().count("difficulty"), 0u);
+    EXPECT_DOUBLE_EQ(g.getGlobalParam("difficulty")->asNumber(), 1.0);
+    EXPECT_DOUBLE_EQ(g.getPortBySlot(nid, "out:0")->amount_per_craft, 10.0);
+    EXPECT_FALSE(g.serialize()["globals"].contains("difficulty"));
+}
+
 
 
 

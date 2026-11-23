@@ -159,18 +159,7 @@ std::vector<const gamedata::ParameterDef*> collectProfileParamDefs(const GameDat
     return result;
 }
 
-gamedata::ParamValue resolveEffectiveParamValue(
-    const Node& node,
-    const gamedata::NodeEval* eval,
-    const gamedata::ParameterDef& pdef) {
-    if (eval) {
-        if (auto it = eval->resolved_params.find(pdef.id); it != eval->resolved_params.end()) {
-            return it->second;
-        }
-    }
-    if (auto it = node.params.find(pdef.id); it != node.params.end()) {
-        return it->second;
-    }
+gamedata::ParamValue defaultFallbackParamValue(const gamedata::ParameterDef& pdef) {
     if (pdef.has_default) {
         return pdef.default_value;
     }
@@ -187,6 +176,35 @@ gamedata::ParamValue resolveEffectiveParamValue(
             return gamedata::ParamValue::slots({});
     }
     return gamedata::ParamValue::null();
+}
+
+gamedata::ParamValue resolveEffectiveParamValue(
+    const Node& node,
+    const gamedata::NodeEval* eval,
+    const gamedata::ParameterDef& pdef) {
+    if (eval) {
+        if (auto it = eval->resolved_params.find(pdef.id); it != eval->resolved_params.end()) {
+            return it->second;
+        }
+    }
+    if (auto it = node.params.find(pdef.id); it != node.params.end()) {
+        return it->second;
+    }
+    return defaultFallbackParamValue(pdef);
+}
+
+gamedata::ParamValue resolveEffectiveGlobalValue(
+    const FactoryGraph& graph,
+    const gamedata::ParameterDef& gdef) {
+    const auto& resolved = graph.getResolvedGlobals();
+    if (auto it = resolved.resolved_values.find(gdef.id); it != resolved.resolved_values.end()) {
+        return it->second;
+    }
+    const auto& stored = graph.getGlobals();
+    if (auto it = stored.find(gdef.id); it != stored.end()) {
+        return it->second;
+    }
+    return defaultFallbackParamValue(gdef);
 }
 
 gamedata::UiWidget normalizeWidgetForType(
@@ -455,6 +473,8 @@ void FactoryNodeEditor::draw() {
     if (canShowSideBar) {
         ImGui::SameLine();
         drawSidePanel(ImVec2(sideWidth, canvasSize.y), selectedNodeIds);
+    } else if (m_activeParamEdit.active && m_activeParamEdit.isGlobal) {
+        commitActiveParamEdit();
     }
 }
 
@@ -971,6 +991,20 @@ gamedata::EvaluatedParamUi FactoryNodeEditor::resolveEffectiveParamUi(
     return fallback;
 }
 
+gamedata::EvaluatedParamUi FactoryNodeEditor::resolveEffectiveGlobalUi(
+    const GameData& gameData,
+    const gamedata::ResolvedGlobals& resolvedGlobals,
+    const gamedata::ParameterDef& gdef) {
+    if (auto it = resolvedGlobals.param_ui.find(gdef.id); it != resolvedGlobals.param_ui.end()) {
+        return it->second;
+    }
+    gamedata::EvaluatedParamUi fallback = resolveEffectiveParamUi(gameData, nullptr, gdef);
+    if (auto vit = resolvedGlobals.visible.find(gdef.id); vit != resolvedGlobals.visible.end()) {
+        fallback.visible = vit->second;
+    }
+    return fallback;
+}
+
 bool FactoryNodeEditor::segmentIntersectsAABB(ImVec2 p1, ImVec2 p2, ImVec2 boxMin, ImVec2 boxMax) {
     if (!std::isfinite(p1.x) || !std::isfinite(p1.y) ||
         !std::isfinite(p2.x) || !std::isfinite(p2.y) ||
@@ -1085,7 +1119,7 @@ void FactoryNodeEditor::drawNodes() {
         }
     }
     // Keep node owning an active parameter edit alive so offscreen pan/zoom does not strand the edit.
-    if (m_activeParamEdit.active) {
+    if (m_activeParamEdit.active && !m_activeParamEdit.isGlobal) {
         if (m_graph->getNode(m_activeParamEdit.nodeId)) {
             visibleNodeIds.insert(m_activeParamEdit.nodeId);
         } else {
@@ -2296,14 +2330,31 @@ void FactoryNodeEditor::commitActiveParamEdit() {
     if (!pending.dirty) {
         return;
     }
+
+    const bool changedFromOriginal =
+        !pending.originalStoredValue.has_value() ||
+        (*pending.originalStoredValue != pending.currentValue);
+
+    if (pending.isGlobal) {
+        if (!m_graph->getGameData().findGlobal(pending.paramId)) {
+            return;
+        }
+        if (changedFromOriginal) {
+            executeCommand(std::make_unique<SetGlobalParamCommand>(
+                pending.paramId,
+                pending.originalStoredValue,
+                pending.currentValue));
+        } else if (m_graph->getNodes().size() >= 1000) {
+            (void)m_solver->solve(*m_graph);
+        }
+        return;
+    }
+
     Node* node = m_graph->getNode(pending.nodeId);
     if (!node) {
         return;
     }
 
-    const bool changedFromOriginal =
-        !pending.originalStoredValue.has_value() ||
-        (*pending.originalStoredValue != pending.currentValue);
     if (changedFromOriginal) {
         executeCommand(std::make_unique<ChangeNodeParamCommand>(
             pending.nodeId,
@@ -2345,6 +2396,17 @@ void FactoryNodeEditor::applyLiveParamValue(
     }
 }
 
+void FactoryNodeEditor::applyLiveGlobalValue(
+    const std::string& paramId,
+    const gamedata::ParamValue& value) {
+    if (!m_graph->setGlobalParam(paramId, value)) {
+        return;
+    }
+    if (m_graph->getNodes().size() < 1000) {
+        (void)m_solver->solve(*m_graph);
+    }
+}
+
 void FactoryNodeEditor::executeParamChangeCommand(
     uint64_t nodeId,
     const std::string& paramId,
@@ -2362,6 +2424,38 @@ void FactoryNodeEditor::executeParamChangeCommand(
         executeCommand(std::make_unique<ChangeNodeParamCommand>(
             nodeId, paramId, oldRaw, newValue));
     }
+}
+
+void FactoryNodeEditor::executeGlobalChangeCommand(
+    const std::string& paramId,
+    const gamedata::ParamValue& newValue) {
+    commitActiveParamEdit();
+    if (!m_graph->getGameData().findGlobal(paramId)) {
+        return;
+    }
+    std::optional<gamedata::ParamValue> oldRaw;
+    const auto& globals = m_graph->getGlobals();
+    if (auto it = globals.find(paramId); it != globals.end()) {
+        oldRaw = it->second;
+    }
+    if (!oldRaw.has_value() || *oldRaw != newValue) {
+        executeCommand(std::make_unique<SetGlobalParamCommand>(
+            paramId, oldRaw, newValue));
+    }
+}
+
+void FactoryNodeEditor::resetProjectGlobals() {
+    commitActiveParamEdit();
+    const auto& gameData = m_graph->getGameData();
+    const auto& storedGlobals = m_graph->getGlobals();
+    auto cmd = std::make_unique<CompositeCommand>(
+        "Reset Project Globals", CommandFlags{true, false});
+    for (const auto& gdef : gameData.globals) {
+        if (auto it = storedGlobals.find(gdef.id); it != storedGlobals.end()) {
+            cmd->addCommand(SetGlobalParamCommand::createClear(gdef.id, it->second));
+        }
+    }
+    executeCommand(std::move(cmd));
 }
 
 namespace {
@@ -2663,6 +2757,27 @@ void FactoryNodeEditor::drawSingleParameterWidget(
     bool inNodeBody,
     float itemWidth,
     std::string* hoveredTooltipOut) {
+    drawParameterWidget(false, node.id, pdef, rawUi, inNodeBody, itemWidth, hoveredTooltipOut);
+}
+
+void FactoryNodeEditor::drawParameterWidget(
+    bool isGlobal,
+    uint64_t nodeId,
+    const gamedata::ParameterDef& pdef,
+    const gamedata::EvaluatedParamUi& rawUi,
+    bool inNodeBody,
+    float itemWidth,
+    std::string* hoveredTooltipOut) {
+    const Node* node = nullptr;
+    const gamedata::NodeEval* eval = nullptr;
+    if (!isGlobal) {
+        node = m_graph->getNode(nodeId);
+        if (!node) {
+            return;
+        }
+        eval = m_graph->getNodeEval(nodeId);
+    }
+
     ImGui::PushID(pdef.id.c_str());
     gamedata::EvaluatedParamUi ui = rawUi;
     if (ui.has_min && ui.has_max && ui.min_val > ui.max_val) {
@@ -2672,57 +2787,90 @@ void FactoryNodeEditor::drawSingleParameterWidget(
         ui.max_val = 0.0;
     }
     const auto& gameData = m_graph->getGameData();
-    const gamedata::NodeEval* eval = m_graph->getNodeEval(node.id);
-    gamedata::ParamValue currentVal = resolveEffectiveParamValue(node, eval, pdef);
+    gamedata::ParamValue currentVal = isGlobal
+        ? resolveEffectiveGlobalValue(*m_graph, pdef)
+        : resolveEffectiveParamValue(*node, eval, pdef);
 
     const bool hasBounded = ui.has_min && ui.has_max && (ui.min_val < ui.max_val);
     const gamedata::UiWidget widget = normalizeWidgetForType(pdef.type, pdef.ui.widget, hasBounded);
     const std::string baseLabel = pdef.label.empty() ? pdef.id : pdef.label;
     const std::string fullLabel = pdef.unit.empty() ? baseLabel : (baseLabel + " (" + pdef.unit + ")");
 
+    auto lookupStoredOriginal = [&]() -> std::optional<gamedata::ParamValue> {
+        if (isGlobal) {
+            const auto& globals = m_graph->getGlobals();
+            if (auto it = globals.find(pdef.id); it != globals.end()) {
+                return it->second;
+            }
+            return std::nullopt;
+        }
+        if (const Node* n = m_graph->getNode(nodeId)) {
+            if (auto it = n->params.find(pdef.id); it != n->params.end()) {
+                return it->second;
+            }
+        }
+        return std::nullopt;
+    };
+
+    auto isSameActiveEdit = [&]() -> bool {
+        return m_activeParamEdit.active &&
+               m_activeParamEdit.isGlobal == isGlobal &&
+               (isGlobal || m_activeParamEdit.nodeId == nodeId) &&
+               m_activeParamEdit.paramId == pdef.id;
+    };
+
+    auto applyLive = [&](const gamedata::ParamValue& v) {
+        if (isGlobal) {
+            applyLiveGlobalValue(pdef.id, v);
+        } else {
+            applyLiveParamValue(nodeId, pdef.id, v);
+        }
+    };
+
+    auto commitDiscrete = [&](const gamedata::ParamValue& v) {
+        if (isGlobal) {
+            executeGlobalChangeCommand(pdef.id, v);
+        } else {
+            executeParamChangeCommand(nodeId, pdef.id, v);
+        }
+    };
+
     auto trackContinuousScalar = [&](const gamedata::ParamValue& editedVal, bool edited, bool allowEnter) {
         if (ImGui::IsItemActivated()) {
-            if (m_activeParamEdit.active &&
-                (m_activeParamEdit.nodeId != node.id || m_activeParamEdit.paramId != pdef.id)) {
+            if (m_activeParamEdit.active && !isSameActiveEdit()) {
                 commitActiveParamEdit();
             }
             if (!m_activeParamEdit.active) {
                 m_activeParamEdit.active = true;
-                m_activeParamEdit.nodeId = node.id;
+                m_activeParamEdit.isGlobal = isGlobal;
+                m_activeParamEdit.nodeId = isGlobal ? 0 : nodeId;
                 m_activeParamEdit.paramId = pdef.id;
-                if (auto it = node.params.find(pdef.id); it != node.params.end()) {
-                    m_activeParamEdit.originalStoredValue = it->second;
-                } else {
-                    m_activeParamEdit.originalStoredValue = std::nullopt;
-                }
+                m_activeParamEdit.originalStoredValue = lookupStoredOriginal();
                 m_activeParamEdit.currentValue = currentVal;
                 m_activeParamEdit.dirty = false;
             }
         }
         if (edited) {
-            if (!m_activeParamEdit.active ||
-                m_activeParamEdit.nodeId != node.id ||
-                m_activeParamEdit.paramId != pdef.id) {
+            if (!isSameActiveEdit()) {
                 if (m_activeParamEdit.active) {
                     commitActiveParamEdit();
                 }
                 m_activeParamEdit.active = true;
-                m_activeParamEdit.nodeId = node.id;
+                m_activeParamEdit.isGlobal = isGlobal;
+                m_activeParamEdit.nodeId = isGlobal ? 0 : nodeId;
                 m_activeParamEdit.paramId = pdef.id;
-                if (auto it = node.params.find(pdef.id); it != node.params.end()) {
-                    m_activeParamEdit.originalStoredValue = it->second;
-                } else {
-                    m_activeParamEdit.originalStoredValue = std::nullopt;
-                }
+                m_activeParamEdit.originalStoredValue = lookupStoredOriginal();
             }
             m_activeParamEdit.currentValue = editedVal;
             m_activeParamEdit.dirty = true;
-            applyLiveParamValue(node.id, pdef.id, editedVal);
+            applyLive(editedVal);
         }
         const bool enterPressed = allowEnter && ImGui::IsItemFocused() &&
             (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter));
         if (ImGui::IsItemDeactivatedAfterEdit() || enterPressed) {
             commitActiveParamEdit();
+        } else if (ImGui::IsItemDeactivated() && isSameActiveEdit() && !m_activeParamEdit.dirty) {
+            m_activeParamEdit = ActiveParamEdit{};
         }
     };
 
@@ -2780,7 +2928,7 @@ void FactoryNodeEditor::drawSingleParameterWidget(
                     double next = val - stepVal;
                     if (ui.has_min && next < ui.min_val) next = ui.min_val;
                     if (ui.has_max && next > ui.max_val) next = ui.max_val;
-                    executeParamChangeCommand(node.id, pdef.id, gamedata::ParamValue::number(expr::normalizeZero(next)));
+                    commitDiscrete(gamedata::ParamValue::number(expr::normalizeZero(next)));
                 }
                 ImGui::EndDisabled();
                 handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
@@ -2799,7 +2947,7 @@ void FactoryNodeEditor::drawSingleParameterWidget(
                     double next = val + stepVal;
                     if (ui.has_min && next < ui.min_val) next = ui.min_val;
                     if (ui.has_max && next > ui.max_val) next = ui.max_val;
-                    executeParamChangeCommand(node.id, pdef.id, gamedata::ParamValue::number(expr::normalizeZero(next)));
+                    commitDiscrete(gamedata::ParamValue::number(expr::normalizeZero(next)));
                 }
                 ImGui::EndDisabled();
                 handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
@@ -2873,7 +3021,7 @@ void FactoryNodeEditor::drawSingleParameterWidget(
                     if (ImGui::Button("-##dec", ImVec2(frameH, frameH))) {
                         int64_t next = (val64 > min64 + step64) ? (val64 - step64) : min64;
                         next = std::clamp(next, min64, max64);
-                        executeParamChangeCommand(node.id, pdef.id, gamedata::ParamValue::number(static_cast<double>(next)));
+                        commitDiscrete(gamedata::ParamValue::number(static_cast<double>(next)));
                     }
                     ImGui::EndDisabled();
                     handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
@@ -2890,7 +3038,7 @@ void FactoryNodeEditor::drawSingleParameterWidget(
                     if (ImGui::Button("+##inc", ImVec2(frameH, frameH))) {
                         int64_t next = (val64 < max64 - step64) ? (val64 + step64) : max64;
                         next = std::clamp(next, min64, max64);
-                        executeParamChangeCommand(node.id, pdef.id, gamedata::ParamValue::number(static_cast<double>(next)));
+                        commitDiscrete(gamedata::ParamValue::number(static_cast<double>(next)));
                     }
                     ImGui::EndDisabled();
                     handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
@@ -2915,7 +3063,7 @@ void FactoryNodeEditor::drawSingleParameterWidget(
             bool bVal = currentVal.isBool() ? currentVal.asBool() : false;
             const std::string& cbLabel = inNodeBody ? baseLabel : fullLabel;
             if (ImGui::Checkbox(cbLabel.c_str(), &bVal)) {
-                executeParamChangeCommand(node.id, pdef.id, gamedata::ParamValue::boolean(bVal));
+                commitDiscrete(gamedata::ParamValue::boolean(bVal));
             }
             handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
             break;
@@ -2941,12 +3089,12 @@ void FactoryNodeEditor::drawSingleParameterWidget(
                 preview = "(None available)";
             }
 
-            if (inNodeBody) {
+            if (inNodeBody && !isGlobal) {
                 std::string btnText = preview + "##choice";
                 if (ImGui::Button(btnText.c_str(), ImVec2(itemWidth > 0.0f ? itemWidth : 120.0f, 0.0f))) {
                     ImVec2 bl(ImGui::GetItemRectMin().x, ImGui::GetItemRectMax().y);
                     m_pendingBodyParamPopup = PendingParamPopup{
-                        true, node.id, pdef.id, -1, ed::CanvasToScreen(bl)};
+                        true, nodeId, pdef.id, -1, ed::CanvasToScreen(bl)};
                 }
                 handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
             } else {
@@ -2955,7 +3103,7 @@ void FactoryNodeEditor::drawSingleParameterWidget(
                     renderChoiceListItems(
                         gameData, m_iconPackageId, pdef, ui, currentVal, false,
                         [&](const gamedata::ParamValue& chosen) {
-                            executeParamChangeCommand(node.id, pdef.id, chosen);
+                            commitDiscrete(chosen);
                         });
                     ImGui::EndCombo();
                 }
@@ -3002,10 +3150,10 @@ void FactoryNodeEditor::drawSingleParameterWidget(
 
                 std::string btnId = btnDisp + "##slot";
                 if (ImGui::Button(btnId.c_str())) {
-                    if (inNodeBody) {
+                    if (inNodeBody && !isGlobal) {
                         ImVec2 bl(ImGui::GetItemRectMin().x, ImGui::GetItemRectMax().y);
                         m_pendingBodyParamPopup = PendingParamPopup{
-                            true, node.id, pdef.id, static_cast<int>(i), ed::CanvasToScreen(bl)};
+                            true, nodeId, pdef.id, static_cast<int>(i), ed::CanvasToScreen(bl)};
                     } else {
                         ImGui::OpenPopup("##slot_picker");
                     }
@@ -3019,7 +3167,7 @@ void FactoryNodeEditor::drawSingleParameterWidget(
                     renderSlotListItems(
                         gameData, pdef, ui, curSlots, i,
                         [&](const gamedata::ParamValue& chosenSlots) {
-                            executeParamChangeCommand(node.id, pdef.id, chosenSlots);
+                            commitDiscrete(chosenSlots);
                         });
                     ImGui::EndPopup();
                 }
@@ -3374,6 +3522,106 @@ void FactoryNodeEditor::drawNodePropertiesSection(uint64_t nodeId) {
     ImGui::PopID();
 }
 
+void FactoryNodeEditor::drawProjectGlobalsSection() {
+    const auto& gameData = m_graph->getGameData();
+    if (gameData.globals.empty()) {
+        return;
+    }
+
+    ImGui::PushID("##project_globals");
+
+    struct GlobalEntry {
+        const gamedata::ParameterDef* def;
+        gamedata::EvaluatedParamUi ui;
+    };
+
+    std::vector<GlobalEntry> entries;
+    {
+        const auto& resolved = m_graph->getResolvedGlobals();
+        for (const auto& gdef : gameData.globals) {
+            gamedata::EvaluatedParamUi ui = resolveEffectiveGlobalUi(gameData, resolved, gdef);
+            const auto stIt = resolved.status_by_global.find(gdef.id);
+            const gamedata::EvalStatus status = (stIt != resolved.status_by_global.end())
+                ? stIt->second
+                : gamedata::EvalStatus::OK;
+            const auto msgIt = resolved.messages_by_global.find(gdef.id);
+            const bool hasMessages = (msgIt != resolved.messages_by_global.end() && !msgIt->second.empty());
+            if (!ui.visible && status == gamedata::EvalStatus::OK && !hasMessages) {
+                continue;
+            }
+            entries.push_back(GlobalEntry{&gdef, std::move(ui)});
+        }
+    }
+
+    if (entries.empty()) {
+        ImGui::TextDisabled("No visible project globals.");
+    } else {
+        // Group globals by ui.group in first-appearance order (matching drawNodeParameters)
+        std::vector<std::string> groupOrder;
+        std::unordered_map<std::string, std::vector<size_t>> groupedIndices;
+        for (size_t i = 0; i < entries.size(); ++i) {
+            const std::string& grp = entries[i].def->ui.group;
+            if (!groupedIndices.contains(grp)) {
+                groupOrder.push_back(grp);
+            }
+            groupedIndices[grp].push_back(i);
+        }
+
+        for (size_t gi = 0; gi < groupOrder.size(); ++gi) {
+            const std::string& grp = groupOrder[gi];
+            if (!grp.empty()) {
+                if (gi > 0) {
+                    ImGui::Spacing();
+                }
+                ImGui::TextDisabled("%s", grp.c_str());
+                ImGui::Separator();
+            }
+            for (size_t idx : groupedIndices[grp]) {
+                const gamedata::ParameterDef* gdef = entries[idx].def;
+                // Re-fetch resolved globals fresh in case an earlier widget in this frame mutated m_resolvedGlobals.
+                const auto& curResolved = m_graph->getResolvedGlobals();
+                gamedata::EvaluatedParamUi curUi = resolveEffectiveGlobalUi(gameData, curResolved, *gdef);
+
+                if (curUi.visible) {
+                    drawParameterWidget(/*isGlobal=*/true, 0, *gdef, curUi,
+                                        /*inNodeBody=*/false, -FLT_MIN, nullptr);
+                } else {
+                    const auto stIt = curResolved.status_by_global.find(gdef->id);
+                    const gamedata::EvalStatus st = (stIt != curResolved.status_by_global.end())
+                        ? stIt->second
+                        : gamedata::EvalStatus::OK;
+                    if (st != gamedata::EvalStatus::OK) {
+                        const std::string& lbl = gdef->label.empty() ? gdef->id : gdef->label;
+                        ImGui::TextColored(evalStatusColor(st), "%s [%s]",
+                                           lbl.c_str(), evalStatusLabel(st));
+                    }
+                }
+
+                // Re-fetch again after widget edits (setGlobalParam replaces m_resolvedGlobals).
+                const auto& postResolved = m_graph->getResolvedGlobals();
+                if (auto msgIt = postResolved.messages_by_global.find(gdef->id);
+                    msgIt != postResolved.messages_by_global.end()) {
+                    for (const auto& msg : msgIt->second) {
+                        ImGui::PushTextWrapPos(0.0f);
+                        ImGui::TextColored(evalStatusColor(msg.severity), "%s: %s",
+                                           evalStatusLabel(msg.severity), msg.text.c_str());
+                        ImGui::PopTextWrapPos();
+                    }
+                }
+            }
+        }
+    }
+
+    ImGui::Spacing();
+    ImGui::BeginDisabled(m_graph->getGlobals().empty());
+    if (ImGui::SmallButton("Reset to Defaults##reset_globals")) {
+        resetProjectGlobals();
+    }
+    ImGui::EndDisabled();
+
+    ImGui::PopID();
+}
+
 void FactoryNodeEditor::drawSidePanel(
     const ImVec2& panelSize,
     const std::vector<uint64_t>& selectedNodeIds) {
@@ -3438,6 +3686,15 @@ void FactoryNodeEditor::drawSidePanel(
     ImGui::Separator();
     if (ImGui::CollapsingHeader("Graph Totals", ImGuiTreeNodeFlags_DefaultOpen)) {
         drawGraphTotalsSection();
+    }
+
+    if (!gameData.globals.empty()) {
+        ImGui::Separator();
+        if (ImGui::CollapsingHeader("Project Globals", ImGuiTreeNodeFlags_DefaultOpen)) {
+            drawProjectGlobalsSection();
+        } else if (m_activeParamEdit.active && m_activeParamEdit.isGlobal) {
+            commitActiveParamEdit();
+        }
     }
 
     ImGui::Separator();

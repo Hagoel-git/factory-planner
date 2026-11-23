@@ -2561,5 +2561,90 @@ TEST(GameDataV4EvaluationTest, PopulatesDownstreamParamUiWhenEarlierParamIsBlock
     EXPECT_EQ(errEval.param_ui.at("p_enum").allowed_options, (std::vector<std::string>{"a"}));
 }
 
+TEST(GameDataV4EvaluationTest, ResolveProjectGlobalsPopulatesEvaluatedParamUi) {
+    const std::string manifest = R"JSON({
+      "schema_version": 4,
+      "game": { "id": "globals_ui_meta_test", "name": "Globals UI Meta Test" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "resources": [
+        { "id": "coal", "name": "Coal", "tags": ["combustible"] },
+        { "id": "fuel", "name": "Fuel", "tags": ["combustible"] },
+        { "id": "water", "name": "Water" }
+      ],
+      "option_sets": {
+        "tiers": {
+          "attrs": { "t": { "type": "number", "default": 1 } },
+          "options": [
+            { "key": "t1", "label": "Tier 1", "attrs": { "t": 1 } },
+            { "key": "t2", "label": "Tier 2", "attrs": { "t": 2 } },
+            { "key": "t3", "label": "Tier 3", "attrs": { "t": 3 } }
+          ]
+        }
+      },
+      "globals": {
+        "max_tier": { "label": "Max Tier", "type": "int", "min": 1, "max": 3, "default": 2 },
+        "tier_enum": {
+          "label": "Tier", "type": "enum", "option_set": "tiers", "default": "t1",
+          "allowed_if": "option.t <= global.max_tier"
+        },
+        "fuel_res": {
+          "label": "Fuel", "type": "resource_choice", "resources": ["coal", "fuel", "water"], "default": "coal",
+          "allowed_if": "has_tag(option, 'combustible')"
+        },
+        "mod_slots": {
+          "label": "Modules", "type": "slots", "option_set": "tiers",
+          "count": "global.max_tier", "allowed_if": "option.t <= global.max_tier"
+        },
+        "hidden_g": {
+          "label": "Hidden", "type": "number", "default": 1,
+          "visible_if": "global.max_tier > 2"
+        },
+        "bounded_g": {
+          "label": "Bounded", "type": "number", "default": 1.5,
+          "min": "0.5", "max": "global.max_tier * 2"
+        }
+      }
+    })JSON";
+
+    GamePackage pkg;
+    LoadReport report;
+    ASSERT_TRUE(loadGamePackageFromMemory(manifest, {}, pkg, report))
+        << (report.errors.empty() ? "" : report.errors.front().formatted);
+
+    ResolvedGlobals defGlobals = resolveProjectGlobals(pkg, {});
+    ASSERT_TRUE(defGlobals.param_ui.contains("hidden_g"));
+    EXPECT_FALSE(defGlobals.visible.at("hidden_g"));
+    EXPECT_FALSE(defGlobals.param_ui.at("hidden_g").visible);
+
+    ASSERT_TRUE(defGlobals.param_ui.contains("bounded_g"));
+    EXPECT_TRUE(defGlobals.param_ui.at("bounded_g").visible);
+    EXPECT_TRUE(defGlobals.param_ui.at("bounded_g").has_min);
+    EXPECT_TRUE(defGlobals.param_ui.at("bounded_g").has_max);
+    EXPECT_DOUBLE_EQ(defGlobals.param_ui.at("bounded_g").min_val, 0.5);
+    EXPECT_DOUBLE_EQ(defGlobals.param_ui.at("bounded_g").max_val, 4.0);
+
+    ASSERT_TRUE(defGlobals.param_ui.contains("tier_enum"));
+    EXPECT_EQ(defGlobals.param_ui.at("tier_enum").allowed_options,
+              (std::vector<std::string>{"t1", "t2"}));
+
+    ASSERT_TRUE(defGlobals.param_ui.contains("fuel_res"));
+    EXPECT_EQ(defGlobals.param_ui.at("fuel_res").allowed_resources,
+              (std::vector<std::string>{"coal", "fuel"}));
+
+    ASSERT_TRUE(defGlobals.param_ui.contains("mod_slots"));
+    EXPECT_EQ(defGlobals.param_ui.at("mod_slots").slot_count, 2u);
+    EXPECT_EQ(defGlobals.param_ui.at("mod_slots").allowed_options,
+              (std::vector<std::string>{"t1", "t2"}));
+
+    ResolvedGlobals tier3Globals = resolveProjectGlobals(pkg, {{"max_tier", int64_t(3)}});
+    EXPECT_TRUE(tier3Globals.param_ui.at("hidden_g").visible);
+    EXPECT_DOUBLE_EQ(tier3Globals.param_ui.at("bounded_g").max_val, 6.0);
+    EXPECT_EQ(tier3Globals.param_ui.at("tier_enum").allowed_options,
+              (std::vector<std::string>{"t1", "t2", "t3"}));
+    EXPECT_EQ(tier3Globals.param_ui.at("mod_slots").slot_count, 3u);
+    EXPECT_EQ(tier3Globals.param_ui.at("mod_slots").allowed_options,
+              (std::vector<std::string>{"t1", "t2", "t3"}));
+}
+
 } // namespace
 } // namespace gamedata

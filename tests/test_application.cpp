@@ -3249,3 +3249,337 @@ TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_ClippedRecipePickerOnlyDrawsV
     EXPECT_LT(drawnRows, 100u);
 }
 
+TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_ProjectGlobals_WidgetsVisibilityDiagnosticsAndUndoRedo) {
+    const std::string manifest = R"JSON({
+      "schema_version": 4,
+      "game": { "id": "project_globals_ui_test", "name": "Project Globals UI Test" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "resources": [
+        { "id": "iron_ore", "name": "Iron Ore", "tags": ["raw"] },
+        { "id": "iron_plate", "name": "Iron Plate", "tags": ["product"] },
+        { "id": "coal", "name": "Coal", "tags": ["fuel"] },
+        { "id": "wood", "name": "Wood", "tags": ["fuel"] }
+      ],
+      "option_sets": {
+        "bonus_tiers": {
+          "attrs": { "bonus": { "type": "number", "default": 1.0 } },
+          "options": [
+            { "key": "t1", "label": "Tier 1", "attrs": { "bonus": 1.0 } },
+            { "key": "t2", "label": "Tier 2", "attrs": { "bonus": 2.0 } }
+          ]
+        },
+        "global_mods": {
+          "attrs": { "boost": { "type": "number", "default": 0.0 } },
+          "options": [
+            { "key": "m1", "label": "Module 1", "attrs": { "boost": 0.5 } }
+          ]
+        }
+      },
+      "parameters": {
+        "shared_id": {
+          "label": "Node Shared", "type": "int", "min": 1, "max": 5, "default": 1,
+          "ui": { "widget": "stepper", "placement": "panel" }
+        }
+      },
+      "globals": {
+        "recipe_cost_mult": {
+          "label": "Recipe Cost Mult", "type": "number", "min": 0.1, "max": 10.0, "default": 1.0,
+          "ui": { "widget": "input", "format": "%.2f", "group": "Difficulty" }
+        },
+        "power_consumption_mult": {
+          "label": "Power Consumption Mult", "type": "number", "min": 0.1, "max": 5.0, "default": 1.0,
+          "ui": { "widget": "slider", "format": "%.2f", "group": "Difficulty" }
+        },
+        "shared_id": {
+          "label": "Global Shared", "type": "int", "min": 1, "max": "global.max_shared", "default": 1,
+          "ui": { "widget": "stepper", "group": "Progression" }
+        },
+        "max_shared": {
+          "label": "Max Shared", "type": "int", "min": 1, "max": 10, "default": 3,
+          "ui": { "widget": "stepper", "group": "Progression" }
+        },
+        "enable_bonus": {
+          "label": "Enable Bonus", "type": "bool", "default": false,
+          "ui": { "widget": "checkbox", "group": "Progression" }
+        },
+        "bonus_tier": {
+          "label": "Bonus Tier", "type": "enum", "option_set": "bonus_tiers", "default": "t1",
+          "visible_if": "global.enable_bonus",
+          "ui": { "widget": "combo", "group": "Progression" }
+        },
+        "catalyst_res": {
+          "label": "Catalyst", "type": "resource_choice", "resources": ["iron_ore", "coal", "wood"], "default": "coal",
+          "allowed_if": "has_tag(option, 'fuel')",
+          "ui": { "widget": "combo", "group": "Progression" }
+        },
+        "global_mods": {
+          "label": "Global Mods", "type": "slots", "option_set": "global_mods", "count": 1,
+          "allow_empty": true,
+          "ui": { "widget": "slot_row", "group": "Progression" }
+        }
+      },
+      "metrics": {
+        "power": {
+          "label": "Power", "unit": "MW", "display": ["body", "tooltip", "totals"],
+          "aggregate": "sum", "format": "%.1f"
+        }
+      },
+      "profiles": {
+        "prod": {
+          "params": ["shared_id"],
+          "input_amount": "port.amount * global.recipe_cost_mult",
+          "output_amount": "port.amount * global.shared_id * if(global.enable_bonus, global.bonus_tier.bonus, 1.0) * (1.0 + sum(global.global_mods.boost)) * param.shared_id",
+          "metrics": {
+            "power": { "per_machine": "10.0 * global.power_consumption_mult" }
+          }
+        }
+      },
+      "machines": [
+        { "id": "smelter", "name": "Smelter", "profile": "prod", "categories": ["smelt"] }
+      ],
+      "recipes": [
+        { "id": "smelt_iron", "name": "Smelt Iron", "category": "smelt", "time": 1, "in": [["iron_ore", 2]], "out": [["iron_plate", 1]] }
+      ]
+    })JSON";
+
+    gamedata::GamePackage pkg;
+    gamedata::LoadReport report;
+    ASSERT_TRUE(gamedata::loadGamePackageFromMemory(manifest, {}, pkg, report))
+        << (report.errors.empty() ? "" : report.errors.front().formatted);
+
+    const fs::path projPath = tempRoot / "globals_ui.fpp";
+    FactoryNodeEditor editor(pkg, projPath, "GlobalsUI");
+    ASSERT_TRUE(editor.isSidePanelOpen());
+
+    executeEditorCommand(
+        editor, std::make_unique<AddNodeCommand>("Smelt Iron", "smelt_iron", static_cast<uint64_t>(-1), ImVec2(100, 100)));
+    auto& graph = getEditorGraph(editor);
+    ASSERT_EQ(graph.getNodes().size(), 1u);
+    const uint64_t nodeId = graph.getNodes().front().id;
+    const uint64_t inPortId = graph.getNodes().front().input_ports.front();
+    const uint64_t outPortId = graph.getNodes().front().output_ports.front();
+    executeEditorCommand(
+        editor, std::make_unique<SetPortConstraintCommand>(outPortId, -1.0, 10.0, ConstraintMode::AUTO, ConstraintMode::TARGET));
+    ASSERT_TRUE(editor.save());
+    ASSERT_FALSE(editor.isDirty());
+
+    // Select node so both Project Globals and Node Properties render simultaneously (testing ID isolation on `shared_id`).
+    renderEditorFrame(editor);
+    ax::NodeEditor::SetCurrentEditor(editor.getContext());
+    ax::NodeEditor::SelectNode(IdUtils::toNodeId(nodeId));
+    ax::NodeEditor::SetCurrentEditor(nullptr);
+    renderEditorFrame(editor);
+
+    ImGuiWindow* sidePanel = findEditorWindowContaining("##EditorSidePanel");
+    ASSERT_NE(sidePanel, nullptr);
+    const ImGuiID globalsRoot = ImHashStr("##project_globals", 0, sidePanel->ID);
+    const ImGuiID nodePropsRoot = ImHashStr("##props_node", 0, sidePanel->ID);
+    ImGuiIO& io = ImGui::GetIO();
+
+    // 1. Live edit on `recipe_cost_mult` marks dirty and updates solved input rate before Enter,
+    //    then saving commits the active edit and persists to .fpp.
+    const ImGuiID costInputId = ImHashStr("##val", 0, ImHashStr("recipe_cost_mult", 0, globalsRoot));
+    const size_t undoBeforeLive = getEditorUndoStackSize(editor);
+    ImGui::ActivateItemByID(costInputId);
+    renderEditorFrame(editor);
+    io.AddInputCharactersUTF8("3.0");
+    renderEditorFrame(editor);
+
+    EXPECT_TRUE(isActiveParamEdit(editor));
+    EXPECT_TRUE(editor.isDirty());
+    EXPECT_EQ(getEditorUndoStackSize(editor), undoBeforeLive);
+    ASSERT_TRUE(graph.getGlobals().contains("recipe_cost_mult"));
+    EXPECT_NEAR(graph.getGlobals().at("recipe_cost_mult").asNumber(), 3.0, 1e-6);
+    EXPECT_NEAR(graph.getPort(inPortId)->rate, 60.0, 1e-6);
+
+    ASSERT_TRUE(editor.save());
+    EXPECT_FALSE(isActiveParamEdit(editor));
+    EXPECT_FALSE(editor.isDirty());
+    EXPECT_EQ(getEditorUndoStackSize(editor), undoBeforeLive + 1);
+
+    // 2. Slider `power_consumption_mult` via PreferInput + Enter updates Graph Totals Power (100 MW -> 250 MW) + undo/redo.
+    const ImGuiID powerSliderId = ImHashStr("##val", 0, ImHashStr("power_consumption_mult", 0, globalsRoot));
+    ImGui::GetCurrentContext()->NavNextActivateId = powerSliderId;
+    ImGui::GetCurrentContext()->NavNextActivateFlags = ImGuiActivateFlags_PreferInput;
+    renderEditorFrame(editor);
+    io.AddInputCharactersUTF8("2.5");
+    io.AddKeyEvent(ImGuiKey_Enter, true);
+    io.AddKeyEvent(ImGuiKey_Enter, false);
+    renderEditorFrame(editor);
+    renderEditorFrame(editor);
+
+    ASSERT_TRUE(graph.getGlobals().contains("power_consumption_mult"));
+    EXPECT_NEAR(graph.getGlobals().at("power_consumption_mult").asNumber(), 2.5, 1e-6);
+    EXPECT_NEAR(editor.getSolver()->getTotals()[0].value, 250.0, 1e-4);
+
+    editor.undo();
+    renderEditorFrame(editor);
+    EXPECT_NEAR(editor.getSolver()->getTotals()[0].value, 100.0, 1e-4);
+    editor.redo();
+    renderEditorFrame(editor);
+    EXPECT_NEAR(editor.getSolver()->getTotals()[0].value, 250.0, 1e-4);
+
+    // 3. Int stepper `shared_id` in globals clamps to `global.max_shared` (3) and does NOT touch node param `shared_id`.
+    const ImGuiID globalSharedIncId = ImHashStr("+##inc", 0, ImHashStr("shared_id", 0, globalsRoot));
+    ImGui::ActivateItemByID(globalSharedIncId);
+    renderEditorFrame(editor);
+    ImGui::ActivateItemByID(globalSharedIncId);
+    renderEditorFrame(editor);
+    const size_t undoAtMaxShared = getEditorUndoStackSize(editor);
+    ImGui::ActivateItemByID(globalSharedIncId); // clamped at 3
+    renderEditorFrame(editor);
+    EXPECT_EQ(getEditorUndoStackSize(editor), undoAtMaxShared);
+    EXPECT_DOUBLE_EQ(graph.getGlobals().at("shared_id").asNumber(), 3.0);
+    EXPECT_DOUBLE_EQ(graph.getNode(nodeId)->params.at("shared_id").asNumber(), 1.0);
+
+    // Editing node `shared_id` works independently without changing global `shared_id`.
+    const ImGuiID nodeSharedIncId = ImHashStr("+##inc", 0, ImHashStr("shared_id", 0, nodePropsRoot));
+    ImGui::ActivateItemByID(nodeSharedIncId);
+    renderEditorFrame(editor);
+    EXPECT_DOUBLE_EQ(graph.getNode(nodeId)->params.at("shared_id").asNumber(), 2.0);
+    EXPECT_DOUBLE_EQ(graph.getGlobals().at("shared_id").asNumber(), 3.0);
+
+    // 4. Bool checkbox `enable_bonus` reveals hidden `bonus_tier` combo + updates solved output.
+    EXPECT_FALSE(graph.getResolvedGlobals().visible.at("bonus_tier"));
+    const ImGuiID bonusCheckId = ImHashStr("Enable Bonus", 0, ImHashStr("enable_bonus", 0, globalsRoot));
+    ImGui::ActivateItemByID(bonusCheckId);
+    renderEditorFrame(editor);
+    EXPECT_TRUE(graph.getGlobals().at("enable_bonus").asBool());
+    EXPECT_TRUE(graph.getResolvedGlobals().visible.at("bonus_tier"));
+
+    const ImGuiID bonusTierComboId = ImHashStr("##val", 0, ImHashStr("bonus_tier", 0, globalsRoot));
+    ImGui::ActivateItemByID(bonusTierComboId);
+    renderEditorFrame(editor);
+    ASSERT_NE(findOpenPopupWindow("##Combo"), nullptr);
+    selectComboNextItem(editor);
+    EXPECT_EQ(graph.getGlobals().at("bonus_tier").asString(), "t2");
+
+    // 5. ResourceChoice combo `catalyst_res` respects `allowed_if` ("coal", "wood" only).
+    EXPECT_EQ(graph.getResolvedGlobals().param_ui.at("catalyst_res").allowed_resources,
+              (std::vector<std::string>{"coal", "wood"}));
+    const ImGuiID catComboId = ImHashStr("##val", 0, ImHashStr("catalyst_res", 0, globalsRoot));
+    ImGui::ActivateItemByID(catComboId);
+    renderEditorFrame(editor);
+    ASSERT_NE(findOpenPopupWindow("##Combo"), nullptr);
+    selectComboNextItem(editor);
+    EXPECT_EQ(graph.getGlobals().at("catalyst_res").asString(), "wood");
+
+    // 6. Slots `global_mods` via "##slot_picker".
+    const int slotIdx0 = 0;
+    const ImGuiID gSlot0Scope = ImHashData(&slotIdx0, sizeof(slotIdx0), ImHashStr("global_mods", 0, globalsRoot));
+    const ImGuiID gSlot0BtnId = ImHashStr("[Empty]##slot", 0, gSlot0Scope);
+    ImGui::ActivateItemByID(gSlot0BtnId);
+    renderEditorFrame(editor);
+    ImGuiWindow* gSlotPopup = findOpenPopupWindow();
+    ASSERT_NE(gSlotPopup, nullptr);
+    const ImGuiID mod1Scope = ImHashStr("m1", 0, gSlotPopup->ID);
+    ImGui::ActivateItemByID(ImHashStr("Module 1", 0, mod1Scope));
+    renderEditorFrame(editor);
+    ASSERT_TRUE(graph.getGlobals().at("global_mods").isSlots());
+    ASSERT_FALSE(graph.getGlobals().at("global_mods").asSlots().empty());
+    EXPECT_EQ(graph.getGlobals().at("global_mods").asSlots()[0], std::optional<std::string>("m1"));
+
+    // 7. Save & reload .fpp round-trips globals and solved metrics.
+    ASSERT_TRUE(editor.save());
+    {
+        FactoryNodeEditor reloaded(pkg, projPath, "GlobalsUIReloaded");
+        ASSERT_TRUE(reloaded.isLoadedSuccessfully());
+        const auto& rg = reloaded.getGraph()->getGlobals();
+        EXPECT_NEAR(rg.at("recipe_cost_mult").asNumber(), 3.0, 1e-6);
+        EXPECT_NEAR(rg.at("power_consumption_mult").asNumber(), 2.5, 1e-6);
+        EXPECT_DOUBLE_EQ(rg.at("shared_id").asNumber(), 3.0);
+        EXPECT_TRUE(rg.at("enable_bonus").asBool());
+        EXPECT_EQ(rg.at("bonus_tier").asString(), "t2");
+        EXPECT_EQ(rg.at("catalyst_res").asString(), "wood");
+        EXPECT_EQ(rg.at("global_mods").asSlots()[0], std::optional<std::string>("m1"));
+    }
+
+    // 8. "Reset to Defaults##reset_globals" clears all globals in one undoable command + undo/redo.
+    const ImGuiID resetBtnId = ImHashStr("Reset to Defaults##reset_globals", 0, globalsRoot);
+    ImGui::ActivateItemByID(resetBtnId);
+    renderEditorFrame(editor);
+    EXPECT_TRUE(graph.getGlobals().empty());
+    EXPECT_FALSE(graph.getResolvedGlobals().visible.at("bonus_tier"));
+
+    editor.undo();
+    renderEditorFrame(editor);
+    EXPECT_FALSE(graph.getGlobals().empty());
+    EXPECT_NEAR(graph.getGlobals().at("recipe_cost_mult").asNumber(), 3.0, 1e-6);
+    EXPECT_TRUE(graph.getResolvedGlobals().visible.at("bonus_tier"));
+
+    editor.redo();
+    renderEditorFrame(editor);
+    EXPECT_TRUE(graph.getGlobals().empty());
+
+    // 9. Collapsing "Project Globals" header commits an active global edit.
+    ImGui::ActivateItemByID(costInputId);
+    renderEditorFrame(editor);
+    io.AddInputCharactersUTF8("4.0");
+    renderEditorFrame(editor);
+    ASSERT_TRUE(isActiveParamEdit(editor));
+    sidePanel->StateStorage.SetInt(ImHashStr("Project Globals", 0, sidePanel->ID), 0);
+    renderEditorFrame(editor);
+    EXPECT_FALSE(isActiveParamEdit(editor));
+    EXPECT_NEAR(graph.getGlobals().at("recipe_cost_mult").asNumber(), 4.0, 1e-6);
+    sidePanel->StateStorage.SetInt(ImHashStr("Project Globals", 0, sidePanel->ID), 1);
+    renderEditorFrame(editor);
+
+    // 10. Invalid raw global from project JSON renders warning without crash and clears once edited.
+    const fs::path badGlobalProj = tempRoot / "bad_global.fpp";
+    const nlohmann::json badProjJson = {
+        {"format_version", ProjectIO::kFormatVersion},
+        {"editor_settings", nlohmann::json::object()},
+        {"graph_data", {
+            {"game", {{"id", "project_globals_ui_test"}, {"data_version", ""}}},
+            {"rate_unit", "s"},
+            {"globals", {{"recipe_cost_mult", {{"bad", 1}}}}},
+            {"nodes", nlohmann::json::array()},
+            {"connections", nlohmann::json::array()},
+            {"next_node_id", 0},
+            {"next_port_id", 0},
+            {"next_connection_id", 0}
+        }}
+    };
+    ASSERT_TRUE(atomicWriteFile(badGlobalProj, badProjJson.dump(2)));
+
+    FactoryNodeEditor badEditor(pkg, badGlobalProj, "BadGlobalUI");
+    ASSERT_TRUE(badEditor.isLoadedSuccessfully());
+    EXPECT_EQ(badEditor.getGraph()->getResolvedGlobals().status_by_global.at("recipe_cost_mult"),
+              gamedata::EvalStatus::WARNING);
+    EXPECT_FALSE(badEditor.getGraph()->getResolvedGlobals().messages_by_global.at("recipe_cost_mult").empty());
+    renderEditorFrame(badEditor);
+
+    ImGuiWindow* badPanel = findEditorWindowContaining("##EditorSidePanel");
+    ASSERT_NE(badPanel, nullptr);
+    const ImGuiID badGlobalsRoot = ImHashStr("##project_globals", 0, badPanel->ID);
+    const ImGuiID badCostInputId = ImHashStr("##val", 0, ImHashStr("recipe_cost_mult", 0, badGlobalsRoot));
+    ImGui::ActivateItemByID(badCostInputId);
+    renderEditorFrame(badEditor);
+    io.AddInputCharactersUTF8("2.0");
+    io.AddKeyEvent(ImGuiKey_Enter, true);
+    io.AddKeyEvent(ImGuiKey_Enter, false);
+    renderEditorFrame(badEditor);
+    renderEditorFrame(badEditor);
+    EXPECT_EQ(badEditor.getGraph()->getResolvedGlobals().status_by_global.at("recipe_cost_mult"),
+              gamedata::EvalStatus::OK);
+    EXPECT_FALSE(badEditor.getGraph()->getResolvedGlobals().messages_by_global.contains("recipe_cost_mult"));
+
+    // 11. Package with no globals renders Summary & Inspector without Project Globals.
+    const std::string noGlobalsManifest = R"JSON({
+      "schema_version": 4,
+      "game": { "id": "no_globals_ui_test", "name": "No Globals UI Test" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "resources": [{ "id": "ore", "name": "Ore" }],
+      "machines": [{ "id": "m", "name": "M", "categories": ["c"] }],
+      "recipes": [{ "id": "r", "name": "R", "category": "c", "time": 1, "in": [["ore", 1]], "out": [["ore", 1]] }]
+    })JSON";
+    gamedata::GamePackage noGlobPkg;
+    gamedata::LoadReport noGlobReport;
+    ASSERT_TRUE(gamedata::loadGamePackageFromMemory(noGlobalsManifest, {}, noGlobPkg, noGlobReport));
+    FactoryNodeEditor noGlobEditor(noGlobPkg, tempRoot / "no_globals.fpp", "NoGlobalsUI");
+    renderEditorFrame(noGlobEditor);
+    ImGuiWindow* noGlobPanel = findEditorWindowContaining("##EditorSidePanel");
+    ASSERT_NE(noGlobPanel, nullptr);
+    EXPECT_TRUE(noGlobPanel->Active);
+}
+
