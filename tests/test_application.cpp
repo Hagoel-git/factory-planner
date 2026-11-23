@@ -53,6 +53,7 @@ protected:
         m_imguiContext = ImGui::CreateContext();
         ImGui::SetCurrentContext(m_imguiContext);
         ImGuiIO& io = ImGui::GetIO();
+        io.IniFilename = nullptr;
         io.DisplaySize = ImVec2(1920, 1080);
         io.DeltaTime = 1.0f / 60.0f;
         unsigned char* pixels = nullptr;
@@ -1008,6 +1009,7 @@ TEST_F(ApplicationLifecycleTest, ResetWindowLayout_ClearsLayoutFileAndRequestsRe
     // Verify reset was requested and the file on disk was cleared/deleted
     EXPECT_TRUE(app.isResetLayoutRequested());
     EXPECT_FALSE(fs::exists(iniPath));
+    ImGui::GetIO().IniFilename = nullptr;
 }
 
 // -----------------------------------------------------------------------------
@@ -3582,4 +3584,243 @@ TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_ProjectGlobals_WidgetsVisibil
     ASSERT_NE(noGlobPanel, nullptr);
     EXPECT_TRUE(noGlobPanel->Active);
 }
+
+TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_OptionIcons_DispatchedForEnumGlobalsAndSlots) {
+    struct IconCacheGuard {
+        IconCacheGuard() { IconCache::instance().shutdown(); }
+        ~IconCacheGuard() { IconCache::instance().shutdown(); }
+    } cacheGuard;
+
+    auto writeTestPng1x1 = [](const fs::path& dst, uint8_t r, uint8_t g, uint8_t b) {
+        auto appendU32 = [](std::vector<uint8_t>& buf, uint32_t v) {
+            buf.push_back(static_cast<uint8_t>((v >> 24) & 0xFFu));
+            buf.push_back(static_cast<uint8_t>((v >> 16) & 0xFFu));
+            buf.push_back(static_cast<uint8_t>((v >> 8) & 0xFFu));
+            buf.push_back(static_cast<uint8_t>(v & 0xFFu));
+        };
+        auto crc32 = [](const uint8_t* data, size_t len) {
+            uint32_t crc = 0xFFFFFFFFu;
+            for (size_t i = 0; i < len; ++i) {
+                crc ^= static_cast<uint32_t>(data[i]);
+                for (int bit = 0; bit < 8; ++bit) {
+                    crc = (crc & 1u) ? ((crc >> 1) ^ 0xEDB88320u) : (crc >> 1);
+                }
+            }
+            return crc ^ 0xFFFFFFFFu;
+        };
+        auto appendChunk = [&](std::vector<uint8_t>& png, const char tag[4], const std::vector<uint8_t>& payload) {
+            appendU32(png, static_cast<uint32_t>(payload.size()));
+            const size_t start = png.size();
+            png.insert(png.end(), tag, tag + 4);
+            png.insert(png.end(), payload.begin(), payload.end());
+            appendU32(png, crc32(png.data() + start, png.size() - start));
+        };
+        std::vector<uint8_t> png = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+        appendChunk(png, "IHDR", {0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0});
+        const uint8_t raw[5] = {0, r, g, b, 255};
+        uint32_t s1 = 1, s2 = 0;
+        for (uint8_t byte : raw) {
+            s1 = (s1 + byte) % 65521u;
+            s2 = (s2 + s1) % 65521u;
+        }
+        std::vector<uint8_t> zlib = {0x78, 0x01, 0x01, 0x05, 0x00, 0xFA, 0xFF};
+        zlib.insert(zlib.end(), raw, raw + 5);
+        appendU32(zlib, (s2 << 16) | s1);
+        appendChunk(png, "IDAT", zlib);
+        appendChunk(png, "IEND", {});
+        fs::create_directories(dst.parent_path());
+        std::ofstream ofs(dst, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(ofs.good());
+        ofs.write(reinterpret_cast<const char*>(png.data()), static_cast<std::streamsize>(png.size()));
+        ASSERT_TRUE(ofs.good());
+    };
+
+    const fs::path pkgDir = tempRoot / "option_icons_pkg";
+    const std::string manifest = R"JSON({
+      "schema_version": 4,
+      "game": { "id": "option_icons_ui_test", "name": "Option Icons UI Test" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "resources": [
+        { "id": "iron_ore", "name": "Iron Ore" },
+        { "id": "iron_plate", "name": "Iron Plate" }
+      ],
+      "option_sets": {
+        "node_purity": {
+          "attrs": { "mult": { "type": "number", "default": 1.0 } },
+          "options": [
+            { "key": "impure", "label": "Impure", "attrs": { "mult": 0.5 } },
+            { "key": "normal", "label": "Normal", "attrs": { "mult": 1.0 } },
+            { "key": "pure", "label": "Pure", "attrs": { "mult": 2.0 } }
+          ]
+        },
+        "recipe_cost_mults": {
+          "attrs": { "mult": { "type": "number", "default": 1.0 } },
+          "options": [
+            { "key": "x1", "label": "1x Standard", "attrs": { "mult": 1.0 } },
+            { "key": "x2", "label": "2x Cost", "attrs": { "mult": 2.0 } }
+          ]
+        },
+        "modules": {
+          "attrs": { "boost": { "type": "number", "default": 0.0 } },
+          "options": [
+            { "key": "mod_a", "label": "Module A", "attrs": { "boost": 0.5 } },
+            { "key": "mod_b", "label": "Module B", "attrs": { "boost": 1.0 } }
+          ]
+        },
+        "text_only": {
+          "attrs": { "val": { "type": "number", "default": 1.0 } },
+          "options": [
+            { "key": "alpha", "label": "Alpha", "attrs": { "val": 1.0 } },
+            { "key": "beta", "label": "Beta", "attrs": { "val": 2.0 } }
+          ]
+        }
+      },
+      "parameters": {
+        "purity": {
+          "label": "Purity", "type": "enum", "option_set": "node_purity", "default": "pure",
+          "ui": { "widget": "combo", "placement": "panel" }
+        },
+        "slots": {
+          "label": "Module Slots", "type": "slots", "option_set": "modules", "count": 2,
+          "allow_empty": true,
+          "ui": { "widget": "slot_row", "placement": "panel" }
+        },
+        "text_mode": {
+          "label": "Text Mode", "type": "enum", "option_set": "text_only", "default": "alpha",
+          "ui": { "widget": "combo", "placement": "panel" }
+        }
+      },
+      "globals": {
+        "recipe_cost_mult": {
+          "label": "Recipe Cost", "type": "enum", "option_set": "recipe_cost_mults", "default": "x1",
+          "ui": { "widget": "combo" }
+        }
+      },
+      "profiles": {
+        "prod": {
+          "params": ["purity", "slots", "text_mode"],
+          "input_amount": "port.amount * global.recipe_cost_mult.mult",
+          "output_amount": "port.amount * param.purity.mult * param.text_mode.val * (1.0 + sum(param.slots.boost))"
+        }
+      },
+      "machines": [
+        { "id": "miner", "name": "Miner", "profile": "prod", "categories": ["extract"] }
+      ],
+      "recipes": [
+        { "id": "mine_iron", "name": "Mine Iron", "category": "extract", "time": 1, "in": [["iron_ore", 1]], "out": [["iron_plate", 1]] }
+      ]
+    })JSON";
+
+    ASSERT_TRUE(atomicWriteFile(pkgDir / "game.json", manifest));
+    writeTestPng1x1(pkgDir / "icons" / "options" / "node_purity" / "pure.png", 10, 200, 10);
+    writeTestPng1x1(pkgDir / "icons" / "options" / "node_purity" / "normal.png", 200, 200, 10);
+    writeTestPng1x1(pkgDir / "icons" / "options" / "recipe_cost_mults" / "x1.png", 10, 10, 200);
+    writeTestPng1x1(pkgDir / "icons" / "options" / "recipe_cost_mults" / "x2.png", 200, 10, 200);
+    writeTestPng1x1(pkgDir / "icons" / "options" / "modules" / "mod_a.png", 10, 200, 200);
+
+    gamedata::GamePackage pkg;
+    gamedata::LoadReport report;
+    ASSERT_TRUE(gamedata::loadGamePackage(pkgDir, pkg, report))
+        << (report.errors.empty() ? "" : report.errors.front().formatted);
+
+    FactoryNodeEditor editor(pkg, tempRoot / "option_icons.fpp", "OptionIconsUI");
+    ASSERT_TRUE(editor.isLoadedSuccessfully());
+    ASSERT_TRUE(editor.isSidePanelOpen());
+
+    executeEditorCommand(
+        editor, std::make_unique<AddNodeCommand>("Mine Iron", "mine_iron", static_cast<uint64_t>(-1), ImVec2(100, 100)));
+    auto& graph = getEditorGraph(editor);
+    ASSERT_EQ(graph.getNodes().size(), 1u);
+    const uint64_t nodeId = graph.getNodes().front().id;
+    executeEditorCommand(
+        editor,
+        std::make_unique<ChangeNodeParamCommand>(
+            nodeId, "slots",
+            std::optional<gamedata::ParamValue>(std::nullopt),
+            gamedata::ParamValue::slots({std::string("mod_a"), std::nullopt})));
+
+    uint64_t frame = 1;
+    auto drainIconCache = [&]() {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (IconCache::instance().busy() && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            IconCache::instance().beginFrame(frame++);
+        }
+        EXPECT_FALSE(IconCache::instance().busy());
+    };
+
+    // Frame 1: select node so Node Properties & Project Globals render closed previews and slot buttons.
+    IconCache::instance().beginFrame(frame++);
+    renderEditorFrame(editor);
+    ax::NodeEditor::SetCurrentEditor(editor.getContext());
+    ax::NodeEditor::SelectNode(IdUtils::toNodeId(nodeId));
+    ax::NodeEditor::SetCurrentEditor(nullptr);
+    IconCache::instance().beginFrame(frame++);
+    renderEditorFrame(editor);
+    EXPECT_TRUE(IconCache::instance().busy());
+    drainIconCache();
+
+    // Closed previews dispatched requests for node Enum ("purity/pure"), text-only Enum ("text_mode/alpha"),
+    // slot row ("modules/mod_a"), and Project Global ("recipe_cost_mults/x1"), plus node/machine/port icons.
+    const IconLoaderStats afterClosedStats = IconCache::instance().getStats();
+    const size_t processedClosed = afterClosedStats.resident_textures + afterClosedStats.missing_entries;
+    EXPECT_GE(processedClosed, 4u);
+
+    // Empty optionSet/key is guarded safely; under headless GLFW_PLATFORM_NULL textures cannot upload so IfReady == 0.
+    EXPECT_EQ(IconCache::instance().getOptionIconIfReady(editor.getIconPackageId(), "", "pure"), 0);
+    EXPECT_EQ(IconCache::instance().getOptionIconIfReady(editor.getIconPackageId(), "node_purity", ""), 0);
+
+    ImGuiWindow* sidePanel = findEditorWindowContaining("##EditorSidePanel");
+    ASSERT_NE(sidePanel, nullptr);
+    const ImGuiID nodePropsRoot = ImHashStr("##props_node", 0, sidePanel->ID);
+    const ImGuiID globalsRoot = ImHashStr("##project_globals", 0, sidePanel->ID);
+
+    // Open Node Properties "purity" combo, pump IconCache for dropdown items, and select "Normal" ("normal").
+    const ImGuiID purityComboId = ImHashStr("##val", 0, ImHashStr("purity", 0, nodePropsRoot));
+    ImGui::ActivateItemByID(purityComboId);
+    IconCache::instance().beginFrame(frame++);
+    renderEditorFrame(editor);
+    drainIconCache();
+
+    const IconLoaderStats afterPurityComboStats = IconCache::instance().getStats();
+    EXPECT_GT(afterPurityComboStats.resident_textures + afterPurityComboStats.missing_entries, processedClosed);
+
+    ImGuiWindow* purityPopup = findOpenPopupWindow("##Combo");
+    ASSERT_NE(purityPopup, nullptr);
+    const ImGuiID normalScope = ImHashStr("normal", 0, purityPopup->ID);
+    ImGui::ActivateItemByID(ImHashStr("Normal", 0, normalScope));
+    renderEditorFrame(editor);
+    EXPECT_EQ(graph.getNode(nodeId)->params.at("purity").asString(), "normal");
+
+    // Open Project Globals "recipe_cost_mult" combo and select "2x Cost" ("x2").
+    const ImGuiID globalComboId = ImHashStr("##val", 0, ImHashStr("recipe_cost_mult", 0, globalsRoot));
+    ImGui::ActivateItemByID(globalComboId);
+    IconCache::instance().beginFrame(frame++);
+    renderEditorFrame(editor);
+    drainIconCache();
+
+    ImGuiWindow* globalPopup = findOpenPopupWindow("##Combo");
+    ASSERT_NE(globalPopup, nullptr);
+    const ImGuiID x2Scope = ImHashStr("x2", 0, globalPopup->ID);
+    ImGui::ActivateItemByID(ImHashStr("2x Cost", 0, x2Scope));
+    renderEditorFrame(editor);
+    EXPECT_EQ(graph.getGlobals().at("recipe_cost_mult").asString(), "x2");
+
+    // Open slot index 0 "##slot_picker" and choose "Module B" ("mod_b", missing icon) cleanly.
+    const int slotIdx0 = 0;
+    const ImGuiID slot0Scope = ImHashData(&slotIdx0, sizeof(slotIdx0), ImHashStr("slots", 0, nodePropsRoot));
+    const ImGuiID slot0BtnId = ImHashStr("[Module A]##slot", 0, slot0Scope);
+    ImGui::ActivateItemByID(slot0BtnId);
+    IconCache::instance().beginFrame(frame++);
+    renderEditorFrame(editor);
+    drainIconCache();
+
+    ImGuiWindow* slotPopup = findOpenPopupWindow();
+    ASSERT_NE(slotPopup, nullptr);
+    const ImGuiID modBScope = ImHashStr("mod_b", 0, slotPopup->ID);
+    ImGui::ActivateItemByID(ImHashStr("Module B", 0, modBScope));
+    renderEditorFrame(editor);
+    EXPECT_EQ(graph.getNode(nodeId)->params.at("slots").asSlots()[0], std::optional<std::string>("mod_b"));
+}
+
 

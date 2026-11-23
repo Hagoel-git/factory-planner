@@ -172,6 +172,26 @@ ImTextureID IconCache::getOptionIcon(
     return get(ref);
 }
 
+ImTextureID IconCache::getOptionIconIfReady(
+    std::string_view packageId,
+    std::string_view optionSetId,
+    std::string_view optionKey) {
+    if (optionSetId.empty() || optionKey.empty()) {
+        return 0;
+    }
+    ensureInitialized();
+    IconRef ref;
+    ref.package_id = std::string(packageId);
+    ref.kind = IconKind::Option;
+    ref.id.reserve(optionSetId.size() + 1 + optionKey.size());
+    ref.id.append(optionSetId);
+    ref.id.push_back('/');
+    ref.id.append(optionKey);
+    bool isReady = false;
+    const TextureHandle handle = m_loader->get(ref, &isReady);
+    return isReady ? static_cast<ImTextureID>(handle) : ImTextureID{0};
+}
+
 bool IconCache::busy() const {
     return m_loader ? m_loader->busy() : false;
 }

@@ -78,8 +78,9 @@ public:
     void beginFrame(uint64_t frameIndex);
 
     // UI-thread lookup. Hit path takes zero locks; misses enqueue/promote in LIFO stack
-    // and return the loading placeholder.
-    TextureHandle get(const IconRef& ref);
+    // and return the loading placeholder. When outIsReady is provided, it is set to true
+    // only if a Ready texture handle is returned (false for loading/missing placeholders).
+    TextureHandle get(const IconRef& ref, bool* outIsReady = nullptr);
 
     // Returns true if any requests are pending, decoding on a worker, or queued for upload.
     bool busy() const;

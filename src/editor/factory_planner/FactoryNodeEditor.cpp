@@ -2509,6 +2509,7 @@ void renderChoiceListItems(
         if (ui.allowed_options.empty() && !pdef.allow_none) {
             ImGui::TextDisabled("(No allowed options)");
         }
+        const float iconSz = ImGui::GetFontSize();
         int selectedIdx = -1;
         if (curKey.has_value()) {
             for (size_t i = 0; i < ui.allowed_options.size(); ++i) {
@@ -2529,6 +2530,12 @@ void renderChoiceListItems(
                 bool selected = curKey.has_value() && (*curKey == key);
                 std::string disp = getOptionDisplayLabel(os, key);
                 ImGui::PushID(key.c_str());
+                if (ImTextureID optTex = IconCache::instance().getOptionIconIfReady(
+                        iconPackageId, pdef.option_set, key);
+                    optTex != 0) {
+                    ImGui::Image(optTex, ImVec2(iconSz, iconSz));
+                    ImGui::SameLine();
+                }
                 if (ImGui::Selectable(disp.c_str(), selected)) {
                     if (!selected) {
                         onSelect(gamedata::ParamValue::string(key));
@@ -2601,6 +2608,7 @@ void renderChoiceListItems(
 template <typename OnSelectFn>
 void renderSlotListItems(
     const GameData& gameData,
+    std::string_view iconPackageId,
     const gamedata::ParameterDef& pdef,
     const gamedata::EvaluatedParamUi& ui,
     const gamedata::ParamValue::SlotsArray& curSlots,
@@ -2630,6 +2638,7 @@ void renderSlotListItems(
     if (ui.allowed_options.empty() && !pdef.allow_empty) {
         ImGui::TextDisabled("(No allowed options)");
     }
+    const float iconSz = ImGui::GetFontSize();
     int selectedIdx = -1;
     if (curKey.has_value()) {
         for (size_t i = 0; i < ui.allowed_options.size(); ++i) {
@@ -2650,6 +2659,12 @@ void renderSlotListItems(
             bool selected = curKey.has_value() && (*curKey == key);
             std::string disp = getOptionDisplayLabel(os, key);
             ImGui::PushID(key.c_str());
+            if (ImTextureID optTex = IconCache::instance().getOptionIconIfReady(
+                    iconPackageId, pdef.option_set, key);
+                optTex != 0) {
+                ImGui::Image(optTex, ImVec2(iconSz, iconSz));
+                ImGui::SameLine();
+            }
             if (ImGui::Selectable(disp.c_str(), selected)) {
                 if (!selected) {
                     gamedata::ParamValue::SlotsArray next = curSlots;
@@ -3089,16 +3104,40 @@ void FactoryNodeEditor::drawParameterWidget(
                 preview = "(None available)";
             }
 
+            ImTextureID selectedTex = 0;
+            if (pdef.type == gamedata::ParameterType::Enum && curKey.has_value()) {
+                selectedTex = IconCache::instance().getOptionIconIfReady(
+                    m_iconPackageId, pdef.option_set, *curKey);
+            }
+            const float frameH = ImGui::GetFrameHeight();
+            const float spacing = ImGui::GetStyle().ItemSpacing.x;
+
             if (inNodeBody && !isGlobal) {
+                float btnWidth = (itemWidth > 0.0f ? itemWidth : 120.0f);
+                if (selectedTex != 0) {
+                    ImGui::Image(selectedTex, ImVec2(frameH, frameH));
+                    handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
+                    ImGui::SameLine();
+                    btnWidth = std::max(40.0f, btnWidth - (frameH + spacing));
+                }
                 std::string btnText = preview + "##choice";
-                if (ImGui::Button(btnText.c_str(), ImVec2(itemWidth > 0.0f ? itemWidth : 120.0f, 0.0f))) {
+                if (ImGui::Button(btnText.c_str(), ImVec2(btnWidth, 0.0f))) {
                     ImVec2 bl(ImGui::GetItemRectMin().x, ImGui::GetItemRectMax().y);
                     m_pendingBodyParamPopup = PendingParamPopup{
                         true, nodeId, pdef.id, -1, ed::CanvasToScreen(bl)};
                 }
                 handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
             } else {
-                ImGui::SetNextItemWidth(itemWidth);
+                float comboWidth = itemWidth;
+                if (selectedTex != 0) {
+                    ImGui::Image(selectedTex, ImVec2(frameH, frameH));
+                    handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
+                    ImGui::SameLine();
+                    if (comboWidth > 0.0f) {
+                        comboWidth = std::max(40.0f, comboWidth - (frameH + spacing));
+                    }
+                }
+                ImGui::SetNextItemWidth(comboWidth);
                 if (ImGui::BeginCombo("##val", preview.c_str())) {
                     renderChoiceListItems(
                         gameData, m_iconPackageId, pdef, ui, currentVal, false,
@@ -3131,21 +3170,34 @@ void FactoryNodeEditor::drawParameterWidget(
             const gamedata::OptionSet* os = gameData.findOptionSet(pdef.option_set);
             const ImGuiStyle& style = ImGui::GetStyle();
             const float availW = (itemWidth > 0.0f) ? itemWidth : ImGui::GetContentRegionAvail().x;
+            const float frameH = ImGui::GetFrameHeight();
             float lineUsedW = 0.0f;
 
             for (size_t i = 0; i < slotCount; ++i) {
                 ImGui::PushID(static_cast<int>(i));
-                std::string slotLabel = (curSlots[i].has_value() && !curSlots[i]->empty())
+                const bool hasSlotKey = curSlots[i].has_value() && !curSlots[i]->empty();
+                std::string slotLabel = hasSlotKey
                     ? getOptionDisplayLabel(os, *curSlots[i])
                     : "Empty";
+                ImTextureID slotTex = hasSlotKey
+                    ? IconCache::instance().getOptionIconIfReady(
+                          m_iconPackageId, pdef.option_set, *curSlots[i])
+                    : 0;
                 std::string btnDisp = "[" + slotLabel + "]";
                 float btnW = ImGui::CalcTextSize(btnDisp.c_str()).x + style.FramePadding.x * 2.0f;
+                float itemW = btnW + (slotTex != 0 ? (frameH + style.ItemSpacing.x) : 0.0f);
 
-                if (i > 0 && lineUsedW + style.ItemSpacing.x + btnW <= availW) {
+                if (i > 0 && lineUsedW + style.ItemSpacing.x + itemW <= availW) {
                     ImGui::SameLine();
-                    lineUsedW += style.ItemSpacing.x + btnW;
+                    lineUsedW += style.ItemSpacing.x + itemW;
                 } else {
-                    lineUsedW = btnW;
+                    lineUsedW = itemW;
+                }
+
+                if (slotTex != 0) {
+                    ImGui::Image(slotTex, ImVec2(frameH, frameH));
+                    handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
+                    ImGui::SameLine();
                 }
 
                 std::string btnId = btnDisp + "##slot";
@@ -3165,7 +3217,7 @@ void FactoryNodeEditor::drawParameterWidget(
                 }
                 if (!inNodeBody && ImGui::BeginPopup("##slot_picker")) {
                     renderSlotListItems(
-                        gameData, pdef, ui, curSlots, i,
+                        gameData, m_iconPackageId, pdef, ui, curSlots, i,
                         [&](const gamedata::ParamValue& chosenSlots) {
                             commitDiscrete(chosenSlots);
                         });
@@ -3214,7 +3266,7 @@ void FactoryNodeEditor::drawDeferredBodyParamPopup() {
             curSlots.resize(ui.slot_count, std::nullopt);
             if (slotIdx < ui.slot_count) {
                 renderSlotListItems(
-                    gameData, *pdef, ui, curSlots, slotIdx,
+                    gameData, m_iconPackageId, *pdef, ui, curSlots, slotIdx,
                     [&](const gamedata::ParamValue& chosenSlots) {
                         executeParamChangeCommand(node->id, pdef->id, chosenSlots);
                     });

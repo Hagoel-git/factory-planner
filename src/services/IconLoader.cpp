@@ -220,7 +220,10 @@ void IconLoader::beginFrame(uint64_t frameIndex) {
     evictLruIfNeeded();
 }
 
-TextureHandle IconLoader::get(const IconRef& ref) {
+TextureHandle IconLoader::get(const IconRef& ref, bool* outIsReady) {
+    if (outIsReady) {
+        *outIsReady = false;
+    }
     if (ref.id.empty()) {
         return m_config.missing_placeholder;
     }
@@ -232,6 +235,9 @@ TextureHandle IconLoader::get(const IconRef& ref) {
         if (it->second.state == EntryState::Ready) {
             it->second.last_used_frame = m_currentFrame;
             m_lruList.splice(m_lruList.begin(), m_lruList, it->second.lru_it);
+            if (outIsReady) {
+                *outIsReady = true;
+            }
             return it->second.handle;
         }
         return m_config.missing_placeholder;

@@ -5,6 +5,7 @@ This document holds the user-facing changelog that is also used in release notes
 ## Unreleased
 
 ### Added
+- Added option icon rendering (`options/<option_set>/<option_key>`) for GameData v4 `Enum` and `Slots` parameters in dropdowns, closed combo previews, node-body selectors, slot rows, and Project Globals (text-only options continue rendering without placeholders).
 - Added a **Project Globals** section to the **Summary & Inspector** side panel so GameData v4 `"globals"` (`Number`, `Int`, `Bool`, `Enum`, `ResourceChoice`, and `Slots`) are editable with `ui.group` sections, dynamic `visible_if`/`allowed_if`/bounds, live re-evaluation and solving, per-global validation diagnostics, an undoable **Reset to Defaults** action, and full undo/redo support.
 - Added asynchronous lazy icon loading (`IconCache` / `IconLoader`) with `icons.pak` support (`<package_root>/icons.pak` → `<icon_root>/icons.pak` → loose PNGs), "no icons" mode, capped per-frame GPU texture uploads, and LRU texture eviction instead of eager startup loading.
 - Added a cross-pack icon fallback setting (disabled by default) and Settings UI under **Appearance → Icons** to resolve missing icons from other installed game packs by exact ID or display name in a user-ordered priority list.

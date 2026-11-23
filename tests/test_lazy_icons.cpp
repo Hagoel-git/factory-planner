@@ -608,6 +608,62 @@ TEST(IconLoaderTest, InvalidateFallbackAndMissingRetainsDirectTextures) {
     EXPECT_EQ(freed[0], hFallback);
 }
 
+TEST(IconLoaderTest, GetReportsIsReadyFlagForOptionIcons) {
+    constexpr TextureHandle kLoading = 1;
+    constexpr TextureHandle kMissing = 2;
+
+    TextureHandle nextHandle = 500;
+    IconLoaderConfig cfg;
+    cfg.loading_placeholder = kLoading;
+    cfg.missing_placeholder = kMissing;
+    cfg.auto_start_workers = false;
+    cfg.decode_fn = [](const IconRef& ref, uint64_t, size_t) {
+        if (ref.kind == IconKind::Option && ref.id == "node_purity/pure") {
+            return makeDecodedPixel(77);
+        }
+        return DecodedIcon{};
+    };
+    cfg.upload_fn = [&](const uint8_t*, int, int) { return nextHandle++; };
+    cfg.free_fn = [](TextureHandle) {};
+
+    IconLoader loader(std::move(cfg));
+    loader.beginFrame(1);
+
+    // Empty ID returns missing placeholder with isReady == false.
+    bool isReady = true;
+    EXPECT_EQ(loader.get({"pkg", IconKind::Option, "", ""}, &isReady), kMissing);
+    EXPECT_FALSE(isReady);
+
+    // Present option: frame 1 miss enqueues and returns kLoading with isReady == false.
+    isReady = true;
+    EXPECT_EQ(loader.get({"pkg", IconKind::Option, "node_purity/pure", ""}, &isReady), kLoading);
+    EXPECT_FALSE(isReady);
+
+    // Repeating while queued/in-flight still returns kLoading with isReady == false.
+    isReady = true;
+    EXPECT_EQ(loader.get({"pkg", IconKind::Option, "node_purity/pure", ""}, &isReady), kLoading);
+    EXPECT_FALSE(isReady);
+
+    // Missing option: also enqueues on frame 1 with isReady == false.
+    isReady = true;
+    EXPECT_EQ(loader.get({"pkg", IconKind::Option, "node_purity/missing", ""}, &isReady), kLoading);
+    EXPECT_FALSE(isReady);
+
+    while (loader.stepWorkerOnce()) {}
+
+    // Frame 2: uploads present option; caches absent option as Missing.
+    loader.beginFrame(2);
+    isReady = false;
+    const TextureHandle pureHandle =
+        loader.get({"pkg", IconKind::Option, "node_purity/pure", ""}, &isReady);
+    EXPECT_GE(pureHandle, 500u);
+    EXPECT_TRUE(isReady);
+
+    isReady = true;
+    EXPECT_EQ(loader.get({"pkg", IconKind::Option, "node_purity/missing", ""}, &isReady), kMissing);
+    EXPECT_FALSE(isReady);
+}
+
 TEST(IconLoaderTest, MultiThreadedWorkerPoolConvergesAndShutsDownCleanly) {
     constexpr TextureHandle kLoading = 1;
     constexpr TextureHandle kMissing = 2;

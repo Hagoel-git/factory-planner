@@ -129,6 +129,7 @@ protected:
 
 TEST_F(GoldenTest, ProjectRoundTrip_MultiPortFanOutFanInConstraintsParametersPositions) {
     ImGuiContext* imguiCtx = ImGui::CreateContext();
+    ImGui::GetIO().IniFilename = nullptr;
     ax::NodeEditor::Config cfg;
     cfg.SettingsFile = nullptr;
     auto* origEdCtx = ax::NodeEditor::CreateEditor(&cfg);

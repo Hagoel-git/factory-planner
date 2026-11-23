@@ -34,6 +34,11 @@ public:
         std::string_view packageId,
         std::string_view optionSetId,
         std::string_view optionKey);
+    // Returns the option icon texture ID only once uploaded (0 while loading or missing).
+    ImTextureID getOptionIconIfReady(
+        std::string_view packageId,
+        std::string_view optionSetId,
+        std::string_view optionKey);
 
     bool busy() const;
 

@@ -299,6 +299,7 @@ protected:
 
     void SetUp() override {
         m_imguiContext = ImGui::CreateContext();
+        ImGui::GetIO().IniFilename = nullptr;
         ax::NodeEditor::Config cfg;
         cfg.SettingsFile = nullptr;
         m_editorContext = ax::NodeEditor::CreateEditor(&cfg);

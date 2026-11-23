@@ -1562,6 +1562,7 @@ TEST_F(FactoryGraphTest, DeserializeNode_SafelyResolvesMissingOrDanglingMachineK
 
 TEST_F(FactoryGraphTest, ProjectIOLoadProject_Supports64BitNodeIds) {
     ImGuiContext* imguiCtx = ImGui::CreateContext();
+    ImGui::GetIO().IniFilename = nullptr;
     ax::NodeEditor::Config cfg;
     cfg.SettingsFile = nullptr;
     auto* edCtx = ax::NodeEditor::CreateEditor(&cfg);
@@ -1620,6 +1621,7 @@ TEST_F(FactoryGraphTest, ProjectIOLoadProject_Supports64BitNodeIds) {
 
 TEST_F(FactoryGraphTest, FactoryNodeEditor_Paste_MissingPositionDoesNotThrowAndResolvesInvalidMachine) {
     ImGuiContext* imguiCtx = ImGui::CreateContext();
+    ImGui::GetIO().IniFilename = nullptr;
 
     FactoryNodeEditor editor(testGameData, "", "Test Editor");
 
@@ -2455,6 +2457,7 @@ TEST(ViewportCullingAndWiringTest, StalePortSelectionStateClearing) {
 
 TEST(ViewportDragStabilityTest, ImGuiMouseInvalidBoundaryCausesDeltaCollapse) {
     ImGuiContext* ctx = ImGui::CreateContext();
+    ImGui::GetIO().IniFilename = nullptr;
 
     // Dear ImGui defines MOUSE_INVALID = -256000.0f (p.x >= MOUSE_INVALID && p.y >= MOUSE_INVALID)
     // Points strictly below -256000.0f are treated as invalid mouse positions.
@@ -2511,6 +2514,7 @@ TEST(ViewportDragStabilityTest, NodeDragDeltaScreenSpaceScaling) {
 TEST(ViewportDragStabilityTest, CanvasScreenMousePositionsInLocalAndSuspendedStates) {
     ImGuiContext* ctx = ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
+    io.IniFilename = nullptr;
     io.DisplaySize = ImVec2(1920.0f, 1080.0f);
     io.DeltaTime = 1.0f / 60.0f;
     unsigned char* pixels = nullptr;
@@ -2573,6 +2577,7 @@ TEST(ViewportDragStabilityTest, CanvasScreenMousePositionsInLocalAndSuspendedSta
 TEST(ViewportDragStabilityTest, EditorContextMouseDragDeltaValidationAndExtremeCoordinates) {
     ImGuiContext* ctx = ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
+    io.IniFilename = nullptr;
     io.DisplaySize = ImVec2(1920.0f, 1080.0f);
     io.DeltaTime = 1.0f / 60.0f;
     unsigned char* pixels = nullptr;
