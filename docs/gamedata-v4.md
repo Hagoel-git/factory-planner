@@ -29,6 +29,7 @@ Factory Planner discovers packages at `<game_data_dir>/<game>/<package>/game.jso
   game.json                     manifest (small games can put everything here)
   resources.json                optional shard(s) listed in "include"
   machines.json                 optional shard(s)
+  waivers.json                  optional warning waivers shard (§4.1)
   recipes/*.json                optional recipe shards (split by category / recipe map)
   icons.pak                     packed icons for releases (checked first)
   icons/                        loose PNGs for local authoring (gitignored in packs repos)
@@ -42,6 +43,7 @@ Factory Planner discovers packages at `<game_data_dir>/<game>/<package>/game.jso
   1. `<package_root>/icons.pak`
   2. `<icon_root>/icons.pak` (when `"icon_root"` points elsewhere inside `<game>/`, e.g. `"../icons"`)
   3. Loose PNGs under `<icon_root>/` (default `"icons"`).
+  Option icons (`options/<set>/<key>.png`) render in `enum` dropdowns, closed combo previews, node-body selectors, Project Globals combos, and `slots` rows. Missing/waived option icons omit placeholder boxes so text-only option sets render cleanly.
 - **"No icons" mode:** If neither `icons.pak` nor `<icon_root>/` exists, the package is in valid "no icons" mode: the tool emits a single info note (no `V-W-1` warnings) and passes `--werror`. The app uses fallback icons (or cross-pack icon fallback if enabled in Settings).
 - **Strict JSON:** No comments or trailing commas. Any object may carry a `"notes"` string (ignored by the loader). Unknown keys are errors (`V-STRUCT-1`).
 - **Identifiers:**
@@ -134,7 +136,12 @@ Common optional fields on all parameters: `label`, `tooltip`, `visible_if` (bool
 - `ui.widget`: `"slider"`, `"drag"`, `"input"`, `"stepper"`, `"checkbox"`, `"combo"`, `"slot_row"`.
 - `ui.format`: printf-style format (e.g. `"%.4g%%"`).
 - `ui.group`: section label in Node Properties (for parameters) and Project Globals (for globals).
-- `ui.placement`: `"body"` (shown directly on node card) or `"panel"` (Node Properties panel only, default). Applies only to node parameters — globals are always displayed in the **Project Globals** section of Summary & Inspector.
+- `ui.placement`: `"body"` (shown directly on node card) or `"panel"` (Node Properties panel only, **default**). Applies only to node parameters — globals are always displayed in the **Project Globals** section of Summary & Inspector.
+
+**UX defaults for parameters & globals:**
+- **Keep node cards clean:** default node parameters to `"placement": "panel"` so graph nodes stay uncluttered; reserve `"body"` only for a small number of controls users change frequently directly on-canvas (e.g. a module `slot_row`).
+- **Use `enum` for discrete game presets:** whenever the game exposes a fixed discrete set of options or non-uniform presets (such as difficulty multipliers `0.25, 0.5, 1, 2, 5, 10, 100`, belt tiers, or voltage tiers), model it as `type: "enum"` + `option_set` (with numeric `attrs` like `mult`) rather than a free-form `number` input. Reserve `number`/`int` for genuinely continuous or arbitrary-step ranges.
+- **Option icons are optional:** `enum` and `slots` render `options/<set>/<key>.png` whenever present; for text-only option sets without game artwork, waive `V-W-1` in `waivers.json` (§4.1) and the UI omits placeholder icons cleanly.
 
 **Resolution & fallback rules (pre-solve step 1):**
 1. Parameters resolve sequentially in `profile.params` order (so later params may read earlier `param.*` in `visible_if`, `allowed_if`, `min`, `max`, `count`).
@@ -151,15 +158,15 @@ Registry entry under `"metrics"`:
            "display": ["body", "tooltip", "totals"],
            "aggregate": "sum", "split_sign": true, "is_rate": false }
 ```
-- `display`: subset of `["body", "tooltip", "totals"]` (default `["tooltip"]`).
+- `display`: subset of `["body", "tooltip", "totals"]` (default `["tooltip"]`). **UX default:** use `["tooltip", "totals"]` for routine metrics (power, energy, shards) to keep node cards uncluttered; reserve `"body"` for rare high-signal, node-specific readouts that need to be seen at a glance (e.g. sink points rate or phase completion time).
 - `aggregate`: `"sum"` (default), `"max"`, `"min"`, or `"none"`.
 - `split_sign`: `true` (only with `"sum"`, `V-MET-1`) shows `+` consumption, `-` generation, and net in totals. Convention: consumption positive, generation negative.
-- `is_rate`: `true` converts per-second values to the project's active rate unit.
+- `is_rate`: `true` converts per-second values to the project's active rate unit and appends the rate suffix (`/tick`, `/s`, `/min`, `/h`) automatically — set `unit` to the **base unit** without `/s` or `/min` (e.g. `"pts"`, not `"pts/min"`). Note that `gamedata_tool eval` and `--cases` always output and compare the canonical **per-second** value.
 
 Profile (or recipe override) metric entry: optional `"enabled"` (bool/pre-solve expr, default `true`) plus **exactly one** form (`V-PROF-3`):
-- `"per_machine"`: pre-solve expr → `coeff × node.machines` (LP-linear).
+- `"per_machine"`: pre-solve expr → `coeff × node.machines` (LP-linear; best for time-averaged / utilization-proportional metrics).
 - `"per_craft"`: pre-solve expr → `coeff × node.crafts` (LP-linear; `node.crafts` is crafts/s).
-- `"value"`: post-solve expr (display only; may use `node.machines`, `node.crafts`, `ceil`, etc.).
+- `"value"`: post-solve expr (display only; may use `node.machines`, `node.crafts`, `ceil`, etc.). Use `"value"` with `ceil(max(0, node.machines - 1e-6))` whenever a metric counts **whole physical buildings** (peak breaker load, slotted shards/modules, or fixed-draw sinks whose capacity parameter varies `node.machines` without reducing per-building active draw).
 
 Only `OK`/`WARNING` nodes with `enabled == true` and non-error evaluation contribute to totals.
 
@@ -293,7 +300,8 @@ When an `allow_none` parameter/global is `null`: `param.x == 'k'` is `false` and
 
 - **No `.attrs.` in expressions:** Write `machine.power`, `recipe.eut`, `port.min_tier` — **never** `machine.attrs.power`.
 - **Integer boundaries on `log`/`pow`:** Add `+ 1e-9` before `floor` (e.g. `floor(log(v / 8, 4) + 1e-9)`) or precompute integer attributes (like recipe tier) in the converter to avoid cross-platform MSVC/glibc 1-ULP drift.
-- **v4 non-goals:** No user-defined functions, loops, list literals, string concatenation, or dynamic global indexing `global[recipe.key]` (branch with `if(...)` or split profiles); no MIP/integer solver rounding; no solver-optimized parameters; no continuous thermodynamic mixing, belt-transit spoilage, or Factorio 5-tier quality cascades.
+- **LP epsilon guard on `ceil(node.machines)`:** When counting whole physical buildings in post-solve `value` metrics (shards, modules, peak power, fixed-draw sinks), write `ceil(max(0, node.machines - 1e-6))` (not raw `ceil(node.machines)`) so LP solver floating-point residuals near `0` or integers (`1e-12`, `1.00000001`) never bump `0 → 1` or `1 → 2`.
+- **v4 non-goals:** No user-defined functions, loops, list literals, string concatenation, or dynamic global indexing `global[recipe.key]` (branch with `if(...)` or split profiles); no default per-node/per-port flow or machine constraints in game data (constraints live strictly in `.fpp` project files — throughput parameters like belt tier scale `node.machines`, not hard solver caps); no MIP/integer solver rounding; no solver-optimized parameters; no continuous thermodynamic mixing, belt-transit spoilage, or Factorio 5-tier quality cascades.
 
 ---
 
@@ -373,14 +381,14 @@ To pass `--werror` when specific warnings are intentional (such as text-only `op
   - `V-W-2`: `resources/<id>`, `machines/<id>`, `parameters/<id>`, `option_sets/<id>`, `tables/<id>`, `metrics/<id>`
   - `V-W-3`: `recipes/<recipe_id>/<dir>/<resource_id>` (`dir` is `in` or `out`)
   - `V-PAR-5`: `parameters/<id>`, `globals/<id>`
-- Waived `V-W-1` icons are **optional**: missing PNGs emit no warning, while any PNG that *does* exist is still validated (`V-ICON-1`), packed by `pack-icons`, and never flagged as unreferenced by `check-icons` or deleted by `prune-icons`.
+- Waived `V-W-1` icons are **optional**: missing PNGs emit no warning, while any PNG that *does* exist is still validated (`V-ICON-1`), packed by `pack-icons`, and never flagged as unreferenced by `check-icons` or deleted by `prune-icons`. Prefer waiving text-only `option_sets` (such as numeric multiplier presets or abstract labels lacking game artwork) over generating dummy PNGs; the UI omits placeholder icons for waived options.
 - Waived warnings are summarized as a single info note (e.g. `I 24 warnings waived (V-W-1)`) in `validate` and `check-icons` output and `--json` `notes[]`, which never fails `--werror`.
 
 ---
 
 ## 5. Worked Examples
 
-Every example below is valid GameData v4 JSON with hand-checked NodeEval results.
+Every example below is valid GameData v4 JSON with hand-checked NodeEval results. Examples follow clean-canvas UX defaults (`"placement": "panel"` and `display: ["tooltip", "totals"]` for routine power/energy), reserving `"body"` for genuinely high-frequency on-canvas controls such as Factorio's `modules` slot row (§5.5).
 
 ### 5.1 Satisfactory: Constructor with clock speed, somersloops & power
 
@@ -394,14 +402,14 @@ Every example below is valid GameData v4 JSON with hand-checked NodeEval results
   "parameters": {
     "clock": { "label": "Clock speed", "type": "number", "default": 100,
                "min": "1", "max": "250", "step": 0.0001, "unit": "%",
-               "ui": { "widget": "drag", "format": "%.4g%%", "placement": "body" } },
+               "ui": { "widget": "drag", "format": "%.4g%%", "placement": "panel" } },
     "somersloops": { "label": "Somersloops", "type": "int", "default": 0,
                      "min": "0", "max": "machine.somersloop_slots",
                      "visible_if": "machine.somersloop_slots > 0",
-                     "ui": { "widget": "stepper", "placement": "body" } }
+                     "ui": { "widget": "stepper", "placement": "panel" } }
   },
   "metrics": {
-    "power":  { "label": "Power", "unit": "MW", "display": ["body", "tooltip", "totals"],
+    "power":  { "label": "Power", "unit": "MW", "display": ["tooltip", "totals"],
                 "aggregate": "sum", "split_sign": true, "format": "%.2f" },
     "shards": { "label": "Power shards", "unit": "", "display": ["tooltip", "totals"],
                 "aggregate": "sum", "format": "%.0f" },
@@ -420,8 +428,8 @@ Every example below is valid GameData v4 JSON with hand-checked NodeEval results
       "output_amount": "port.amount * port.chance * amp",
       "metrics": {
         "power":  { "per_machine": "machine.power * amp ^ 2 * c ^ 1.321928" },
-        "shards": { "value": "ceil(node.machines) * shards_per_machine" },
-        "sloops": { "value": "ceil(node.machines) * param.somersloops" }
+        "shards": { "value": "ceil(max(0, node.machines - 1e-6)) * shards_per_machine" },
+        "sloops": { "value": "ceil(max(0, node.machines - 1e-6)) * param.somersloops" }
       }
     },
     "sf_generator": {
@@ -475,10 +483,10 @@ Every example below is valid GameData v4 JSON with hand-checked NodeEval results
   "parameters": {
     "voltage_tier": { "label": "Tier", "type": "enum", "option_set": "gt_tiers",
                       "allowed_if": "option.t >= machine.min_tier && option.t <= machine.max_tier",
-                      "ui": { "widget": "combo", "placement": "body" } }
+                      "ui": { "widget": "combo", "placement": "panel" } }
   },
   "metrics": {
-    "eut": { "label": "Energy", "unit": "EU/t", "display": ["body", "totals"],
+    "eut": { "label": "Energy", "unit": "EU/t", "display": ["tooltip", "totals"],
              "aggregate": "sum", "split_sign": true, "format": "%.0f" }
   },
   "profiles": {
@@ -534,8 +542,8 @@ Reuses `voltage_tier`, `gt_tiers`, and `eut` from §5.2:
     "growth":     { "label": "Growth",     "type": "int",  "default": 1, "min": "1", "max": "31", "ui": { "widget": "slider", "group": "Crop stats" } },
     "gain":       { "label": "Gain",       "type": "int",  "default": 1, "min": "1", "max": "31", "ui": { "widget": "slider", "group": "Crop stats" } },
     "resistance": { "label": "Resistance", "type": "int",  "default": 1, "min": "1", "max": "31", "ui": { "widget": "slider", "group": "Crop stats" } },
-    "hydrated":   { "label": "Hydrated",   "type": "bool", "default": false, "ui": { "widget": "checkbox", "placement": "body" } },
-    "fertilized": { "label": "Fertilized", "type": "bool", "default": false, "ui": { "widget": "checkbox", "placement": "body" } }
+    "hydrated":   { "label": "Hydrated",   "type": "bool", "default": false, "ui": { "widget": "checkbox", "placement": "panel" } },
+    "fertilized": { "label": "Fertilized", "type": "bool", "default": false, "ui": { "widget": "checkbox", "placement": "panel" } }
   },
   "profiles": {
     "gt_crop_manager": {
@@ -599,13 +607,13 @@ Reuses `voltage_tier`, `gt_tiers`, and `eut` from §5.2:
   },
   "parameters": {
     "prolif":      { "label": "Proliferator", "type": "resource_choice", "tag": "proliferator",
-                     "allow_none": true, "default": null, "ui": { "widget": "combo", "placement": "body" } },
+                     "allow_none": true, "default": null, "ui": { "widget": "combo", "placement": "panel" } },
     "prolif_mode": { "label": "Mode", "type": "enum", "option_set": "prolif_modes", "default": "speed",
                      "allowed_if": "option != 'extra' || recipe.allows_extra",
-                     "visible_if": "is_set(param.prolif)", "ui": { "widget": "combo", "placement": "body" } }
+                     "visible_if": "is_set(param.prolif)", "ui": { "widget": "combo", "placement": "panel" } }
   },
   "metrics": {
-    "power": { "label": "Power", "unit": "MW", "display": ["body", "totals"], "aggregate": "sum", "format": "%.2f" }
+    "power": { "label": "Power", "unit": "MW", "display": ["tooltip", "totals"], "aggregate": "sum", "format": "%.2f" }
   },
   "profiles": {
     "dsp_crafter": {
@@ -677,7 +685,7 @@ Reuses `voltage_tier`, `gt_tiers`, and `eut` from §5.2:
                         "ui": { "widget": "slot_row", "group": "Beacons" } }
   },
   "metrics": {
-    "power": { "label": "Power", "unit": "MW", "display": ["body", "totals"], "aggregate": "sum", "format": "%.2f" }
+    "power": { "label": "Power", "unit": "MW", "display": ["tooltip", "totals"], "aggregate": "sum", "format": "%.2f" }
   },
   "profiles": {
     "fa_crafter": {
@@ -718,7 +726,9 @@ Reuses `voltage_tier`, `gt_tiers`, and `eut` from §5.2:
 | Game Mechanic | Examples | Idiomatic GameData v4 Pattern |
 |---|---|---|
 | **Speed / clock / RPM / aura scaling** | Satisfactory clock, Create RPM, Mindustry tile efficiency & overdrive, Anno additive productivity, CoI Unity | `number`/`int`/`enum` param in `craft_time: "recipe.time / (machine.speed * speed_mult)"`; power/SU/maintenance as `per_machine` metric (`machine.su_per_rpm * param.rpm`, `machine.power * c ^ 1.321928`). |
-| **Variable-power recipes** | Satisfactory Particle Accelerator / Converter | Recipe attrs `min_power`, `max_power`; expose `avg_power` (`(recipe.min_power + recipe.max_power) / 2 * ...`) and `peak_power` (`recipe.max_power * ...`) metrics. |
+| **Variable-power recipes** | Satisfactory Particle Accelerator / Converter | Recipe attrs `min_power`, `max_power`; expose average `power` (`per_machine`: `(recipe.min_power + recipe.max_power) / 2 * ...`) and worst-case `peak_power` (`value`: `ceil(max(0, node.machines - 1e-6)) * recipe.max_power * ...`) metrics. |
+| **Fixed-draw sinks & completion timers** | Satisfactory AWESOME Sink, Space Elevator phases | For sinks with a throughput/belt-tier `enum` in `craft_time`, compute active power via `value`: `ceil(max(0, node.machines - 1e-6)) * pwr` so changing belt tier does not alter power draw for identical input flow. For deliverable targets, compute post-solve completion time via `if(node.crafts > 0, 1 / (node.crafts * 3600), 0)`. |
+| **Power-only / 0-port buildings (`V-NUM-4`)** | Satisfactory Geothermal, Solar / Wind generators | Because `V-NUM-4` requires ≥ 1 port, either defer in `PACK_NOTES.md` or emit a synthetic marker output (`out: [["<marker>", 1]]`, `time: 1`) so a standalone node reports negative power without requiring a second dummy source node. |
 | **Module slots & beacons** | Factorio modules/beacons, PyAL living modules | `slots` param with `count: "machine.module_slots"`, `allowed_if` for productivity/creature gating, aggregate with `sum(param.modules.<attr>)` and `count(param.modules)`. |
 | **Voltage tiers, OC & sub-tick parallels** | GTNH singleblocks, multi-amp hatches, Processing Array, mega multiblocks | Single machine per family + `voltage_tier` `enum` filtered by `allowed_if`; `requires` gates `v >= recipe.eut`; `let` computes `oc` and parallel count `P`, scaling `input_amount` & `output_amount` by `P` when sub-tick/parallel. |
 | **Coil / burner heat gating & bonuses** | GTNH EBF (900 K discount / 1800 K perfect OC), Erekir `HeatCrafter`, Create Blaze Burner | `coil` `enum` with `heat` attr (or `supplied_heat` `number` param); `requires` checks `h >= recipe.min_heat`; `let` computes `floor((h - recipe.min_heat) / 900)` and `/ 1800`; Create adds conditional fuel `extra_ports` when `recipe.min_heat >= 2`. |
@@ -764,7 +774,7 @@ Converters live outside the C++ app repo (in `factory-planner-packs` or your own
 4. **No silent drops:** Record every skipped raw record in `report.json` with a reason, and reconcile counts against `gamedata_tool stats`.
 5. **Pure data in recipes:** Formulas live exclusively in `template/game.json` profiles. Emit compact short-form tuple ports `[res, amount]` / `[res, amount, chance]` and shard large recipe sets by category or recipe map.
 6. **Warning-free (`--werror`):** Prune unreferenced resources/machines/parameters/tables/metrics (`V-W-2`) and merge identical duplicate ports (`V-W-3`).
-7. **Icons are optional:** If no icons are exported, create no `icons/` directory ("no icons" mode). If icons exist, pad transparently to square and area-downscale to ≤ 64×64 PNGs into `icons/` or `.tmp_icons/`, verify with `check-icons --from`, then pack with `pack-icons --from ... --verify`.
+7. **Icons are optional:** If no icons are exported, create no `icons/` directory ("no icons" mode). If icons exist, pad transparently to square and area-downscale to ≤ 64×64 PNGs into `icons/` or `.tmp_icons/`, waive intentionally text-only option sets (`V-W-1`) in `waivers.json` instead of generating dummy PNGs, verify loose PNGs with `check-icons --from` (no `--werror`), pack with `pack-icons --from ... --verify`, then run `check-icons --from ... --werror` and `validate --werror`.
 8. **Dependency discipline:** Prefer Python 3 standard library (`json`, `csv`, `xml.etree`, `zipfile`, `gzip`, `sqlite3`, `struct`, `zlib`) or already-installed system tools. Third-party packages are allowed only in a project-local `.venv/` after explicit user confirmation. Never install packages globally (`--user`, `--break-system-packages`, `sudo`).
 
 ### 8.2 Exact `slugify()` specification
@@ -795,7 +805,7 @@ With `--json`, stdout carries **one** JSON document and diagnostics go to stderr
 | `validate` | `gamedata_tool validate <pkg> [--json] [--werror] [--no-icons] [--ignore-errors] [--max-groups N] [--examples N] [--all] [--timing]`<br>Runs full load, expression compile, spec §9.2 rules, icon checks (T8 order), and root-cause grouping. `--json` emits `report_version: 1` with `counts`, `groups`, `cascades`, `notes`, `timing_ms` (`--all` appends flat `diagnostics[]`). |
 | `eval` | `gamedata_tool eval <pkg> --recipe ID [--machine ID \| --all-machines] [--param k=json ...] [--global k=json ...] [--sweep PARAM] [--machines N] [--rate tick\|s\|min\|h] [--json]`<br>or `gamedata_tool eval <pkg> --cases <file\|dir> [--json]`<br>Note: `--param`/`--global` values are JSON literals (`clock=150`, `tier='"hv"'`, `mods='["speed-3",null]'`, `prolif=null`). `--sweep` sweeps enum options or int ranges (max 32 values). |
 | `stats` | `gamedata_tool stats <pkg> [--repeat N] [--timing] [--ignore-errors] [--json]`<br>Prints entity counts, JSON byte size, per-category/machine/profile/file breakdowns, icon coverage, and median load timing (parse/compile/total). |
-| `check-icons` | `gamedata_tool check-icons <pkg> [--from DIR] [--werror] [--json]`<br>Checks missing (`V-W-1`), unreferenced, malformed/oversize (`V-ICON-1`), case mismatches, and stale `icons.pak`. Exits 1 on `V-ICON-1` (and with `--werror`, on missing/unreferenced/case mismatch/stale pak). |
+| `check-icons` | `gamedata_tool check-icons <pkg> [--from DIR] [--werror] [--json]`<br>Checks missing (`V-W-1`, honoring `waive_warnings`), unreferenced, malformed/oversize (`V-ICON-1`), case mismatches, and stale `icons.pak`. Exits 1 on `V-ICON-1` (and with `--werror`, on missing/unreferenced/case mismatch/stale pak — run without `--werror` before `pack-icons`, and with `--werror` after `pack-icons` when updating an existing pak). |
 | `prune-icons` | `gamedata_tool prune-icons <pkg> [--from DIR] [--apply] [--json]`<br>Lists unreferenced loose PNGs; deletes them only with `--apply`. Never touches `icons.pak`. |
 | `pack-icons` | `gamedata_tool pack-icons <pkg> [--from DIR] [-o FILE] [--verify] [--json]`<br>or `gamedata_tool pack-icons --list <file> [--json]`<br>Builds deterministic `<package_root>/icons.pak` containing only referenced icons (plus `name_slug` for cross-pack fallback). Fails on `V-ICON-1`. `--verify` reads back and compares every PNG byte-for-byte. |
 | `guide` | `gamedata_tool guide [prompt\|reference] [--json]`<br>Prints the embedded pack-authoring prompt (`prompt`) or this author reference (`reference`). |
@@ -829,7 +839,7 @@ A `--cases` file (or every `*.json` under a `--cases` directory) is a JSON array
 - All fields inside `expect` are optional; unspecified fields are not checked. Numeric comparisons pass when `|actual - expected| <= tol * max(1, |actual|, |expected|)` (`tol` default `1e-6`).
 - `expect.ports.<slot>` accepts a number (`amount_per_craft`), a boolean (`active`), or an object `{ "active", "resource", "amount" }`.
 - `expect.metric_coeffs.<id>` accepts a number (`coeff`) or `{ "enabled", "coeff" }`.
-- `expect.metrics.<id>` (requires `"machines"` on the case) accepts a number (`value`) or `{ "enabled", "status", "value" }`.
+- `expect.metrics.<id>` (requires `"machines"` on the case) accepts a number (`value`) or `{ "enabled", "status", "value" }`. Values are always canonical (for `is_rate: true` / `per_craft` metrics, canonical **per-second** rates regardless of `units.default_rate`).
 
 ### 9.3 Scale budgets (50k-recipe target)
 
