@@ -3545,7 +3545,7 @@ private:
         static const std::vector<std::string> kProfileKeys = {
             "craft_time", "extends", "extra_ports", "input_amount", "input_enabled",
             "let", "metrics", "notes", "output_amount", "output_enabled", "params",
-            "port_enabled", "requires"
+            "port_enabled", "recipe_visible_if", "requires", "visible_if"
         };
 
         // 1. Validate profile IDs, object structure, and extends graph (V-PROF-1, V-PROF-2)
@@ -3698,10 +3698,83 @@ private:
         for (const std::string& pid : m_profileOrder) {
             auto it = valid_profiles_map.find(pid);
             if (it != valid_profiles_map.end()) {
+                if (it->second.visible_if.is_present || it->second.recipe_visible_if.is_present) {
+                    m_pkg.has_entity_visibility = true;
+                }
                 m_pkg.profile_index[pid] = m_pkg.profiles.size();
                 m_pkg.profiles.push_back(std::move(it->second));
             }
         }
+    }
+
+    bool parseAndCompileVisibilityField(
+        const json& parent_obj,
+        const char* field,
+        expr::ExprContext context,
+        const expr::CompileEnv& base_env,
+        const std::string& file,
+        const std::string& base_ptr,
+        BoolOrExpr& in_out_be,
+        std::string& out_cascade_root) {
+        if (!parent_obj.contains(field)) {
+            return true;
+        }
+        const std::string fptr = base_ptr + "/" + field;
+        const json& fj = parent_obj[field];
+        BoolOrExpr next;
+        if (fj.is_boolean()) {
+            next.is_present = true;
+            next.is_literal = true;
+            next.literal_value = fj.get<bool>();
+            next.expr_src = next.literal_value ? "true" : "false";
+            in_out_be = std::move(next);
+            return true;
+        }
+        if (!fj.is_string()) {
+            addError("V-STRUCT-2", file, fptr,
+                     std::string("expected bool or expression string for '") + field +
+                         "', got " + jsonTypeName(fj));
+            return false;
+        }
+
+        next.is_present = true;
+        next.is_literal = false;
+        next.expr_src = fj.get<std::string>();
+
+        ExpressionCacheKey key{"", context, expr::ExpectedType::Bool, false, next.expr_src};
+        expr::CompileResult res;
+        auto cache_it = m_exprCache.find(key);
+        if (cache_it != m_exprCache.end()) {
+            res = cache_it->second;
+        } else {
+            expr::CompileEnv env = base_env;
+            env.context = context;
+            env.check_profile_params = false;
+            env.profile_params.clear();
+            env.let_types.clear();
+            env.allow_option = false;
+            env.allow_port_in_static = false;
+            env.port_has_base_resource = false;
+            res = expr::compile(next.expr_src, env, expr::ExpectedType::Bool);
+            m_exprCache.emplace(std::move(key), res);
+        }
+
+        if (!res.ok) {
+            if (auto cause = findSecondaryCompileCause(res.error)) {
+                setCause(out_cascade_root, *cause);
+                return false;
+            }
+            addCompileError(res.error, file, fptr);
+            return false;
+        }
+        if (auto cause = findFailedEntityCause(res.expr)) {
+            setCause(out_cascade_root, *cause);
+            return false;
+        }
+        recordExprUsage(res.expr);
+        next.compiled_expr = std::move(res.expr);
+        in_out_be = std::move(next);
+        return true;
     }
 
     bool mergeAndCompileProfile(
@@ -4084,6 +4157,17 @@ private:
         compileReplacedBoolFormula("port_enabled", prof.port_enabled);
         compileReplacedBoolFormula("input_enabled", prof.input_enabled);
         compileReplacedBoolFormula("output_enabled", prof.output_enabled);
+
+        if (!parseAndCompileVisibilityField(
+                pj, "visible_if", expr::ExprContext::MachineVisibility,
+                base_env, raw.file, raw.json_pointer, prof.visible_if, out_cascade_root)) {
+            ok = false;
+        }
+        if (!parseAndCompileVisibilityField(
+                pj, "recipe_visible_if", expr::ExprContext::RecipeVisibility,
+                base_env, raw.file, raw.json_pointer, prof.recipe_visible_if, out_cascade_root)) {
+            ok = false;
+        }
 
         // 5. Merge and compile extra_ports (§4.2, §4.3, V-PROF-4, V-REF-1)
         std::unordered_set<std::string> overridden_extra_port_ids;
@@ -4478,8 +4562,9 @@ private:
 
     void runStage7() {
         static const std::vector<std::string> kMachineKeys = {
-            "attrs", "categories", "id", "name", "notes", "profile", "speed"
+            "attrs", "categories", "id", "name", "notes", "profile", "speed", "visible_if"
         };
+        expr::CompileEnv base_env = buildBaseCompileEnv();
         std::unordered_map<std::string, std::pair<std::string, std::string>> first_seen_mach;
 
         for (const RawArrayItem& item : m_rawMachines) {
@@ -4623,7 +4708,16 @@ private:
                 }
             }
 
+            if (!parseAndCompileVisibilityField(
+                    mj, "visible_if", expr::ExprContext::MachineVisibility,
+                    base_env, item.file, item.json_pointer, mach.visible_if, cascade_root)) {
+                ok = false;
+            }
+
             if (ok && cascade_root.empty() && !mach.id.empty()) {
+                if (mach.visible_if.is_present) {
+                    m_pkg.has_entity_visibility = true;
+                }
                 for (const std::string& cat : mach.categories) {
                     addUnique(m_pkg.category_to_machines[cat], mach.id);
                     addUnique(m_pkg.category_to_profiles[cat], mach.profile);
@@ -5404,7 +5498,7 @@ private:
     void runStage8() {
         static const std::vector<std::string> kRecipeKeys = {
             "attrs", "category", "id", "in", "machines", "name",
-            "notes", "out", "overrides", "setup", "time"
+            "notes", "out", "overrides", "setup", "time", "visible_if"
         };
         static const std::vector<std::string> kOverrideKeys = {
             "craft_time", "input_amount", "input_enabled", "let", "metrics",
@@ -5948,6 +6042,12 @@ private:
                 }
             }
 
+            if (!parseAndCompileVisibilityField(
+                    rj, "visible_if", expr::ExprContext::RecipeVisibility,
+                    base_env, item.file, item.json_pointer, rec.visible_if, cascade_root)) {
+                ok = false;
+            }
+
             // Compile overrides and port formulas against each unique compatible profile (§2.9 item 2)
             std::unordered_set<std::string> recipe_formula_params;
             if (ok && cascade_root.empty()) {
@@ -5989,6 +6089,9 @@ private:
                 }
                 for (const std::string& fp : recipe_formula_params) {
                     params_used_outside_resource_param.insert(fp);
+                }
+                if (rec.visible_if.is_present) {
+                    m_pkg.has_entity_visibility = true;
                 }
                 incrementFileRecipes(item.file);
                 m_pkg.recipe_index[rec.id] = m_pkg.recipes.size();

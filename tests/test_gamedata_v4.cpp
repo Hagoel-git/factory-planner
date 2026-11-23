@@ -2778,5 +2778,128 @@ TEST(GameDataV4Test, WarningWaiverRejectsErrorsAndMalformedEntries) {
     EXPECT_GE(report.errors.size(), 7u);
 }
 
+TEST(GameDataV4Test, EntityVisibilityProfileMachineRecipeAndContextRules) {
+    const std::string manifest = R"JSON({
+      "schema_version": 4,
+      "game": { "id": "vis-test", "name": "Visibility Test" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "attributes": {
+        "machine": { "is_sandbox": { "type": "bool", "default": false } },
+        "recipe": { "is_debug": { "type": "bool", "default": false } }
+      },
+      "globals": {
+        "show_debug": { "type": "bool", "default": false }
+      },
+      "profiles": {
+        "base_prof": {
+          "visible_if": "global.show_debug || !machine.is_sandbox",
+          "recipe_visible_if": "global.show_debug || !recipe.is_debug"
+        },
+        "inherited_prof": {
+          "extends": "base_prof"
+        },
+        "sandbox_only": {
+          "visible_if": "global.show_debug"
+        }
+      },
+      "resources": [
+        { "id": "ore", "name": "Ore" },
+        { "id": "plate", "name": "Plate" }
+      ],
+      "machines": [
+        { "id": "smelter", "name": "Smelter", "profile": "inherited_prof", "categories": ["smelt"] },
+        { "id": "sandbox-smelter", "name": "Sandbox Smelter", "profile": "inherited_prof", "categories": ["smelt"], "attrs": { "is_sandbox": true } },
+        { "id": "item-source", "name": "Item Source", "profile": "sandbox_only", "categories": ["source"] },
+        { "id": "direct-debug-mach", "name": "Direct Debug Machine", "categories": ["direct_cat"], "visible_if": "global.show_debug" }
+      ],
+      "recipes": [
+        { "id": "normal-smelt", "name": "Normal Smelt", "category": "smelt", "time": 1, "in": [["ore", 1]], "out": [["plate", 1]] },
+        { "id": "attr-debug-smelt", "name": "Attr Debug Smelt", "category": "smelt", "time": 1, "in": [["ore", 1]], "out": [["plate", 1]], "attrs": { "is_debug": true } },
+        { "id": "direct-debug-rec", "name": "Direct Debug Rec", "category": "smelt", "time": 1, "in": [["ore", 1]], "out": [["plate", 1]], "visible_if": "global.show_debug" },
+        { "id": "source-ore", "name": "Source Ore", "category": "source", "time": 1, "out": [["ore", 1]] },
+        { "id": "direct-mach-rec", "name": "Direct Machine Rec", "category": "direct_cat", "time": 1, "out": [["plate", 1]] }
+      ]
+    })JSON";
+
+    GamePackage pkg;
+    LoadReport report;
+    ASSERT_TRUE(loadGamePackageFromMemory(manifest, {}, pkg, report))
+        << (report.errors.empty() ? "" : report.errors.front().formatted);
+    EXPECT_TRUE(report.warnings.empty());
+    EXPECT_TRUE(pkg.has_entity_visibility);
+
+    // 1. Default: show_debug == false
+    ResolvedGlobals gOff = resolveProjectGlobals(pkg, {});
+    EntityVisibility visOff = evaluateEntityVisibility(pkg, gOff, 1);
+    EXPECT_FALSE(visOff.all_visible);
+    EXPECT_EQ(visOff.revision, 1u);
+
+    EXPECT_TRUE(visOff.isMachineVisible(pkg.machine_index.at("smelter")));
+    EXPECT_FALSE(visOff.isMachineVisible(pkg.machine_index.at("sandbox-smelter")));
+    EXPECT_FALSE(visOff.isMachineVisible(pkg.machine_index.at("item-source")));
+    EXPECT_FALSE(visOff.isMachineVisible(pkg.machine_index.at("direct-debug-mach")));
+
+    EXPECT_TRUE(visOff.isRecipeVisible(pkg.recipe_index.at("normal-smelt")));
+    EXPECT_FALSE(visOff.isRecipeVisible(pkg.recipe_index.at("attr-debug-smelt")));
+    EXPECT_FALSE(visOff.isRecipeVisible(pkg.recipe_index.at("direct-debug-rec")));
+    EXPECT_FALSE(visOff.isRecipeVisible(pkg.recipe_index.at("source-ore")));
+    EXPECT_FALSE(visOff.isRecipeVisible(pkg.recipe_index.at("direct-mach-rec")));
+
+    EXPECT_TRUE(isMachineVisibleForRecipe(pkg, visOff, gOff, "smelter", "normal-smelt"));
+    EXPECT_FALSE(isMachineVisibleForRecipe(pkg, visOff, gOff, "sandbox-smelter", "normal-smelt"));
+    EXPECT_FALSE(isMachineVisibleForRecipe(pkg, visOff, gOff, "smelter", "attr-debug-smelt"));
+
+    // Picker-only semantics: evaluateNode on a hidden machine/recipe still evaluates OK!
+    NodeEval hiddenNodeEval = evaluateNode(pkg, "item-source", "source-ore", {}, gOff);
+    EXPECT_EQ(hiddenNodeEval.status, EvalStatus::OK);
+
+    // 2. Toggle show_debug == true -> everything becomes visible
+    ResolvedGlobals gOn = resolveProjectGlobals(pkg, {{"show_debug", ParamValue::boolean(true)}});
+    EntityVisibility visOn = evaluateEntityVisibility(pkg, gOn, 2);
+    for (size_t mi = 0; mi < pkg.machines.size(); ++mi) {
+        EXPECT_TRUE(visOn.isMachineVisible(mi));
+    }
+    for (size_t ri = 0; ri < pkg.recipes.size(); ++ri) {
+        EXPECT_TRUE(visOn.isRecipeVisible(ri));
+    }
+    EXPECT_TRUE(isMachineVisibleForRecipe(pkg, visOn, gOn, "sandbox-smelter", "normal-smelt"));
+    EXPECT_TRUE(isMachineVisibleForRecipe(pkg, visOn, gOn, "smelter", "attr-debug-smelt"));
+}
+
+TEST(GameDataV4Test, EntityVisibilityRejectsDisallowedContextAndResourcesField) {
+    // Disallowed roots in MachineVisibility (recipe.*, param.*) and RecipeVisibility (machine.*, param.*),
+    // plus visible_if rejected on resources (V-STRUCT-1).
+    const std::string badManifest = R"JSON({
+      "schema_version": 4,
+      "game": { "id": "vis-bad", "name": "Vis Bad" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "parameters": {
+        "flag": { "type": "bool", "default": true }
+      },
+      "profiles": {
+        "p_bad_mach": { "params": ["flag"], "visible_if": "recipe.time > 0" },
+        "p_bad_rec":  { "params": ["flag"], "recipe_visible_if": "machine.speed > 0" },
+        "p_bad_param": { "params": ["flag"], "visible_if": "param.flag" },
+        "p_bad_type": { "visible_if": "123" }
+      },
+      "resources": [
+        { "id": "ore", "name": "Ore", "visible_if": false }
+      ],
+      "machines": [
+        { "id": "m1", "name": "M1", "categories": ["c"], "visible_if": "recipe.time > 0" }
+      ],
+      "recipes": [
+        { "id": "r1", "category": "c", "time": 1, "out": [["ore", 1]], "visible_if": "machine.speed > 0" }
+      ]
+    })JSON";
+
+    GamePackage pkg;
+    LoadReport report;
+    EXPECT_FALSE(loadGamePackageFromMemory(badManifest, {}, pkg, report));
+    EXPECT_TRUE(report.hasRule("V-STRUCT-1")); // resource.visible_if rejected
+    EXPECT_TRUE(report.hasRule("V-EXPR-3"));   // disallowed root in visibility context
+    EXPECT_TRUE(report.hasRule("V-EXPR-4"));   // non-bool result type in visible_if
+}
+
 } // namespace
 } // namespace gamedata

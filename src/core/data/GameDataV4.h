@@ -490,6 +490,9 @@ struct Profile {
     BoolOrExpr input_enabled;
     BoolOrExpr output_enabled;
 
+    BoolOrExpr visible_if;        // Machine picker visibility (game.*, global.*, machine.*)
+    BoolOrExpr recipe_visible_if; // Recipe picker visibility (game.*, global.*, recipe.*)
+
     std::vector<ExtraPortDef> extra_ports;
 
     std::vector<std::string> metric_order;
@@ -519,6 +522,7 @@ struct Machine {
     std::vector<std::string> categories;
     double speed = 1.0;
     std::unordered_map<std::string, expr::EvalValue> attrs;
+    BoolOrExpr visible_if; // Picker visibility (game.*, global.*, machine.*)
     std::string notes;
 };
 
@@ -608,6 +612,7 @@ struct Recipe {
     std::vector<RecipePort> out;
     std::vector<SetupItem> setup;
     std::unordered_map<std::string, expr::EvalValue> attrs;
+    BoolOrExpr visible_if; // Picker visibility (game.*, global.*, recipe.*)
     RecipeOverrides overrides;
 
     // Precomputed static totals (§5.5)
@@ -871,6 +876,9 @@ struct GamePackage {
     // Optional warning waivers loaded from manifest / waiver shards (§9.3)
     std::vector<WarningWaiver> warning_waivers;
 
+    // True when any loaded profile, machine, or recipe defines visible_if / recipe_visible_if.
+    bool has_entity_visibility = false;
+
     // Pre-built static evaluation environment shared across all nodes in the package
     expr::EvalEnv base_eval_env;
 
@@ -1123,6 +1131,25 @@ struct ResolvedGlobals {
     std::unordered_map<std::string, EvaluatedParamUi> param_ui;
     std::unordered_map<std::string, EvalStatus> status_by_global;
     std::unordered_map<std::string, std::vector<EvalMessage>> messages_by_global;
+};
+
+// Cached picker-only visibility bitmasks for machines and recipes driven by game.* / global.*
+// and own entity fields/attrs. Recomputed only when project globals change.
+struct EntityVisibility {
+    uint64_t revision = 0;
+    bool all_visible = true; // Fast path: true when no profile/machine/recipe defines visibility rules
+    std::vector<uint8_t> machine_visible; // size == pkg.machines.size() when !all_visible
+    std::vector<uint8_t> recipe_visible;  // size == pkg.recipes.size() when !all_visible
+
+    bool isMachineVisible(size_t machineIdx) const {
+        if (all_visible) return true;
+        return machineIdx < machine_visible.size() && machine_visible[machineIdx] != 0;
+    }
+
+    bool isRecipeVisible(size_t recipeIdx) const {
+        if (all_visible) return true;
+        return recipeIdx < recipe_visible.size() && recipe_visible[recipeIdx] != 0;
+    }
 };
 
 struct EvaluatedNodeMetric {

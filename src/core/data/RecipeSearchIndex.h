@@ -55,7 +55,8 @@ public:
         const RecipeSearchIndex& index,
         std::string_view rawQuery,
         RecipeSearchContextKind contextKind = RecipeSearchContextKind::All,
-        std::string_view contextResourceId = {});
+        std::string_view contextResourceId = {},
+        const EntityVisibility* visibility = nullptr);
 
     void reset();
 
@@ -68,6 +69,8 @@ private:
     const RecipeSearchIndex* m_lastIndex = nullptr;
     size_t m_lastRecipeCount = 0;
     bool m_initialized = false;
+    bool m_lastHadVisibilityFilter = false;
+    uint64_t m_lastVisibilityRevision = 0;
     std::string m_lastQueryLower;
     RecipeSearchContextKind m_lastContextKind = RecipeSearchContextKind::All;
     std::string m_lastContextResourceId;

@@ -35,6 +35,8 @@ public:
     std::optional<gamedata::ParamValue> getGlobalParam(const std::string& id) const;
     const std::unordered_map<std::string, gamedata::ParamValue>& getGlobals() const { return m_globals; }
     const gamedata::ResolvedGlobals& getResolvedGlobals() const { return m_resolvedGlobals; }
+    const gamedata::EntityVisibility& getEntityVisibility() const;
+    bool isMachineVisibleForRecipe(std::string_view machineId, std::string_view recipeId) const;
 
     gamedata::RateUnit getRateUnit() const { return m_rateUnit; }
     void setRateUnit(gamedata::RateUnit unit) { m_rateUnit = unit; }
@@ -133,6 +135,9 @@ private:
     nlohmann::json m_unresolvedGlobals = nlohmann::json::object();
     nlohmann::json m_invalidGlobalRaw = nlohmann::json::object();
     gamedata::ResolvedGlobals m_resolvedGlobals;
+    mutable gamedata::EntityVisibility m_entityVisibility;
+    mutable bool m_visibilityDirty = true;
+    mutable uint64_t m_visibilityRevision = 0;
     std::unordered_map<uint64_t, gamedata::NodeEval> m_nodeEvals;
 
     std::string m_lastLoadError;

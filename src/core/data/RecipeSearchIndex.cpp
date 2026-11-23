@@ -134,6 +134,8 @@ void RecipeSearchState::reset() {
     m_lastIndex = nullptr;
     m_lastRecipeCount = 0;
     m_initialized = false;
+    m_lastHadVisibilityFilter = false;
+    m_lastVisibilityRevision = 0;
     m_lastQueryLower.clear();
     m_lastContextKind = RecipeSearchContextKind::All;
     m_lastContextResourceId.clear();
@@ -146,14 +148,20 @@ bool RecipeSearchState::update(
     const RecipeSearchIndex& index,
     std::string_view rawQuery,
     RecipeSearchContextKind contextKind,
-    std::string_view contextResourceId) {
+    std::string_view contextResourceId,
+    const EntityVisibility* visibility) {
     const std::string queryLower = RecipeSearchIndex::toAsciiLower(rawQuery);
     const size_t totalRecipes = index.recipeCount();
+    const bool hasVisFilter = (visibility != nullptr && !visibility->all_visible);
+    const uint64_t visRevision = hasVisFilter ? visibility->revision : 0;
 
     const bool sameIndex = m_initialized &&
                            m_lastIndex == &index &&
                            m_lastRecipeCount == totalRecipes;
+    const bool sameVisibility = (m_lastHadVisibilityFilter == hasVisFilter) &&
+                                (!hasVisFilter || m_lastVisibilityRevision == visRevision);
     const bool sameContext = sameIndex &&
+                             sameVisibility &&
                              m_lastContextKind == contextKind &&
                              (contextKind == RecipeSearchContextKind::All ||
                               m_lastContextResourceId == contextResourceId);
@@ -163,7 +171,7 @@ bool RecipeSearchState::update(
     }
 
     // Incremental narrowing: if the new query contains the previous non-empty query as a
-    // substring within the exact same context, every match must already be in m_results.
+    // substring within the exact same context (and visibility revision), every match is already in m_results.
     if (sameContext &&
         !m_lastQueryLower.empty() &&
         !queryLower.empty() &&
@@ -185,12 +193,24 @@ bool RecipeSearchState::update(
         if (contextKind == RecipeSearchContextKind::All) {
             m_lastCandidateCount = totalRecipes;
             if (queryLower.empty()) {
-                m_results.resize(totalRecipes);
-                for (size_t i = 0; i < totalRecipes; ++i) {
-                    m_results[i] = static_cast<uint32_t>(i);
+                if (!hasVisFilter) {
+                    m_results.resize(totalRecipes);
+                    for (size_t i = 0; i < totalRecipes; ++i) {
+                        m_results[i] = static_cast<uint32_t>(i);
+                    }
+                } else {
+                    m_results.reserve(totalRecipes);
+                    for (size_t i = 0; i < totalRecipes; ++i) {
+                        if (visibility->isRecipeVisible(i)) {
+                            m_results.push_back(static_cast<uint32_t>(i));
+                        }
+                    }
                 }
             } else {
                 for (size_t i = 0; i < totalRecipes; ++i) {
+                    if (hasVisFilter && !visibility->isRecipeVisible(i)) {
+                        continue;
+                    }
                     const uint32_t idx = static_cast<uint32_t>(i);
                     if (index.matchesLower(idx, queryLower)) {
                         m_results.push_back(idx);
@@ -203,12 +223,15 @@ bool RecipeSearchState::update(
                     ? index.producing(contextResourceId)
                     : index.consuming(contextResourceId);
             m_lastCandidateCount = candidates.size();
-            if (queryLower.empty()) {
+            if (queryLower.empty() && !hasVisFilter) {
                 m_results = candidates;
             } else {
                 m_results.reserve(candidates.size());
                 for (uint32_t idx : candidates) {
-                    if (index.matchesLower(idx, queryLower)) {
+                    if (hasVisFilter && !visibility->isRecipeVisible(idx)) {
+                        continue;
+                    }
+                    if (queryLower.empty() || index.matchesLower(idx, queryLower)) {
                         m_results.push_back(idx);
                     }
                 }
@@ -219,6 +242,8 @@ bool RecipeSearchState::update(
     m_lastIndex = &index;
     m_lastRecipeCount = totalRecipes;
     m_initialized = true;
+    m_lastHadVisibilityFilter = hasVisFilter;
+    m_lastVisibilityRevision = visRevision;
     m_lastQueryLower = queryLower;
     m_lastContextKind = contextKind;
     m_lastContextResourceId = (contextKind == RecipeSearchContextKind::All)

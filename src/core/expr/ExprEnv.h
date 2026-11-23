@@ -19,6 +19,14 @@ enum class ExprContext {
     // allows game.*, global.*, and option (if allow_option is true).
     GlobalStatic,
 
+    // visible_if on a profile (machine visibility) or machine (§2.7, §4.1, §5.4):
+    // allows game.*, global.*, and machine.* only.
+    MachineVisibility,
+
+    // recipe_visible_if on a profile or visible_if on a recipe (§2.8, §4.1, §5.4):
+    // allows game.*, global.*, and recipe.* only.
+    RecipeVisibility,
+
     // min, max, count, visible_if, allowed_if on a node parameter (§3.1, §5.4):
     // allows game.*, global.*, machine.*, recipe.*, earlier param.* in profile.params,
     // option (if allow_option is true), and port.* excluding port.resource (if allow_port_in_static is true).

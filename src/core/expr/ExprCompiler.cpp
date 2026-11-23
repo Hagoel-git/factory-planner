@@ -859,6 +859,8 @@ private:
 
     bool isContextStatic() const {
         return m_env.context == ExprContext::GlobalStatic ||
+               m_env.context == ExprContext::MachineVisibility ||
+               m_env.context == ExprContext::RecipeVisibility ||
                m_env.context == ExprContext::ParamStatic;
     }
 
@@ -1037,9 +1039,14 @@ private:
 
         // 3. machine.<field>
         if (root == "machine") {
-            if (m_env.context == ExprContext::GlobalStatic) {
+            if (m_env.context == ExprContext::GlobalStatic ||
+                m_env.context == ExprContext::RecipeVisibility) {
                 fail("V-EXPR-3", node.line, node.column,
-                     "'machine." + field + "' is not available in global static expressions");
+                     "'machine." + field + "' is not available in " +
+                         (m_env.context == ExprContext::GlobalStatic
+                              ? std::string("global static")
+                              : std::string("recipe visibility")) +
+                         " expressions");
                 return ExprType::number();
             }
             if (field == "id") {
@@ -1074,9 +1081,14 @@ private:
 
         // 4. recipe.<field>
         if (root == "recipe") {
-            if (m_env.context == ExprContext::GlobalStatic) {
+            if (m_env.context == ExprContext::GlobalStatic ||
+                m_env.context == ExprContext::MachineVisibility) {
                 fail("V-EXPR-3", node.line, node.column,
-                     "'recipe." + field + "' is not available in global static expressions");
+                     "'recipe." + field + "' is not available in " +
+                         (m_env.context == ExprContext::GlobalStatic
+                              ? std::string("global static")
+                              : std::string("machine visibility")) +
+                         " expressions");
                 return ExprType::number();
             }
             if (field == "id") {
@@ -1139,9 +1151,15 @@ private:
 
         // 5. param.<id> (V-EXPR-5)
         if (root == "param") {
-            if (m_env.context == ExprContext::GlobalStatic) {
+            if (m_env.context == ExprContext::GlobalStatic ||
+                m_env.context == ExprContext::MachineVisibility ||
+                m_env.context == ExprContext::RecipeVisibility) {
                 fail("V-EXPR-3", node.line, node.column,
-                     "'param." + field + "' is not available in global static expressions");
+                     "'param." + field + "' is not available in " +
+                         (m_env.context == ExprContext::GlobalStatic
+                              ? std::string("global static")
+                              : std::string("entity visibility")) +
+                         " expressions");
                 return ExprType::number();
             }
 

@@ -168,7 +168,7 @@ Attributes are typed key–value data on entities. They must be declared once, s
   "attrs": { "power": 4, "somersloop_slots": 1 } }
 ```
 
-`id`, `name`, `profile` (default `"default"`), `categories` (array of strings), `speed` (built-in, default 1, must be > 0), `attrs`, `notes`.
+`id`, `name`, `profile` (default `"default"`), `categories` (array of strings), `speed` (built-in, default 1, must be > 0), `attrs`, `visible_if` (optional bool literal or machine-visibility expression over `game.*`, `global.*`, `machine.*`; picker-only), `notes`.
 
 ### 2.8 Recipes
 
@@ -186,6 +186,7 @@ Attributes are typed key–value data on entities. They must be declared once, s
 | `in`, `out` | Port lists (below). Either may be empty or missing, but not both (V-NUM-4). Whether a node acts as a **raw source** or **sink** in the solver depends on active recipe ports and wired extra ports at evaluation time (R1, §7.4). |
 | `setup` | Optional list of `[resource, amount]` tuples for items needed to *build or configure* the machine but not consumed per craft (GT programmed circuits, molds, lenses). Each entry must reference a valid resource id (V-REF-1) with a finite `amount` > 0 (V-NUM-2). Shown on the node, not part of the LP. |
 | `attrs` | Recipe attributes. |
+| `visible_if` | Optional bool literal or recipe-visibility expression over `game.*`, `global.*`, `recipe.*` (picker-only; prefer profile-level `recipe_visible_if` on 50k-recipe packs). |
 | `overrides` | Optional formula overrides (§4.4). |
 
 **Port forms.** Short (tuple) form: `[resource, amount]` or `[resource, amount, chance]`. Long form, needed for anything else:
@@ -344,6 +345,8 @@ An array table is a non-empty JSON array indexed by an integral number (0-based)
 | `craft_time` | expr | pre-solve, number | Seconds per craft per machine, > 0. |
 | `input_amount`, `output_amount` | expr | pre-solve + `port.*`, number | Effective amount per craft for each recipe port, ≥ 0. |
 | `port_enabled`, `input_enabled`, `output_enabled` | expr / bool | pre-solve + `port.*`, bool | Whether a recipe port is active. A port uses `input_enabled` (for `"in"` ports) or `output_enabled` (for `"out"` ports) when defined, falling back to `port_enabled` (default `true`). `port.dir` (`"in"` or `"out"`) is also available in `port_enabled`. |
+| `visible_if` | expr / bool | machine visibility, bool | Whether machines using this profile appear in pickers (default `true`). Context: `game.*`, `global.*`, `machine.*`. Picker-only: placed nodes stay valid unless `requires` also blocks them. |
+| `recipe_visible_if` | expr / bool | recipe visibility, bool | Whether recipes running on machines of this profile appear in pickers (default `true`). Context: `game.*`, `global.*`, `recipe.*`. Lets 50k-recipe packs filter by globals/recipe attrs without repeating `visible_if` per recipe. |
 | `extra_ports` | array | — | Ports added by the machine or profile (fuel, booster, spray, ash, maintenance). §4.3. |
 | `metrics` | map metric id → form | — | §6. |
 
@@ -368,7 +371,7 @@ An array table is a non-empty JSON array indexed by an integral number (0-based)
 - `params` is **appended** in UI order: the child inherits the parent's `params` list first, followed by any new parameter ids listed by the child (deduplicating any parameter id already present in the parent, keeping its first position).
 - `let`, `metrics` and `extra_ports` merge **by key / id**: the child replaces entries with the same name/id (preserving the parent's position in `extra_ports`) and appends new ones after them.
 - `requires` is **appended** (the parent's requirements still apply).
-- Every other key (`craft_time`, `input_amount`, `output_amount`, `port_enabled`, `input_enabled`, `output_enabled`) is **replaced** when the child defines it.
+- Every other key (`craft_time`, `input_amount`, `output_amount`, `port_enabled`, `input_enabled`, `output_enabled`, `visible_if`, `recipe_visible_if`) is **replaced** when the child defines it.
 - `extends` cycles are an error (V-PROF-2).
 
 ### 4.3 Extra ports
@@ -483,6 +486,8 @@ There are no implicit conversions (`bool` is not a number; write `if(b, 1, 0)`).
 
 | Context | Used for | Available names |
 |---|---|---|
+| **machine visibility** | `profile.visible_if`, `machine.visible_if` | `game.*`, `global.*`, `machine.*` (picker-only; no `recipe.*`, `param.*`, `port.*`, `let`, `node.*`) |
+| **recipe visibility** | `profile.recipe_visible_if`, `recipe.visible_if` | `game.*`, `global.*`, `recipe.*` (picker-only; no `machine.*`, `param.*`, `port.*`, `let`, `node.*`) |
 | **static** | `min`, `max`, `count`, `visible_if`, `allowed_if` | `game.*`, `global.*`, `machine.*`, `recipe.*`, `param.*` of parameters listed **earlier** in the profile's `params`, `option` (only in `allowed_if`), `port.*` (excluding `port.resource`; only in `visible_if` and `allowed_if` of a port-bound `resource_choice` parameter) |
 | **pre-solve** | `let`, `requires`, `craft_time`, port formulas (`enabled`, `amount_expr`, `resource_expr`), extra ports, metric `enabled`, `per_machine`, `per_craft` | static names + all `param.*` of the profile + `let` names + `craft_time` (after step 4 of §4.5) + `port.*` (only in recipe port formulas; `port.resource` only in `enabled` and `amount_expr`) |
 | **post-solve** | `value` metrics | pre-solve names (except `port.*`) + `node.machines` (solved machine count) + `node.crafts` (crafts per second, all machines) |

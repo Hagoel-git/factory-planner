@@ -509,6 +509,7 @@ bool FactoryGraph::setGlobalParam(const std::string& id, const gamedata::ParamVa
     if (m_invalidGlobalRaw.is_object() && m_invalidGlobalRaw.contains(id)) {
         m_invalidGlobalRaw.erase(id);
     }
+    m_visibilityDirty = true;
     evaluateAllNodes();
     return true;
 }
@@ -523,9 +524,25 @@ bool FactoryGraph::clearGlobalParam(const std::string& id) {
         changed = true;
     }
     if (changed) {
+        m_visibilityDirty = true;
         evaluateAllNodes();
     }
     return true;
+}
+
+const gamedata::EntityVisibility& FactoryGraph::getEntityVisibility() const {
+    if (m_visibilityDirty) {
+        ++m_visibilityRevision;
+        m_entityVisibility = gamedata::evaluateEntityVisibility(
+            m_gameData, m_resolvedGlobals, m_visibilityRevision);
+        m_visibilityDirty = false;
+    }
+    return m_entityVisibility;
+}
+
+bool FactoryGraph::isMachineVisibleForRecipe(std::string_view machineId, std::string_view recipeId) const {
+    return gamedata::isMachineVisibleForRecipe(
+        m_gameData, getEntityVisibility(), m_resolvedGlobals, machineId, recipeId);
 }
 
 void FactoryGraph::refreshResolvedGlobals() {
@@ -607,13 +624,22 @@ bool FactoryGraph::setNodeRecipe(uint64_t node_id, const std::string& recipe_key
     node->is_unresolved = false;
     node->unresolved_json = nlohmann::json::object();
 
+    refreshResolvedGlobals();
+
     if (!recipe->compatible_machine_ids.empty()) {
-        node->machine_key = resolvePreferredMachine(recipe->compatible_machine_ids);
+        std::vector<std::string> visibleMachines;
+        visibleMachines.reserve(recipe->compatible_machine_ids.size());
+        for (const auto& mid : recipe->compatible_machine_ids) {
+            if (isMachineVisibleForRecipe(mid, recipe_key)) {
+                visibleMachines.push_back(mid);
+            }
+        }
+        node->machine_key = resolvePreferredMachine(
+            !visibleMachines.empty() ? visibleMachines : recipe->compatible_machine_ids);
     } else {
         node->machine_key = "";
     }
 
-    refreshResolvedGlobals();
     migrateNodeParams(*node, oldMachineKey, oldRecipeKey, node->machine_key, node->selected_recipe_key);
 
     std::vector<uint64_t> old_ports;
@@ -1123,6 +1149,7 @@ bool FactoryGraph::deserialize(const nlohmann::json& j, const GameData& game_dat
     }
 
     refreshResolvedGlobals();
+    m_visibilityDirty = true;
     std::unordered_set<std::string> seenLoadWarnings(m_loadWarnings.begin(), m_loadWarnings.end());
     for (const auto& [gid, msgs] : m_resolvedGlobals.messages_by_global) {
         for (const auto& m : msgs) {

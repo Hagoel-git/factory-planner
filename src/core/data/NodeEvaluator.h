@@ -21,6 +21,23 @@ ResolvedGlobals resolveProjectGlobals(
     const std::unordered_map<std::string, ParamValue>& storedGlobals = {},
     const std::unordered_set<std::string>& invalidRawGlobalIds = {});
 
+// Evaluates picker-only visibility bitmasks for all machines and recipes against `globals`.
+// Returns an O(1) `all_visible = true` result when no profile, machine, or recipe defines
+// `visible_if` or `recipe_visible_if`.
+EntityVisibility evaluateEntityVisibility(
+    const GamePackage& pkg,
+    const ResolvedGlobals& globals,
+    uint64_t revision = 1);
+
+// Returns true iff `machineId` is visible in pickers AND its profile's `recipe_visible_if`
+// (if any) permits `recipeId` under `globals`.
+bool isMachineVisibleForRecipe(
+    const GamePackage& pkg,
+    const EntityVisibility& visibility,
+    const ResolvedGlobals& globals,
+    std::string_view machineId,
+    std::string_view recipeId);
+
 // Resolves the initial §4.5 Step 1 parameter values for a new node or a newly added profile
 // parameter on `(machineId, recipeId)` with empty stored parameters (§7.4), so new nodes start
 // with valid allowed values and no fallback WARNING.

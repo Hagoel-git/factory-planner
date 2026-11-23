@@ -1361,4 +1361,76 @@ TEST(RecipeSearchIndexTest, Synthetic50kPickerBenchmark) {
               << " ms (" << ctxMatches << " matches)\n";
 }
 
+TEST(RecipeSearchIndexTest, VisibilityFilterUpdatesOnRevisionAndRespectsContext) {
+    gamedata::GamePackage pkg;
+    auto addRes = [&](const std::string& id, const std::string& name) {
+        gamedata::Resource r;
+        r.id = id;
+        r.name = name;
+        pkg.resource_index[id] = pkg.resources.size();
+        pkg.resources.push_back(std::move(r));
+    };
+    addRes("ore", "Iron Ore");
+    addRes("plate", "Iron Plate");
+
+    auto makeRec = [](const std::string& id, const std::string& name,
+                      const std::vector<std::string>& ins,
+                      const std::vector<std::string>& outs) {
+        gamedata::Recipe r;
+        r.id = id;
+        r.name = name;
+        for (const auto& s : ins) {
+            gamedata::RecipePort p;
+            p.dir = "in";
+            p.res = s;
+            r.in.push_back(std::move(p));
+        }
+        for (const auto& s : outs) {
+            gamedata::RecipePort p;
+            p.dir = "out";
+            p.res = s;
+            r.out.push_back(std::move(p));
+        }
+        return r;
+    };
+    pkg.recipes.push_back(makeRec("r0", "Smelt Iron", {"ore"}, {"plate"}));
+    pkg.recipes.push_back(makeRec("r1", "Debug Source Iron", {}, {"plate"}));
+
+    const auto index = gamedata::RecipeSearchIndex::build(pkg);
+
+    gamedata::EntityVisibility vis;
+    vis.all_visible = false;
+    vis.revision = 1;
+    vis.recipe_visible = {1, 0};
+
+    gamedata::RecipeSearchState state;
+    // Empty query with visibility hides r1
+    EXPECT_TRUE(state.update(index, "", gamedata::RecipeSearchContextKind::All, {}, &vis));
+    EXPECT_EQ(state.results(), (std::vector<uint32_t>{0}));
+    // Same revision + same query -> no recompute
+    EXPECT_FALSE(state.update(index, "", gamedata::RecipeSearchContextKind::All, {}, &vis));
+
+    // Port-drag context also excludes hidden recipe r1
+    EXPECT_TRUE(state.update(index, "", gamedata::RecipeSearchContextKind::ProducingResource, "plate", &vis));
+    EXPECT_EQ(state.results(), (std::vector<uint32_t>{0}));
+
+    // Toggling visibility (new revision) invalidates cache and reveals r1
+    vis.revision = 2;
+    vis.recipe_visible = {1, 1};
+    EXPECT_TRUE(state.update(index, "", gamedata::RecipeSearchContextKind::ProducingResource, "plate", &vis));
+    EXPECT_EQ(state.results(), (std::vector<uint32_t>{0, 1}));
+
+    // Incremental narrowing stays consistent within the same visibility revision
+    EXPECT_TRUE(state.update(index, "iron", gamedata::RecipeSearchContextKind::All, {}, &vis));
+    EXPECT_EQ(state.results(), (std::vector<uint32_t>{0, 1}));
+    EXPECT_TRUE(state.update(index, "debug", gamedata::RecipeSearchContextKind::All, {}, &vis));
+    EXPECT_EQ(state.results(), (std::vector<uint32_t>{1}));
+
+    // Hiding r1 again drops it even for an unchanged query string
+    vis.revision = 3;
+    vis.recipe_visible = {1, 0};
+    EXPECT_TRUE(state.update(index, "debug", gamedata::RecipeSearchContextKind::All, {}, &vis));
+    EXPECT_TRUE(state.results().empty());
+}
+
 } // namespace

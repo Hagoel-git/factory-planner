@@ -1829,7 +1829,12 @@ void FactoryNodeEditor::handlePopups() {
 
             std::vector<std::string> allowedMachines;
             if (const Recipe* nodeRec = gameData.findRecipe(node->selected_recipe_key)) {
-                allowedMachines = nodeRec->compatible_machine_ids;
+                allowedMachines.reserve(nodeRec->compatible_machine_ids.size());
+                for (const auto& mKey : nodeRec->compatible_machine_ids) {
+                    if (m_graph->isMachineVisibleForRecipe(mKey, node->selected_recipe_key)) {
+                        allowedMachines.push_back(mKey);
+                    }
+                }
             }
 
             bool isCurrentMachineValid = std::find(allowedMachines.begin(), allowedMachines.end(), node->machine_key) != allowedMachines.end();
@@ -2147,7 +2152,8 @@ void FactoryNodeEditor::handlePopups() {
                 : (portIsInput ? gamedata::RecipeSearchContextKind::ProducingResource
                                : gamedata::RecipeSearchContextKind::ConsumingResource);
             const bool filterChanged = m_recipeSearchState.update(
-                m_recipeSearchIndex, m_recipeSearchBuffer, ctxKind, portResourceKey);
+                m_recipeSearchIndex, m_recipeSearchBuffer, ctxKind, portResourceKey,
+                &m_graph->getEntityVisibility());
             if (filterChanged) {
                 ImGui::SetScrollY(0.0f);
             }

@@ -3429,6 +3429,76 @@ TEST(FactoryGraphV4Test, InvalidGlobalRaw_OnlyWarnsReferencingNodes) {
     EXPECT_NEAR(g.getPortBySlot(2, "out:0")->amount_per_craft, 4.0, 1e-9);
 }
 
+TEST(FactoryGraphV4Test, EntityVisibilityTracksGlobalsPrefersVisibleMachineAndPreservesPlacedNodes) {
+    const std::string pkg_json = R"json({
+        "schema_version": 4,
+        "game": { "id": "graph_vis_test", "name": "Graph Visibility Test" },
+        "units": { "recipe_time": "s", "default_rate": "s" },
+        "globals": {
+            "show_debug": { "type": "bool", "default": false }
+        },
+        "profiles": {
+            "sandbox": { "visible_if": "global.show_debug" }
+        },
+        "resources": [
+            { "id": "ore", "name": "Ore" },
+            { "id": "plate", "name": "Plate" }
+        ],
+        "machines": [
+            { "id": "debug_smelter", "name": "Debug Smelter", "profile": "sandbox", "categories": ["smelt"] },
+            { "id": "real_smelter", "name": "Real Smelter", "categories": ["smelt"] },
+            { "id": "item_source", "name": "Item Source", "profile": "sandbox", "categories": ["source"] }
+        ],
+        "recipes": [
+            { "id": "smelt", "name": "Smelt", "category": "smelt", "time": 1, "in": [["ore", 1]], "out": [["plate", 1]] },
+            { "id": "source_ore", "name": "Source Ore", "category": "source", "time": 1, "out": [["ore", 1]] }
+        ]
+    })json";
+
+    gamedata::LoadReport report;
+    gamedata::GamePackage pkg;
+    ASSERT_TRUE(gamedata::loadGamePackageFromMemory(pkg_json, {}, pkg, report))
+        << (report.errors.empty() ? "" : report.errors.front().formatted);
+
+    FactoryGraph g(pkg);
+    const auto& vis0 = g.getEntityVisibility();
+    const uint64_t rev0 = vis0.revision;
+    EXPECT_FALSE(vis0.all_visible);
+    EXPECT_FALSE(g.isMachineVisibleForRecipe("debug_smelter", "smelt"));
+    EXPECT_TRUE(g.isMachineVisibleForRecipe("real_smelter", "smelt"));
+    EXPECT_TRUE(vis0.isRecipeVisible(pkg.recipe_index.at("smelt")));
+    EXPECT_FALSE(vis0.isRecipeVisible(pkg.recipe_index.at("source_ore")));
+
+    // Creating a new "smelt" node must pick visible "real_smelter" even though "debug_smelter" is listed first!
+    uint64_t n1 = g.addNode("Smelt", "smelt");
+    ASSERT_NE(g.getNode(n1), nullptr);
+    EXPECT_EQ(g.getNode(n1)->machine_key, "real_smelter");
+    // Evaluating nodes does not bump visibility revision
+    EXPECT_EQ(g.getEntityVisibility().revision, rev0);
+
+    // Enable show_debug -> revision advances and sandbox entries become visible
+    ASSERT_TRUE(g.setGlobalParam("show_debug", gamedata::ParamValue::boolean(true)));
+    const auto& vis1 = g.getEntityVisibility();
+    const uint64_t rev1 = vis1.revision;
+    EXPECT_GT(rev1, rev0);
+    EXPECT_TRUE(g.isMachineVisibleForRecipe("debug_smelter", "smelt"));
+    EXPECT_TRUE(vis1.isRecipeVisible(pkg.recipe_index.at("source_ore")));
+
+    // Place a sandbox node while show_debug is ON, then turn show_debug OFF
+    uint64_t nSrc = g.addNode("Source", "source_ore");
+    ASSERT_NE(g.getNode(nSrc), nullptr);
+    EXPECT_EQ(g.getNode(nSrc)->machine_key, "item_source");
+
+    ASSERT_TRUE(g.setGlobalParam("show_debug", gamedata::ParamValue::boolean(false)));
+    const auto& vis2 = g.getEntityVisibility();
+    EXPECT_GT(vis2.revision, rev1);
+    EXPECT_FALSE(vis2.isRecipeVisible(pkg.recipe_index.at("source_ore")));
+
+    // Picker-only hiding: existing placed sandbox node remains valid and OK!
+    ASSERT_NE(g.getNodeEval(nSrc), nullptr);
+    EXPECT_EQ(g.getNodeEval(nSrc)->status, gamedata::EvalStatus::OK);
+}
+
 
 
 

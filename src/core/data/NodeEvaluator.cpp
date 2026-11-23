@@ -25,14 +25,13 @@ void lockAllPortsInactive(NodeEval& nodeEval) {
     }
 }
 
-void populateMachineAndRecipeEnv(
-    const Machine& machine,
-    const Recipe& recipe,
-    expr::EvalEnv& env) {
+void populateMachineEnv(const Machine& machine, expr::EvalEnv& env) {
     env.machine.id = machine.id;
     env.machine.speed = machine.speed;
     env.machine.attrs = machine.attrs;
+}
 
+void populateRecipeEnv(const Recipe& recipe, expr::EvalEnv& env) {
     env.recipe.id = recipe.id;
     env.recipe.time = recipe.time_seconds;
     env.recipe.time_raw = recipe.time_raw;
@@ -41,6 +40,41 @@ void populateMachineAndRecipeEnv(
     env.recipe.output_items_total = recipe.output_items_total;
     env.recipe.output_fluids_total = recipe.output_fluids_total;
     env.recipe.attrs = recipe.attrs;
+}
+
+void populateMachineAndRecipeEnv(
+    const Machine& machine,
+    const Recipe& recipe,
+    expr::EvalEnv& env) {
+    populateMachineEnv(machine, env);
+    populateRecipeEnv(recipe, env);
+}
+
+bool evalVisibilityBoolExpr(
+    const BoolOrExpr& be,
+    const ResolvedGlobals& globals,
+    const expr::EvalEnv& env) {
+    if (!be.is_present) {
+        return true;
+    }
+    if (be.is_literal) {
+        return be.literal_value;
+    }
+    if (!be.compiled_expr.isValid()) {
+        return true;
+    }
+    for (const std::string& gid : be.compiled_expr.referenced_globals) {
+        auto stIt = globals.status_by_global.find(gid);
+        if (stIt != globals.status_by_global.end() &&
+            (stIt->second == EvalStatus::ERROR || stIt->second == EvalStatus::BLOCKED)) {
+            return true; // Fail open in pickers on broken/blocked globals
+        }
+    }
+    expr::EvalResult res = expr::evaluate(be.compiled_expr, env);
+    if (!res.ok || !res.value.isBool()) {
+        return true;
+    }
+    return res.value.asBool();
 }
 
 void bindRecipePortToEnv(const RecipePort& p, expr::PortEvalInfo& outPort) {
@@ -1846,6 +1880,167 @@ std::vector<MetricTotal> aggregateMetricTotals(
     }
 
     return totals;
+}
+
+EntityVisibility evaluateEntityVisibility(
+    const GamePackage& pkg,
+    const ResolvedGlobals& globals,
+    uint64_t revision) {
+    EntityVisibility vis;
+    vis.revision = revision;
+    if (!pkg.has_entity_visibility) {
+        vis.all_visible = true;
+        return vis;
+    }
+
+    vis.all_visible = false;
+    vis.machine_visible.assign(pkg.machines.size(), 1);
+    vis.recipe_visible.assign(pkg.recipes.size(), 1);
+
+    expr::EvalEnv env = pkg.base_eval_env;
+    env.globals = globals.eval_values;
+
+    // 1. Evaluate machine visibility: profile.visible_if && machine.visible_if
+    for (size_t mi = 0; mi < pkg.machines.size(); ++mi) {
+        const Machine& mach = pkg.machines[mi];
+        const Profile* prof = pkg.findProfile(mach.profile);
+        const bool hasProfVis = (prof != nullptr && prof->visible_if.is_present);
+        const bool hasMachVis = mach.visible_if.is_present;
+        if (!hasProfVis && !hasMachVis) {
+            continue;
+        }
+        if ((hasProfVis && prof->visible_if.is_literal && !prof->visible_if.literal_value) ||
+            (hasMachVis && mach.visible_if.is_literal && !mach.visible_if.literal_value)) {
+            vis.machine_visible[mi] = 0;
+            continue;
+        }
+        const bool needsExpr =
+            (hasProfVis && !prof->visible_if.is_literal) ||
+            (hasMachVis && !mach.visible_if.is_literal);
+        if (needsExpr) {
+            populateMachineEnv(mach, env);
+        }
+        bool ok = true;
+        if (hasProfVis && !evalVisibilityBoolExpr(prof->visible_if, globals, env)) {
+            ok = false;
+        }
+        if (ok && hasMachVis && !evalVisibilityBoolExpr(mach.visible_if, globals, env)) {
+            ok = false;
+        }
+        vis.machine_visible[mi] = ok ? 1 : 0;
+    }
+
+    // 2. Evaluate recipe visibility:
+    // recipe.visible_if && exists compatible machine M with machine_visible[M] && profile(M).recipe_visible_if(R)
+    std::vector<std::pair<const Profile*, bool>> profileVisMemo;
+    for (size_t ri = 0; ri < pkg.recipes.size(); ++ri) {
+        const Recipe& rec = pkg.recipes[ri];
+        bool recipeEnvPopulated = false;
+
+        if (rec.visible_if.is_present) {
+            if (rec.visible_if.is_literal) {
+                if (!rec.visible_if.literal_value) {
+                    vis.recipe_visible[ri] = 0;
+                    continue;
+                }
+            } else {
+                populateRecipeEnv(rec, env);
+                recipeEnvPopulated = true;
+                if (!evalVisibilityBoolExpr(rec.visible_if, globals, env)) {
+                    vis.recipe_visible[ri] = 0;
+                    continue;
+                }
+            }
+        }
+
+        if (rec.compatible_machine_ids.empty()) {
+            vis.recipe_visible[ri] = 1;
+            continue;
+        }
+
+        bool anyCompatibleVisible = false;
+        profileVisMemo.clear();
+        for (const std::string& mid : rec.compatible_machine_ids) {
+            auto mit = pkg.machine_index.find(mid);
+            if (mit == pkg.machine_index.end()) {
+                continue;
+            }
+            const size_t mi = mit->second;
+            if (!vis.machine_visible[mi]) {
+                continue;
+            }
+            const Profile* prof = pkg.findProfile(pkg.machines[mi].profile);
+            if (prof == nullptr || !prof->recipe_visible_if.is_present) {
+                anyCompatibleVisible = true;
+                break;
+            }
+            if (prof->recipe_visible_if.is_literal) {
+                if (prof->recipe_visible_if.literal_value) {
+                    anyCompatibleVisible = true;
+                    break;
+                }
+                continue;
+            }
+
+            bool foundMemo = false;
+            bool memoVal = false;
+            for (const auto& [pptr, val] : profileVisMemo) {
+                if (pptr == prof) {
+                    foundMemo = true;
+                    memoVal = val;
+                    break;
+                }
+            }
+            if (!foundMemo) {
+                if (!recipeEnvPopulated) {
+                    populateRecipeEnv(rec, env);
+                    recipeEnvPopulated = true;
+                }
+                memoVal = evalVisibilityBoolExpr(prof->recipe_visible_if, globals, env);
+                profileVisMemo.emplace_back(prof, memoVal);
+            }
+            if (memoVal) {
+                anyCompatibleVisible = true;
+                break;
+            }
+        }
+        vis.recipe_visible[ri] = anyCompatibleVisible ? 1 : 0;
+    }
+
+    return vis;
+}
+
+bool isMachineVisibleForRecipe(
+    const GamePackage& pkg,
+    const EntityVisibility& visibility,
+    const ResolvedGlobals& globals,
+    std::string_view machineId,
+    std::string_view recipeId) {
+    if (visibility.all_visible) {
+        return true;
+    }
+    auto mit = pkg.machine_index.find(std::string(machineId));
+    if (mit == pkg.machine_index.end()) {
+        return false;
+    }
+    if (!visibility.isMachineVisible(mit->second)) {
+        return false;
+    }
+    const Profile* prof = pkg.findProfile(pkg.machines[mit->second].profile);
+    if (prof == nullptr || !prof->recipe_visible_if.is_present) {
+        return true;
+    }
+    if (prof->recipe_visible_if.is_literal) {
+        return prof->recipe_visible_if.literal_value;
+    }
+    const Recipe* rec = pkg.findRecipe(recipeId);
+    if (rec == nullptr) {
+        return true;
+    }
+    expr::EvalEnv env = pkg.base_eval_env;
+    env.globals = globals.eval_values;
+    populateRecipeEnv(*rec, env);
+    return evalVisibilityBoolExpr(prof->recipe_visible_if, globals, env);
 }
 
 } // namespace gamedata

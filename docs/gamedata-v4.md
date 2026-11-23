@@ -183,7 +183,8 @@ Built-in `"default"` profile (implicitly inherited by every profile unless `exte
 }
 ```
 
-- **Inheritance (`extends`):** `params` appends child entries (deduplicated, keeping first position); `let`, `metrics`, and `extra_ports` merge by key/`id` (preserving parent order in `extra_ports`); `requires` appends; `craft_time`, `input_amount`, `output_amount`, `port_enabled`, `input_enabled`, `output_enabled` replace.
+- **Inheritance (`extends`):** `params` appends child entries (deduplicated, keeping first position); `let`, `metrics`, and `extra_ports` merge by key/`id` (preserving parent order in `extra_ports`); `requires` appends; `craft_time`, `input_amount`, `output_amount`, `port_enabled`, `input_enabled`, `output_enabled`, `visible_if`, and `recipe_visible_if` replace.
+- **Picker visibility (`visible_if`, `recipe_visible_if`):** Optional bool literal or expression on profiles (`visible_if` for machines, `recipe_visible_if` for recipes), machines (`visible_if`), and recipes (`visible_if`). Evaluated against `game.*`, `global.*`, and own entity fields/attrs whenever Project Globals change (picker-only; placed nodes remain valid unless `requires` also blocks them). A recipe is hidden when its own `visible_if` is false or all compatible machines are hidden (or reject it via `recipe_visible_if`). Not supported on `resources` (use `allowed_if` on `resource_choice`).
 - **Port enable precedence:** port-level `enabled` → `input_enabled` / `output_enabled` → `port_enabled` → `true`.
 - **Port amount precedence:** port-level `amount_expr` → `input_amount` / `output_amount`.
 - **Extra ports:** Machine/profile-level ports (fuel, spray, water booster, ash):
@@ -198,12 +199,12 @@ Built-in `"default"` profile (implicitly inherited by every profile unless `exte
 ### 2.7 Resources, machines & recipes
 
 - **Resource:** `{ "id", "name", "kind": "item", "tags": [], "attrs": {}, "notes" }`.
-- **Machine:** `{ "id", "name", "profile": "default", "categories": [], "speed": 1.0, "attrs": {}, "notes" }`. `speed > 0`.
+- **Machine:** `{ "id", "name", "profile": "default", "categories": [], "speed": 1.0, "attrs": {}, "visible_if": true, "notes" }`. `speed > 0`.
 - **Recipe:**
   ```json
   { "id": "iron-plate", "name": "Iron Plate", "category": "constructor", "time": 6,
     "in": [["iron-ingot", 3]], "out": [["iron-plate", 2]],
-    "setup": [["circuit-1", 1]], "attrs": {}, "overrides": {} }
+    "setup": [["circuit-1", 1]], "attrs": {}, "visible_if": true, "overrides": {} }
   ```
   - Must specify **exactly one** of `"category"` or `"machines"` (`V-REF-2`), `time > 0` (`V-NUM-1`), and at least one port in `in` or `out` (`V-NUM-4`).
   - **Short tuple port:** `[res_id, amount]` or `[res_id, amount, chance]`. Prefer short form for 50k-scale packs.
@@ -266,6 +267,8 @@ When an `allow_none` parameter/global is `null`: `param.x == 'k'` is `false` and
 | Context | Used In | Available Names |
 |---|---|---|
 | **globals static** | `globals.*` (`min`, `max`, `count`, `visible_if`, `allowed_if`) | `game.*`, other `global.*`, `option` (in `allowed_if`) |
+| **machine visibility** | `profile.visible_if`, `machine.visible_if` | `game.*`, `global.*`, `machine.*` (picker-only) |
+| **recipe visibility** | `profile.recipe_visible_if`, `recipe.visible_if` | `game.*`, `global.*`, `recipe.*` (picker-only) |
 | **static** | `parameters.*` (`min`, `max`, `count`, `visible_if`, `allowed_if`) | `game.*`, `global.*`, `machine.*`, `recipe.*`, earlier `param.*` in profile, `option` (`allowed_if`), `port.*` excl. `port.resource` (port-bound `resource_choice` only) |
 | **pre-solve** | `let`, `requires`, `craft_time`, port/extra-port formulas, metric `enabled`/`per_machine`/`per_craft` | static + all profile `param.*` + `let` names + `craft_time` (after step 4) + `port.*` (recipe port formulas only; `port.resource` only in `enabled`/`amount_expr`) |
 | **post-solve** | metric `value` | pre-solve (without `port.*`) + `node.machines`, `node.crafts` |
