@@ -2673,5 +2673,232 @@ TEST_F(FactorySolverTest, CyclicFeedbackAndMixedScaleStability) {
     }
 }
 
+TEST_F(FactorySolverTest, SharedTargetUpstreamSuppliesDownstreamTargetConsumer_Factory10) {
+    // Reproduces Factory_10.fpp:
+    //  - Electronic circuit (1 plate + 3 cable -> 1 green, t = 1s) splits to:
+    //      1) Advanced circuit (2 green + 2 plastic + 4 cable -> 1 red, t = 12s) with 1.0 [AUTO -> TARGET]
+    //      2) Flying robot frame (1 engine + 2 battery + 1 steel + 3 green -> 1 frame, t = 40s)
+    //         -> Utility science pack (2 lds + 2 pu + 1 frame -> 3 util_sci, t = 42s)
+    //         -> Research (1 auto_sci + 1 util_sci -> 1 research, t = 120s)
+    //  - Automation science pack (1 copper + 1 gear -> 1 auto_sci, t = 10s) with 15.0 [AUTO -> TARGET]
+    //    wired to Research.
+    defResource("green_circuit", "Electronic circuit");
+    defResource("red_circuit", "Advanced circuit");
+    defResource("plastic", "Plastic");
+    defResource("cable", "Copper cable");
+    defResource("gear", "Iron gear");
+    defResource("auto_sci", "Automation science pack");
+    defResource("engine", "Electric engine");
+    defResource("battery", "Battery");
+    defResource("steel", "Steel");
+    defResource("robot_frame", "Flying robot frame");
+    defResource("lds", "Low density structure");
+    defResource("proc_unit", "Processing unit");
+    defResource("util_sci", "Utility science pack");
+    defResource("research_unit", "Research");
+
+    defMachine(testGameData, "am1", "Assembling machine 1", 1.0);
+    defMachine(testGameData, "lab", "Lab", 1.0);
+
+    defRecipe("elec_circuit", "Electronic circuit", 1.0, {"am1"},
+              {{"iron_plate", 1.0}, {"cable", 3.0}}, {{"green_circuit", 1.0}});
+    defRecipe("adv_circuit", "Advanced circuit", 12.0, {"am1"},
+              {{"green_circuit", 2.0}, {"plastic", 2.0}, {"cable", 4.0}}, {{"red_circuit", 1.0}});
+    defRecipe("auto_science", "Automation science pack", 10.0, {"am1"},
+              {{"copper_ingot", 1.0}, {"gear", 1.0}}, {{"auto_sci", 1.0}});
+    defRecipe("flying_frame", "Flying robot frame", 40.0, {"am1"},
+              {{"engine", 1.0}, {"battery", 2.0}, {"steel", 1.0}, {"green_circuit", 3.0}}, {{"robot_frame", 1.0}});
+    defRecipe("util_science", "Utility science pack", 42.0, {"am1"},
+              {{"lds", 2.0}, {"proc_unit", 2.0}, {"robot_frame", 1.0}}, {{"util_sci", 3.0}});
+    defRecipe("lab_research", "Research", 120.0, {"lab"},
+              {{"auto_sci", 1.0}, {"util_sci", 1.0}}, {{"research_unit", 1.0}});
+
+    FactoryGraph g(testGameData);
+    uint64_t n_green = g.addNode("Green", "elec_circuit");
+    uint64_t n_red = g.addNode("Red", "adv_circuit");
+    uint64_t n_auto = g.addNode("AutoSci", "auto_science");
+    uint64_t n_frame = g.addNode("Frame", "flying_frame");
+    uint64_t n_util = g.addNode("UtilSci", "util_science");
+    uint64_t n_lab = g.addNode("Lab", "lab_research");
+
+    Port* p_green_out = g.getPortBySlot(n_green, "out:0");
+    Port* p_red_green_in = g.getPortBySlot(n_red, "in:0");
+    Port* p_red_out = g.getPortBySlot(n_red, "out:0");
+    Port* p_auto_out = g.getPortBySlot(n_auto, "out:0");
+    Port* p_frame_green_in = g.getPortBySlot(n_frame, "in:3");
+    Port* p_frame_out = g.getPortBySlot(n_frame, "out:0");
+    Port* p_util_frame_in = g.getPortBySlot(n_util, "in:2");
+    Port* p_util_out = g.getPortBySlot(n_util, "out:0");
+    Port* p_lab_auto_in = g.getPortBySlot(n_lab, "in:0");
+    Port* p_lab_util_in = g.getPortBySlot(n_lab, "in:1");
+    Port* p_lab_out = g.getPortBySlot(n_lab, "out:0");
+
+    ASSERT_NE(g.addConnection(p_green_out->id, p_red_green_in->id), static_cast<uint64_t>(-1));
+    ASSERT_NE(g.addConnection(p_green_out->id, p_frame_green_in->id), static_cast<uint64_t>(-1));
+    ASSERT_NE(g.addConnection(p_frame_out->id, p_util_frame_in->id), static_cast<uint64_t>(-1));
+    ASSERT_NE(g.addConnection(p_util_out->id, p_lab_util_in->id), static_cast<uint64_t>(-1));
+    ASSERT_NE(g.addConnection(p_auto_out->id, p_lab_auto_in->id), static_cast<uint64_t>(-1));
+
+    g.setPortConstraint(p_red_out->id, 1.0, ConstraintMode::AUTO);
+    g.setPortConstraint(p_auto_out->id, 15.0, ConstraintMode::AUTO);
+
+    // 1. Default AUTO (uncapped): Electronic circuit supplies 2 to Advanced circuit + 15 to Robot frame (17 total)
+    // so Research consumes all 15 Automation science packs with 0 excess.
+    auto res1 = solver->solve(g);
+    ASSERT_EQ(res1.status, FactorySolver::SolverResultStatus::SUCCESS);
+    EXPECT_NEAR(p_red_out->rate, 1.0, 1e-6);
+    EXPECT_NEAR(p_auto_out->rate, 15.0, 1e-6);
+    EXPECT_DOUBLE_EQ(p_auto_out->excess_rate, 0.0);
+    EXPECT_NEAR(p_green_out->rate, 17.0, 1e-6);
+    EXPECT_DOUBLE_EQ(p_green_out->excess_rate, 0.0);
+    EXPECT_NEAR(p_frame_out->rate, 5.0, 1e-6);
+    EXPECT_NEAR(p_util_out->rate, 15.0, 1e-6);
+    EXPECT_NEAR(p_lab_out->rate, 15.0, 1e-6);
+
+    // 2. Electronic circuit capped at LIMIT 10: 2 go to Advanced circuit, remaining 8 drive Research = 8 (7 excess).
+    g.setPortConstraint(p_green_out->id, 10.0, ConstraintMode::LIMIT);
+    auto res2 = solver->solve(g);
+    ASSERT_EQ(res2.status, FactorySolver::SolverResultStatus::SUCCESS);
+    EXPECT_NEAR(p_red_out->rate, 1.0, 1e-6);
+    EXPECT_NEAR(p_green_out->rate, 10.0, 1e-6);
+    EXPECT_NEAR(p_util_out->rate, 8.0, 1e-6);
+    EXPECT_NEAR(p_lab_out->rate, 8.0, 1e-6);
+    EXPECT_NEAR(p_auto_out->excess_rate, 7.0, 1e-6);
+
+    // 3. Electronic circuit capped at LIMIT 2: all 2 go to Advanced circuit; Frame / UtilSci / Lab must be exact 0.0
+    // (no ~1.3e-6 stage-lock tolerance leakage).
+    g.setPortConstraint(p_green_out->id, 2.0, ConstraintMode::LIMIT);
+    auto res3 = solver->solve(g);
+    ASSERT_EQ(res3.status, FactorySolver::SolverResultStatus::SUCCESS);
+    EXPECT_NEAR(p_red_out->rate, 1.0, 1e-6);
+    EXPECT_NEAR(p_green_out->rate, 2.0, 1e-6);
+    EXPECT_DOUBLE_EQ(p_frame_out->rate, 0.0);
+    EXPECT_DOUBLE_EQ(p_util_out->rate, 0.0);
+    EXPECT_DOUBLE_EQ(p_lab_out->rate, 0.0);
+    EXPECT_DOUBLE_EQ(g.getNode(n_frame)->machine_count, 0.0);
+    EXPECT_DOUBLE_EQ(g.getNode(n_util)->machine_count, 0.0);
+    EXPECT_DOUBLE_EQ(g.getNode(n_lab)->machine_count, 0.0);
+    EXPECT_NEAR(p_auto_out->excess_rate, 15.0, 1e-6);
+}
+
+TEST_F(FactorySolverTest, TargetServingIntermediateDoesNotCompressWaste_SharedCircuitBoard) {
+    // Extends Scenario 11 (Factory_1): Electrode Circuit Board (4 Rubber + 8 Coke -> 1 CB) feeds BOTH:
+    //  - Computer (1 CB -> 1 Computer, TARGET = 1.0), which puts Electrode Circuit Board inside T_K, AND
+    //  - Electric Motor (1 CB + 4 Rotor -> 4 Motor), fed by Rotor = 6.0 (TARGET = 6.0 -> needs 1.5 CB = 6 Rubber).
+    // Rubber Refinery produces 50 Rubber (30 consumed by Recycled Plastic -> 20 left).
+    // Expected: Computer = 1.0 (4 Rubber), Motor = 6.0 (6 Rubber, 0 Rotor excess), CB = 2.5 (0 CB excess),
+    // and the remaining 10 Rubber stays on Rubber.out as excess instead of 4:1 compressing into 2.5 excess CB.
+    defResource("oil", "Crude Oil");
+    defResource("fuel", "Fuel");
+    defResource("rubber", "Rubber");
+    defResource("plastic", "Plastic");
+    defResource("coke", "Coke");
+    defResource("circuit_board", "Circuit Board");
+    defResource("computer", "Computer");
+    defResource("rotor", "Rotor");
+    defResource("motor", "Electric Motor");
+
+    defRecipe("extract_oil", "Extract Oil", 1.0, {"miner"}, {}, {{"oil", 50.0}});
+    defRecipe("ref_rubber", "Rubber Refinery", 1.0, {"assembler"}, {{"oil", 50.0}}, {{"fuel", 50.0}, {"rubber", 50.0}});
+    defRecipe("recycled_plastic", "Recycled Plastic", 1.0, {"assembler"}, {{"rubber", 30.0}}, {{"plastic", 60.0}});
+    defRecipe("ref_coke", "Coke Refinery", 1.0, {"miner"}, {}, {{"coke", 120.0}});
+    defRecipe("make_cb", "Electrode Circuit Board", 1.0, {"assembler"}, {{"rubber", 4.0}, {"coke", 8.0}}, {{"circuit_board", 1.0}});
+    defRecipe("make_computer", "Make Computer", 1.0, {"assembler"}, {{"circuit_board", 1.0}}, {{"computer", 1.0}});
+    defRecipe("make_rotor", "Make Rotor", 1.0, {"constructor"}, {{"iron_ingot", 6.0}}, {{"rotor", 6.0}});
+    defRecipe("make_motor", "Electric Motor", 1.0, {"assembler"}, {{"circuit_board", 1.0}, {"rotor", 4.0}}, {{"motor", 4.0}});
+
+    FactoryGraph g(testGameData);
+    uint64_t n_oil = g.addNode("Oil", "extract_oil");
+    uint64_t n_rub = g.addNode("RubRef", "ref_rubber");
+    uint64_t n_plas = g.addNode("RecPlas", "recycled_plastic");
+    uint64_t n_coke = g.addNode("Coke", "ref_coke");
+    uint64_t n_cb = g.addNode("CB", "make_cb");
+    uint64_t n_comp = g.addNode("Comp", "make_computer");
+    uint64_t n_rotor = g.addNode("Rotor", "make_rotor");
+    uint64_t n_motor = g.addNode("Motor", "make_motor");
+
+    Port* p_rub_fuel = g.getPortBySlot(n_rub, "out:0");
+    Port* p_rub_out = g.getPortBySlot(n_rub, "out:1");
+    Port* p_plas_out = g.getPortBySlot(n_plas, "out:0");
+    Port* p_coke_out = g.getPortBySlot(n_coke, "out:0");
+    Port* p_cb_out = g.getPortBySlot(n_cb, "out:0");
+    Port* p_comp_out = g.getPortBySlot(n_comp, "out:0");
+    Port* p_rotor_out = g.getPortBySlot(n_rotor, "out:0");
+    Port* p_motor_out = g.getPortBySlot(n_motor, "out:0");
+
+    ASSERT_NE(g.addConnection(g.getPortBySlot(n_oil, "out:0")->id, g.getPortBySlot(n_rub, "in:0")->id), static_cast<uint64_t>(-1));
+    ASSERT_NE(g.addConnection(p_rub_out->id, g.getPortBySlot(n_plas, "in:0")->id), static_cast<uint64_t>(-1));
+    ASSERT_NE(g.addConnection(p_rub_out->id, g.getPortBySlot(n_cb, "in:0")->id), static_cast<uint64_t>(-1));
+    ASSERT_NE(g.addConnection(p_coke_out->id, g.getPortBySlot(n_cb, "in:1")->id), static_cast<uint64_t>(-1));
+    ASSERT_NE(g.addConnection(p_cb_out->id, g.getPortBySlot(n_comp, "in:0")->id), static_cast<uint64_t>(-1));
+    ASSERT_NE(g.addConnection(p_cb_out->id, g.getPortBySlot(n_motor, "in:0")->id), static_cast<uint64_t>(-1));
+    ASSERT_NE(g.addConnection(p_rotor_out->id, g.getPortBySlot(n_motor, "in:1")->id), static_cast<uint64_t>(-1));
+
+    g.setPortConstraint(p_rub_fuel->id, 50.0, ConstraintMode::AUTO);
+    g.setPortConstraint(p_plas_out->id, 60.0, ConstraintMode::AUTO);
+    g.setPortConstraint(p_coke_out->id, 120.0, ConstraintMode::AUTO);
+    g.setPortConstraint(p_comp_out->id, 1.0, ConstraintMode::AUTO);
+    g.setPortConstraint(p_rotor_out->id, 6.0, ConstraintMode::AUTO);
+
+    auto res = solver->solve(g);
+    ASSERT_EQ(res.status, FactorySolver::SolverResultStatus::SUCCESS);
+
+    EXPECT_NEAR(p_comp_out->rate, 1.0, 1e-6);
+    EXPECT_NEAR(p_motor_out->rate, 6.0, 1e-6);
+    EXPECT_DOUBLE_EQ(p_rotor_out->excess_rate, 0.0);
+    EXPECT_NEAR(p_cb_out->rate, 2.5, 1e-6);
+    EXPECT_DOUBLE_EQ(p_cb_out->excess_rate, 0.0);
+    EXPECT_NEAR(p_rub_out->rate, 50.0, 1e-6);
+    EXPECT_NEAR(p_rub_out->excess_rate, 10.0, 1e-6);
+}
+
+TEST_F(FactorySolverTest, StageLockReducedCostZeroFixing_NoPhantomSplitterLeakageIntoIdleBranches) {
+    // Component has both a large Stage 2b T_K machine sum (500 machines) and a large Stage 3a residual machine sum
+    // (200 machines on a byproduct converter), alongside a splitter on Electronic circuit feeding Advanced circuit
+    // (2.0/s) and an unconstrained, undemanded idle branch (IdleConsumer).
+    // Stage 4 (splitter balancing) must NOT exploit Stage 2b/3a lockTolerance to leak ~1e-6 flow into IdleConsumer.
+    defResource("byprod", "Byproduct");
+    defResource("treated", "Treated");
+    defRecipe("heavy_target", "Heavy Target", 10.0, {"assembler"},
+              {{"iron_plate", 1.0}}, {{"wire", 1.0}, {"byprod", 1.0}});
+    defRecipe("treat_byprod", "Treat Byproduct", 4.0, {"constructor"},
+              {{"byprod", 1.0}}, {{"treated", 1.0}});
+    defRecipe("idle_consumer", "Idle Consumer", 20.0, {"assembler"},
+              {{"iron_ingot", 1.0}}, {{"screw", 1.0}});
+
+    FactoryGraph g(testGameData);
+    uint64_t n_smelt = g.addNode("Smelt", "smelt_ingot");
+    uint64_t n_plates = g.addNode("Plates", "make_plates");
+    uint64_t n_idle = g.addNode("Idle", "idle_consumer");
+    uint64_t n_heavy = g.addNode("Heavy", "heavy_target");
+    uint64_t n_treat = g.addNode("Treat", "treat_byprod");
+
+    Port* p_smelt_out = g.getPortBySlot(n_smelt, "out:0");
+    Port* p_plates_in = g.getPortBySlot(n_plates, "in:0");
+    Port* p_plates_out = g.getPortBySlot(n_plates, "out:0");
+    Port* p_idle_in = g.getPortBySlot(n_idle, "in:0");
+    Port* p_idle_out = g.getPortBySlot(n_idle, "out:0");
+    Port* p_heavy_in = g.getPortBySlot(n_heavy, "in:0");
+    Port* p_heavy_out = g.getPortBySlot(n_heavy, "out:0");
+    Port* p_heavy_byprod = g.getPortBySlot(n_heavy, "out:1");
+    Port* p_treat_in = g.getPortBySlot(n_treat, "in:0");
+
+    ASSERT_NE(g.addConnection(p_smelt_out->id, p_plates_in->id), static_cast<uint64_t>(-1));
+    ASSERT_NE(g.addConnection(p_smelt_out->id, p_idle_in->id), static_cast<uint64_t>(-1));
+    ASSERT_NE(g.addConnection(p_plates_out->id, p_heavy_in->id), static_cast<uint64_t>(-1));
+    ASSERT_NE(g.addConnection(p_heavy_byprod->id, p_treat_in->id), static_cast<uint64_t>(-1));
+
+    g.setPortConstraint(p_heavy_out->id, 50.0, ConstraintMode::TARGET); // 500 machines in T_K, 200 machines in 3a
+
+    auto res = solver->solve(g);
+    ASSERT_EQ(res.status, FactorySolver::SolverResultStatus::SUCCESS);
+    EXPECT_NEAR(p_heavy_out->rate, 50.0, 1e-5);
+    EXPECT_NEAR(p_treat_in->rate, 50.0, 1e-5);
+    EXPECT_DOUBLE_EQ(p_idle_in->rate, 0.0);
+    EXPECT_DOUBLE_EQ(p_idle_out->rate, 0.0);
+    EXPECT_DOUBLE_EQ(g.getNode(n_idle)->machine_count, 0.0);
+}
+
+
 
 

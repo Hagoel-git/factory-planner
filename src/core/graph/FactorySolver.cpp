@@ -523,9 +523,11 @@ void FactorySolver::analyzeComponent(const FactoryGraph& factory_graph, Componen
     }
 
     // Target-serving subgraph T_K = BackwardBFS({v(p) | p in G_K and mode(p) == TARGET}) \ S+_K
+    std::unordered_set<uint64_t> target_goal_ports;
     std::unordered_set<uint64_t> target_node_seeds;
     for (uint64_t pid : comp.active_goals) {
         if (comp.resolved_modes[pid] == ConstraintMode::TARGET) {
+            target_goal_ports.insert(pid);
             if (const Port* p = factory_graph.getPort(pid)) {
                 target_node_seeds.insert(p->node_id);
             }
@@ -538,7 +540,7 @@ void FactorySolver::analyzeComponent(const FactoryGraph& factory_graph, Componen
         }
     }
 
-    // Push-driven no-overflow port set Z_K
+    // No-overflow port set Z_K (and intermediate single-path target-serving ports that cannot shed excess)
     std::vector<uint64_t> rated_push_seeds;
     std::vector<uint64_t> unrated_push_seeds;
     for (uint64_t pid : comp.ports) {
@@ -555,10 +557,64 @@ void FactorySolver::analyzeComponent(const FactoryGraph& factory_graph, Componen
         forwardPortBFS(rated_push_seeds, /*restrict_to_non_target_serving=*/false);
     const std::unordered_set<uint64_t> cl_unrated =
         forwardPortBFS(unrated_push_seeds, /*restrict_to_non_target_serving=*/true);
+    const std::unordered_set<uint64_t> cl_unrated_full = unrated_push_seeds.empty()
+        ? std::unordered_set<uint64_t>{}
+        : forwardPortBFS(unrated_push_seeds, /*restrict_to_non_target_serving=*/false);
 
     for (uint64_t pid : comp.output_ports) {
-        if (comp.port_outgoing.find(pid) == comp.port_outgoing.end()) continue;
+        auto out_it = comp.port_outgoing.find(pid);
+        if (out_it == comp.port_outgoing.end() || out_it->second.empty()) continue;
+
         if (cl_rated.count(pid) || cl_unrated.count(pid)) {
+            comp.no_overflow_ports.insert(pid);
+            continue;
+        }
+
+        const Port* p = factory_graph.getPort(pid);
+        if (!p || !comp.target_serving_nodes.count(p->node_id)) {
+            comp.no_overflow_ports.insert(pid);
+            continue;
+        }
+
+        // Within T_K \ Z_K, wired excess E_p > 0 is only needed when node(p) can be driven independently of W+(p):
+        //  (a) p itself is an active TARGET goal,
+        //  (b) an active input port of node(p) is an active TARGET goal,
+        //  (c) another active output port q != p of node(p) serves a TARGET (q in target_goal_ports or feeds T_K), or
+        //  (d) p is reachable from an unrated PUSH port (e.g. byproduct recycling into T_K).
+        // Otherwise (e.g. single-output intermediate nodes in T_K), E_p = 0 prevents multi-input waste compression.
+        bool can_shed_excess = target_goal_ports.count(pid) > 0 || cl_unrated_full.count(pid) > 0;
+        if (!can_shed_excess) {
+            if (const Node* node = factory_graph.getNode(p->node_id)) {
+                for (uint64_t in_pid : node->input_ports) {
+                    if (target_goal_ports.count(in_pid)) {
+                        can_shed_excess = true;
+                        break;
+                    }
+                }
+                if (!can_shed_excess) {
+                    for (uint64_t other_out : node->output_ports) {
+                        if (other_out == pid || !comp.output_ports.count(other_out)) continue;
+                        if (target_goal_ports.count(other_out)) {
+                            can_shed_excess = true;
+                            break;
+                        }
+                        auto other_wires = comp.port_outgoing.find(other_out);
+                        if (other_wires != comp.port_outgoing.end()) {
+                            for (uint64_t cid : other_wires->second) {
+                                const Connection* conn = factory_graph.getConnection(cid);
+                                const Port* to_p = conn ? factory_graph.getPort(conn->to_port) : nullptr;
+                                if (to_p && comp.target_serving_nodes.count(to_p->node_id)) {
+                                    can_shed_excess = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (can_shed_excess) break;
+                    }
+                }
+            }
+        }
+        if (!can_shed_excess) {
             comp.no_overflow_ports.insert(pid);
         }
     }
@@ -929,45 +985,14 @@ void FactorySolver::addRecipeConstraints(const FactoryGraph& factory_graph, cons
 }
 
 void FactorySolver::addConnectionConstraints(const FactoryGraph& factory_graph, ComponentData& comp) {
-    auto addBalance = [&](const std::string& prefix,
-                          const uint64_t port_id,
-                          const std::vector<uint64_t>& conn_ids,
-                          std::vector<std::pair<MPVariable*, MPVariable*>>& target_list) {
-        if (conn_ids.size() < 2) {
-            return;
-        }
-        const std::string suffix = std::to_string(port_id);
-        MPVariable* hi = m_solver->MakeNumVar(0.0, MPSolver::infinity(), prefix + "Max_" + suffix);
-        MPVariable* lo = m_solver->MakeNumVar(0.0, MPSolver::infinity(), prefix + "Min_" + suffix);
-        for (const uint64_t conn_id : conn_ids) {
-            MPVariable* flow = m_connectionVariables.at(conn_id);
-
-            MPConstraint* upper = m_solver->MakeRowConstraint(-MPSolver::infinity(), 0.0);
-            upper->SetCoefficient(flow, 1.0);
-            upper->SetCoefficient(hi, -1.0);
-            m_constraints.push_back(upper);
-
-            MPConstraint* lower = m_solver->MakeRowConstraint(-MPSolver::infinity(), 0.0);
-            lower->SetCoefficient(lo, 1.0);
-            lower->SetCoefficient(flow, -1.0);
-            m_constraints.push_back(lower);
-        }
-        target_list.emplace_back(hi, lo);
-    };
-
     // Outgoing connections per output port: R_p = sum(F_c) + E_p
     for (const auto& [port_id, conn_ids] : comp.port_outgoing) {
         MPVariable* excess = m_solver->MakeNumVar(0.0, MPSolver::infinity(), "Excess_" + std::to_string(port_id));
         m_excessVariables[port_id] = excess;
 
-        const Port* port = factory_graph.getPort(port_id);
-        const bool in_Z_K = comp.no_overflow_ports.count(port_id) > 0;
-        const bool in_T_K = port && comp.target_serving_nodes.count(port->node_id) > 0;
-
-        // No-Overflow Rules (Section 3.3):
-        // Rule 1: E_p = 0 on all wired output ports in Z_K (push-driven paths).
-        // Rule 2: E_p = 0 on all wired output ports of nodes outside T_K.
-        if (in_Z_K || !in_T_K) {
+        // No-Overflow Rules: E_p = 0 on all wired output ports in no_overflow_ports
+        // (push-driven paths Z_K, nodes outside T_K, and intermediate T_K ports that cannot shed excess).
+        if (comp.no_overflow_ports.count(port_id) > 0) {
             excess->SetUB(0.0);
         }
 
@@ -980,7 +1005,8 @@ void FactorySolver::addConnectionConstraints(const FactoryGraph& factory_graph, 
         }
         m_constraints.push_back(constraint);
 
-        // Stage 2c splitter classification
+        // Stage 2c & Stage 4 splitter classification (balance variables deferred until their respective stages
+        // so lo <= F_c rows cannot make zero-flow branches basic during Stages 1-3).
         if (conn_ids.size() >= 2) {
             std::vector<uint64_t> sink_conns;
             std::vector<uint64_t> non_sink_conns;
@@ -1002,11 +1028,10 @@ void FactorySolver::addConnectionConstraints(const FactoryGraph& factory_graph, 
                     comp.mixed_splitter_sink_conns.end(), sink_conns.begin(), sink_conns.end());
             }
             if (non_sink_non_target_conns.size() >= 2) {
-                addBalance("NonSinkBalance", port_id, non_sink_non_target_conns, m_nonSinkBalanceVariables);
+                comp.non_sink_splitters.emplace_back(port_id, std::move(non_sink_non_target_conns));
             }
+            comp.all_balances.emplace_back(port_id, conn_ids);
         }
-
-        addBalance("Balance", port_id, conn_ids, m_balanceVariables);
     }
 
     // Incoming connections per input port: R_p = sum(F_c)
@@ -1018,7 +1043,9 @@ void FactorySolver::addConnectionConstraints(const FactoryGraph& factory_graph, 
             constraint->SetCoefficient(m_connectionVariables.at(conn_id), 1.0);
         }
         m_constraints.push_back(constraint);
-        addBalance("Balance", port_id, conn_ids, m_balanceVariables);
+        if (conn_ids.size() >= 2) {
+            comp.all_balances.emplace_back(port_id, conn_ids);
+        }
     }
 }
 
@@ -1296,7 +1323,21 @@ operations_research::MPSolver::ResultStatus FactorySolver::solveComponentLexicog
         return status;
     };
 
-    // Stage 2a: Minimal Target-Serving Machine Activity (T_K)
+    // Stage 2a: Maximal Wired Consumption (Minimal Unconsumed Excess E_p)
+    if (!m_excessVariables.empty()) {
+        Terms stage2a_terms;
+        std::map<uint64_t, MPVariable*> ordered_excess(m_excessVariables.begin(), m_excessVariables.end());
+        stage2a_terms.reserve(ordered_excess.size());
+        for (const auto& [pid, excess_var] : ordered_excess) {
+            if (excess_var->ub() > 0.0) {
+                stage2a_terms.emplace_back(excess_var, 1.0);
+            }
+        }
+        const auto status = runMinimizeAndLock(stage2a_terms);
+        if (status != MPSolver::OPTIMAL) return status;
+    }
+
+    // Stage 2b: Minimal Target-Serving Machine Activity (T_K)
     if (!comp.target_serving_nodes.empty()) {
         std::vector<uint64_t> t_nodes;
         t_nodes.reserve(comp.target_serving_nodes.size());
@@ -1305,21 +1346,7 @@ operations_research::MPSolver::ResultStatus FactorySolver::solveComponentLexicog
                 t_nodes.push_back(nid);
             }
         }
-        const Terms stage2a_terms = buildMachineActivityTerms(factory_graph, t_nodes);
-        const auto status = runMinimizeAndLock(stage2a_terms);
-        if (status != MPSolver::OPTIMAL) return status;
-    }
-
-    // Stage 2b: Maximal Wired Consumption (Minimal Unconsumed Excess E_p)
-    if (!m_excessVariables.empty()) {
-        Terms stage2b_terms;
-        std::map<uint64_t, MPVariable*> ordered_excess(m_excessVariables.begin(), m_excessVariables.end());
-        stage2b_terms.reserve(ordered_excess.size());
-        for (const auto& [pid, excess_var] : ordered_excess) {
-            if (excess_var->ub() > 0.0) {
-                stage2b_terms.emplace_back(excess_var, 1.0);
-            }
-        }
+        const Terms stage2b_terms = buildMachineActivityTerms(factory_graph, t_nodes);
         const auto status = runMinimizeAndLock(stage2b_terms);
         if (status != MPSolver::OPTIMAL) return status;
     }
@@ -1337,8 +1364,34 @@ operations_research::MPSolver::ResultStatus FactorySolver::solveComponentLexicog
         if (status != MPSolver::OPTIMAL) return status;
     }
 
+    auto addBalanceGroup = [&](const std::string& prefix,
+                               const std::vector<std::pair<uint64_t, std::vector<uint64_t>>>& groups,
+                               std::vector<std::pair<MPVariable*, MPVariable*>>& target_list) {
+        for (const auto& [port_id, conn_ids] : groups) {
+            if (conn_ids.size() < 2) continue;
+            const std::string suffix = std::to_string(port_id);
+            MPVariable* hi = m_solver->MakeNumVar(0.0, MPSolver::infinity(), prefix + "Max_" + suffix);
+            MPVariable* lo = m_solver->MakeNumVar(0.0, MPSolver::infinity(), prefix + "Min_" + suffix);
+            for (const uint64_t conn_id : conn_ids) {
+                MPVariable* flow = m_connectionVariables.at(conn_id);
+
+                MPConstraint* upper = m_solver->MakeRowConstraint(-MPSolver::infinity(), 0.0);
+                upper->SetCoefficient(flow, 1.0);
+                upper->SetCoefficient(hi, -1.0);
+                m_constraints.push_back(upper);
+
+                MPConstraint* lower = m_solver->MakeRowConstraint(-MPSolver::infinity(), 0.0);
+                lower->SetCoefficient(lo, 1.0);
+                lower->SetCoefficient(flow, -1.0);
+                m_constraints.push_back(lower);
+            }
+            target_list.emplace_back(hi, lo);
+        }
+    };
+
     // Stage 2c.2: Non-Sink Splitter Fairness
-    if (!m_nonSinkBalanceVariables.empty()) {
+    if (!comp.non_sink_splitters.empty()) {
+        addBalanceGroup("NonSinkBalance", comp.non_sink_splitters, m_nonSinkBalanceVariables);
         Terms stage2c2_terms;
         stage2c2_terms.reserve(m_nonSinkBalanceVariables.size() * 2);
         for (const auto& [hi, lo] : m_nonSinkBalanceVariables) {
@@ -1380,6 +1433,9 @@ operations_research::MPSolver::ResultStatus FactorySolver::solveComponentLexicog
     }
 
     // Stage 4: Terminal Fair Branch Splitting across all splitters and mergers
+    if (!comp.all_balances.empty()) {
+        addBalanceGroup("Balance", comp.all_balances, m_balanceVariables);
+    }
     Terms stage4_terms;
     stage4_terms.reserve(m_balanceVariables.size() * 2);
     for (const auto& [hi, lo] : m_balanceVariables) {
@@ -1418,7 +1474,12 @@ void FactorySolver::lockStage(const Terms& terms, const bool maximize, const dou
     if (terms.empty()) {
         return;
     }
-    // When minimizing a sum of strictly positive-weighted non-negative variables (e.g., Stage 2b excess,
+    double max_coeff = 0.0;
+    for (const auto& [var, coefficient] : terms) {
+        max_coeff = std::max(max_coeff, std::abs(coefficient));
+    }
+
+    // When minimizing a sum of strictly positive-weighted non-negative variables (e.g., Stage 2a excess,
     // Stage 2c.1 sink branches, Stage 3a/3b residual activity) achieves zero within simplex noise, fix each
     // variable to 0 directly so later stages cannot exploit primal feasibility tolerance (1e-8) to leak
     // spurious non-zero flow/excess when unscaled by a large m_rateScale.
@@ -1437,6 +1498,32 @@ void FactorySolver::lockStage(const Terms& terms, const bool maximize, const dou
             return;
         }
     }
+
+    // Exact optimal-face zero fixing via simplex reduced costs: on any minimization stage, a non-basic flow
+    // variable at lb == 0 whose reduced cost is strictly positive must be identically 0 across the entire
+    // optimal face of this stage. Pinning it to 0 prevents later stages (such as Stage 4 branch balancing)
+    // from spending lockTolerance slack to leak ~1e-6 phantom flow into idle branches, while leaving
+    // zero-reduced-cost alternative optima (e.g., equal-efficiency parallel branches) completely free.
+    if (!maximize && max_coeff > 0.0) {
+        const double rc_tol = 1e-6 * max_coeff;
+        std::vector<MPVariable*> vars_to_fix;
+        auto checkZeroByReducedCost = [&](MPVariable* var) {
+            if (!var || var->lb() != 0.0 || var->ub() <= 0.0) return;
+            if (var->basis_status() == MPSolver::AT_LOWER_BOUND &&
+                std::abs(var->solution_value()) <= kScaledZeroEpsilon &&
+                var->reduced_cost() > rc_tol) {
+                vars_to_fix.push_back(var);
+            }
+        };
+        for (const auto& [pid, var] : m_portVariables) checkZeroByReducedCost(var);
+        for (const auto& [cid, var] : m_connectionVariables) checkZeroByReducedCost(var);
+        for (const auto& [pid, var] : m_excessVariables) checkZeroByReducedCost(var);
+        for (const auto& [hi, lo] : m_nonSinkBalanceVariables) checkZeroByReducedCost(hi);
+        for (MPVariable* var : vars_to_fix) {
+            var->SetUB(0.0);
+        }
+    }
+
     const double tolerance = static_cast<double>(std::max(1, stage_step)) * lockTolerance(objective_value);
     if (terms.size() == 1 && terms[0].second > 0.0) {
         MPVariable* var = terms[0].first;
@@ -1449,10 +1536,6 @@ void FactorySolver::lockStage(const Terms& terms, const bool maximize, const dou
             var->SetUB(std::max(var->lb(), std::min(var->ub(), bound)));
         }
         return;
-    }
-    double max_coeff = 0.0;
-    for (const auto& [var, coefficient] : terms) {
-        max_coeff = std::max(max_coeff, std::abs(coefficient));
     }
     const double row_scale = max_coeff > 0.0 ? max_coeff : 1.0;
     MPConstraint* constraint = maximize

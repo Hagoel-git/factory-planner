@@ -29,8 +29,8 @@ struct Node;
  *    satisfied via max-min water-filling.
  *  - Solved lexicographically in 4 stages per component:
  *      Stage 1:  Iterative max-min water-filling on active goals G_K.
- *      Stage 2a: Minimal machine activity on target-serving subgraph T_K.
- *      Stage 2b: Maximal wired consumption (minimal unconsumed excess E_p).
+ *      Stage 2a: Maximal wired consumption (minimal unconsumed excess E_p).
+ *      Stage 2b: Minimal machine activity on target-serving subgraph T_K.
  *      Stage 2c: Mixed-splitter sink-branch minimization (2c.1) and non-sink splitter fairness (2c.2).
  *      Stage 3a: Minimal machine activity on remaining non-sink nodes N_K \ (T_K U S+_K).
  *      Stage 3b: Minimal port flow on sink-dedicated subgraph S+_K.
@@ -145,6 +145,8 @@ private:
         std::unordered_set<uint64_t> target_serving_nodes; // T_K
         std::unordered_set<uint64_t> no_overflow_ports;    // Z_K
         std::vector<uint64_t> mixed_splitter_sink_conns;   // W_K^mix-sink
+        std::vector<std::pair<uint64_t, std::vector<uint64_t>>> non_sink_splitters;
+        std::vector<std::pair<uint64_t, std::vector<uint64_t>>> all_balances;
     };
 
     operations_research::MPSolver::OptimizationProblemType m_problemType;

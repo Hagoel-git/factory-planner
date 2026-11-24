@@ -115,9 +115,10 @@ All variables are non-negative ($\ge 0$) and expressed in items per `units.time_
 
    Then $E_p$ is fixed to zero (`excess->SetUB(0.0)`) on every wired active output port $p$ satisfying:
    - **Rule 1:** $p \in Z_K$ (push-driven paths cannot dump flow into unconsumed wire excess), OR
-   - **Rule 2:** $\nu(p) \notin \mathcal{T}_K$ (nodes outside the target-serving subgraph cannot generate unconsumed wire excess).
+   - **Rule 2:** $\nu(p) \notin \mathcal{T}_K$ (nodes outside the target-serving subgraph cannot generate unconsumed wire excess), OR
+   - **Rule 3:** $\nu(p) \in \mathcal{T}_K$, $p$ itself is not an active `TARGET` goal, $\nu(p)$ has no active `TARGET` goal on its input ports, $\nu(p)$ has no other active output port $q \neq p$ serving a `TARGET` ($q$ is an active `TARGET` goal or has an outgoing `OK` wire to $\mathcal{T}_K$), and $p \notin \mathrm{Cl}(P^{\text{push,unrated}}_K)$ (single-output intermediate nodes in $\mathcal{T}_K$ cannot generate unconsumed wire excess to compress upstream waste).
 
-   Consequently, $E_p > 0$ is permitted **only** on target-serving nodes ($\nu(p) \in \mathcal{T}_K$) not subject to a push constraint ($p \notin Z_K$), allowing co-product/byproduct shedding when required to satisfy a `TARGET`.
+   Consequently, $E_p > 0$ is permitted **only** on target-serving ports that are themselves `TARGET` goals, share a node with an input `TARGET` or another target-serving co-product output, or receive recycled unrated `PUSH` flow, allowing co-product/byproduct and capped-target shedding without multi-input waste compression.
 
 ---
 
@@ -130,7 +131,7 @@ Each component $K$ is solved through a fixed sequence of LP stages.
 Because all factory stoichiometry, wire conservation, and branch-balance equations are homogeneous in flow rates while user constraints span many orders of magnitude (from $< 10^{-5}$ items/s up to $> 10^{9}$ W), `FactorySolver` conditions each component LP as follows:
 - **Component Rate Scaling ($\sigma_K$):** Before creating variables for component $K$, `m_rateScale` ($\sigma_K$) is set to the geometric mean of all finite positive `user_constraint` values in $K$ (or $1$ if none). All LP flow variables solve in scaled coordinates $R'_p = R_p / \sigma_K$, $F'_c = F_c / \sigma_K$, $E'_p = E_p / \sigma_K$ with scaled user ceilings $c'_p = c_p / \sigma_K$, keeping typical variable magnitudes near $O(1)$ where GLOP's primal/dual feasibility tolerances ($10^{-8}$) and absolute residual check ($10^{-6}$) are well-conditioned. Post-solve values snap scaled simplex noise $|v'| < 10^{-13}$ to $0$, then unscale by $\sigma_K$ and snap unscaled $|v| < 10^{-9}$ to $0$.
 - **GLOP Preprocessor Tolerance:** For `GLOP_LINEAR_PROGRAMMING`, `preprocessor_zero_tolerance` is set to $10^{-14}$ (tightened from GLOP's default $10^{-9}$). GLOP's default $10^{-9}$ relative bound-snapping tolerance conflicts with its absolute $10^{-6}$ postsolve residual check on `= 0` equality rows (`IMPRECISE` / `ABNORMAL`) and drops small matrix entries in wide-range constraints; $10^{-14}$ prevents both while preserving presolve speed.
-- **Stage-Lock Tolerances & Row Normalization:** After each intermediate stage $k \in \{1, 2, \dots\}$ achieves optimum $z^\star$, `lockStage` locks that stage's objective within $k \cdot \tau(z^\star)$ where $\tau(z^\star) = \max(10^{-12}, 10^{-8} \cdot |z^\star|)$, normalizing multi-term lock rows by their maximum absolute coefficient. When minimizing a sum of strictly positive-weighted non-negative variables (such as Stage 2b excess or Stage 3b sink flow) achieves $z^\star \le 10^{-13}$ with all lower bounds at $0$, each variable in the stage is fixed directly to $0$ (`ub = 0`) so later stages cannot exploit primal feasibility slack to leak spurious excess after unscaling. Stage 1 bottlenecked goal lower bounds use the tighter $\tau_1(v) = \max(10^{-12}, 10^{-9} \cdot |v|)$ because Stage 2a minimizes directly against Stage 1 lower bounds.
+- **Stage-Lock Tolerances, Reduced-Cost Zero-Fixing & Row Normalization:** After each intermediate stage $k \in \{1, 2, \dots\}$ achieves optimum $z^\star$, `lockStage` locks that stage's objective within $k \cdot \tau(z^\star)$ where $\tau(z^\star) = \max(10^{-12}, 10^{-8} \cdot |z^\star|)$, normalizing multi-term lock rows by their maximum absolute coefficient $c_{\max}$. When minimizing a sum of strictly positive-weighted non-negative variables (such as Stage 2a excess or Stage 3b sink flow) achieves $z^\star \le 10^{-13}$ with all lower bounds at $0$, each variable in the stage is fixed directly to $0$ (`ub = 0`). When $z^\star > 10^{-13}$ on a minimization stage, any non-basic variable (`AT_LOWER_BOUND`) at `lb == 0` with $|v'| \le 10^{-13}$ and strictly positive reduced cost $\bar{c} > 10^{-6} c_{\max}$ is also fixed directly to $0$ (`ub = 0`), preventing later stages (such as Stage 4 branch balancing) from spending stage-lock tolerance slack to leak $\sim 10^{-6}$ phantom flow into idle branches while leaving zero-reduced-cost alternative optima completely free. Stage 1 bottlenecked goal lower bounds use the tighter $\tau_1(v) = \max(10^{-12}, 10^{-9} \cdot |v|)$ because Stage 2 minimizes directly against Stage 1 lower bounds.
 - **Defensive `ABNORMAL` Recovery (`solveCurrentModel`):** If GLOP returns `MPSolver::ABNORMAL` (numerical imprecision) on any stage—never on genuine `INFEASIBLE` or `UNBOUNDED`—the solver retries from a fresh basis (`INCREMENTALITY_OFF`), and if still non-optimal, retries with `INCREMENTALITY_OFF` and `PRESOLVE_OFF`.
 
 ### Stage 1: Max-Min Water-Filling on Active Goals ($G_K$)
@@ -143,16 +144,16 @@ If $G_K \neq \emptyset$, let $g'_p = g_p / \sigma_K$ be each goal's scaled rate 
   2. **Suspect verification:** Each goal that did not grow in the sum solve is maximized individually. If it still cannot exceed $g'_p S^\star + \varepsilon_p$, it is a genuine bottleneck: its lower bound is locked at $g'_p S^\star - \tau_1(g'_p S^\star)$ and its $S$-constraint is decoupled.
 - When all goals are locked, all $S$-constraints are decoupled so $S$ is inert in Stages 2–4.
 
-### Stage 2: Upstream Conservation & Overflow Routing
+### Stage 2: Overflow Absorption, Upstream Conservation & Splitter Routing
 
-- **Stage 2a — Minimal Target-Serving Machine Activity:**
+- **Stage 2a — Maximal Wired Consumption (Minimal Unconsumed Excess):**
+  $$\min \sum_{p \in \mathcal{P}^{\text{out}}_K,\, W^+(p) \neq \emptyset} E_p$$
+  Forces all produced flow on wired output ports (including wired `TARGET` outputs and co-products) into connected downstream wires and sinks up to their capacity before locking upstream machine counts, so shared upstream producers in $\mathcal{T}_K$ automatically supply connected consumers of other `TARGET`s without manual `PUSH` overrides.
+- **Stage 2b — Minimal Target-Serving Machine Activity:**
   $$\min \sum_{n \in \mathcal{T}_K} w_n \cdot R_{\text{ref}(n)}$$
   where $\text{ref}(n)$ is the node's reference port (first active input port with $a_p > 0$, or first active output port with $a_p > 0$ for raw sources), and $w_n$ is the machine-count weight per unit reference flow using the pre-evaluated effective craft duration $t'_n = \text{eval.craft\_time\_s}$:
   $$w_n = \frac{t'_n}{a_{\text{ref}(n)}}$$
-  Note that $w_n \cdot R_{\text{ref}(n)} = M_n$ is the exact solved machine count of node $n$. Only the total weighted sum is locked via `lockStage`, preserving freedom for Stage 4 to balance parallel equal-efficiency branches.
-- **Stage 2b — Maximal Wired Consumption (Minimal Unconsumed Excess):**
-  $$\min \sum_{p \in \mathcal{P}^{\text{out}}_K,\, W^+(p) \neq \emptyset} E_p$$
-  Forces all produced flow on wired output ports into connected downstream wires (including sinks) up to their capacity before leaving any excess $E_p > 0$.
+  Note that $w_n \cdot R_{\text{ref}(n)} = M_n$ is the exact solved machine count of node $n$. Only the total weighted sum (plus exact zero-flow non-basic branches with strictly positive reduced cost) is locked via `lockStage`, preserving freedom for Stage 4 to balance parallel equal-efficiency branches.
 - **Stage 2c — Non-Sink Routing Priority & Fair Splitting:**
   - **Stage 2c.1 (Mixed-Splitter Sink-Branch Minimization):** For every mixed splitter port $p$ (having both sink-dedicated outgoing wires $c \in W^+_{\text{sink}}(p)$ to $\mathcal{S}^+_K$ and non-sink outgoing wires $c \in W^+_{\text{ns}}(p)$ to $\mathcal{N}_K \setminus \mathcal{S}^+_K$), minimize total flow into the sink-dedicated branches:
     $$\min \sum_{c \in W^{\text{mix-sink}}_K} F_c$$
