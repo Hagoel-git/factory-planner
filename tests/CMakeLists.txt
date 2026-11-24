@@ -8,6 +8,7 @@ add_executable(
         test_factory_solver.cpp
         test_undo_redo_system.cpp
         test_frame_pacer.cpp
+        test_number_format.cpp
         test_application.cpp
         test_golden.cpp
         test_expr.cpp

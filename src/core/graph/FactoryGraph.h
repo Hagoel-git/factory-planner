@@ -13,6 +13,7 @@
 #include "Connection.h"
 #include "Node.h"
 #include "Port.h"
+#include "common/NumberFormat.h"
 #include "core/data/GameData.h"
 #include "core/data/GameDataLoader.h"
 #include "core/data/NodeEvaluator.h"
@@ -40,6 +41,8 @@ public:
 
     gamedata::RateUnit getRateUnit() const { return m_rateUnit; }
     void setRateUnit(gamedata::RateUnit unit) { m_rateUnit = unit; }
+    numfmt::DisplayPrecision getDisplayPrecision() const { return m_displayPrecision; }
+    void setDisplayPrecision(numfmt::DisplayPrecision precision) { m_displayPrecision = precision; }
     double toDisplayRate(double canonicalPerSec) const {
         return m_gameData.toDisplayRate(canonicalPerSec, m_rateUnit);
     }
@@ -140,6 +143,7 @@ public:
 private:
     GameData m_gameData;
     gamedata::RateUnit m_rateUnit = gamedata::RateUnit::PerMin;
+    numfmt::DisplayPrecision m_displayPrecision = numfmt::DisplayPrecision::Auto;
     std::unordered_map<std::string, gamedata::ParamValue> m_globals;
     nlohmann::json m_unresolvedGlobals = nlohmann::json::object();
     nlohmann::json m_invalidGlobalRaw = nlohmann::json::object();

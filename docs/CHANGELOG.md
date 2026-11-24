@@ -5,6 +5,8 @@ This document holds the user-facing changelog that is also used in release notes
 ## Unreleased
 
 ### Added
+- Added a per-project **Precision** selector (`Auto`, `0–4` decimals, saved in `.fpp` and undoable) in **Summary & Inspector**: `Auto` trims trailing zeros and uses adaptive significant digits so small active machine counts and flows (`< 0.01`) no longer display as `0.00`.
+- Added automatic SI unit scaling (`W / kW / MW / GW / TW` and `J / kJ / MJ / GJ / TJ`) for power/energy metrics and `rate_invariant` power/heat resources, including scaled unit labels on canvas pins and optional SI suffix input (e.g. `500 kW`, `1.2 GW`) in the Pin Context Menu.
 - Added GameData v4 `resource_kinds.<kind>.rate_invariant` (for power/heat resources that should stay in units like `MW` without multiplying by 60 when switching `/s` ↔ `/min`), custom `positive_label`/`negative_label` overrides on `split_sign: true` metrics in Graph Totals (e.g. `Emitted (+)` / `Absorbed (-)`), and option-level `"tooltip"` hover text on `option_sets` items in dropdowns, slot pickers, filled slot chips, and closed enum combos.
 - Added Project Global-driven picker visibility (`visible_if` on profiles, machines, and recipes, plus `recipe_visible_if` on profiles) so packs can hide debug/sandbox, planet, or tier-gated entries from the recipe browser and machine selector without affecting already-placed nodes.
 - Added shardable `"waive_warnings"` support in GameData v4 (e.g. via a dedicated `waivers.json` shard in `"include"`) to locally waive warning rules (`V-W-1`, `V-W-2`, `V-W-3`, `V-PAR-5`) by glob pattern, treating waived `V-W-1` icons as optional and summarizing waived counts as non-fatal info notes in `gamedata_tool validate`, `check-icons`, and `stats`.

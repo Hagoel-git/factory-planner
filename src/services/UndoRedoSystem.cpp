@@ -620,3 +620,11 @@ void SetRateUnitCommand::execute(FactoryGraph& graph) {
 void SetRateUnitCommand::undo(FactoryGraph& graph) {
     graph.setRateUnit(oldUnit);
 }
+
+void SetDisplayPrecisionCommand::execute(FactoryGraph& graph) {
+    graph.setDisplayPrecision(newPrecision);
+}
+
+void SetDisplayPrecisionCommand::undo(FactoryGraph& graph) {
+    graph.setDisplayPrecision(oldPrecision);
+}

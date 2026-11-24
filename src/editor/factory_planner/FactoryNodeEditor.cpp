@@ -20,6 +20,7 @@
 #include "common/IdUtils.h"
 #include "common/CopyBuffer.h"
 #include "common/FilesystemUtils.h"
+#include "common/NumberFormat.h"
 #include "services/IconCache.h"
 #include "services/NotificationManager.h"
 #include "services/ProjectIo.h"
@@ -114,20 +115,27 @@ std::string formatDoubleScalar(std::string_view fmt, double val) {
     return std::string(buf);
 }
 
+std::optional<numfmt::SiUnitSpec> resourceSiUnitSpec(const GameData& gameData, std::string_view resourceKey) {
+    if (!gameData.isResourceRateInvariant(resourceKey)) {
+        return std::nullopt;
+    }
+    return numfmt::parseSiUnit(gameData.resourceDisplayUnit(resourceKey));
+}
+
+std::string formatResourceValueWithUnit(
+    const FactoryGraph& graph,
+    std::string_view resourceKey,
+    double canonicalRate) {
+    const double displayVal = graph.toResourceDisplayRate(resourceKey, canonicalRate);
+    const numfmt::DisplayPrecision precision = graph.getDisplayPrecision();
+    if (const auto siSpec = resourceSiUnitSpec(graph.getGameData(), resourceKey); siSpec.has_value()) {
+        return numfmt::formatSiScaled(displayVal, *siSpec, precision).combined();
+    }
+    return numfmt::formatNumber(displayVal, precision) + graph.formatResourceRateSpacedSuffix(resourceKey);
+}
+
 std::string formatMetricValueString(const gamedata::MetricDef& mdef, double canonicalVal, const FactoryGraph& graph) {
-    double dispVal = mdef.is_rate ? graph.toDisplayRate(canonicalVal) : canonicalVal;
-    std::string out = formatDoubleScalar(mdef.format.empty() ? "%.3g" : mdef.format, dispVal);
-    std::string unitStr = mdef.unit;
-    if (mdef.is_rate) {
-        unitStr += gamedata::rateUnitSuffix(graph.getRateUnit());
-    }
-    if (!unitStr.empty()) {
-        if (unitStr != "%" && unitStr.front() != '/') {
-            out += ' ';
-        }
-        out += unitStr;
-    }
-    return out;
+    return FactoryNodeEditor::formatMetricValue(mdef, canonicalVal, graph);
 }
 
 bool metricHasDisplayLocation(const gamedata::MetricDef& mdef, gamedata::MetricDisplayLocation loc) {
@@ -1379,12 +1387,10 @@ void FactoryNodeEditor::drawNodes() {
             ImGui::Dummy(ImVec2(48, machine_h));
         }
 
-        const char* countText = "%.2f";
-        char buf[32];
-        snprintf(buf, sizeof(buf), countText, node->machine_count);
-        float textWidth = ImGui::CalcTextSize(buf).x;
+        const std::string machineCountStr = numfmt::formatNumber(node->machine_count, m_graph->getDisplayPrecision());
+        float textWidth = ImGui::CalcTextSize(machineCountStr.c_str()).x;
         ImGui::SetCursorPosX(groupStartX + (middleWidth - textWidth) * 0.5f);
-        ImGui::Text("%s", buf);
+        ImGui::TextUnformatted(machineCountStr.c_str());
         if (deferredTooltip.empty() && nodeDeferredTip.empty() && ImGui::IsItemHovered()) {
             nodeDeferredTip = buildNodeTooltipText(*node, nodeEval, nodeMetrics);
         }
@@ -1971,7 +1977,7 @@ void FactoryNodeEditor::handlePopups() {
             ImGui::Separator();
 
             const std::string rateSuffix = m_graph->formatResourceRateSuffix(port->resource_key);
-            const std::string spacedRateSuffix = m_graph->formatResourceRateSpacedSuffix(port->resource_key);
+            const auto siSpec = resourceSiUnitSpec(gameData, port->resource_key);
             if (rateSuffix.empty()) {
                 ImGui::TextUnformatted("Flow Rate Limit:");
             } else {
@@ -1983,10 +1989,19 @@ void FactoryNodeEditor::handlePopups() {
 
             if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
             if (ImGui::InputText("##rate", m_contextPinConstraintBuf, sizeof(m_contextPinConstraintBuf), ImGuiInputTextFlags_AutoSelectAll)) {
-                double v = strtod(m_contextPinConstraintBuf, nullptr);
                 if (m_contextPinConstraintBuf[0] == '\0') {
                     m_contextPinCurrentConstraint = -1.0;
                 } else {
+                    double v = 0.0;
+                    if (siSpec.has_value()) {
+                        if (auto parsedSi = numfmt::parseSiInput(m_contextPinConstraintBuf, *siSpec)) {
+                            v = *parsedSi;
+                        } else {
+                            v = strtod(m_contextPinConstraintBuf, nullptr);
+                        }
+                    } else {
+                        v = strtod(m_contextPinConstraintBuf, nullptr);
+                    }
                     const double clampedDisplay = (!std::isfinite(v) || v < 0.0) ? 0.0 : v;
                     m_contextPinCurrentConstraint = m_graph->fromResourceDisplayRate(port->resource_key, clampedDisplay);
                 }
@@ -1996,6 +2011,13 @@ void FactoryNodeEditor::handlePopups() {
                     m_graph->setPortConstraint(port->id, m_contextPinCurrentConstraint);
                     (void)m_solver->solve(*m_graph);
                 }
+            }
+            if (siSpec.has_value() && ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    siSpec->family == numfmt::SiFamily::Power
+                        ? "Accepts SI suffixes (e.g. 500 kW, 40 MW, 1.2 GW). Bare numbers use %s."
+                        : "Accepts SI suffixes (e.g. 500 kJ, 40 MJ, 1.2 GJ). Bare numbers use %s.",
+                    rateSuffix.c_str());
             }
             ImGui::PopItemWidth();
             const bool enterPressed = ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter);
@@ -2038,9 +2060,8 @@ void FactoryNodeEditor::handlePopups() {
 
             ImGui::Separator();
 
-            ImGui::TextDisabled("Current Actual Flow: %.2f%s",
-                                m_graph->toResourceDisplayRate(port->resource_key, port->rate),
-                                spacedRateSuffix.c_str());
+            const std::string actualFlowStr = formatResourceValueWithUnit(*m_graph, port->resource_key, port->rate);
+            ImGui::TextDisabled("Current Actual Flow: %s", actualFlowStr.c_str());
             const double saturation = m_solver->getGoalSaturation(port->id);
             if (saturation >= 0.0) {
                 if (m_solver->isGoalBottlenecked(port->id)) {
@@ -2053,12 +2074,12 @@ void FactoryNodeEditor::handlePopups() {
             }
             if (!m_graph->isInputPort(port->id)) {
                 if (port->excess_rate > 1e-4) {
+                    const std::string excessStr = formatResourceValueWithUnit(*m_graph, port->resource_key, port->excess_rate);
                     ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
-                                       "Excess (Unconsumed): %.2f%s",
-                                       m_graph->toResourceDisplayRate(port->resource_key, port->excess_rate),
-                                       spacedRateSuffix.c_str());
+                                       "Excess (Unconsumed): %s", excessStr.c_str());
                 } else {
-                    ImGui::TextDisabled("Excess (Unconsumed): 0.00%s", spacedRateSuffix.c_str());
+                    const std::string zeroExcessStr = formatResourceValueWithUnit(*m_graph, port->resource_key, 0.0);
+                    ImGui::TextDisabled("Excess (Unconsumed): %s", zeroExcessStr.c_str());
                 }
             }
 
@@ -3328,72 +3349,100 @@ void FactoryNodeEditor::drawDeferredBodyParamPopup() {
     ed::Resume();
 }
 
+std::string FactoryNodeEditor::formatMetricValue(
+    const gamedata::MetricDef& mdef,
+    double canonicalVal,
+    const FactoryGraph& graph) {
+    const double dispVal = mdef.is_rate ? graph.toDisplayRate(canonicalVal) : canonicalVal;
+    const numfmt::DisplayPrecision precision = graph.getDisplayPrecision();
+    const std::string rateSuffix = mdef.is_rate ? gamedata::rateUnitSuffix(graph.getRateUnit()) : std::string{};
+
+    if (const auto siSpec = numfmt::parseSiUnit(mdef.unit); siSpec.has_value()) {
+        const auto scaled = numfmt::formatSiScaled(dispVal, *siSpec, precision);
+        return scaled.number + " " + scaled.unit + rateSuffix;
+    }
+
+    std::string out;
+    if (!mdef.format.empty() && numfmt::isIntegerFormatSpec(mdef.format)) {
+        const double safeVal = (std::abs(dispVal) < numfmt::kDisplayZeroEpsilon) ? 0.0 : dispVal;
+        out = formatDoubleScalar(mdef.format, safeVal);
+        numfmt::detail::normalizeNegativeZero(out);
+    } else if (numfmt::isPlainNumericFormatSpec(mdef.format)) {
+        out = numfmt::formatNumber(dispVal, precision);
+    } else {
+        out = formatDoubleScalar(mdef.format, dispVal);
+    }
+
+    const std::string unitStr = mdef.unit + rateSuffix;
+    if (!unitStr.empty()) {
+        if (unitStr != "%" && unitStr.front() != '/') {
+            out += ' ';
+        }
+        out += unitStr;
+    }
+    return out;
+}
+
 std::string FactoryNodeEditor::formatPinRateText(const Port& port) const {
     const double displayRate = m_graph->toResourceDisplayRate(port.resource_key, port.rate);
+    const numfmt::DisplayPrecision precision = m_graph->getDisplayPrecision();
+    std::string rateStr;
+    if (const auto siSpec = resourceSiUnitSpec(m_graph->getGameData(), port.resource_key); siSpec.has_value()) {
+        rateStr = numfmt::formatSiScaled(displayRate, *siSpec, precision).combined();
+    } else {
+        rateStr = numfmt::formatNumber(displayRate, precision);
+    }
+
     const bool hasNumericConstraint = port.user_constraint >= 0.0;
     const bool hasUnratedPush = (port.user_constraint < 0.0 && port.constraint_mode == ConstraintMode::PUSH);
-    char buf[64];
     if (hasNumericConstraint) {
         const ConstraintMode resolved = m_solver->getResolvedConstraintMode(port.id);
         const char tag = (resolved == ConstraintMode::LIMIT) ? 'L'
                        : (resolved == ConstraintMode::PUSH)  ? 'P' : 'T';
         if (m_solver->isGoalBottlenecked(port.id)) {
-            snprintf(buf, sizeof(buf), "%.2f [!%c]", displayRate, tag);
-        } else {
-            snprintf(buf, sizeof(buf), "%.2f [%c]", displayRate, tag);
+            return rateStr + " [!" + tag + "]";
         }
-    } else if (hasUnratedPush) {
-        snprintf(buf, sizeof(buf), "%.2f [P]", displayRate);
-    } else {
-        snprintf(buf, sizeof(buf), "%.2f", displayRate);
+        return rateStr + " [" + tag + "]";
     }
-    return buf;
+    if (hasUnratedPush) {
+        return rateStr + " [P]";
+    }
+    return rateStr;
 }
 
 std::string FactoryNodeEditor::formatLinkRateText(const Connection& connection) const {
-    const std::string spacedUnit = m_graph->formatResourceRateSpacedSuffix(connection.resource_key);
-    char buf[128];
-    snprintf(buf, sizeof(buf), "Current Rate: %.2f%s",
-             m_graph->toResourceDisplayRate(connection.resource_key, connection.rate),
-             spacedUnit.c_str());
-    return buf;
+    return "Current Rate: " + formatResourceValueWithUnit(*m_graph, connection.resource_key, connection.rate);
 }
 
 std::string FactoryNodeEditor::buildPinTooltipText(
     const Port& port, const Resource& res, bool hasExcess) const {
     const std::string& resKey = !port.resource_key.empty() ? port.resource_key : res.id;
-    const std::string spacedUnit = m_graph->formatResourceRateSpacedSuffix(resKey);
     std::string tip = res.name;
     if (hasExcess) {
-        char ex_buf[128];
-        snprintf(ex_buf, sizeof(ex_buf), "\nExcess: %.2f%s",
-                 m_graph->toResourceDisplayRate(resKey, port.excess_rate), spacedUnit.c_str());
-        tip += ex_buf;
+        tip += "\nExcess: " + formatResourceValueWithUnit(*m_graph, resKey, port.excess_rate);
     }
     const bool hasNumericConstraint = port.user_constraint >= 0.0;
     const bool hasUnratedPush = (port.user_constraint < 0.0 && port.constraint_mode == ConstraintMode::PUSH);
     if (hasNumericConstraint || hasUnratedPush || port.constraint_mode != ConstraintMode::AUTO) {
         const ConstraintMode resolved = m_solver->getResolvedConstraintMode(port.id);
         const char* modeLabel = constraintModeToString(resolved);
-        char mode_buf[160];
         if (hasNumericConstraint) {
-            const double displayConstraint = m_graph->toResourceDisplayRate(resKey, port.user_constraint);
+            const std::string valStr = formatResourceValueWithUnit(*m_graph, resKey, port.user_constraint);
             const double sat = m_solver->getGoalSaturation(port.id);
             if (sat >= 0.0) {
                 const bool bottlenecked = m_solver->isGoalBottlenecked(port.id);
-                snprintf(mode_buf, sizeof(mode_buf), "\n%s: %.2f%s (%.1f%%%s)",
-                         modeLabel, displayConstraint, spacedUnit.c_str(),
+                char satBuf[64];
+                snprintf(satBuf, sizeof(satBuf), " (%.1f%%%s)",
                          sat * 100.0, bottlenecked ? " - Bottlenecked" : "");
+                tip += "\n" + std::string(modeLabel) + ": " + valStr + satBuf;
             } else {
-                snprintf(mode_buf, sizeof(mode_buf), "\n%s: %.2f%s",
-                         modeLabel, displayConstraint, spacedUnit.c_str());
+                tip += "\n" + std::string(modeLabel) + ": " + valStr;
             }
         } else if (hasUnratedPush) {
-            snprintf(mode_buf, sizeof(mode_buf), "\nMode: PUSH (Unrated - No Overflow)");
+            tip += "\nMode: PUSH (Unrated - No Overflow)";
         } else {
-            snprintf(mode_buf, sizeof(mode_buf), "\nMode: %s", modeLabel);
+            tip += "\nMode: " + std::string(modeLabel);
         }
-        tip += mode_buf;
     }
     return tip;
 }
@@ -3412,9 +3461,7 @@ std::string FactoryNodeEditor::buildNodeTooltipText(
     } else if (!node.machine_key.empty()) {
         tip += "\nMachine: " + node.machine_key;
     }
-    char mBuf[64];
-    snprintf(mBuf, sizeof(mBuf), "\nMachines: %.2f", node.machine_count);
-    tip += mBuf;
+    tip += "\nMachines: " + numfmt::formatNumber(node.machine_count, m_graph->getDisplayPrecision());
 
     gamedata::EvalStatus evalStatus = nodeEval ? nodeEval->status : gamedata::EvalStatus::OK;
     if (node.is_unresolved) {
@@ -3599,7 +3646,8 @@ void FactoryNodeEditor::drawNodePropertiesSection(uint64_t nodeId) {
     } else if (!node->machine_key.empty()) {
         ImGui::TextDisabled("Machine: %s", node->machine_key.c_str());
     }
-    ImGui::Text("Count: %.2f", node->machine_count);
+    const std::string countStr = numfmt::formatNumber(node->machine_count, m_graph->getDisplayPrecision());
+    ImGui::Text("Count: %s", countStr.c_str());
 
     gamedata::EvalStatus evalStatus = nodeEval ? nodeEval->status : gamedata::EvalStatus::OK;
     if (node->is_unresolved) evalStatus = gamedata::EvalStatus::ERROR;
@@ -3823,6 +3871,38 @@ void FactoryNodeEditor::drawSidePanel(
             if (sel) ImGui::SetItemDefaultFocus();
         }
         ImGui::EndCombo();
+    }
+
+    const numfmt::DisplayPrecision curPrecision = m_graph->getDisplayPrecision();
+    const char* precisionTip =
+        "Decimal places for rates, machine counts, and metrics.\n"
+        "Auto trims trailing zeros and expands precision for small active values (< 0.01).";
+    ImGui::TextUnformatted("Precision:");
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("%s", precisionTip);
+    }
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if (ImGui::BeginCombo("##display_precision", numfmt::displayPrecisionLabel(curPrecision))) {
+        const numfmt::DisplayPrecision precisions[] = {
+            numfmt::DisplayPrecision::Auto,
+            numfmt::DisplayPrecision::Fixed0,
+            numfmt::DisplayPrecision::Fixed1,
+            numfmt::DisplayPrecision::Fixed2,
+            numfmt::DisplayPrecision::Fixed3,
+            numfmt::DisplayPrecision::Fixed4
+        };
+        for (numfmt::DisplayPrecision p : precisions) {
+            const bool sel = (p == curPrecision);
+            if (ImGui::Selectable(numfmt::displayPrecisionLabel(p), sel) && !sel) {
+                executeCommand(std::make_unique<SetDisplayPrecisionCommand>(curPrecision, p));
+            }
+            if (sel) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("%s", precisionTip);
     }
 
     ImGui::Separator();

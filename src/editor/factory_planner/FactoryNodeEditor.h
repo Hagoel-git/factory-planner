@@ -153,6 +153,10 @@ public:
         const gamedata::ParameterDef& pdef,
         const gamedata::OptionSet* optionSet,
         const std::optional<std::string>& slotKey);
+    static std::string formatMetricValue(
+        const gamedata::MetricDef& mdef,
+        double canonicalVal,
+        const FactoryGraph& graph);
 private:
     std::unique_ptr<FactoryGraph> m_graph;
     std::unique_ptr<FactorySolver> m_solver;

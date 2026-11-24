@@ -952,6 +952,7 @@ nlohmann::json FactoryGraph::serialize() const {
         {"data_version", m_gameData.game.data_version}
     };
     j["rate_unit"] = gamedata::rateUnitToString(m_rateUnit);
+    j["display_precision"] = numfmt::displayPrecisionToString(m_displayPrecision);
 
     nlohmann::json globalsJson = nlohmann::json::object();
     for (const auto& [k, v] : m_globals) {
@@ -1096,6 +1097,7 @@ bool FactoryGraph::deserialize(const nlohmann::json& j, const GameData& game_dat
     this->m_gameData = game_data;
     gamedata::ensureBuiltInDefaultProfile(this->m_gameData);
     m_rateUnit = m_gameData.units.default_rate;
+    m_displayPrecision = numfmt::DisplayPrecision::Auto;
 
     if (j.contains("game") && j["game"].is_object()) {
         std::string projVer = j["game"].value("data_version", "");
@@ -1118,6 +1120,18 @@ bool FactoryGraph::deserialize(const nlohmann::json& j, const GameData& game_dat
             m_rateUnit = gamedata::RateUnit::PerMinute;
         } else if (ru == "per_hour") {
             m_rateUnit = gamedata::RateUnit::PerHour;
+        }
+    }
+
+    if (j.contains("display_precision")) {
+        if (j["display_precision"].is_string()) {
+            if (auto parsedPrec = numfmt::displayPrecisionFromString(j["display_precision"].get<std::string>())) {
+                m_displayPrecision = *parsedPrec;
+            }
+        } else if (j["display_precision"].is_number_integer()) {
+            if (auto parsedPrec = numfmt::displayPrecisionFromInt(j["display_precision"].get<int>())) {
+                m_displayPrecision = *parsedPrec;
+            }
         }
     }
 

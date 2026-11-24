@@ -315,6 +315,12 @@ protected:
         return editor.formatLinkRateText(conn);
     }
 
+    std::string buildEditorNodeTooltipText(const FactoryNodeEditor& editor, const Node& node) const {
+        const auto* eval = editor.getGraph()->getNodeEval(node.id);
+        const auto* metrics = editor.getSolver()->getNodeMetrics(node.id);
+        return editor.buildNodeTooltipText(node, eval, metrics);
+    }
+
     std::string getPinConstraintBuffer(const FactoryNodeEditor& editor) const {
         return editor.m_contextPinConstraintBuf;
     }
@@ -1858,13 +1864,13 @@ TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_PinDisplayTooltipAndInput_Fol
     EXPECT_NEAR(outPlatePort->rate, 1.0, 1e-6);
     EXPECT_NEAR(inOrePort->rate, 1.0, 1e-6);
     EXPECT_NEAR(outByproductPort->excess_rate, 1.0, 1e-6);
-    EXPECT_EQ(formatEditorPinRateText(editor, *outPlatePort), "1.00 [T]");
-    EXPECT_EQ(formatEditorPinRateText(editor, *inOrePort), "1.00");
+    EXPECT_EQ(formatEditorPinRateText(editor, *outPlatePort), "1 [T]");
+    EXPECT_EQ(formatEditorPinRateText(editor, *inOrePort), "1");
     EXPECT_NE(buildEditorPinTooltipText(editor, *outPlatePort, *plateRes, false)
-                  .find("target: 1.00/s (100.0%)"),
+                  .find("target: 1/s (100.0%)"),
               std::string::npos);
     EXPECT_NE(buildEditorPinTooltipText(editor, *outByproductPort, *byproductRes, true)
-                  .find("Excess: 1.00/s"),
+                  .find("Excess: 1/s"),
               std::string::npos);
 
     // Opening Pin Context Menu in PerSecond populates display rate "1"
@@ -1881,13 +1887,13 @@ TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_PinDisplayTooltipAndInput_Fol
         gamedata::RateUnit::PerSecond, gamedata::RateUnit::PerMinute));
     EXPECT_EQ(graph->getRateUnit(), gamedata::RateUnit::PerMinute);
     EXPECT_DOUBLE_EQ(outPlatePort->user_constraint, 1.0);
-    EXPECT_EQ(formatEditorPinRateText(editor, *outPlatePort), "60.00 [T]");
-    EXPECT_EQ(formatEditorPinRateText(editor, *inOrePort), "60.00");
+    EXPECT_EQ(formatEditorPinRateText(editor, *outPlatePort), "60 [T]");
+    EXPECT_EQ(formatEditorPinRateText(editor, *inOrePort), "60");
     EXPECT_NE(buildEditorPinTooltipText(editor, *outPlatePort, *plateRes, false)
-                  .find("target: 60.00/min (100.0%)"),
+                  .find("target: 60/min (100.0%)"),
               std::string::npos);
     EXPECT_NE(buildEditorPinTooltipText(editor, *outByproductPort, *byproductRes, true)
-                  .find("Excess: 60.00/min"),
+                  .find("Excess: 60/min"),
               std::string::npos);
 
     // 3. Open Pin Context Menu in PerMinute: buffer initializes to "60"; typing "120" stores 2.0/s
@@ -1901,13 +1907,13 @@ TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_PinDisplayTooltipAndInput_Fol
     EXPECT_NEAR(outPlatePort->user_constraint, 2.0, 1e-9);
     EXPECT_NEAR(outPlatePort->rate, 2.0, 1e-6);
     EXPECT_NEAR(outByproductPort->excess_rate, 2.0, 1e-6);
-    EXPECT_EQ(formatEditorPinRateText(editor, *outPlatePort), "120.00 [T]");
-    EXPECT_EQ(formatEditorPinRateText(editor, *inOrePort), "120.00");
+    EXPECT_EQ(formatEditorPinRateText(editor, *outPlatePort), "120 [T]");
+    EXPECT_EQ(formatEditorPinRateText(editor, *inOrePort), "120");
     EXPECT_NE(buildEditorPinTooltipText(editor, *outPlatePort, *plateRes, false)
-                  .find("target: 120.00/min (100.0%)"),
+                  .find("target: 120/min (100.0%)"),
               std::string::npos);
     EXPECT_NE(buildEditorPinTooltipText(editor, *outByproductPort, *byproductRes, true)
-                  .find("Excess: 120.00/min"),
+                  .find("Excess: 120/min"),
               std::string::npos);
 
     // Dismiss popup by clicking outside to commit SetPortConstraintCommand (1.0/s -> 2.0/s)
@@ -1923,9 +1929,9 @@ TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_PinDisplayTooltipAndInput_Fol
     // 4. Switch RateUnit to PerHour (3600x display scale)
     executeEditorCommand(editor, std::make_unique<SetRateUnitCommand>(
         gamedata::RateUnit::PerMinute, gamedata::RateUnit::PerHour));
-    EXPECT_EQ(formatEditorPinRateText(editor, *outPlatePort), "7200.00 [T]");
+    EXPECT_EQ(formatEditorPinRateText(editor, *outPlatePort), "7200 [T]");
     EXPECT_NE(buildEditorPinTooltipText(editor, *outPlatePort, *plateRes, false)
-                  .find("target: 7200.00/h (100.0%)"),
+                  .find("target: 7200/h (100.0%)"),
               std::string::npos);
     drawEditorPinPopupFrame(editor, outPlatePortId, true);
     EXPECT_EQ(getPinConstraintBuffer(editor), "7200");
@@ -1937,15 +1943,15 @@ TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_PinDisplayTooltipAndInput_Fol
     // 5. Undo/Redo across RateUnit and SetPortConstraint transitions
     editor.undo(); // PerHour -> PerMinute
     EXPECT_EQ(graph->getRateUnit(), gamedata::RateUnit::PerMinute);
-    EXPECT_EQ(formatEditorPinRateText(editor, *outPlatePort), "120.00 [T]");
+    EXPECT_EQ(formatEditorPinRateText(editor, *outPlatePort), "120 [T]");
 
     editor.undo(); // constraint 2.0/s -> 1.0/s (still PerMinute)
     EXPECT_DOUBLE_EQ(outPlatePort->user_constraint, 1.0);
-    EXPECT_EQ(formatEditorPinRateText(editor, *outPlatePort), "60.00 [T]");
+    EXPECT_EQ(formatEditorPinRateText(editor, *outPlatePort), "60 [T]");
 
     editor.undo(); // PerMinute -> PerSecond
     EXPECT_EQ(graph->getRateUnit(), gamedata::RateUnit::PerSecond);
-    EXPECT_EQ(formatEditorPinRateText(editor, *outPlatePort), "1.00 [T]");
+    EXPECT_EQ(formatEditorPinRateText(editor, *outPlatePort), "1 [T]");
     drawEditorPinPopupFrame(editor, outPlatePortId, true);
     EXPECT_EQ(getPinConstraintBuffer(editor), "1");
     io.AddKeyEvent(ImGuiKey_Escape, true);
@@ -1954,15 +1960,15 @@ TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_PinDisplayTooltipAndInput_Fol
     drawEditorPinPopupFrame(editor, outPlatePortId, false);
 
     editor.redo(); // PerSecond -> PerMinute
-    EXPECT_EQ(formatEditorPinRateText(editor, *outPlatePort), "60.00 [T]");
+    EXPECT_EQ(formatEditorPinRateText(editor, *outPlatePort), "60 [T]");
 
     editor.redo(); // constraint 1.0/s -> 2.0/s
     EXPECT_DOUBLE_EQ(outPlatePort->user_constraint, 2.0);
-    EXPECT_EQ(formatEditorPinRateText(editor, *outPlatePort), "120.00 [T]");
+    EXPECT_EQ(formatEditorPinRateText(editor, *outPlatePort), "120 [T]");
 
     editor.redo(); // PerMinute -> PerHour
     EXPECT_EQ(graph->getRateUnit(), gamedata::RateUnit::PerHour);
-    EXPECT_EQ(formatEditorPinRateText(editor, *outPlatePort), "7200.00 [T]");
+    EXPECT_EQ(formatEditorPinRateText(editor, *outPlatePort), "7200 [T]");
 }
 
 TEST_F(ApplicationLifecycleTest, Issue23_Shortcuts_DoNotModifyGraphWhenWantTextInputIsTrue) {
@@ -3017,14 +3023,14 @@ TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_ResourceKindDisplayScaleAndUn
     // 1. PerSecond + display_scale=0.001 + display_unit="kL"
     ASSERT_EQ(graph->getRateUnit(), gamedata::RateUnit::PerSecond);
     EXPECT_DOUBLE_EQ(outWaterPort->user_constraint, 1000.0);
-    EXPECT_EQ(formatEditorPinRateText(editor, *outWaterPort), "1.00 [T]");
-    EXPECT_EQ(formatEditorLinkRateText(editor, *waterConn), "Current Rate: 1.00 kL/s");
+    EXPECT_EQ(formatEditorPinRateText(editor, *outWaterPort), "1 [T]");
+    EXPECT_EQ(formatEditorLinkRateText(editor, *waterConn), "Current Rate: 1 kL/s");
 
     const std::string waterTip = buildEditorPinTooltipText(editor, *outWaterPort, *waterRes, false);
-    EXPECT_NE(waterTip.find("target: 1.00 kL/s (100.0%)"), std::string::npos) << waterTip;
+    EXPECT_NE(waterTip.find("target: 1 kL/s (100.0%)"), std::string::npos) << waterTip;
 
     // Item resource with empty display_unit continues to use plain scaling and "/s"
-    EXPECT_EQ(formatEditorPinRateText(editor, *outOrePort), "5.00");
+    EXPECT_EQ(formatEditorPinRateText(editor, *outOrePort), "5");
 
     // Pin Context Menu opens with display-scaled "1" and typing "2" stores canonical 2000.0/s
     drawEditorPinPopupFrame(editor, outWaterId, true);
@@ -3043,7 +3049,7 @@ TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_ResourceKindDisplayScaleAndUn
     io.AddMouseButtonEvent(0, false);
     drawEditorPinPopupFrame(editor, outWaterId, false);
     EXPECT_NEAR(outWaterPort->user_constraint, 2000.0, 1e-6);
-    EXPECT_EQ(formatEditorLinkRateText(editor, *waterConn), "Current Rate: 2.00 kL/s");
+    EXPECT_EQ(formatEditorLinkRateText(editor, *waterConn), "Current Rate: 2 kL/s");
 
     // Verify Excess tooltip formatting by capping tank input at 1000/s while water target pushes 2000/s
     executeEditorCommand(editor, std::make_unique<SetPortConstraintCommand>(
@@ -3051,21 +3057,21 @@ TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_ResourceKindDisplayScaleAndUn
     executeEditorCommand(editor, std::make_unique<SetPortConstraintCommand>(
         outOreId, -1.0, 10.0, ConstraintMode::AUTO, ConstraintMode::TARGET));
     const std::string waterExcessTip = buildEditorPinTooltipText(editor, *outWaterPort, *waterRes, true);
-    EXPECT_NE(waterExcessTip.find("Excess: 1.00 kL/s"), std::string::npos) << waterExcessTip;
+    EXPECT_NE(waterExcessTip.find("Excess: 1 kL/s"), std::string::npos) << waterExcessTip;
 
     // 2. PerMinute: m3 fluid (display_scale=1, display_unit="m³") & kL fluid
     executeEditorCommand(editor, std::make_unique<SetRateUnitCommand>(
         gamedata::RateUnit::PerSecond, gamedata::RateUnit::PerMinute));
-    EXPECT_EQ(formatEditorPinRateText(editor, *outWaterPort), "120.00 [T]");
-    EXPECT_EQ(formatEditorLinkRateText(editor, *waterConn), "Current Rate: 60.00 kL/min");
+    EXPECT_EQ(formatEditorPinRateText(editor, *outWaterPort), "120 [T]");
+    EXPECT_EQ(formatEditorLinkRateText(editor, *waterConn), "Current Rate: 60 kL/min");
     const std::string waterMinTip = buildEditorPinTooltipText(editor, *outWaterPort, *waterRes, true);
-    EXPECT_NE(waterMinTip.find("Excess: 60.00 kL/min"), std::string::npos) << waterMinTip;
-    EXPECT_NE(waterMinTip.find("target: 120.00 kL/min"), std::string::npos) << waterMinTip;
+    EXPECT_NE(waterMinTip.find("Excess: 60 kL/min"), std::string::npos) << waterMinTip;
+    EXPECT_NE(waterMinTip.find("target: 120 kL/min"), std::string::npos) << waterMinTip;
 
-    EXPECT_EQ(formatEditorPinRateText(editor, *outCoolantPort), "120.00 [T]");
-    EXPECT_EQ(formatEditorLinkRateText(editor, *coolantConn), "Current Rate: 120.00 m³/min");
+    EXPECT_EQ(formatEditorPinRateText(editor, *outCoolantPort), "120 [T]");
+    EXPECT_EQ(formatEditorLinkRateText(editor, *coolantConn), "Current Rate: 120 m³/min");
     const std::string coolantTip = buildEditorPinTooltipText(editor, *outCoolantPort, *coolantRes, false);
-    EXPECT_NE(coolantTip.find("target: 120.00 m³/min (100.0%)"), std::string::npos) << coolantTip;
+    EXPECT_NE(coolantTip.find("target: 120 m³/min (100.0%)"), std::string::npos) << coolantTip;
 
     // Also verify Link Context Menu renders cleanly without issues
     drawEditorLinkPopupFrame(editor, waterConnId, true);
@@ -4014,13 +4020,13 @@ TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_RateInvariantResourcesSplitSi
     EXPECT_EQ(graph->formatResourceRateSpacedSuffix("signal"), "");
     EXPECT_EQ(graph->formatResourceRateSuffix("fuel"), "/s");
 
-    EXPECT_EQ(formatEditorPinRateText(editor, *outHeatPort), "40.00 [T]");
-    EXPECT_EQ(formatEditorPinRateText(editor, *outPowerPort), "2.00");
-    EXPECT_EQ(formatEditorPinRateText(editor, *outFuelPort), "10.00");
-    EXPECT_EQ(formatEditorLinkRateText(editor, *heatConn), "Current Rate: 40.00 MW");
-    EXPECT_EQ(formatEditorLinkRateText(editor, *powerConn), "Current Rate: 2.00 MW");
+    EXPECT_EQ(formatEditorPinRateText(editor, *outHeatPort), "40 MW [T]");
+    EXPECT_EQ(formatEditorPinRateText(editor, *outPowerPort), "2 MW");
+    EXPECT_EQ(formatEditorPinRateText(editor, *outFuelPort), "10");
+    EXPECT_EQ(formatEditorLinkRateText(editor, *heatConn), "Current Rate: 40 MW");
+    EXPECT_EQ(formatEditorLinkRateText(editor, *powerConn), "Current Rate: 2 MW");
     const std::string heatTipSec = buildEditorPinTooltipText(editor, *outHeatPort, *heatRes, false);
-    EXPECT_NE(heatTipSec.find("target: 40.00 MW (100.0%)"), std::string::npos) << heatTipSec;
+    EXPECT_NE(heatTipSec.find("target: 40 MW (100.0%)"), std::string::npos) << heatTipSec;
     EXPECT_EQ(heatTipSec.find("MW/s"), std::string::npos) << heatTipSec;
 
     // 2. Switch to PerMinute: regular item scales x60, rate_invariant heat & power_kw stay unchanged.
@@ -4030,13 +4036,13 @@ TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_RateInvariantResourcesSplitSi
     EXPECT_EQ(graph->formatResourceRateSuffix("power"), "MW");
     EXPECT_EQ(graph->formatResourceRateSuffix("fuel"), "/min");
 
-    EXPECT_EQ(formatEditorPinRateText(editor, *outHeatPort), "40.00 [T]");
-    EXPECT_EQ(formatEditorPinRateText(editor, *outPowerPort), "2.00");
-    EXPECT_EQ(formatEditorPinRateText(editor, *outFuelPort), "600.00");
-    EXPECT_EQ(formatEditorLinkRateText(editor, *heatConn), "Current Rate: 40.00 MW");
-    EXPECT_EQ(formatEditorLinkRateText(editor, *powerConn), "Current Rate: 2.00 MW");
+    EXPECT_EQ(formatEditorPinRateText(editor, *outHeatPort), "40 MW [T]");
+    EXPECT_EQ(formatEditorPinRateText(editor, *outPowerPort), "2 MW");
+    EXPECT_EQ(formatEditorPinRateText(editor, *outFuelPort), "600");
+    EXPECT_EQ(formatEditorLinkRateText(editor, *heatConn), "Current Rate: 40 MW");
+    EXPECT_EQ(formatEditorLinkRateText(editor, *powerConn), "Current Rate: 2 MW");
     const std::string heatTipMin = buildEditorPinTooltipText(editor, *outHeatPort, *heatRes, false);
-    EXPECT_NE(heatTipMin.find("target: 40.00 MW (100.0%)"), std::string::npos) << heatTipMin;
+    EXPECT_NE(heatTipMin.find("target: 40 MW (100.0%)"), std::string::npos) << heatTipMin;
     EXPECT_EQ(heatTipMin.find("MW/min"), std::string::npos) << heatTipMin;
 
     // Pin Context Menu in PerMinute mode: rate_invariant heat opens with "40", typing "80" stores 80.0 (not 80/60).
@@ -4056,8 +4062,8 @@ TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_RateInvariantResourcesSplitSi
     io.AddMouseButtonEvent(0, false);
     drawEditorPinPopupFrame(editor, outHeatId, false);
     EXPECT_NEAR(outHeatPort->user_constraint, 80.0, 1e-6);
-    EXPECT_EQ(formatEditorLinkRateText(editor, *heatConn), "Current Rate: 80.00 MW");
-    EXPECT_EQ(formatEditorLinkRateText(editor, *powerConn), "Current Rate: 4.00 MW");
+    EXPECT_EQ(formatEditorLinkRateText(editor, *heatConn), "Current Rate: 80 MW");
+    EXPECT_EQ(formatEditorLinkRateText(editor, *powerConn), "Current Rate: 4 MW");
 
     // Empty-unit rate_invariant pin popup renders cleanly without empty "()".
     drawEditorPinPopupFrame(editor, outSignalId, true);
@@ -4139,6 +4145,237 @@ TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_RateInvariantResourcesSplitSi
     renderEditorFrame(editor);
     io.AddKeyEvent(ImGuiKey_Escape, false);
     renderEditorFrame(editor);
+}
+
+TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_DisplayPrecisionAndSiAutoScaling) {
+    const std::string manifest = R"JSON({
+      "schema_version": 4,
+      "game": { "id": "si_precision_ui_test", "name": "SI & Precision UI Test" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "resource_kinds": {
+        "item": { "label": "Item", "display_unit": "",   "display_scale": 1 },
+        "heat": { "label": "Heat", "display_unit": "MW", "display_scale": 1, "rate_invariant": true }
+      },
+      "resources": [
+        { "id": "part", "name": "Rocket Part", "kind": "item" },
+        { "id": "heat", "name": "Heat",        "kind": "heat" }
+      ],
+      "metrics": {
+        "power": {
+          "label": "Power",
+          "unit": "MW",
+          "format": "%.2f",
+          "display": ["tooltip", "totals"],
+          "aggregate": "sum",
+          "split_sign": true
+        },
+        "energy_rate": {
+          "label": "Fuel Energy",
+          "unit": "MJ",
+          "format": "%.2f",
+          "is_rate": true,
+          "display": ["tooltip", "totals"],
+          "aggregate": "sum"
+        },
+        "pollution": {
+          "label": "Pollution",
+          "unit": "/m",
+          "format": "%.2f",
+          "display": ["tooltip", "totals"],
+          "aggregate": "sum"
+        },
+        "modules": {
+          "label": "Modules",
+          "unit": "",
+          "format": "%.0f",
+          "display": ["tooltip", "totals"],
+          "aggregate": "sum"
+        }
+      },
+      "profiles": {
+        "silo_prof": {
+          "metrics": {
+            "power":       { "per_machine": "0.15" },
+            "energy_rate": { "per_machine": "0.025" },
+            "pollution":   { "per_machine": "1.0" },
+            "modules":     { "value": "ceil(max(0, node.machines - 1e-6)) * 2" }
+          }
+        }
+      },
+      "machines": [
+        { "id": "silo",    "name": "Rocket Silo",     "profile": "silo_prof", "categories": ["launch"] },
+        { "id": "reactor", "name": "Nuclear Reactor", "categories": ["react"] },
+        { "id": "sink",    "name": "Heat Sink",       "categories": ["sink"] }
+      ],
+      "recipes": [
+        {
+          "id": "make_part",
+          "name": "Make Part",
+          "category": "launch",
+          "time": 1.0,
+          "in": [],
+          "out": [["part", 1.0]]
+        },
+        {
+          "id": "make_heat",
+          "name": "Make Heat",
+          "category": "react",
+          "time": 1.0,
+          "in": [],
+          "out": [["heat", 40.0]]
+        },
+        {
+          "id": "use_heat",
+          "name": "Use Heat",
+          "category": "sink",
+          "time": 1.0,
+          "in": [["heat", 40.0]],
+          "out": []
+        }
+      ]
+    })JSON";
+
+    gamedata::GamePackage pkg;
+    gamedata::LoadReport report;
+    ASSERT_TRUE(gamedata::loadGamePackageFromMemory(manifest, {}, pkg, report))
+        << (report.errors.empty() ? "" : report.errors.front().formatted);
+
+    FactoryNodeEditor editor(pkg, dirA / "si_precision.fpp", "SIPrecision");
+    FactoryGraph* graph = editor.getGraph();
+    ASSERT_NE(graph, nullptr);
+
+    const uint64_t siloId = graph->addNode("Silo", "make_part");
+    const uint64_t reactorId = graph->addNode("Reactor", "make_heat");
+    const uint64_t sinkId = graph->addNode("Sink", "use_heat");
+    ASSERT_NE(graph->getNode(siloId), nullptr);
+    ASSERT_NE(graph->getNode(reactorId), nullptr);
+    ASSERT_NE(graph->getNode(sinkId), nullptr);
+
+    const uint64_t outPartId = graph->getNode(siloId)->output_ports.front();
+    const uint64_t outHeatId = graph->getNode(reactorId)->output_ports.front();
+    const uint64_t inHeatId = graph->getNode(sinkId)->input_ports.front();
+    const uint64_t heatConnId = graph->addConnection(outHeatId, inHeatId);
+
+    // 1. Active tiny machine (< 0.01): target 1/240 part/s -> ~0.004167 machines on silo.
+    executeEditorCommand(editor, std::make_unique<SetPortConstraintCommand>(
+        outPartId, -1.0, 1.0 / 240.0, ConstraintMode::AUTO, ConstraintMode::TARGET));
+    // Also set an initial tiny heat target of 0.16667 MW (= 166.67 kW) on reactor.
+    executeEditorCommand(editor, std::make_unique<SetPortConstraintCommand>(
+        outHeatId, -1.0, 40.0 / 240.0, ConstraintMode::AUTO, ConstraintMode::TARGET));
+
+    const Node* siloNode = graph->getNode(siloId);
+    const Port* outPartPort = graph->getPort(outPartId);
+    const Port* outHeatPort = graph->getPort(outHeatId);
+    const Connection* heatConn = graph->getConnection(heatConnId);
+    const Resource* heatRes = graph->getGameData().findResource("heat");
+    ASSERT_NE(siloNode, nullptr);
+    ASSERT_NE(outPartPort, nullptr);
+    ASSERT_NE(outHeatPort, nullptr);
+    ASSERT_NE(heatConn, nullptr);
+    ASSERT_NE(heatRes, nullptr);
+
+    // Auto precision shows 0.0042 machines (never 0.00!), 0.0042 pin rate, 166.67 kW heat pin & link!
+    EXPECT_EQ(graph->getDisplayPrecision(), numfmt::DisplayPrecision::Auto);
+    EXPECT_EQ(formatEditorPinRateText(editor, *outPartPort), "0.0042 [T]");
+    EXPECT_EQ(formatEditorPinRateText(editor, *outHeatPort), "166.67 kW [T]");
+    EXPECT_EQ(formatEditorLinkRateText(editor, *heatConn), "Current Rate: 166.67 kW");
+
+    const std::string autoNodeTip = buildEditorNodeTooltipText(editor, *siloNode);
+    EXPECT_NE(autoNodeTip.find("Machines: 0.0042"), std::string::npos) << autoNodeTip;
+    EXPECT_NE(autoNodeTip.find("Power: 625 W"), std::string::npos) << autoNodeTip;
+    EXPECT_NE(autoNodeTip.find("Pollution: 0.0042/m"), std::string::npos) << autoNodeTip;
+    EXPECT_NE(autoNodeTip.find("Modules: 2"), std::string::npos) << autoNodeTip;
+
+    // 2. Metric formatting helper across SI power, SI energy rate, plain float, and integer metrics
+    const auto* powerDef = graph->getGameData().findMetric("power");
+    const auto* energyDef = graph->getGameData().findMetric("energy_rate");
+    const auto* pollDef = graph->getGameData().findMetric("pollution");
+    const auto* modsDef = graph->getGameData().findMetric("modules");
+    ASSERT_NE(powerDef, nullptr);
+    ASSERT_NE(energyDef, nullptr);
+    ASSERT_NE(pollDef, nullptr);
+    ASSERT_NE(modsDef, nullptr);
+
+    EXPECT_EQ(FactoryNodeEditor::formatMetricValue(*powerDef, 0.0, *graph), "0 MW");
+    EXPECT_EQ(FactoryNodeEditor::formatMetricValue(*powerDef, 0.0005, *graph), "500 W");
+    EXPECT_EQ(FactoryNodeEditor::formatMetricValue(*powerDef, 0.15, *graph), "150 kW");
+    EXPECT_EQ(FactoryNodeEditor::formatMetricValue(*powerDef, -4500.0, *graph), "-4.5 GW");
+    EXPECT_EQ(FactoryNodeEditor::formatMetricValue(*energyDef, 0.025, *graph), "25 kJ/s");
+    EXPECT_EQ(FactoryNodeEditor::formatMetricValue(*modsDef, 2.0, *graph), "2");
+
+    // Switching RateUnit to /min converts is_rate SI energy metric: 0.025 MJ/s -> 1.5 MJ/min
+    executeEditorCommand(editor, std::make_unique<SetRateUnitCommand>(
+        gamedata::RateUnit::PerSecond, gamedata::RateUnit::PerMinute));
+    EXPECT_EQ(FactoryNodeEditor::formatMetricValue(*energyDef, 0.025, *graph), "1.5 MJ/min");
+    executeEditorCommand(editor, std::make_unique<SetRateUnitCommand>(
+        gamedata::RateUnit::PerMinute, gamedata::RateUnit::PerSecond));
+
+    // Fixed precision modes: Fixed3 expands small numbers while keeping "%.0f" integer metric intact
+    executeEditorCommand(editor, std::make_unique<SetDisplayPrecisionCommand>(
+        numfmt::DisplayPrecision::Auto, numfmt::DisplayPrecision::Fixed3));
+    EXPECT_EQ(FactoryNodeEditor::formatMetricValue(*powerDef, 0.15, *graph), "150.000 kW");
+    EXPECT_EQ(FactoryNodeEditor::formatMetricValue(*pollDef, 0.0041666, *graph), "0.004/m");
+    EXPECT_EQ(FactoryNodeEditor::formatMetricValue(*modsDef, 2.0, *graph), "2");
+    const std::string fixed3NodeTip = buildEditorNodeTooltipText(editor, *siloNode);
+    EXPECT_NE(fixed3NodeTip.find("Machines: 0.004"), std::string::npos) << fixed3NodeTip;
+
+    // Return to Auto via undo
+    editor.undo();
+    EXPECT_EQ(graph->getDisplayPrecision(), numfmt::DisplayPrecision::Auto);
+
+    // 3. Pin Context Menu SI suffix parsing on heat TARGET pin: type "500 kW" (0.5 MW) then "1.2 GW" (1200 MW)
+    drawEditorPinPopupFrame(editor, outHeatId, true);
+    drawEditorPinPopupFrame(editor, outHeatId, false);
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddInputCharactersUTF8("500 kW");
+    drawEditorPinPopupFrame(editor, outHeatId, false);
+    EXPECT_NEAR(outHeatPort->user_constraint, 0.5, 1e-9);
+    EXPECT_EQ(formatEditorPinRateText(editor, *outHeatPort), "500 kW [T]");
+    EXPECT_EQ(formatEditorLinkRateText(editor, *heatConn), "Current Rate: 500 kW");
+    EXPECT_NE(buildEditorPinTooltipText(editor, *outHeatPort, *heatRes, false)
+                  .find("target: 500 kW (100.0%)"),
+              std::string::npos);
+
+    // Dismiss to commit "500 kW", then re-open and type "1.2 GW" -> 1200 MW
+    io.AddMousePosEvent(1200.0f, 700.0f);
+    io.AddMouseButtonEvent(0, true);
+    drawEditorPinPopupFrame(editor, outHeatId, false);
+    io.AddMouseButtonEvent(0, false);
+    drawEditorPinPopupFrame(editor, outHeatId, false);
+    EXPECT_NEAR(outHeatPort->user_constraint, 0.5, 1e-9);
+
+    drawEditorPinPopupFrame(editor, outHeatId, true);
+    EXPECT_EQ(getPinConstraintBuffer(editor), "0.5");
+    drawEditorPinPopupFrame(editor, outHeatId, false);
+    io.AddInputCharactersUTF8("1.2 GW");
+    drawEditorPinPopupFrame(editor, outHeatId, false);
+    EXPECT_NEAR(outHeatPort->user_constraint, 1200.0, 1e-6);
+    EXPECT_EQ(formatEditorPinRateText(editor, *outHeatPort), "1.2 GW [T]");
+    EXPECT_EQ(formatEditorLinkRateText(editor, *heatConn), "Current Rate: 1.2 GW");
+
+    io.AddMousePosEvent(1200.0f, 700.0f);
+    io.AddMouseButtonEvent(0, true);
+    drawEditorPinPopupFrame(editor, outHeatId, false);
+    io.AddMouseButtonEvent(0, false);
+    drawEditorPinPopupFrame(editor, outHeatId, false);
+
+    // 4. Switch precision via Inspector `##display_precision` combo (Auto -> Fixed0), then undo/redo
+    renderEditorFrame(editor);
+    ImGuiWindow* sidePanel = findEditorWindowContaining("##EditorSidePanel");
+    ASSERT_NE(sidePanel, nullptr);
+    const ImGuiID precComboId = ImHashStr("##display_precision", 0, sidePanel->ID);
+    ImGui::ActivateItemByID(precComboId);
+    renderEditorFrame(editor);
+    ASSERT_NE(findOpenPopupWindow("##Combo"), nullptr);
+    selectComboNextItem(editor);
+    EXPECT_EQ(graph->getDisplayPrecision(), numfmt::DisplayPrecision::Fixed0);
+    EXPECT_EQ(formatEditorLinkRateText(editor, *heatConn), "Current Rate: 1 GW");
+
+    editor.undo();
+    EXPECT_EQ(graph->getDisplayPrecision(), numfmt::DisplayPrecision::Auto);
+    EXPECT_EQ(formatEditorLinkRateText(editor, *heatConn), "Current Rate: 1.2 GW");
+    editor.redo();
+    EXPECT_EQ(graph->getDisplayPrecision(), numfmt::DisplayPrecision::Fixed0);
 }
 
 

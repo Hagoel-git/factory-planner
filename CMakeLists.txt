@@ -202,6 +202,7 @@ set(FACTORY_PLANNER_LIB_SRC
 
         src/common/CopyBuffer.h
         src/common/IdUtils.h
+        src/common/NumberFormat.h
 
         src/core/graph/Connection.h
         src/core/graph/Port.h

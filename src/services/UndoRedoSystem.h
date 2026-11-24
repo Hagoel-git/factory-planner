@@ -10,6 +10,7 @@
 #include <imgui.h>
 
 #include "common/CopyBuffer.h"
+#include "common/NumberFormat.h"
 #include "core/data/GameDataV4.h"
 
 class FactoryGraph;
@@ -383,6 +384,24 @@ public:
     std::string getDescription() const override {
         return std::string("Set Rate Unit: ") + gamedata::rateUnitToString(oldUnit) +
                " -> " + gamedata::rateUnitToString(newUnit);
+    }
+};
+
+class SetDisplayPrecisionCommand : public Command {
+private:
+    numfmt::DisplayPrecision oldPrecision;
+    numfmt::DisplayPrecision newPrecision;
+public:
+    SetDisplayPrecisionCommand(numfmt::DisplayPrecision oldPrecision, numfmt::DisplayPrecision newPrecision)
+        : oldPrecision(oldPrecision), newPrecision(newPrecision) {
+    }
+
+    void execute(FactoryGraph& graph) override;
+    void undo(FactoryGraph& graph) override;
+    CommandFlags getFlags() const override { return CommandFlags{false, false}; }
+    std::string getDescription() const override {
+        return std::string("Set Display Precision: ") + numfmt::displayPrecisionLabel(oldPrecision) +
+               " -> " + numfmt::displayPrecisionLabel(newPrecision);
     }
 };
 
