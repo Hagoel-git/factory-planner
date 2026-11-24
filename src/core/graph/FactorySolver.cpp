@@ -11,15 +11,33 @@
 namespace {
     using operations_research::MPConstraint;
     using operations_research::MPSolver;
+    using operations_research::MPSolverParameters;
     using operations_research::MPVariable;
 
     // Values with a smaller magnitude are reported as exactly zero.
     constexpr double kZeroEpsilon = 1e-9;
 
-    // Slack allowed when locking in the optimum of a stage, so that numerical noise does not render later
-    // stages infeasible.
+    // Simplex noise below this magnitude in component-scaled coordinates is snapped to zero before unscaling.
+    constexpr double kScaledZeroEpsilon = 1e-13;
+
+    // Temporary lower-bound relaxation on the Stage 1 saturation fraction S during Hybrid Filter probes.
+    constexpr double kStage1SaturationTolerance = 1e-9;
+
+    // Slack allowed when locking a bottlenecked goal's lower bound in Stage 1 (kept tighter than lockTolerance
+    // because Stage 2a minimizes directly against Stage 1 lower bounds).
+    double stage1LockTolerance(const double value) {
+        return std::max(1e-12, 1e-9 * std::abs(value));
+    }
+
+    // Slack allowed when locking in the optimum of a lexicographic stage, so that numerical noise does not
+    // render later stages infeasible or trigger GLOP presolve bound-snapping imprecision.
     double lockTolerance(const double value) {
-        return 1e-9 * std::max(1.0, std::abs(value));
+        return std::max(1e-12, 1e-8 * std::abs(value));
+    }
+
+    // Minimum headroom above g_p * S* required to classify a Stage 1 goal as non-bottlenecked.
+    double stage1GrowEpsilon(const double scaled_goal) {
+        return std::max(1e-12, 1e-6 * scaled_goal);
     }
 
     double cleanValue(const double value) {
@@ -47,6 +65,13 @@ FactorySolver::FactorySolver(const std::string& solver_name) {
     }
 
     m_solver = std::make_unique<operations_research::MPSolver>("FactorySolver", m_problemType);
+    if (m_problemType == MPSolver::GLOP_LINEAR_PROGRAMMING) {
+        // GLOP's default preprocessor_zero_tolerance (1e-9) uses a relative bound comparison while its final
+        // solution_feasibility_tolerance (1e-6) checks absolute residuals on '= 0' rows, which can snap tight
+        // stage-lock bounds onto perturbed values and fail with IMPRECISE (ABNORMAL), or drop small coefficients
+        // in wide-range constraints. Tightening it to 1e-14 prevents both without disabling presolve.
+        m_solver->SetSolverSpecificParametersAsString("preprocessor_zero_tolerance: 1e-14");
+    }
 }
 
 void FactorySolver::clearComponentSolverState() {
@@ -57,6 +82,7 @@ void FactorySolver::clearComponentSolverState() {
     m_balanceVariables.clear();
     m_constraints.clear();
     m_solution.clear();
+    m_rateScale = 1.0;
     m_solver->Clear();
 }
 
@@ -696,15 +722,28 @@ FactorySolver::SolverResult FactorySolver::solve(FactoryGraph& factory_graph) {
             clearComponentSolverState();
 
             bool invalid_constraint = false;
+            double log_rate_sum = 0.0;
+            size_t positive_constraint_count = 0;
             for (uint64_t pid : comp.ports) {
                 const Port* p = factory_graph.getPort(pid);
-                if (p && !std::isfinite(p->user_constraint)) {
+                if (!p) continue;
+                if (!std::isfinite(p->user_constraint)) {
                     invalid_constraint = true;
                     break;
+                }
+                if (p->user_constraint > 0.0) {
+                    log_rate_sum += std::log(p->user_constraint);
+                    ++positive_constraint_count;
                 }
             }
 
             if (!invalid_constraint) {
+                if (positive_constraint_count > 0) {
+                    const double scale = std::exp(log_rate_sum / static_cast<double>(positive_constraint_count));
+                    if (std::isfinite(scale) && scale > 0.0) {
+                        m_rateScale = scale;
+                    }
+                }
                 createComponentVariables(factory_graph, comp);
                 addComponentConstraints(factory_graph, comp);
             }
@@ -820,14 +859,14 @@ void FactorySolver::addComponentConstraints(const FactoryGraph& factory_graph, C
         addRecipeConstraints(factory_graph, *node);
     }
 
-    // Add user-defined capacity/goal ceilings (all active numeric constraints enforce R_p <= c)
+    // Add user-defined capacity/goal ceilings (all active numeric constraints enforce R'_p <= c / m_rateScale)
     for (uint64_t pid : comp.ports) {
         const Port* port = factory_graph.getPort(pid);
         if (!port || port->user_constraint < 0.0) {
             continue;
         }
         if (auto var_it = m_portVariables.find(pid); var_it != m_portVariables.end()) {
-            var_it->second->SetUB(std::min(var_it->second->ub(), port->user_constraint));
+            var_it->second->SetUB(std::min(var_it->second->ub(), port->user_constraint / m_rateScale));
         }
     }
 
@@ -877,10 +916,11 @@ void FactorySolver::addRecipeConstraints(const FactoryGraph& factory_graph, cons
         auto var_it = m_portVariables.find(pid);
         if (var_it == m_portVariables.end()) return;
 
-        // a_ref * R_p - a_p * R_ref = 0
+        // (a_ref / scale) * R_p - (a_p / scale) * R_ref = 0
+        const double coeff_scale = std::max(a_ref, p->amount_per_craft);
         MPConstraint* constraint = m_solver->MakeRowConstraint(0.0, 0.0);
-        constraint->SetCoefficient(var_it->second, a_ref);
-        constraint->SetCoefficient(ref_var, -p->amount_per_craft);
+        constraint->SetCoefficient(var_it->second, a_ref / coeff_scale);
+        constraint->SetCoefficient(ref_var, -p->amount_per_craft / coeff_scale);
         m_constraints.push_back(constraint);
     };
 
@@ -1014,12 +1054,62 @@ FactorySolver::Terms FactorySolver::buildMachineActivityTerms(
     return terms;
 }
 
+operations_research::MPSolver::ResultStatus FactorySolver::solveCurrentModel() {
+    MPSolver::ResultStatus status = m_solver->Solve();
+    if (status == MPSolver::OPTIMAL ||
+        status == MPSolver::INFEASIBLE ||
+        status == MPSolver::UNBOUNDED) {
+        return status;
+    }
+    if (m_problemType == MPSolver::GLOP_LINEAR_PROGRAMMING &&
+        status == MPSolver::ABNORMAL) {
+        // Fallback 1: solve from scratch without incremental warm-start basis to clear accumulated basis drift.
+        MPSolverParameters scratch_params;
+        scratch_params.SetIntegerParam(
+            MPSolverParameters::INCREMENTALITY,
+            MPSolverParameters::INCREMENTALITY_OFF);
+        status = m_solver->Solve(scratch_params);
+        if (status == MPSolver::OPTIMAL) {
+            VLOG(1) << "GLOP recovered from ABNORMAL using fresh basis (INCREMENTALITY_OFF).";
+            return status;
+        }
+        // Fallback 2: bypass GLOP presolve and solve from scratch directly with simplex.
+        scratch_params.SetIntegerParam(
+            MPSolverParameters::PRESOLVE,
+            MPSolverParameters::PRESOLVE_OFF);
+        status = m_solver->Solve(scratch_params);
+        if (status == MPSolver::OPTIMAL) {
+            VLOG(1) << "GLOP recovered from ABNORMAL using fresh basis with PRESOLVE_OFF.";
+        }
+    }
+    return status;
+}
+
 operations_research::MPSolver::ResultStatus FactorySolver::solveComponentLexicographic(
     const FactoryGraph& factory_graph, const ComponentData& comp) {
     // Stage 1: Max-Min Water-Filling on Active Goals (G_K)
     std::vector<uint64_t> active_goals = comp.active_goals;
     if (!active_goals.empty()) {
-        MPVariable* S = m_solver->MakeNumVar(0.0, 1.0, "Saturation");
+        double log_goal_sum = 0.0;
+        size_t scaled_goal_count = 0;
+        for (uint64_t port_id : active_goals) {
+            const Port* port = factory_graph.getPort(port_id);
+            if (!port || port->user_constraint <= 0.0) continue;
+            if (!m_portVariables.count(port_id)) continue;
+            const double scaled_goal = port->user_constraint / m_rateScale;
+            if (scaled_goal > 0.0 && std::isfinite(scaled_goal)) {
+                log_goal_sum += std::log(scaled_goal);
+                ++scaled_goal_count;
+            }
+        }
+        double s_scale = scaled_goal_count > 0
+            ? std::exp(log_goal_sum / static_cast<double>(scaled_goal_count))
+            : 1.0;
+        if (!std::isfinite(s_scale) || s_scale <= 0.0) {
+            s_scale = 1.0;
+        }
+
+        MPVariable* S = m_solver->MakeNumVar(0.0, s_scale, "Saturation");
         std::unordered_map<uint64_t, MPConstraint*> s_constraints;
 
         for (uint64_t port_id : active_goals) {
@@ -1027,10 +1117,12 @@ operations_research::MPSolver::ResultStatus FactorySolver::solveComponentLexicog
             if (!port) continue;
             auto var_it = m_portVariables.find(port_id);
             if (var_it == m_portVariables.end()) continue;
-            const double goal = port->user_constraint;
+            const double goal = port->user_constraint / m_rateScale;
+            const double s_ratio = goal / s_scale;
+            const double row_scale = std::max(1.0, s_ratio);
             auto* c = m_solver->MakeRowConstraint(0.0, MPSolver::infinity());
-            c->SetCoefficient(var_it->second, 1.0);
-            c->SetCoefficient(S, -goal);
+            c->SetCoefficient(var_it->second, 1.0 / row_scale);
+            c->SetCoefficient(S, -s_ratio / row_scale);
             s_constraints[port_id] = c;
         }
 
@@ -1040,20 +1132,33 @@ operations_research::MPSolver::ResultStatus FactorySolver::solveComponentLexicog
             obj->SetCoefficient(S, 1.0);
             obj->SetOptimizationDirection(true);
 
-            const auto s_status = m_solver->Solve();
+            const auto s_status = solveCurrentModel();
             if (s_status != MPSolver::OPTIMAL) {
                 return s_status;
             }
             storeSolution();
 
-            const double s_val = S->solution_value();
-            if (s_val >= 1.0 - kZeroEpsilon) {
+            const double s_val = std::clamp(S->solution_value() / s_scale, 0.0, 1.0);
+            constexpr double kFullSatTol = 1e-12;
+            bool all_saturated = (s_val >= 1.0 - kFullSatTol);
+            if (all_saturated) {
+                for (uint64_t port_id : active_goals) {
+                    const Port* port = factory_graph.getPort(port_id);
+                    if (!port) continue;
+                    const double goal = port->user_constraint / m_rateScale;
+                    if ((1.0 - s_val) * goal > kFullSatTol) {
+                        all_saturated = false;
+                        break;
+                    }
+                }
+            }
+            if (all_saturated) {
                 for (uint64_t port_id : active_goals) {
                     const Port* port = factory_graph.getPort(port_id);
                     if (!port) continue;
                     auto var_it = m_portVariables.find(port_id);
                     if (var_it == m_portVariables.end()) continue;
-                    const double goal = port->user_constraint;
+                    const double goal = port->user_constraint / m_rateScale;
                     var_it->second->SetLB(std::max(var_it->second->lb(), std::max(0.0, goal)));
                 }
                 break;
@@ -1064,18 +1169,15 @@ operations_research::MPSolver::ResultStatus FactorySolver::solveComponentLexicog
                     if (!port) continue;
                     auto var_it = m_portVariables.find(port_id);
                     if (var_it == m_portVariables.end()) continue;
-                    const double target_val = port->user_constraint * s_val;
-                    const double locked_val = target_val - 0.1 * lockTolerance(target_val);
+                    const double target_val = (port->user_constraint / m_rateScale) * s_val;
+                    const double locked_val = target_val - stage1LockTolerance(target_val);
                     var_it->second->SetLB(std::max(var_it->second->lb(), std::max(0.0, locked_val)));
                 }
                 break;
             }
 
             const double old_lb = S->lb();
-            const double old_ub = S->ub();
-            const double s_tol = 0.1 * lockTolerance(s_val);
-            S->SetLB(std::max(old_lb, s_val - s_tol));
-            S->SetUB(std::min(old_ub, s_val + s_tol));
+            S->SetLB(std::max(old_lb, std::max(0.0, (s_val - kStage1SaturationTolerance) * s_scale)));
 
             obj->Clear();
             for (uint64_t port_id : active_goals) {
@@ -1085,7 +1187,7 @@ operations_research::MPSolver::ResultStatus FactorySolver::solveComponentLexicog
                 }
             }
             obj->SetOptimizationDirection(true);
-            const auto sum_status = m_solver->Solve();
+            const auto sum_status = solveCurrentModel();
             if (sum_status != MPSolver::OPTIMAL) {
                 return sum_status;
             }
@@ -1099,9 +1201,9 @@ operations_research::MPSolver::ResultStatus FactorySolver::solveComponentLexicog
                 auto var_it = m_portVariables.find(port_id);
                 if (var_it == m_portVariables.end()) continue;
 
-                const double goal = port->user_constraint;
+                const double goal = port->user_constraint / m_rateScale;
                 const double r_val = var_it->second->solution_value();
-                const double grow_eps = 1e-6 * std::min(1.0, std::max(1e-3, goal));
+                const double grow_eps = stage1GrowEpsilon(goal);
 
                 if (r_val > goal * s_val + grow_eps) {
                     next_active.push_back(port_id);
@@ -1116,8 +1218,8 @@ operations_research::MPSolver::ResultStatus FactorySolver::solveComponentLexicog
                 auto var_it = m_portVariables.find(port_id);
                 if (var_it == m_portVariables.end()) continue;
 
-                const double goal = port->user_constraint;
-                const double grow_eps = 1e-6 * std::min(1.0, std::max(1e-3, goal));
+                const double goal = port->user_constraint / m_rateScale;
+                const double grow_eps = stage1GrowEpsilon(goal);
                 auto* R_i = var_it->second;
 
                 obj->Clear();
@@ -1125,7 +1227,7 @@ operations_research::MPSolver::ResultStatus FactorySolver::solveComponentLexicog
                 obj->SetOptimizationDirection(true);
 
                 bool can_grow = false;
-                const auto test_status = m_solver->Solve();
+                const auto test_status = solveCurrentModel();
                 if (test_status == MPSolver::OPTIMAL) {
                     storeSolution();
                     const double test_r_val = R_i->solution_value();
@@ -1138,7 +1240,7 @@ operations_research::MPSolver::ResultStatus FactorySolver::solveComponentLexicog
 
                 if (!can_grow) {
                     const double locked_val = goal * s_val;
-                    R_i->SetLB(std::max(R_i->lb(), locked_val - 0.1 * lockTolerance(locked_val)));
+                    R_i->SetLB(std::max(R_i->lb(), std::max(0.0, locked_val - stage1LockTolerance(locked_val))));
 
                     auto c_it = s_constraints.find(port_id);
                     if (c_it != s_constraints.end()) {
@@ -1153,15 +1255,15 @@ operations_research::MPSolver::ResultStatus FactorySolver::solveComponentLexicog
             }
 
             S->SetLB(old_lb);
-            S->SetUB(old_ub);
             if (next_active.size() == active_goals.size()) {
                 for (uint64_t port_id : active_goals) {
                     const Port* port = factory_graph.getPort(port_id);
                     if (!port) continue;
                     auto var_it = m_portVariables.find(port_id);
                     if (var_it == m_portVariables.end()) continue;
-                    const double locked_val = port->user_constraint * s_val;
-                    var_it->second->SetLB(std::max(var_it->second->lb(), locked_val - 0.1 * lockTolerance(locked_val)));
+                    const double locked_val = (port->user_constraint / m_rateScale) * s_val;
+                    var_it->second->SetLB(
+                        std::max(var_it->second->lb(), std::max(0.0, locked_val - stage1LockTolerance(locked_val))));
                 }
                 break;
             }
@@ -1304,7 +1406,7 @@ operations_research::MPSolver::ResultStatus FactorySolver::solveStage(
     }
     objective->SetOptimizationDirection(maximize);
 
-    const MPSolver::ResultStatus status = m_solver->Solve();
+    const MPSolver::ResultStatus status = solveCurrentModel();
     if (status == MPSolver::OPTIMAL) {
         objective_value = objective->Value();
         storeSolution();
@@ -1315,6 +1417,25 @@ operations_research::MPSolver::ResultStatus FactorySolver::solveStage(
 void FactorySolver::lockStage(const Terms& terms, const bool maximize, const double objective_value, const int stage_step) {
     if (terms.empty()) {
         return;
+    }
+    // When minimizing a sum of strictly positive-weighted non-negative variables (e.g., Stage 2b excess,
+    // Stage 2c.1 sink branches, Stage 3a/3b residual activity) achieves zero within simplex noise, fix each
+    // variable to 0 directly so later stages cannot exploit primal feasibility tolerance (1e-8) to leak
+    // spurious non-zero flow/excess when unscaled by a large m_rateScale.
+    if (!maximize && objective_value <= kScaledZeroEpsilon) {
+        bool all_nonneg_at_zero = true;
+        for (const auto& [var, coefficient] : terms) {
+            if (coefficient <= 0.0 || var->lb() > 0.0) {
+                all_nonneg_at_zero = false;
+                break;
+            }
+        }
+        if (all_nonneg_at_zero) {
+            for (const auto& [var, coefficient] : terms) {
+                var->SetUB(0.0);
+            }
+            return;
+        }
     }
     const double tolerance = static_cast<double>(std::max(1, stage_step)) * lockTolerance(objective_value);
     if (terms.size() == 1 && terms[0].second > 0.0) {
@@ -1329,11 +1450,16 @@ void FactorySolver::lockStage(const Terms& terms, const bool maximize, const dou
         }
         return;
     }
-    MPConstraint* constraint = maximize
-        ? m_solver->MakeRowConstraint(objective_value - tolerance, MPSolver::infinity())
-        : m_solver->MakeRowConstraint(-MPSolver::infinity(), objective_value + tolerance);
+    double max_coeff = 0.0;
     for (const auto& [var, coefficient] : terms) {
-        constraint->SetCoefficient(var, constraint->GetCoefficient(var) + coefficient);
+        max_coeff = std::max(max_coeff, std::abs(coefficient));
+    }
+    const double row_scale = max_coeff > 0.0 ? max_coeff : 1.0;
+    MPConstraint* constraint = maximize
+        ? m_solver->MakeRowConstraint((objective_value - tolerance) / row_scale, MPSolver::infinity())
+        : m_solver->MakeRowConstraint(-MPSolver::infinity(), (objective_value + tolerance) / row_scale);
+    for (const auto& [var, coefficient] : terms) {
+        constraint->SetCoefficient(var, constraint->GetCoefficient(var) + coefficient / row_scale);
     }
     m_constraints.push_back(constraint);
 }
@@ -1348,7 +1474,14 @@ void FactorySolver::storeSolution() {
 
 double FactorySolver::solutionValue(const MPVariable* var) const {
     const int index = var->index();
-    return index >= 0 && static_cast<size_t>(index) < m_solution.size() ? cleanValue(m_solution[index]) : 0.0;
+    if (index < 0 || static_cast<size_t>(index) >= m_solution.size()) {
+        return 0.0;
+    }
+    const double scaled = m_solution[index];
+    if (std::abs(scaled) < kScaledZeroEpsilon) {
+        return 0.0;
+    }
+    return cleanValue(scaled * m_rateScale);
 }
 
 void FactorySolver::updateComponentGraph(FactoryGraph& factory_graph, const ComponentData& comp) {

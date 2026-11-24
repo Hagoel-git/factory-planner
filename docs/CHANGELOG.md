@@ -24,6 +24,7 @@ This document holds the user-facing changelog that is also used in release notes
 - Updated pin rate labels, pin/link hover tooltips, and Pin Context Menu constraint input and flow readouts to display and parse values in the active project rate unit (`/tick`, `/s`, `/min`, `/h`).
 
 ### Fixed
+- Fixed a GLOP numerical stability issue where high-rate constraints (`>= 1,200/s` or `>= 1 GW`), multi-output raw sources, or bottlenecked goals at large/small scales could fail with a solver error (`ABNORMAL`/`INFEASIBLE`) or silently solve to zero flow.
 - Fixed the Mindustry `silicon-smelter` recipe machine mapping to reference `silicon-smelter` instead of `silicon-crucible`.
 - Fixed the Link Context Menu reading deleted or swapped link debug info after clicking "Delete Link" when debug info is enabled.
 - Fixed node-creation popup coordinates being captured in canvas space instead of screen space when opening the canvas context menu, preventing misaligned node placement.

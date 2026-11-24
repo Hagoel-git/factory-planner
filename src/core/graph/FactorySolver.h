@@ -165,6 +165,7 @@ private:
     std::vector<std::pair<operations_research::MPVariable*, operations_research::MPVariable*>> m_balanceVariables;
     std::vector<operations_research::MPConstraint*> m_constraints;
     std::vector<double> m_solution;
+    double m_rateScale = 1.0;
 
     static bool isNodeActiveInSolver(const FactoryGraph& factory_graph, const Node& node);
     static bool findReferencePort(const FactoryGraph& factory_graph, const Node& node,
@@ -182,6 +183,7 @@ private:
     Terms buildMachineActivityTerms(const FactoryGraph& factory_graph,
                                     const std::vector<uint64_t>& candidate_nodes) const;
 
+    operations_research::MPSolver::ResultStatus solveCurrentModel();
     operations_research::MPSolver::ResultStatus solveComponentLexicographic(
         const FactoryGraph& factory_graph, const ComponentData& comp);
     operations_research::MPSolver::ResultStatus solveStage(const Terms& terms, bool maximize, double& objective_value);

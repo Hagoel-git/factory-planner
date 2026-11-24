@@ -99,8 +99,8 @@ All variables are non-negative ($\ge 0$) and expressed in items per `units.time_
 
 1. **Pre-Evaluated Recipe & Extra-Port Stoichiometry:**
    For each active node $n \in \mathcal{N}_K$, let $p_{\text{ref}} = \text{ref}(n)$ be its **reference port**, chosen as the first active input port with $a_p > 0$, or if $n$ has no active input ports (a raw source), the first active output port with $a_p > 0$.
-   - All active ports $p \in \mathcal{P}(n)$ (both recipe ports `in:i`/`out:i` and active machine extra ports `xin:<id>`/`xout:<id>`) are locked in exact linear proportion to $p_{\text{ref}}$ using their pre-evaluated amounts per craft $a_p = p.\text{amount\_per\_craft} > 0$:
-     $$a_{\text{ref}} \cdot R_p - a_p \cdot R_{\text{ref}} = 0 \qquad \forall p \in \mathcal{P}(n) \setminus \{p_{\text{ref}}\}$$
+   - All active ports $p \in \mathcal{P}(n)$ (both recipe ports `in:i`/`out:i` and active machine extra ports `xin:<id>`/`xout:<id>`) are locked in exact linear proportion to $p_{\text{ref}}$ using their pre-evaluated amounts per craft $a_p = p.\text{amount\_per\_craft} > 0$, normalized by $c_{\max} = \max(a_{\text{ref}}, a_p)$ so every row's largest coefficient is $1$:
+     $$\frac{a_{\text{ref}}}{c_{\max}} \cdot R_p - \frac{a_p}{c_{\max}} \cdot R_{\text{ref}} = 0 \qquad \forall p \in \mathcal{P}(n) \setminus \{p_{\text{ref}}\}$$
    - Because $a_p$ already incorporates any profile `input_amount` / `output_amount` scaling (such as `port.chance`, productivity bonuses, or fuel consumption per craft), the LP constraint is purely linear in $R_p$.
 2. **User Rate Ceilings:** Every active port $p \in \mathcal{P}_K$ with `user_constraint >= 0` (regardless of whether its resolved mode is `LIMIT`, `TARGET`, or `PUSH`) enforces:
    $$R_p \le p.\text{user\_constraint}$$
@@ -123,15 +123,24 @@ All variables are non-negative ($\ge 0$) and expressed in items per `units.time_
 
 ## 5. The 4-Stage Lexicographic Solve
 
-Each component $K$ is solved through a fixed sequence of LP stages. After each intermediate stage achieves optimum $z^\star$, `lockStage` adds a linear constraint locking that stage's objective within $\tau(z^\star) = 10^{-9} \cdot \max(1, |z^\star|)$.
+Each component $K$ is solved through a fixed sequence of LP stages.
+
+### Numerical Conditioning, Tolerances & GLOP Stability
+
+Because all factory stoichiometry, wire conservation, and branch-balance equations are homogeneous in flow rates while user constraints span many orders of magnitude (from $< 10^{-5}$ items/s up to $> 10^{9}$ W), `FactorySolver` conditions each component LP as follows:
+- **Component Rate Scaling ($\sigma_K$):** Before creating variables for component $K$, `m_rateScale` ($\sigma_K$) is set to the geometric mean of all finite positive `user_constraint` values in $K$ (or $1$ if none). All LP flow variables solve in scaled coordinates $R'_p = R_p / \sigma_K$, $F'_c = F_c / \sigma_K$, $E'_p = E_p / \sigma_K$ with scaled user ceilings $c'_p = c_p / \sigma_K$, keeping typical variable magnitudes near $O(1)$ where GLOP's primal/dual feasibility tolerances ($10^{-8}$) and absolute residual check ($10^{-6}$) are well-conditioned. Post-solve values snap scaled simplex noise $|v'| < 10^{-13}$ to $0$, then unscale by $\sigma_K$ and snap unscaled $|v| < 10^{-9}$ to $0$.
+- **GLOP Preprocessor Tolerance:** For `GLOP_LINEAR_PROGRAMMING`, `preprocessor_zero_tolerance` is set to $10^{-14}$ (tightened from GLOP's default $10^{-9}$). GLOP's default $10^{-9}$ relative bound-snapping tolerance conflicts with its absolute $10^{-6}$ postsolve residual check on `= 0` equality rows (`IMPRECISE` / `ABNORMAL`) and drops small matrix entries in wide-range constraints; $10^{-14}$ prevents both while preserving presolve speed.
+- **Stage-Lock Tolerances & Row Normalization:** After each intermediate stage $k \in \{1, 2, \dots\}$ achieves optimum $z^\star$, `lockStage` locks that stage's objective within $k \cdot \tau(z^\star)$ where $\tau(z^\star) = \max(10^{-12}, 10^{-8} \cdot |z^\star|)$, normalizing multi-term lock rows by their maximum absolute coefficient. When minimizing a sum of strictly positive-weighted non-negative variables (such as Stage 2b excess or Stage 3b sink flow) achieves $z^\star \le 10^{-13}$ with all lower bounds at $0$, each variable in the stage is fixed directly to $0$ (`ub = 0`) so later stages cannot exploit primal feasibility slack to leak spurious excess after unscaling. Stage 1 bottlenecked goal lower bounds use the tighter $\tau_1(v) = \max(10^{-12}, 10^{-9} \cdot |v|)$ because Stage 2a minimizes directly against Stage 1 lower bounds.
+- **Defensive `ABNORMAL` Recovery (`solveCurrentModel`):** If GLOP returns `MPSolver::ABNORMAL` (numerical imprecision) on any stage—never on genuine `INFEASIBLE` or `UNBOUNDED`—the solver retries from a fresh basis (`INCREMENTALITY_OFF`), and if still non-optimal, retries with `INCREMENTALITY_OFF` and `PRESOLVE_OFF`.
 
 ### Stage 1: Max-Min Water-Filling on Active Goals ($G_K$)
 
-If $G_K \neq \emptyset$, introduce $S \in [0, 1]$ with $R_p - g_p \cdot S \ge 0$ for all $p \in G_K$, and iteratively maximize $S$:
-- If $S^\star \ge 1 - 10^{-9}$, all remaining goals in $G_K$ are locked at $R_p \ge g_p$ and the loop terminates.
-- Otherwise, $S$ is temporarily fixed to $S^\star$ and a **Hybrid Filter** identifies bottlenecked goals:
-  1. **Sum solve:** Maximize $\sum_{p \in G_{\text{active}}} R_p$. Any goal with $R_p > g_p S^\star + 10^{-6}$ has headroom and stays active.
-  2. **Suspect verification:** Each goal that did not grow in the sum solve is maximized individually. If it still cannot exceed $g_p S^\star + 10^{-6}$, it is a genuine bottleneck: its lower bound is locked at $g_p S^\star - \tau(g_p S^\star)$ and its $S$-constraint is decoupled.
+If $G_K \neq \emptyset$, let $g'_p = g_p / \sigma_K$ be each goal's scaled rate and $s_{\text{scale}}$ the geometric mean of $\{g'_p \mid p \in G_K\}$. Introduce $S \in [0, s_{\text{scale}}]$ representing $s_{\text{scale}}$ times the common saturation fraction, with row-normalized constraints $\frac{1}{m_p} R'_p - \frac{g'_p / s_{\text{scale}}}{m_p} S \ge 0$ ($m_p = \max(1, g'_p / s_{\text{scale}})$) for all $p \in G_K$, and iteratively maximize $S$ (recovering $S^\star = \mathrm{clamp}(S / s_{\text{scale}}, 0, 1)$):
+- If $S^\star \ge 1 - 10^{-12}$ and $(1 - S^\star) g'_p \le 10^{-12}$ for every remaining $p \in G_{\text{active}}$, all remaining goals are locked at $R'_p \ge g'_p$ and the loop terminates.
+- If $|G_{\text{active}}| = 1$, the single remaining goal is locked at $R'_p \ge g'_p S^\star - \tau_1(g'_p S^\star)$ and the loop terminates.
+- Otherwise, $S$'s lower bound is temporarily raised to $(S^\star - 10^{-9}) \cdot s_{\text{scale}}$ (without tightening its upper bound, since $S^\star$ is already the LP maximum) and a **Hybrid Filter** identifies bottlenecked goals using relative growth threshold $\varepsilon_p = \max(10^{-12}, 10^{-6} \cdot g'_p)$:
+  1. **Sum solve:** Maximize $\sum_{p \in G_{\text{active}}} R'_p$. Any goal with $R'_p > g'_p S^\star + \varepsilon_p$ has headroom and stays active.
+  2. **Suspect verification:** Each goal that did not grow in the sum solve is maximized individually. If it still cannot exceed $g'_p S^\star + \varepsilon_p$, it is a genuine bottleneck: its lower bound is locked at $g'_p S^\star - \tau_1(g'_p S^\star)$ and its $S$-constraint is decoupled.
 - When all goals are locked, all $S$-constraints are decoupled so $S$ is inert in Stages 2–4.
 
 ### Stage 2: Upstream Conservation & Overflow Routing
@@ -170,8 +179,8 @@ Balances any remaining degrees of freedom across all splitters and mergers (incl
 
 After solving each component $K$:
 1. **Zero Snapping & Flow Write-Back:**
-   - Any solved value with $|v| < 10^{-9}$ is snapped to `0.0`.
-   - Port rates $R_p$, wire rates $F_c$, and unconsumed excess rates $E_p$ (all in items/s) are written back to `FactoryGraph`.
+   - Any solved value with scaled magnitude $|v'| < 10^{-13}$ or unscaled magnitude $|v| < 10^{-9}$ is snapped to `0.0`.
+   - Unscaled port rates $R_p = \sigma_K R'_p$, wire rates $F_c = \sigma_K F'_c$, and unconsumed excess rates $E_p = \sigma_K E'_p$ (all in items/s) are written back to `FactoryGraph`.
 2. **Craft Rate & Machine Count (§7.2):**
    - For each active node $n \in \mathcal{N}_K$ with reference port $p_{\text{ref}}$ ($a_{\text{ref}} > 0$) and effective craft time $t'_n > 0$:
      $$\text{crafts}_n = \frac{R_{p_{\text{ref}}}}{a_{\text{ref}}}, \qquad M_n = \text{crafts}_n \cdot t'_n = w_n \cdot R_{p_{\text{ref}}}$$

@@ -2376,4 +2376,302 @@ TEST_F(FactorySolverTest, FailedComponentExcludedFromPostSolveMetricsAndTotals) 
     EXPECT_NEAR(t_eff->value, 50.0, 1e-6);
 }
 
+TEST_F(FactorySolverTest, MultiOutputRawSourceNonRefPortConstraintStability) {
+    // Regression test for GLOP IMPRECISE/ABNORMAL when locking a single reference port
+    // on a multi-output raw source whose non-reference output is constrained to >= 1200.
+    defResource("part", "Part");
+    defResource("heat", "Heat");
+    defMachine(testGameData, "reactor", "Reactor", 1.0);
+    defMachine(testGameData, "heat_sink", "Heat Sink", 1.0);
+    defRecipe("make_part_and_heat", "Make Part and Heat", 1.0, {"reactor"},
+              {}, {{"part", 1.0}, {"heat", 40.0}});
+    defRecipe("sink_heat", "Sink Heat", 1.0, {"heat_sink"},
+              {{"heat", 1.0}}, {});
+
+    for (ConstraintMode mode : {ConstraintMode::TARGET, ConstraintMode::AUTO, ConstraintMode::PUSH}) {
+        for (double goal : {1200.0, 10000.0, 1e6, 1e9}) {
+            FactoryGraph g(testGameData);
+            uint64_t n_reactor = g.addNode("Reactor", "make_part_and_heat");
+            uint64_t n_sink = g.addNode("Sink", "sink_heat");
+            Port* p_part = g.getPortBySlot(n_reactor, "out:0");
+            Port* p_heat_out = g.getPortBySlot(n_reactor, "out:1");
+            Port* p_heat_in = g.getPortBySlot(n_sink, "in:0");
+            ASSERT_NE(p_part, nullptr);
+            ASSERT_NE(p_heat_out, nullptr);
+            ASSERT_NE(p_heat_in, nullptr);
+            ASSERT_NE(g.addConnection(p_heat_out->id, p_heat_in->id), static_cast<uint64_t>(-1));
+
+            g.setPortConstraint(p_heat_out->id, goal, mode);
+
+            auto res = solver->solve(g);
+            ASSERT_EQ(res.status, FactorySolver::SolverResultStatus::SUCCESS)
+                << "mode=" << static_cast<int>(mode) << " goal=" << goal;
+
+            const double expected_part = goal / 40.0;
+            EXPECT_NEAR(p_part->rate, expected_part, std::max(1e-6, 1e-6 * expected_part));
+            EXPECT_NEAR(p_heat_out->rate, goal, std::max(1e-6, 1e-6 * goal));
+            EXPECT_NEAR(p_heat_in->rate, goal, std::max(1e-6, 1e-6 * goal));
+            EXPECT_NEAR(p_heat_out->excess_rate, 0.0, std::max(1e-6, 1e-9 * goal));
+            EXPECT_NEAR(g.getNode(n_reactor)->machine_count, expected_part, std::max(1e-6, 1e-6 * expected_part));
+        }
+    }
+}
+
+TEST_F(FactorySolverTest, SingleNodeAndRatiosAcrossWideRateScales) {
+    // Regression test for single-node TARGET components across tiny (1e-5) to huge (1e12) rates
+    // and awkward stoichiometric ratios (1:1, 1:40, 40:1, 3:7).
+    defResource("a", "A");
+    defResource("b", "B");
+    defMachine(testGameData, "proc", "Processor", 1.0);
+    defMachine(testGameData, "disposal", "Disposal", 1.0);
+    defRecipe("dispose_b", "Dispose B", 1.0, {"disposal"}, {{"b", 1.0}}, {});
+
+    const std::vector<std::pair<double, double>> ratios = {
+        {1.0, 1.0}, {1.0, 40.0}, {40.0, 1.0}, {3.0, 7.0}
+    };
+    const std::vector<double> goals = {1e-5, 1e-3, 1.0, 1200.0, 20000.0, 1e6, 1e9, 1e12};
+
+    for (size_t ri = 0; ri < ratios.size(); ++ri) {
+        const auto [a_in, a_out] = ratios[ri];
+        const std::string rec_id = "proc_ratio_" + std::to_string(ri);
+        defRecipe(rec_id, rec_id, 1.0, {"proc"}, {{"a", a_in}}, {{"b", a_out}});
+
+        for (double goal : goals) {
+            FactoryGraph g(testGameData);
+            uint64_t n_proc = g.addNode("Proc", rec_id);
+            uint64_t n_sink = g.addNode("Sink", "dispose_b");
+            Port* p_in = g.getPortBySlot(n_proc, "in:0");
+            Port* p_out = g.getPortBySlot(n_proc, "out:0");
+            Port* p_sink_in = g.getPortBySlot(n_sink, "in:0");
+            ASSERT_NE(g.addConnection(p_out->id, p_sink_in->id), static_cast<uint64_t>(-1));
+
+            g.setPortConstraint(p_out->id, goal, ConstraintMode::TARGET);
+
+            auto res = solver->solve(g);
+            ASSERT_EQ(res.status, FactorySolver::SolverResultStatus::SUCCESS)
+                << "ratio=" << a_in << ":" << a_out << " goal=" << goal;
+
+            const double expected_in = goal * a_in / a_out;
+            const double expected_machines = goal / a_out;
+            EXPECT_NEAR(p_out->rate, goal, std::max(1e-9, 1e-6 * goal));
+            EXPECT_NEAR(p_in->rate, expected_in, std::max(1e-9, 1e-6 * expected_in));
+            EXPECT_NEAR(p_sink_in->rate, goal, std::max(1e-9, 1e-6 * goal));
+            EXPECT_NEAR(p_out->excess_rate, 0.0, std::max(1e-9, 1e-9 * goal));
+            EXPECT_NEAR(g.getNode(n_proc)->machine_count, expected_machines, std::max(1e-9, 1e-6 * expected_machines));
+        }
+    }
+}
+
+TEST_F(FactorySolverTest, BottleneckedGoalsAndWaterFillingAcrossScales) {
+    // Regression test covering:
+    //  1) Single bottlenecked goal at scales from 1e-4 to 1e12 (previously ABNORMAL >= 20000, zero >= 1e9)
+    //  2) Near-100% cap (cap = 1e9 - 0.1 vs goal = 1e9; previously INFEASIBLE)
+    //  3) 3-goal water-filling with 2 shared-bottleneck goals (25%) and 1 free goal (100%)
+    //     in the same component across 1e-4 .. 1e10 (previously ABNORMAL or stuck at 25% via grow_eps).
+    defResource("fuel", "Fuel");
+    defResource("out_a", "Out A");
+    defResource("out_b", "Out B");
+    defMachine(testGameData, "m_src", "Source", 1.0);
+    defMachine(testGameData, "m_conv", "Converter", 1.0);
+    defMachine(testGameData, "m_join", "Joiner", 1.0);
+    defRecipe("src_fuel", "Source Fuel", 1.0, {"m_src"}, {}, {{"fuel", 1.0}});
+    defRecipe("conv_a", "Conv A", 1.0, {"m_conv"}, {{"fuel", 1.0}}, {{"out_a", 1.0}});
+    defRecipe("conv_40", "Conv 40", 1.0, {"m_conv"}, {{"fuel", 1.0}}, {{"out_a", 40.0}});
+    defRecipe("conv_b", "Conv B", 1.0, {"m_conv"}, {{"fuel", 1.0}}, {{"out_b", 1.0}});
+    defRecipe("join_sink", "Join Sink", 1.0, {"m_join"}, {{"out_a", 1.0}, {"out_b", 1.0}}, {});
+
+    // Part 1: Single bottlenecked goal across scales (1:1 and 1:40)
+    for (const std::string& conv_rec : {std::string("conv_a"), std::string("conv_40")}) {
+        const double mult = (conv_rec == "conv_40") ? 40.0 : 1.0;
+        for (double cap : {1e-4, 1.0, 1200.0, 20000.0, 1e6, 1e9, 1e12}) {
+            FactoryGraph g(testGameData);
+            uint64_t n_src = g.addNode("Src", "src_fuel");
+            uint64_t n_conv = g.addNode("Conv", conv_rec);
+            Port* p_src_out = g.getPortBySlot(n_src, "out:0");
+            Port* p_conv_in = g.getPortBySlot(n_conv, "in:0");
+            Port* p_conv_out = g.getPortBySlot(n_conv, "out:0");
+            ASSERT_NE(g.addConnection(p_src_out->id, p_conv_in->id), static_cast<uint64_t>(-1));
+
+            const double achieved = cap * mult;
+            g.setPortConstraint(p_src_out->id, cap, ConstraintMode::LIMIT);
+            g.setPortConstraint(p_conv_out->id, achieved * 2.0, ConstraintMode::TARGET);
+
+            auto res = solver->solve(g);
+            ASSERT_EQ(res.status, FactorySolver::SolverResultStatus::SUCCESS)
+                << "conv=" << conv_rec << " cap=" << cap;
+            EXPECT_NEAR(p_conv_out->rate, achieved, std::max(1e-9, 1e-6 * achieved));
+            EXPECT_NEAR(solver->getGoalSaturation(p_conv_out->id), 0.5, 1e-6);
+        }
+    }
+
+    // Part 2: Near-100% cap at large scale (cap = 1e9 - 0.1 vs goal = 1e9)
+    {
+        FactoryGraph g(testGameData);
+        uint64_t n_src = g.addNode("Src", "src_fuel");
+        uint64_t n_conv = g.addNode("Conv", "conv_a");
+        Port* p_src_out = g.getPortBySlot(n_src, "out:0");
+        Port* p_conv_in = g.getPortBySlot(n_conv, "in:0");
+        Port* p_conv_out = g.getPortBySlot(n_conv, "out:0");
+        ASSERT_NE(g.addConnection(p_src_out->id, p_conv_in->id), static_cast<uint64_t>(-1));
+
+        const double cap = 1e9 - 0.1;
+        g.setPortConstraint(p_src_out->id, cap, ConstraintMode::LIMIT);
+        g.setPortConstraint(p_conv_out->id, 1e9, ConstraintMode::TARGET);
+
+        auto res = solver->solve(g);
+        ASSERT_EQ(res.status, FactorySolver::SolverResultStatus::SUCCESS);
+        EXPECT_LE(p_src_out->rate, cap + 1e-3);
+        EXPECT_NEAR(p_conv_out->rate, cap, 1.0);
+    }
+
+    // Part 3: 3-goal water-filling inside one connected component across 1e-4 .. 1e10
+    for (double cap : {1e-4, 1.0, 1200.0, 1e5, 1e8, 1e10}) {
+        FactoryGraph g(testGameData);
+        uint64_t n_src1 = g.addNode("Src1", "src_fuel");
+        uint64_t n_c1 = g.addNode("C1", "conv_a");
+        uint64_t n_c2 = g.addNode("C2", "conv_a");
+        uint64_t n_src2 = g.addNode("Src2", "src_fuel");
+        uint64_t n_c3 = g.addNode("C3", "conv_b");
+        // Connect C1 and C3 into a shared sink so all 3 goals belong to the same component
+        // without constraining C3's output (TARGET nodes may shed excess or feed sink).
+        // Even simpler: wire Src1 -> C1, Src1 -> C2, and Src2 -> C3; tie component via an unused
+        // splitter branch from C2 and C3 into a 2-input sink (join_sink).
+        uint64_t n_join = g.addNode("Join", "join_sink");
+
+        Port* p_src1 = g.getPortBySlot(n_src1, "out:0");
+        Port* p_c1_in = g.getPortBySlot(n_c1, "in:0");
+        Port* p_c1_out = g.getPortBySlot(n_c1, "out:0");
+        Port* p_c2_in = g.getPortBySlot(n_c2, "in:0");
+        Port* p_c2_out = g.getPortBySlot(n_c2, "out:0");
+        Port* p_src2 = g.getPortBySlot(n_src2, "out:0");
+        Port* p_c3_in = g.getPortBySlot(n_c3, "in:0");
+        Port* p_c3_out = g.getPortBySlot(n_c3, "out:0");
+        Port* p_join_a = g.getPortBySlot(n_join, "in:0");
+        Port* p_join_b = g.getPortBySlot(n_join, "in:1");
+
+        ASSERT_NE(g.addConnection(p_src1->id, p_c1_in->id), static_cast<uint64_t>(-1));
+        ASSERT_NE(g.addConnection(p_src1->id, p_c2_in->id), static_cast<uint64_t>(-1));
+        ASSERT_NE(g.addConnection(p_src2->id, p_c3_in->id), static_cast<uint64_t>(-1));
+        ASSERT_NE(g.addConnection(p_c2_out->id, p_join_a->id), static_cast<uint64_t>(-1));
+        ASSERT_NE(g.addConnection(p_c3_out->id, p_join_b->id), static_cast<uint64_t>(-1));
+
+        g.setPortConstraint(p_src1->id, cap, ConstraintMode::LIMIT);
+        g.setPortConstraint(p_c1_out->id, 2.0 * cap, ConstraintMode::TARGET);
+        g.setPortConstraint(p_c2_out->id, 2.0 * cap, ConstraintMode::TARGET);
+        g.setPortConstraint(p_c3_out->id, 2.0 * cap, ConstraintMode::TARGET);
+
+        auto res = solver->solve(g);
+        ASSERT_EQ(res.status, FactorySolver::SolverResultStatus::SUCCESS) << "cap=" << cap;
+
+        // C1 & C2 share cap -> 0.5*cap each (25% saturation); C3 has uncapped Src2 -> 2*cap (100% saturation).
+        EXPECT_NEAR(solver->getGoalSaturation(p_c1_out->id), 0.25, 1e-5) << "cap=" << cap;
+        EXPECT_NEAR(solver->getGoalSaturation(p_c2_out->id), 0.25, 1e-5) << "cap=" << cap;
+        EXPECT_NEAR(solver->getGoalSaturation(p_c3_out->id), 1.0, 1e-5) << "cap=" << cap;
+        EXPECT_NEAR(p_c1_out->rate, 0.5 * cap, std::max(1e-9, 1e-5 * cap)) << "cap=" << cap;
+        EXPECT_NEAR(p_c2_out->rate, 0.5 * cap, std::max(1e-9, 1e-5 * cap)) << "cap=" << cap;
+        EXPECT_NEAR(p_c3_out->rate, 2.0 * cap, std::max(1e-9, 1e-5 * cap)) << "cap=" << cap;
+    }
+}
+
+TEST_F(FactorySolverTest, CyclicFeedbackAndMixedScaleStability) {
+    // Stress test: catalyst feedback cycle with prime ratios (17:680, 3+1 -> 7+13+0.7),
+    // splitter, merger, byproduct sinks, across scales 1e-5 .. 1e10 plus mixed-scale goals.
+    defResource("ore", "Ore");
+    defResource("heat", "Heat");
+    defResource("cat", "Catalyst");
+    defResource("prod", "Product");
+    defResource("waste", "Waste");
+    defMachine(testGameData, "m_mine", "Miner", 1.0);
+    defMachine(testGameData, "m_react", "Reactor", 1.0);
+    defMachine(testGameData, "m_fin", "Finisher", 1.0);
+    defMachine(testGameData, "m_sink", "Sink", 1.0);
+
+    defRecipe("mine_ore_heat", "Mine Ore+Heat", 1.0, {"m_mine"}, {}, {{"ore", 17.0}, {"heat", 680.0}});
+    defRecipe("mine_cat", "Mine Catalyst", 1.0, {"m_mine"}, {}, {{"cat", 1.0}});
+    defRecipe("react_cycle", "Catalytic Reaction", 1.0, {"m_react"},
+              {{"ore", 3.0}, {"cat", 1.0}}, {{"prod", 7.0}, {"waste", 13.0}, {"cat", 0.7}});
+    defRecipe("finish_a", "Finish A", 1.0, {"m_fin"}, {{"prod", 11.0}}, {{"prod", 11.0}});
+    defRecipe("finish_b", "Finish B", 1.0, {"m_fin"}, {{"prod", 19.0}}, {{"prod", 19.0}});
+    defRecipe("sink_heat", "Sink Heat", 1.0, {"m_sink"}, {{"heat", 1.0}}, {});
+    defRecipe("sink_waste", "Sink Waste", 1.0, {"m_sink"}, {{"waste", 1.0}}, {});
+
+    for (double scale : {1e-5, 1.0, 1200.0, 20000.0, 1e6, 1e9, 1e10}) {
+        for (double cap_mult : {0.37, 2.0}) {
+            FactoryGraph g(testGameData);
+            uint64_t n_mine = g.addNode("Mine", "mine_ore_heat");
+            uint64_t n_cat = g.addNode("CatSrc", "mine_cat");
+            uint64_t n_react = g.addNode("React", "react_cycle");
+            uint64_t n_fa = g.addNode("FinA", "finish_a");
+            uint64_t n_fb = g.addNode("FinB", "finish_b");
+            uint64_t n_sh = g.addNode("SinkH", "sink_heat");
+            uint64_t n_sw = g.addNode("SinkW", "sink_waste");
+
+            Port* p_mine_ore = g.getPortBySlot(n_mine, "out:0");
+            Port* p_mine_heat = g.getPortBySlot(n_mine, "out:1");
+            Port* p_cat_src = g.getPortBySlot(n_cat, "out:0");
+            Port* p_r_ore = g.getPortBySlot(n_react, "in:0");
+            Port* p_r_cat_in = g.getPortBySlot(n_react, "in:1");
+            Port* p_r_prod = g.getPortBySlot(n_react, "out:0");
+            Port* p_r_waste = g.getPortBySlot(n_react, "out:1");
+            Port* p_r_cat_out = g.getPortBySlot(n_react, "out:2");
+            Port* p_fa_in = g.getPortBySlot(n_fa, "in:0");
+            Port* p_fa_out = g.getPortBySlot(n_fa, "out:0");
+            Port* p_fb_in = g.getPortBySlot(n_fb, "in:0");
+            Port* p_fb_out = g.getPortBySlot(n_fb, "out:0");
+            Port* p_sh_in = g.getPortBySlot(n_sh, "in:0");
+            Port* p_sw_in = g.getPortBySlot(n_sw, "in:0");
+
+            ASSERT_NE(g.addConnection(p_mine_ore->id, p_r_ore->id), static_cast<uint64_t>(-1));
+            ASSERT_NE(g.addConnection(p_mine_heat->id, p_sh_in->id), static_cast<uint64_t>(-1));
+            ASSERT_NE(g.addConnection(p_cat_src->id, p_r_cat_in->id), static_cast<uint64_t>(-1));
+            ASSERT_NE(g.addConnection(p_r_cat_out->id, p_r_cat_in->id), static_cast<uint64_t>(-1));
+            ASSERT_NE(g.addConnection(p_r_prod->id, p_fa_in->id), static_cast<uint64_t>(-1));
+            ASSERT_NE(g.addConnection(p_r_prod->id, p_fb_in->id), static_cast<uint64_t>(-1));
+            ASSERT_NE(g.addConnection(p_r_waste->id, p_sw_in->id), static_cast<uint64_t>(-1));
+
+            const double g1 = scale;
+            const double g2 = 0.73 * scale;
+            const double cap_ore = cap_mult * ((g1 + g2) * 3.0 / 7.0);
+            g.setPortConstraint(p_mine_ore->id, cap_ore, ConstraintMode::LIMIT);
+            g.setPortConstraint(p_fa_out->id, g1, ConstraintMode::TARGET);
+            g.setPortConstraint(p_fb_out->id, g2, ConstraintMode::TARGET);
+
+            auto res = solver->solve(g);
+            ASSERT_EQ(res.status, FactorySolver::SolverResultStatus::SUCCESS)
+                << "scale=" << scale << " cap_mult=" << cap_mult;
+
+            const double expected_sat = std::min(1.0, cap_mult);
+            EXPECT_NEAR(solver->getGoalSaturation(p_fa_out->id), expected_sat, 1e-5);
+            EXPECT_NEAR(solver->getGoalSaturation(p_fb_out->id), expected_sat, 1e-5);
+            // Fresh catalyst should be only 30% of reactor catalyst input (70% recycled).
+            EXPECT_NEAR(p_cat_src->rate, 0.3 * p_r_cat_in->rate, std::max(1e-9, 1e-5 * p_r_cat_in->rate));
+            EXPECT_NEAR(p_r_cat_out->excess_rate, 0.0, std::max(1e-9, 1e-8 * p_r_cat_out->rate));
+        }
+    }
+
+    // Mixed-scale component: tiny item target (1e-3) alongside huge heat target (1e9) on the same raw source
+    {
+        defRecipe("mine_mixed", "Mine Mixed", 1.0, {"m_mine"}, {}, {{"ore", 1e-3}, {"heat", 1e6}});
+        FactoryGraph g(testGameData);
+        uint64_t n_mix = g.addNode("Mix", "mine_mixed");
+        uint64_t n_sh = g.addNode("SinkH", "sink_heat");
+        Port* p_ore = g.getPortBySlot(n_mix, "out:0");
+        Port* p_heat = g.getPortBySlot(n_mix, "out:1");
+        Port* p_sh_in = g.getPortBySlot(n_sh, "in:0");
+        ASSERT_NE(g.addConnection(p_heat->id, p_sh_in->id), static_cast<uint64_t>(-1));
+
+        g.setPortConstraint(p_ore->id, 1.0, ConstraintMode::TARGET);
+        g.setPortConstraint(p_heat->id, 1e9, ConstraintMode::TARGET);
+
+        auto res = solver->solve(g);
+        ASSERT_EQ(res.status, FactorySolver::SolverResultStatus::SUCCESS);
+        EXPECT_NEAR(p_ore->rate, 1.0, 1e-5);
+        EXPECT_NEAR(p_heat->rate, 1e9, 1e3);
+        EXPECT_NEAR(p_sh_in->rate, 1e9, 1e3);
+        EXPECT_NEAR(p_heat->excess_rate, 0.0, 1e-3);
+        EXPECT_NEAR(g.getNode(n_mix)->machine_count, 1000.0, 1e-3);
+    }
+}
+
+
 
