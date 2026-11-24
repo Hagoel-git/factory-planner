@@ -127,11 +127,12 @@ Rate units affect *rates* only. Metrics that are rates (`is_rate: true`, §6) ar
 ```json
 "resource_kinds": {
   "item":  { "label": "Item",  "display_unit": "",   "display_scale": 1 },
-  "fluid": { "label": "Fluid", "display_unit": "m³", "display_scale": 1 }
+  "fluid": { "label": "Fluid", "display_unit": "m³", "display_scale": 1 },
+  "power": { "label": "Power", "display_unit": "MW", "display_scale": 1, "rate_invariant": true }
 }
 ```
 
-Amounts in recipes use the game's native unit for that kind (Satisfactory fluids: m³; GTNH fluids: L). `display_scale` multiplies values for display (e.g. GTNH could store L and display kL with `0.001`). The rate unit is appended after the display unit: `"m³/min"`.
+Amounts in recipes use the game's native unit for that kind (Satisfactory fluids: m³; GTNH fluids: L). `display_scale` multiplies values for display (e.g. GTNH could store L and display kL with `0.001`). By default (`"rate_invariant": false`), the project rate unit scales the value and is appended after the display unit (`"m³/min"`). When `"rate_invariant": true` (for instantaneous flows already expressed per second, such as power in `MW` or thermal heat), display/input values ignore the project rate unit and show `display_unit` without a rate suffix (`"MW"`).
 
 ### 2.5 Attribute declarations
 
@@ -299,7 +300,7 @@ A mining-drill profile can then use `"let": { "prod": "1 + 0.1 * global.mining_p
 }
 ```
 
-An option set must contain at least one option, and option keys must be unique within the set (V-PAR-3). Option attributes must be declared in the set's `attrs` with a default, and option attribute names follow the same naming and non-shadowing rules as §2.5 (cannot be `key` or `id`, V-ATTR-1, V-ATTR-2). Expressions read an option's attributes with `.attr` (or its key with `.key`) and compare options by key (`param.mode == "extra"` or `'extra'`; a string literal is checked at load time).
+An option set must contain at least one option, and option keys must be unique within the set (V-PAR-3). Each option accepts `key` (required), `label` (default `key`), optional `tooltip` (player-facing hover text shown in dropdowns, slot pickers, filled slot chips, and closed `enum` combos), `attrs`, and `notes` (loader-ignored provenance). Option attributes must be declared in the set's `attrs` with a default, and option attribute names follow the same naming and non-shadowing rules as §2.5 (cannot be `key` or `id`, V-ATTR-1, V-ATTR-2). Expressions read an option's attributes with `.attr` (or its key with `.key`) and compare options by key (`param.mode == "extra"` or `'extra'`; a string literal is checked at load time).
 
 ### 3.4 Tables
 
@@ -593,7 +594,8 @@ Runtime checks: division or modulo by zero; NaN or ±Inf produced by any operati
 | `label`, `unit`, `format` | — / `""` / `"%.3g"` | Display. |
 | `display` | `["tooltip"]` | Any subset of `body` (node card), `tooltip` (node hover) and `totals` (graph totals panel). |
 | `aggregate` | `"sum"` | How totals combine nodes: `sum`, `max`, `min`, or `none` (not shown in totals). |
-| `split_sign` | `false` | Only with `sum`: totals show the positive subtotal, the negative subtotal and the net (e.g. consumption vs generation). Convention: consumption is positive, generation negative. |
+| `split_sign` | `false` | Only with `sum`: totals show the positive subtotal, the negative subtotal and the net (e.g. consumption vs generation). Convention: consumption/emission is positive, generation/absorption negative. |
+| `positive_label`, `negative_label` | `""` (`"Consumed"`, `"Generated"`) | Only with `split_sign: true` (V-MET-1): plain verb labels for the positive and negative subtotal rows in Totals; the UI appends ` (+)` and ` (-)` automatically (e.g. `"Emitted"` / `"Absorbed"` → `Emitted (+)` / `Absorbed (-)`). |
 | `is_rate` | `false` | If true, the value is per second and gets converted to the project's rate unit for display. |
 
 ### 6.2 Forms in a profile
@@ -817,7 +819,7 @@ Severity: **F** = fatal, **E** = error (droppable), **W** = warning. "Drops" = w
 | V-PROF-4 | E | Extra port or long-form recipe port: duplicate id, bad `dir`, invalid resource specification (§2.8, §4.3), more than one recipe port using the same `resource_param`, a port-bound parameter (`port.*` in `visible_if`/`allowed_if`) used outside a recipe port's `resource_param`, or `resource_param` that is not a `resource_choice` parameter of the profile (or of every compatible machine profile for recipe ports) | the profile / the recipe | `game.json: /profiles/dsp/extra_ports/0/resource_param: 'prolif_mode' is not a resource_choice parameter` |
 | V-OVR-1 | E | Override key not overridable; override `let` name not defined in the profile | the recipe | `recipes/py.json: /recipes/3/overrides/params: 'params' cannot be overridden per recipe` |
 | V-OVR-2 | E | Override or recipe port formula/parameter fails to compile, changes the result type of an overridden `let` variable, or introduces a `let` cycle for any compatible machine profile | the recipe | `recipes/py.json: /recipes/3/overrides/craft_time: 'param.clock' unknown in profile 'py_furnace' (machine 'stone-furnace')` |
-| V-MET-1 | E | Bad `aggregate`/`display`; `split_sign` with `aggregate` ≠ `sum` | the metric (removed from profiles/overrides) | `game.json: /metrics/power/split_sign: requires aggregate 'sum'` |
+| V-MET-1 | E | Bad `aggregate`/`display`; `split_sign` with `aggregate` ≠ `sum`; `positive_label`/`negative_label` when `split_sign` is `false` | the metric (removed from profiles/overrides) | `game.json: /metrics/power/split_sign: requires aggregate 'sum'` |
 | V-W-1 | W | Icon file missing (checked on demand / in `gamedata_tool validate`; not emitted in "no icons" mode, §2.1) | — | `icons/machines/foundry.png not found` |
 | V-ICON-1 | E | Icon is not a PNG, not square, or larger than 64×64 (`gamedata_tool` only; the app never checks it at load) | — | `icons/resources/iron-ore.png: 128x96 (must be square and <= 64x64)` |
 | V-W-2 | W | Unused parameter, option set, table or metric; machine that no recipe can use; resource not referenced by any recipe (`in`, `out`, `setup`), profile (`extra_ports`), or parameter (`resource_choice`) | — | `game.json: /parameters/old_clock: defined but not used by any profile` |

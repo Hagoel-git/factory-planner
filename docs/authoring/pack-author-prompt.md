@@ -201,7 +201,11 @@ Stage 2B — Thematic Decision Rounds  [STOP after each round]
     difficulty multipliers, belt/voltage tiers, tile/floor types) as `enum` + `option_set`
     dropdowns with numeric `attrs` rather than free-text `number` inputs (optionally paired with a
     `Custom...` option revealing a numeric `%` input for mixed placements); reserve bare
-    `number`/`int` for continuous or arbitrary-step ranges.
+    `number`/`int` for continuous or arbitrary-step ranges. Populate player-facing `"tooltip"`
+    strings on `option_sets` items (e.g. module bonuses/penalties) when hovering options helps
+    players choose cleanly, and set `positive_label`/`negative_label` on `split_sign: true`
+    metrics whose semantics aren't `"Consumed"`/`"Generated"` (e.g. `"Emitted"`/`"Absorbed"` for
+    pollution).
   - **Picker filtering via Project Globals:** when a pack spans multiple planets, editions, DLCs,
     mods, or optional debug/hidden content, expose Project Globals (`enum`/`bool`) and wire
     `profile.visible_if` (machines) and `profile.recipe_visible_if` (recipes) on a shared base
@@ -212,10 +216,11 @@ Stage 2B — Thematic Decision Rounds  [STOP after each round]
     metrics (`ceil(max(0, node.machines - 1e-6))` for peak power, slotted shards/modules, footprint,
     and fixed-draw sinks). For power-only 0-port buildings (`V-NUM-4`), NEVER emit a meaningless
     `1/s` dummy `"marker"` output (targeting `100` would solve for 100 buildings instead of 100
-    power units); instead offer deferring them OR outputting a typed `power` resource (`kind:
-    "power"`, explicit `display_unit` like `"MW"`/`"u"`) whose `output_amount` equals actual
-    generated power per second (`abs(machine.power) * ...`, matching the negative `power` metric 1:1
-    in `/s` mode). When a game has substantial power-generation chains, offer a Project Global
+    power units); instead offer deferring them OR outputting a typed `power` (or `heat`) resource
+    (`kind: "power"`, explicit `display_unit` like `"MW"`/`"u"`, `"rate_invariant": true` so
+    switching `/s` ↔ `/min` never scales watts by 60) whose `output_amount` equals actual
+    generated power per second (`abs(machine.power) * ...`, matching the negative `power` metric
+    1:1). When a game has substantial power-generation chains, offer a Project Global
     `power_mode` toggle (`metric` [default] / `resource` / `both`) using `xin:power_in` /
     `xout:power_out` extra ports (guarded by `let.native_power_out` on 0-port generators) +
     `metrics.power.enabled`.

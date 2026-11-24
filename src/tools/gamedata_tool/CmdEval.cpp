@@ -212,9 +212,11 @@ json singleEvalToJson(
     json portsJson = json::array();
     for (const auto& p : ev.node_eval.ports) {
         double ratePerMachine = 0.0;
+        const bool rateInvariant = pkg.isResourceRateInvariant(p.resource);
         if (p.active && ev.node_eval.craft_time_s > 0.0) {
             double perSec = p.amount_per_craft / ev.node_eval.craft_time_s;
-            ratePerMachine = pkg.toDisplayRate(perSec, rateUnit) * pkg.resourceDisplayScale(p.resource);
+            double base = rateInvariant ? perSec : pkg.toDisplayRate(perSec, rateUnit);
+            ratePerMachine = base * pkg.resourceDisplayScale(p.resource);
         }
         portsJson.push_back({
             {"slot_key", p.slot_key},
@@ -310,14 +312,17 @@ void printSingleEvalHuman(
             continue;
         }
         double ratePerMachine = 0.0;
+        const bool rateInvariant = pkg.isResourceRateInvariant(p.resource);
         if (ev.node_eval.craft_time_s > 0.0) {
             double perSec = p.amount_per_craft / ev.node_eval.craft_time_s;
-            ratePerMachine = pkg.toDisplayRate(perSec, rateUnit) * pkg.resourceDisplayScale(p.resource);
+            double base = rateInvariant ? perSec : pkg.toDisplayRate(perSec, rateUnit);
+            ratePerMachine = base * pkg.resourceDisplayScale(p.resource);
         }
         std::string resUnit = pkg.resourceDisplayUnit(p.resource);
         out << "active  " << formatDoubleCompact(p.amount_per_craft) << "/craft  ("
             << formatDoubleCompact(ratePerMachine)
-            << (resUnit.empty() ? "" : (" " + resUnit)) << rateSuffix << " per machine)\n";
+            << (resUnit.empty() ? "" : (" " + resUnit))
+            << (rateInvariant ? "" : rateSuffix) << " per machine)\n";
     }
 
     if (!ev.node_eval.metric_coeffs.empty()) {

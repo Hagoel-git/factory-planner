@@ -978,5 +978,66 @@ TEST(GameDataToolGuideTest, TopicListJsonHelpAndUsageErrors) {
     EXPECT_EQ(runCli({"guide", "--unknown-flag"}).code, kExitUsage);
 }
 
+TEST(GameDataToolEvalTest, RateInvariantResourceKindIgnoresRateUnitInJsonAndHuman) {
+    TempDirGuard tmp("eval_rate_invariant");
+    const std::filesystem::path pkgDir = tmp.path() / "pkg";
+
+    const std::string manifest = R"JSON({
+      "schema_version": 4,
+      "game": { "id": "factorio-heat-test", "name": "Factorio Heat Test" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "resource_kinds": {
+        "fluid":    { "label": "Fluid",    "display_unit": "L",  "display_scale": 1 },
+        "heat":     { "label": "Heat",     "display_unit": "MW", "display_scale": 1,     "rate_invariant": true },
+        "power_kw": { "label": "Power kW", "display_unit": "MW", "display_scale": 0.001, "rate_invariant": true }
+      },
+      "resources": [
+        { "id": "steam", "name": "Steam", "kind": "fluid" },
+        { "id": "heat",  "name": "Heat",  "kind": "heat" },
+        { "id": "power", "name": "Power", "kind": "power_kw" }
+      ],
+      "machines": [
+        { "id": "reactor", "name": "Reactor", "categories": ["react"] }
+      ],
+      "recipes": [
+        {
+          "id": "generate-heat",
+          "name": "Generate Heat",
+          "category": "react",
+          "time": 1,
+          "out": [["heat", 40], ["power", 500], ["steam", 10]]
+        }
+      ]
+    })JSON";
+    ASSERT_TRUE(atomicWriteFile(pkgDir / "game.json", manifest));
+
+    // JSON output with --rate min: rate_invariant kinds stay unscaled by 60 (still apply display_scale).
+    auto jsonRes = runCli({
+        "eval", pathToUtf8(pkgDir),
+        "--recipe", "generate-heat",
+        "--rate", "min",
+        "--json"
+    });
+    ASSERT_EQ(jsonRes.code, kExitOk) << jsonRes.err;
+    nlohmann::json j = nlohmann::json::parse(jsonRes.out);
+    EXPECT_EQ(j["rate_unit"], "min");
+    ASSERT_EQ(j["ports"].size(), 3u);
+    EXPECT_DOUBLE_EQ(j["ports"][0]["rate_per_machine"].get<double>(), 40.0);  // heat: 40 MW
+    EXPECT_DOUBLE_EQ(j["ports"][1]["rate_per_machine"].get<double>(), 0.5);   // power_kw: 500 * 0.001 MW
+    EXPECT_DOUBLE_EQ(j["ports"][2]["rate_per_machine"].get<double>(), 600.0); // steam: 10 * 60 L/min
+
+    // Human output with --rate min: omits /min suffix on rate_invariant resources, keeps L/min on fluid.
+    auto humanRes = runCli({
+        "eval", pathToUtf8(pkgDir),
+        "--recipe", "generate-heat",
+        "--rate", "min"
+    });
+    ASSERT_EQ(humanRes.code, kExitOk) << humanRes.err;
+    EXPECT_NE(humanRes.out.find("(40 MW per machine)"), std::string::npos) << humanRes.out;
+    EXPECT_NE(humanRes.out.find("(0.5 MW per machine)"), std::string::npos) << humanRes.out;
+    EXPECT_NE(humanRes.out.find("(600 L/min per machine)"), std::string::npos) << humanRes.out;
+    EXPECT_EQ(humanRes.out.find("MW/min"), std::string::npos) << humanRes.out;
+}
+
 } // namespace
 } // namespace gamedata_tool

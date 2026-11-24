@@ -141,6 +141,18 @@ public:
         const GameData& gameData,
         const gamedata::ResolvedGlobals& resolvedGlobals,
         const gamedata::ParameterDef& gdef);
+    static std::string formatSplitSignRowLabel(
+        std::string_view customLabel,
+        std::string_view defaultLabel,
+        std::string_view signTag);
+    static std::string buildEnumComboTooltipText(
+        const gamedata::ParameterDef& pdef,
+        const gamedata::OptionSet* optionSet,
+        const std::optional<std::string>& selectedKey);
+    static std::string buildSlotChipTooltipText(
+        const gamedata::ParameterDef& pdef,
+        const gamedata::OptionSet* optionSet,
+        const std::optional<std::string>& slotKey);
 private:
     std::unique_ptr<FactoryGraph> m_graph;
     std::unique_ptr<FactorySolver> m_solver;

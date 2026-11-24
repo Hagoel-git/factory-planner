@@ -1510,7 +1510,7 @@ private:
         }
 
         static const std::vector<std::string> kResourceKindKeys = {
-            "display_scale", "display_unit", "label", "notes"
+            "display_scale", "display_unit", "label", "notes", "rate_invariant"
         };
 
         for (const std::string& kind_id : m_resourceKindOrder) {
@@ -1567,6 +1567,16 @@ private:
                         } else {
                             def.display_scale = sc;
                         }
+                    }
+                }
+                if (raw.value.contains("rate_invariant")) {
+                    if (!raw.value["rate_invariant"].is_boolean()) {
+                        addError("V-STRUCT-2", raw.file, raw.json_pointer + "/rate_invariant",
+                                 "expected bool for 'rate_invariant', got " +
+                                     jsonTypeName(raw.value["rate_invariant"]));
+                        ok = false;
+                    } else {
+                        def.rate_invariant = raw.value["rate_invariant"].get<bool>();
                     }
                 }
                 if (ok) {
@@ -2019,7 +2029,7 @@ private:
 
     void runStage3() {
         static const std::vector<std::string> kOptionSetKeys = {"attrs", "notes", "options"};
-        static const std::vector<std::string> kOptionKeys = {"attrs", "key", "label", "notes"};
+        static const std::vector<std::string> kOptionKeys = {"attrs", "key", "label", "notes", "tooltip"};
 
         // 1. Option sets
         for (const std::string& set_id : m_optionSetOrder) {
@@ -2126,6 +2136,15 @@ private:
                             ok = false;
                         } else {
                             opt.label = oj["label"].get<std::string>();
+                        }
+                    }
+                    if (oj.contains("tooltip")) {
+                        if (!oj["tooltip"].is_string()) {
+                            addError("V-STRUCT-2", raw.file, opt_ptr + "/tooltip",
+                                     "expected string for 'tooltip', got " + jsonTypeName(oj["tooltip"]));
+                            ok = false;
+                        } else {
+                            opt.tooltip = oj["tooltip"].get<std::string>();
                         }
                     }
 
@@ -3236,7 +3255,8 @@ private:
 
     void runStage5() {
         static const std::vector<std::string> kMetricKeys = {
-            "aggregate", "display", "format", "is_rate", "label", "notes", "split_sign", "unit"
+            "aggregate", "display", "format", "is_rate", "label",
+            "negative_label", "notes", "positive_label", "split_sign", "unit"
         };
 
         for (const std::string& mid : m_metricOrder) {
@@ -3358,16 +3378,46 @@ private:
                 }
             }
 
+            bool splitSignValid = true;
             if (mj.contains("split_sign")) {
                 if (!mj["split_sign"].is_boolean()) {
                     addError("V-STRUCT-2", raw.file, raw.json_pointer + "/split_sign",
                              "expected bool for 'split_sign', got " + jsonTypeName(mj["split_sign"]));
+                    splitSignValid = false;
                     ok = false;
                 } else {
                     mdef.split_sign = mj["split_sign"].get<bool>();
                     if (mdef.split_sign && mdef.aggregate != MetricAggregate::Sum) {
                         addError("V-MET-1", raw.file, raw.json_pointer + "/split_sign",
                                  "requires aggregate 'sum'");
+                        ok = false;
+                    }
+                }
+            }
+            if (mj.contains("positive_label")) {
+                if (!mj["positive_label"].is_string()) {
+                    addError("V-STRUCT-2", raw.file, raw.json_pointer + "/positive_label",
+                             "expected string for 'positive_label', got " + jsonTypeName(mj["positive_label"]));
+                    ok = false;
+                } else {
+                    mdef.positive_label = mj["positive_label"].get<std::string>();
+                    if (splitSignValid && !mdef.split_sign) {
+                        addError("V-MET-1", raw.file, raw.json_pointer + "/positive_label",
+                                 "requires 'split_sign' to be true");
+                        ok = false;
+                    }
+                }
+            }
+            if (mj.contains("negative_label")) {
+                if (!mj["negative_label"].is_string()) {
+                    addError("V-STRUCT-2", raw.file, raw.json_pointer + "/negative_label",
+                             "expected string for 'negative_label', got " + jsonTypeName(mj["negative_label"]));
+                    ok = false;
+                } else {
+                    mdef.negative_label = mj["negative_label"].get<std::string>();
+                    if (splitSignValid && !mdef.split_sign) {
+                        addError("V-MET-1", raw.file, raw.json_pointer + "/negative_label",
+                                 "requires 'split_sign' to be true");
                         ok = false;
                     }
                 }

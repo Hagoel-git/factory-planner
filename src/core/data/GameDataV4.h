@@ -125,6 +125,7 @@ struct ResourceKindDef {
     std::string label;
     std::string display_unit;
     double display_scale = 1.0;
+    bool rate_invariant = false;
     std::string notes;
 };
 
@@ -374,6 +375,7 @@ struct ParameterDef {
 struct OptionDef {
     std::string key;
     std::string label;
+    std::string tooltip;
     std::unordered_map<std::string, expr::EvalValue> attrs;
     std::string notes;
 };
@@ -431,6 +433,8 @@ struct MetricDef {
     std::vector<MetricDisplayLocation> display = {MetricDisplayLocation::Tooltip};
     MetricAggregate aggregate = MetricAggregate::Sum;
     bool split_sign = false;
+    std::string positive_label;
+    std::string negative_label;
     bool is_rate = false;
     std::string notes;
 };
@@ -1030,6 +1034,11 @@ struct GamePackage {
     std::string resourceDisplayUnit(std::string_view resource_id) const {
         const ResourceKindDef* kind = findResourceKindForResource(resource_id);
         return (kind != nullptr) ? kind->display_unit : std::string{};
+    }
+
+    bool isResourceRateInvariant(std::string_view resource_id) const {
+        const ResourceKindDef* kind = findResourceKindForResource(resource_id);
+        return (kind != nullptr) && kind->rate_invariant;
     }
 };
 

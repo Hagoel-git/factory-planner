@@ -47,14 +47,23 @@ public:
         return m_gameData.fromDisplayRate(displayVal, m_rateUnit);
     }
     double toResourceDisplayRate(std::string_view resource_id, double canonicalPerSec) const {
-        return toDisplayRate(canonicalPerSec) * m_gameData.resourceDisplayScale(resource_id);
+        const double base = m_gameData.isResourceRateInvariant(resource_id)
+            ? canonicalPerSec
+            : toDisplayRate(canonicalPerSec);
+        return base * m_gameData.resourceDisplayScale(resource_id);
     }
     double fromResourceDisplayRate(std::string_view resource_id, double displayVal) const {
         const double scale = m_gameData.resourceDisplayScale(resource_id);
-        return fromDisplayRate((scale > 0.0) ? (displayVal / scale) : displayVal);
+        const double unscaled = (scale > 0.0) ? (displayVal / scale) : displayVal;
+        return m_gameData.isResourceRateInvariant(resource_id)
+            ? unscaled
+            : fromDisplayRate(unscaled);
     }
     std::string formatResourceRateSuffix(std::string_view resource_id) const {
         const std::string kindUnit = m_gameData.resourceDisplayUnit(resource_id);
+        if (m_gameData.isResourceRateInvariant(resource_id)) {
+            return kindUnit;
+        }
         const std::string rateSuffix = gamedata::rateUnitSuffix(m_rateUnit);
         return kindUnit.empty() ? rateSuffix : (kindUnit + rateSuffix);
     }

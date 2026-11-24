@@ -2901,5 +2901,186 @@ TEST(GameDataV4Test, EntityVisibilityRejectsDisallowedContextAndResourcesField) 
     EXPECT_TRUE(report.hasRule("V-EXPR-4"));   // non-bool result type in visible_if
 }
 
+TEST(GameDataV4Test, ResourceKindRateInvariantMetricSignLabelsAndOptionTooltips) {
+    const std::string manifest = R"JSON({
+      "schema_version": 4,
+      "game": { "id": "ux-schema-test", "name": "UX Schema Test" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "resource_kinds": {
+        "item":  { "label": "Item",  "display_unit": "",   "display_scale": 1 },
+        "power": { "label": "Power", "display_unit": "MW", "display_scale": 1, "rate_invariant": true },
+        "heat":  { "label": "Heat",  "display_unit": "MW", "display_scale": 0.001, "rate_invariant": true }
+      },
+      "resources": [
+        { "id": "fuel-cell", "name": "Fuel Cell", "kind": "item" },
+        { "id": "electricity", "name": "Electricity", "kind": "power" },
+        { "id": "thermal-heat", "name": "Thermal Heat", "kind": "heat" }
+      ],
+      "option_sets": {
+        "modules": {
+          "attrs": { "prod": { "type": "number", "default": 0 } },
+          "options": [
+            {
+              "key": "prod-3",
+              "label": "Productivity 3",
+              "tooltip": "+10% Productivity\n-15% Speed",
+              "notes": "Provenance: data-raw-dump.json line 1234",
+              "attrs": { "prod": 0.1 }
+            },
+            {
+              "key": "plain",
+              "label": "Plain Module",
+              "notes": "Provenance only, no player tooltip",
+              "attrs": { "prod": 0.0 }
+            }
+          ]
+        }
+      },
+      "parameters": {
+        "mod": { "label": "Module", "type": "enum", "option_set": "modules", "default": "prod-3" }
+      },
+      "metrics": {
+        "power": {
+          "label": "Power",
+          "unit": "MW",
+          "display": ["totals"],
+          "aggregate": "sum",
+          "split_sign": true
+        },
+        "pollution": {
+          "label": "Pollution",
+          "unit": "/m",
+          "display": ["tooltip", "totals"],
+          "aggregate": "sum",
+          "split_sign": true,
+          "positive_label": "Emitted",
+          "negative_label": "Absorbed"
+        }
+      },
+      "profiles": {
+        "reactor": {
+          "params": ["mod"],
+          "metrics": {
+            "power": { "per_machine": "-40" },
+            "pollution": { "per_machine": "12" }
+          }
+        }
+      },
+      "machines": [
+        { "id": "nuclear-reactor", "name": "Nuclear Reactor", "profile": "reactor", "categories": ["react"] }
+      ],
+      "recipes": [
+        {
+          "id": "burn-fuel",
+          "category": "react",
+          "time": 1,
+          "in": [["fuel-cell", 1]],
+          "out": [["electricity", 40], ["thermal-heat", 40000]]
+        }
+      ]
+    })JSON";
+
+    GamePackage pkg;
+    LoadReport report;
+    ASSERT_TRUE(loadGamePackageFromMemory(manifest, {}, pkg, report))
+        << (report.errors.empty() ? "" : report.errors.front().formatted);
+    EXPECT_TRUE(report.warnings.empty());
+
+    ASSERT_NE(pkg.findResourceKind("item"), nullptr);
+    EXPECT_FALSE(pkg.findResourceKind("item")->rate_invariant);
+    ASSERT_NE(pkg.findResourceKind("power"), nullptr);
+    EXPECT_TRUE(pkg.findResourceKind("power")->rate_invariant);
+    ASSERT_NE(pkg.findResourceKind("heat"), nullptr);
+    EXPECT_TRUE(pkg.findResourceKind("heat")->rate_invariant);
+
+    EXPECT_FALSE(pkg.isResourceRateInvariant("fuel-cell"));
+    EXPECT_TRUE(pkg.isResourceRateInvariant("electricity"));
+    EXPECT_TRUE(pkg.isResourceRateInvariant("thermal-heat"));
+    EXPECT_FALSE(pkg.isResourceRateInvariant("nonexistent"));
+
+    const OptionSet* os = pkg.findOptionSet("modules");
+    ASSERT_NE(os, nullptr);
+    const OptionDef* prodOpt = os->findOption("prod-3");
+    const OptionDef* plainOpt = os->findOption("plain");
+    ASSERT_NE(prodOpt, nullptr);
+    ASSERT_NE(plainOpt, nullptr);
+    EXPECT_EQ(prodOpt->tooltip, "+10% Productivity\n-15% Speed");
+    EXPECT_TRUE(prodOpt->notes.empty());
+    EXPECT_TRUE(plainOpt->tooltip.empty());
+    EXPECT_TRUE(plainOpt->notes.empty());
+
+    const MetricDef* powerMetric = pkg.findMetric("power");
+    const MetricDef* pollMetric = pkg.findMetric("pollution");
+    ASSERT_NE(powerMetric, nullptr);
+    ASSERT_NE(pollMetric, nullptr);
+    EXPECT_TRUE(powerMetric->positive_label.empty());
+    EXPECT_TRUE(powerMetric->negative_label.empty());
+    EXPECT_EQ(pollMetric->positive_label, "Emitted");
+    EXPECT_EQ(pollMetric->negative_label, "Absorbed");
+}
+
+TEST(GameDataV4Test, RejectsInvalidRateInvariantSignLabelsAndOptionTooltips) {
+    const std::string badManifest = R"JSON({
+      "schema_version": 4,
+      "game": { "id": "ux-schema-bad", "name": "UX Schema Bad" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "resource_kinds": {
+        "bad_power": { "label": "Power", "display_unit": "MW", "rate_invariant": "yes" }
+      },
+      "option_sets": {
+        "bad_opts": {
+          "options": [
+            { "key": "a", "label": "A", "tooltip": 42 }
+          ]
+        }
+      },
+      "metrics": {
+        "bad_types": {
+          "label": "Bad Types",
+          "split_sign": true,
+          "positive_label": 123,
+          "negative_label": false
+        },
+        "bad_pos_without_split": {
+          "label": "No Split Pos",
+          "split_sign": false,
+          "positive_label": "Emitted"
+        },
+        "bad_neg_without_split": {
+          "label": "No Split Neg",
+          "negative_label": "Absorbed"
+        },
+        "bad_split_type_with_label": {
+          "label": "Bad Split Type",
+          "split_sign": "true",
+          "positive_label": "Emitted"
+        }
+      }
+    })JSON";
+
+    GamePackage pkg;
+    LoadReport report;
+    EXPECT_FALSE(loadGamePackageFromMemory(badManifest, {}, pkg, report));
+    EXPECT_FALSE(report.fatal);
+
+    auto hasDiag = [&](std::string_view rule, std::string_view ptr) {
+        for (const auto& e : report.errors) {
+            if (e.rule_id == rule && e.json_pointer == ptr) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    EXPECT_TRUE(hasDiag("V-STRUCT-2", "/resource_kinds/bad_power/rate_invariant"));
+    EXPECT_TRUE(hasDiag("V-STRUCT-2", "/option_sets/bad_opts/options/0/tooltip"));
+    EXPECT_TRUE(hasDiag("V-STRUCT-2", "/metrics/bad_types/positive_label"));
+    EXPECT_TRUE(hasDiag("V-STRUCT-2", "/metrics/bad_types/negative_label"));
+    EXPECT_TRUE(hasDiag("V-MET-1", "/metrics/bad_pos_without_split/positive_label"));
+    EXPECT_TRUE(hasDiag("V-MET-1", "/metrics/bad_neg_without_split/negative_label"));
+    EXPECT_TRUE(hasDiag("V-STRUCT-2", "/metrics/bad_split_type_with_label/split_sign"));
+    EXPECT_FALSE(hasDiag("V-MET-1", "/metrics/bad_split_type_with_label/positive_label"));
+}
+
 } // namespace
 } // namespace gamedata

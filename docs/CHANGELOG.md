@@ -5,6 +5,7 @@ This document holds the user-facing changelog that is also used in release notes
 ## Unreleased
 
 ### Added
+- Added GameData v4 `resource_kinds.<kind>.rate_invariant` (for power/heat resources that should stay in units like `MW` without multiplying by 60 when switching `/s` ↔ `/min`), custom `positive_label`/`negative_label` overrides on `split_sign: true` metrics in Graph Totals (e.g. `Emitted (+)` / `Absorbed (-)`), and option-level `"tooltip"` hover text on `option_sets` items in dropdowns, slot pickers, filled slot chips, and closed enum combos.
 - Added Project Global-driven picker visibility (`visible_if` on profiles, machines, and recipes, plus `recipe_visible_if` on profiles) so packs can hide debug/sandbox, planet, or tier-gated entries from the recipe browser and machine selector without affecting already-placed nodes.
 - Added shardable `"waive_warnings"` support in GameData v4 (e.g. via a dedicated `waivers.json` shard in `"include"`) to locally waive warning rules (`V-W-1`, `V-W-2`, `V-W-3`, `V-PAR-5`) by glob pattern, treating waived `V-W-1` icons as optional and summarizing waived counts as non-fatal info notes in `gamedata_tool validate`, `check-icons`, and `stats`.
 - Added option icon rendering (`options/<option_set>/<option_key>`) for GameData v4 `Enum` and `Slots` parameters in dropdowns, closed combo previews, node-body selectors, slot rows, and Project Globals (text-only options continue rendering without placeholders).

@@ -82,14 +82,15 @@ Factory Planner discovers packages at `<game_data_dir>/<game>/<package>/game.jso
 "units": { "recipe_time": "tick", "ticks_per_second": 20, "default_rate": "s" },
 "resource_kinds": {
   "item":  { "label": "Item",  "display_unit": "",   "display_scale": 1 },
-  "fluid": { "label": "Fluid", "display_unit": "m³", "display_scale": 1 }
+  "fluid": { "label": "Fluid", "display_unit": "m³", "display_scale": 1 },
+  "power": { "label": "Power", "display_unit": "MW", "display_scale": 1, "rate_invariant": true }
 }
 ```
 
 - `recipe_time`: `"s"` or `"tick"`. The loader converts `recipe.time` to seconds (`recipe.time_raw` preserves the raw value).
 - `ticks_per_second`: number `> 0`. Required whenever `recipe_time` is `"tick"` or `"tick"` is offered as a rate unit. Available as `game.ticks_per_second`.
 - `default_rate`: `"tick"`, `"s"`, `"min"`, or `"h"`. Initial display unit for new projects. **Internally the solver and `.fpp` constraints are always per second**; changing rate unit only converts display/input.
-- `resource_kinds.<kind>`: recipes use the game's native amount; `display_scale` multiplies values for display (e.g. store `L`, show `kL` with `0.001`).
+- `resource_kinds.<kind>`: recipes use the game's native amount; `display_scale` multiplies values for display (e.g. store `L`, show `kL` with `0.001`). Optional `rate_invariant` (bool, default `false`): when `true` (for instantaneous flow units already expressed per second, such as power `MW` or thermal heat), switching the project rate unit (`/tick`, `/s`, `/min`, `/h`) never scales displayed/entered values and never appends a rate suffix (`/s`, `/min`) to `display_unit`.
 
 ### 2.3 Attributes, tables & option sets
 
@@ -117,7 +118,7 @@ Factory Planner discovers packages at `<game_data_dir>/<game>/<package>/game.jso
 
 - Attribute types: `"number"`, `"bool"`, `"string"`. Every declaration requires a `"default"` of matching type.
 - Tables must be non-empty and contain only finite numbers (`V-TBL-1`). Array tables are 0-based.
-- Option sets must have ≥ 1 option with unique keys (`V-PAR-3`). Option attributes must be declared in the set's `"attrs"` with defaults and cannot be named `key` or `id`.
+- Option sets must have ≥ 1 option with unique keys (`V-PAR-3`). Each option supports `{ "key", "label", "tooltip", "attrs", "notes" }`: optional `"tooltip"` (string) renders player-facing hover text in dropdowns, slot pickers, filled slot chips, and closed `enum` combos (keep provenance strictly in `"notes"`). Option attributes must be declared in the set's `"attrs"` with defaults and cannot be named `key` or `id`.
 
 ### 2.4 Parameters & globals
 
@@ -162,7 +163,7 @@ Registry entry under `"metrics"`:
 ```
 - `display`: subset of `["body", "tooltip", "totals"]` (default `["tooltip"]`). **UX default:** use `["tooltip", "totals"]` for routine metrics (power, energy, shards) to keep node cards uncluttered; reserve `"body"` for rare high-signal, node-specific readouts that need to be seen at a glance (e.g. sink points rate or phase completion time).
 - `aggregate`: `"sum"` (default), `"max"`, `"min"`, or `"none"`.
-- `split_sign`: `true` (only with `"sum"`, `V-MET-1`) shows `+` consumption, `-` generation, and net in totals. Convention: consumption positive, generation negative.
+- `split_sign`: `true` (only with `"sum"`, `V-MET-1`) shows `+` subtotal, `-` subtotal, and net in totals. Convention: consumption/emission positive, generation/absorption negative. Optional `positive_label` / `negative_label` strings (only allowed when `split_sign: true`, `V-MET-1`) customize the subtotal row names — provide plain verbs (e.g. `"Emitted"` / `"Absorbed"` for Pollution); the UI appends ` (+)` / ` (-)` automatically and defaults to `"Consumed"` / `"Generated"`.
 - `is_rate`: `true` converts per-second values to the project's active rate unit and appends the rate suffix (`/tick`, `/s`, `/min`, `/h`) automatically — set `unit` to the **base unit** without `/s` or `/min` (e.g. `"pts"`, not `"pts/min"`). Note that `gamedata_tool eval` and `--cases` always output and compare the canonical **per-second** value.
 
 Profile (or recipe override) metric entry: optional `"enabled"` (bool/pre-solve expr, default `true`) plus **exactly one** form (`V-PROF-3`):
@@ -358,7 +359,7 @@ Cascade order: broken shards → resource kinds/attributes → resources → opt
 | `V-PROF-4` | E | Bad extra/recipe port spec: duplicate id, bad `dir`, invalid resource spec, duplicate `resource_param`, or non-`resource_choice` param | Give unique extra-port `id`s, valid `dir`, exactly one resource specifier on extra ports, and ensure `resource_param` is a `resource_choice` on every compatible profile. |
 | `V-OVR-1` | E | Non-overridable key in `overrides` or unknown `let` override name | Only override allowed keys (§2.7); declare the `let` variable in the profile first. |
 | `V-OVR-2` | E | Recipe override or port expr fails to compile, changes `let` type, or adds cycle for some compatible machine profile | Ensure every compatible machine's profile supports the override, or narrow recipe `category`/`machines`. |
-| `V-MET-1` | E | Invalid `aggregate`/`display`, or `split_sign: true` when `aggregate != "sum"` | Use valid enum strings and `"aggregate": "sum"` with `split_sign`. |
+| `V-MET-1` | E | Invalid `aggregate`/`display`, `split_sign: true` when `aggregate != "sum"`, or `positive_label`/`negative_label` when `split_sign` is `false` | Use valid enum strings, `"aggregate": "sum"` with `split_sign`, and `"split_sign": true` with custom sign labels. |
 | `V-ICON-1` | E | Icon not a valid PNG, not square, or > 64×64 (`gamedata_tool` only) | Convert/pad transparently and downscale to square PNG ≤ 64×64; re-run `check-icons --from`. |
 | `V-W-1` | W | Referenced icon missing (not emitted in "no icons" mode) | Add the missing `<kind>/<id>.png`, waive intentionally icon-less keys in `waivers.json` (§4.1), or omit icons entirely ("no icons" mode). |
 | `V-W-2` | W | Unused resource, machine, parameter, option set, table, or metric | Prune unreferenced entities in the converter so `--werror` passes cleanly (or waive in `waivers.json` if intentionally kept). |
@@ -733,7 +734,7 @@ Reuses `voltage_tier`, `gt_tiers`, and `eut` from §5.2:
 | **Speed / clock / RPM / aura scaling** | Satisfactory clock, Create RPM, Mindustry tile efficiency & overdrive, Anno additive productivity, CoI Unity | `number`/`int`/`enum` param in `craft_time: "recipe.time / (machine.speed * speed_mult)"`; power/SU/maintenance as `per_machine` metric (`machine.su_per_rpm * param.rpm`, `machine.power * c ^ 1.321928`). |
 | **Variable-power recipes** | Satisfactory Particle Accelerator / Converter | Recipe attrs `min_power`, `max_power`; expose average `power` (`per_machine`: `(recipe.min_power + recipe.max_power) / 2 * ...`) and worst-case `peak_power` (`value`: `ceil(max(0, node.machines - 1e-6)) * recipe.max_power * ...`) metrics. |
 | **Fixed-draw sinks & completion timers** | Satisfactory AWESOME Sink, Space Elevator phases | For sinks with a throughput/belt-tier `enum` in `craft_time`, compute active power via `value`: `ceil(max(0, node.machines - 1e-6)) * pwr` so changing belt tier does not alter power draw for identical input flow. For deliverable targets, compute post-solve completion time via `if(node.crafts > 0, 1 / (node.crafts * 3600), 0)`. |
-| **Power-only / 0-port buildings (`V-NUM-4`)** | Satisfactory Geothermal, Mindustry Solar / Thermal, Factorio Solar | Because `V-NUM-4` requires ≥ 1 port, either defer in `PACK_NOTES.md` or emit a real typed `power` output (`kind: "power"`, explicit `display_unit` like `"MW"` or `"u"`, `time: 1` s, `output_amount: "abs(machine.power) * ..."`) so targeting `100` solves for `100` power units (1:1 with negative `power` metric in `/s` mode) instead of a confusing `1/s` dummy counter. |
+| **Power-only / 0-port buildings (`V-NUM-4`)** | Satisfactory Geothermal, Mindustry Solar / Thermal, Factorio Solar | Because `V-NUM-4` requires ≥ 1 port, either defer in `PACK_NOTES.md` or emit a real typed `power` output (`kind: "power"`, `"display_unit": "MW"` or `"u"`, `"rate_invariant": true`, `time: 1` s, `output_amount: "abs(machine.power) * ..."`) so targeting `100` solves for `100` power units without multiplying watts by 60 when switching `/s ↔ /min`. |
 | **Switchable power / energy modeling** | Mindustry `power_mode`, games where players may want clean power metrics OR solver-sized power plants | Add a Project Global `enum` (`metric` / `resource` / `both`, default `metric`) read in a shared base profile: define `let.net_power` and `let.native_power_out` (`false`, overridden `true` on 0-port generators whose `out:0` already emits `power`), add `extra_ports` `xin:power_in` (`enabled: "use_power_ports && net_power > 0"`) & `xout:power_out` (`enabled: "use_power_ports && !native_power_out && net_power < 0"`), and gate `metrics.power.enabled`. |
 | **Multi-machine recipe unification** | Mindustry drills/pumps/solar panels, Factorio furnaces/assemblers, Satisfactory miners | Emit **one logical recipe** (`"Mine Coal"`, `"Pump Water"`, `"Solar Power"`) with a shared `category` or explicit `"machines": [...]` list instead of N×M per-machine recipes. Put per-machine speeds, formulas, and mandatory/optional inputs on `machine.attrs` and bind machine-specific inputs via `extra_ports` (`resource_expr: "machine.req_res"`, `enabled: "machine.req_rate > 0"`). |
 | **Picker filtering (planets, DLCs, editions, debug)** | Mindustry Serpulo/Erekir + debug, Factorio Space Age planets, Satisfactory seasonal/debug | Add `enum`/`bool` Project Globals and set `profile.visible_if` (machine visibility: `game.*`, `global.*`, `machine.*`) and `profile.recipe_visible_if` (recipe visibility: `game.*`, `global.*`, `recipe.*`) on a shared base profile (inherited via `extends`) to filter pickers without breaking already-placed nodes. |

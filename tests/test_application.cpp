@@ -3823,4 +3823,322 @@ TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_OptionIcons_DispatchedForEnum
     EXPECT_EQ(graph.getNode(nodeId)->params.at("slots").asSlots()[0], std::optional<std::string>("mod_b"));
 }
 
+TEST_F(ApplicationLifecycleTest, FactoryNodeEditor_RateInvariantResourcesSplitSignLabelsAndOptionTooltips) {
+    const std::string manifest = R"JSON({
+      "schema_version": 4,
+      "game": { "id": "factorio_ux_test", "name": "Factorio UX Test" },
+      "units": { "recipe_time": "s", "default_rate": "s" },
+      "resource_kinds": {
+        "item":       { "label": "Item",      "display_unit": "",   "display_scale": 1 },
+        "heat":       { "label": "Heat",      "display_unit": "MW", "display_scale": 1,     "rate_invariant": true },
+        "power_kw":   { "label": "Power kW",  "display_unit": "MW", "display_scale": 0.001, "rate_invariant": true },
+        "raw_signal": { "label": "Signal",    "display_unit": "",   "display_scale": 1,     "rate_invariant": true }
+      },
+      "resources": [
+        { "id": "fuel",   "name": "Nuclear Fuel", "kind": "item" },
+        { "id": "heat",   "name": "Heat",         "kind": "heat" },
+        { "id": "power",  "name": "Power",        "kind": "power_kw" },
+        { "id": "signal", "name": "Signal",       "kind": "raw_signal" }
+      ],
+      "option_sets": {
+        "modules": {
+          "attrs": { "prod": { "type": "number", "default": 0 } },
+          "options": [
+            {
+              "key": "prod-3",
+              "label": "Productivity 3",
+              "tooltip": "+10% Productivity\n-15% Speed\n+80% Energy",
+              "notes": "Internal provenance line",
+              "attrs": { "prod": 0.1 }
+            },
+            {
+              "key": "no-tip",
+              "label": "Plain Module",
+              "notes": "Should never appear as UI tooltip",
+              "attrs": { "prod": 0.0 }
+            }
+          ]
+        }
+      },
+      "parameters": {
+        "mode": {
+          "label": "Mode",
+          "tooltip": "Select operating mode",
+          "type": "enum",
+          "option_set": "modules",
+          "default": "prod-3",
+          "allow_none": true,
+          "ui": { "widget": "combo", "placement": "panel" }
+        },
+        "slots": {
+          "label": "Modules",
+          "tooltip": "Installed module slots",
+          "type": "slots",
+          "option_set": "modules",
+          "count": 2,
+          "default": ["prod-3", null],
+          "allow_empty": true,
+          "ui": { "widget": "slot_row", "placement": "body" }
+        }
+      },
+      "metrics": {
+        "power": {
+          "label": "Power",
+          "unit": "MW",
+          "format": "%.2f",
+          "display": ["tooltip", "totals"],
+          "aggregate": "sum",
+          "split_sign": true
+        },
+        "pollution": {
+          "label": "Pollution",
+          "unit": "/m",
+          "format": "%.2f",
+          "display": ["tooltip", "totals"],
+          "aggregate": "sum",
+          "split_sign": true,
+          "positive_label": "Emitted",
+          "negative_label": "Absorbed"
+        }
+      },
+      "profiles": {
+        "reactor_prof": {
+          "params": ["mode", "slots"],
+          "metrics": {
+            "power": { "per_machine": "-40" },
+            "pollution": { "per_machine": "12" }
+          }
+        },
+        "scrubber_prof": {
+          "metrics": {
+            "power": { "per_machine": "5" },
+            "pollution": { "per_machine": "-4" }
+          }
+        }
+      },
+      "machines": [
+        { "id": "reactor",  "name": "Nuclear Reactor", "profile": "reactor_prof",  "categories": ["react"] },
+        { "id": "exchanger","name": "Heat Exchanger",  "profile": "scrubber_prof", "categories": ["exchange"] }
+      ],
+      "recipes": [
+        {
+          "id": "produce_heat",
+          "name": "Produce Heat",
+          "category": "react",
+          "time": 1.0,
+          "in": [],
+          "out": [["heat", 40.0], ["power", 2000.0], ["fuel", 10.0], ["signal", 3.0]]
+        },
+        {
+          "id": "consume_heat",
+          "name": "Consume Heat",
+          "category": "exchange",
+          "time": 1.0,
+          "in": [["heat", 40.0], ["power", 2000.0]],
+          "out": []
+        }
+      ]
+    })JSON";
+
+    gamedata::GamePackage pkg;
+    gamedata::LoadReport report;
+    ASSERT_TRUE(gamedata::loadGamePackageFromMemory(manifest, {}, pkg, report))
+        << (report.errors.empty() ? "" : report.errors.front().formatted);
+
+    FactoryNodeEditor editor(pkg, dirA / "factorio_ux.fpp", "FactorioUX");
+    FactoryGraph* graph = editor.getGraph();
+    ASSERT_NE(graph, nullptr);
+
+    const uint64_t reactorId = graph->addNode("Reactor", "produce_heat");
+    const uint64_t exchangerId = graph->addNode("Exchanger", "consume_heat");
+    ASSERT_NE(graph->getNode(reactorId), nullptr);
+    ASSERT_NE(graph->getNode(exchangerId), nullptr);
+
+    auto findOutPort = [&](uint64_t nid, std::string_view resKey) -> uint64_t {
+        for (uint64_t pid : graph->getNode(nid)->output_ports) {
+            if (const Port* p = graph->getPort(pid); p && p->resource_key == resKey) {
+                return pid;
+            }
+        }
+        return static_cast<uint64_t>(-1);
+    };
+    auto findInPort = [&](uint64_t nid, std::string_view resKey) -> uint64_t {
+        for (uint64_t pid : graph->getNode(nid)->input_ports) {
+            if (const Port* p = graph->getPort(pid); p && p->resource_key == resKey) {
+                return pid;
+            }
+        }
+        return static_cast<uint64_t>(-1);
+    };
+
+    const uint64_t outHeatId = findOutPort(reactorId, "heat");
+    const uint64_t outPowerId = findOutPort(reactorId, "power");
+    const uint64_t outFuelId = findOutPort(reactorId, "fuel");
+    const uint64_t outSignalId = findOutPort(reactorId, "signal");
+    const uint64_t inHeatId = findInPort(exchangerId, "heat");
+    const uint64_t inPowerId = findInPort(exchangerId, "power");
+    ASSERT_NE(outHeatId, static_cast<uint64_t>(-1));
+    ASSERT_NE(outPowerId, static_cast<uint64_t>(-1));
+    ASSERT_NE(outFuelId, static_cast<uint64_t>(-1));
+    ASSERT_NE(outSignalId, static_cast<uint64_t>(-1));
+    ASSERT_NE(inHeatId, static_cast<uint64_t>(-1));
+    ASSERT_NE(inPowerId, static_cast<uint64_t>(-1));
+
+    const uint64_t heatConnId = graph->addConnection(outHeatId, inHeatId);
+    const uint64_t powerConnId = graph->addConnection(outPowerId, inPowerId);
+
+    // Target 40 MW of heat (= 1 reactor -> 2000 kW = 2.00 MW power, 10 fuel/s).
+    executeEditorCommand(editor, std::make_unique<SetPortConstraintCommand>(
+        outHeatId, -1.0, 40.0, ConstraintMode::AUTO, ConstraintMode::TARGET));
+
+    const Port* outHeatPort = graph->getPort(outHeatId);
+    const Port* outPowerPort = graph->getPort(outPowerId);
+    const Port* outFuelPort = graph->getPort(outFuelId);
+    const Connection* heatConn = graph->getConnection(heatConnId);
+    const Connection* powerConn = graph->getConnection(powerConnId);
+    const Resource* heatRes = graph->getGameData().findResource("heat");
+    const Resource* powerRes = graph->getGameData().findResource("power");
+    ASSERT_NE(outHeatPort, nullptr);
+    ASSERT_NE(outPowerPort, nullptr);
+    ASSERT_NE(outFuelPort, nullptr);
+    ASSERT_NE(heatConn, nullptr);
+    ASSERT_NE(powerConn, nullptr);
+    ASSERT_NE(heatRes, nullptr);
+    ASSERT_NE(powerRes, nullptr);
+
+    // 1. In PerSecond mode: rate_invariant kinds display MW without "/s".
+    EXPECT_EQ(graph->formatResourceRateSuffix("heat"), "MW");
+    EXPECT_EQ(graph->formatResourceRateSpacedSuffix("heat"), " MW");
+    EXPECT_EQ(graph->formatResourceRateSuffix("power"), "MW");
+    EXPECT_EQ(graph->formatResourceRateSuffix("signal"), "");
+    EXPECT_EQ(graph->formatResourceRateSpacedSuffix("signal"), "");
+    EXPECT_EQ(graph->formatResourceRateSuffix("fuel"), "/s");
+
+    EXPECT_EQ(formatEditorPinRateText(editor, *outHeatPort), "40.00 [T]");
+    EXPECT_EQ(formatEditorPinRateText(editor, *outPowerPort), "2.00");
+    EXPECT_EQ(formatEditorPinRateText(editor, *outFuelPort), "10.00");
+    EXPECT_EQ(formatEditorLinkRateText(editor, *heatConn), "Current Rate: 40.00 MW");
+    EXPECT_EQ(formatEditorLinkRateText(editor, *powerConn), "Current Rate: 2.00 MW");
+    const std::string heatTipSec = buildEditorPinTooltipText(editor, *outHeatPort, *heatRes, false);
+    EXPECT_NE(heatTipSec.find("target: 40.00 MW (100.0%)"), std::string::npos) << heatTipSec;
+    EXPECT_EQ(heatTipSec.find("MW/s"), std::string::npos) << heatTipSec;
+
+    // 2. Switch to PerMinute: regular item scales x60, rate_invariant heat & power_kw stay unchanged.
+    executeEditorCommand(editor, std::make_unique<SetRateUnitCommand>(
+        gamedata::RateUnit::PerSecond, gamedata::RateUnit::PerMinute));
+    EXPECT_EQ(graph->formatResourceRateSuffix("heat"), "MW");
+    EXPECT_EQ(graph->formatResourceRateSuffix("power"), "MW");
+    EXPECT_EQ(graph->formatResourceRateSuffix("fuel"), "/min");
+
+    EXPECT_EQ(formatEditorPinRateText(editor, *outHeatPort), "40.00 [T]");
+    EXPECT_EQ(formatEditorPinRateText(editor, *outPowerPort), "2.00");
+    EXPECT_EQ(formatEditorPinRateText(editor, *outFuelPort), "600.00");
+    EXPECT_EQ(formatEditorLinkRateText(editor, *heatConn), "Current Rate: 40.00 MW");
+    EXPECT_EQ(formatEditorLinkRateText(editor, *powerConn), "Current Rate: 2.00 MW");
+    const std::string heatTipMin = buildEditorPinTooltipText(editor, *outHeatPort, *heatRes, false);
+    EXPECT_NE(heatTipMin.find("target: 40.00 MW (100.0%)"), std::string::npos) << heatTipMin;
+    EXPECT_EQ(heatTipMin.find("MW/min"), std::string::npos) << heatTipMin;
+
+    // Pin Context Menu in PerMinute mode: rate_invariant heat opens with "40", typing "80" stores 80.0 (not 80/60).
+    drawEditorPinPopupFrame(editor, outHeatId, true);
+    EXPECT_EQ(getPinConstraintBuffer(editor), "40");
+    drawEditorPinPopupFrame(editor, outHeatId, false);
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddInputCharactersUTF8("80");
+    drawEditorPinPopupFrame(editor, outHeatId, false);
+    EXPECT_EQ(getPinConstraintBuffer(editor), "80");
+    EXPECT_NEAR(outHeatPort->user_constraint, 80.0, 1e-6);
+
+    // Dismiss popup by clicking outside to commit.
+    io.AddMousePosEvent(1200.0f, 700.0f);
+    io.AddMouseButtonEvent(0, true);
+    drawEditorPinPopupFrame(editor, outHeatId, false);
+    io.AddMouseButtonEvent(0, false);
+    drawEditorPinPopupFrame(editor, outHeatId, false);
+    EXPECT_NEAR(outHeatPort->user_constraint, 80.0, 1e-6);
+    EXPECT_EQ(formatEditorLinkRateText(editor, *heatConn), "Current Rate: 80.00 MW");
+    EXPECT_EQ(formatEditorLinkRateText(editor, *powerConn), "Current Rate: 4.00 MW");
+
+    // Empty-unit rate_invariant pin popup renders cleanly without empty "()".
+    drawEditorPinPopupFrame(editor, outSignalId, true);
+    io.AddKeyEvent(ImGuiKey_Escape, true);
+    drawEditorPinPopupFrame(editor, outSignalId, false);
+    io.AddKeyEvent(ImGuiKey_Escape, false);
+    drawEditorPinPopupFrame(editor, outSignalId, false);
+
+    // 3. Split-sign row label helper: defaults + custom verbs.
+    const auto* powerMetric = graph->getGameData().findMetric("power");
+    const auto* pollMetric = graph->getGameData().findMetric("pollution");
+    ASSERT_NE(powerMetric, nullptr);
+    ASSERT_NE(pollMetric, nullptr);
+    EXPECT_EQ(FactoryNodeEditor::formatSplitSignRowLabel(powerMetric->positive_label, "Consumed", "+"),
+              "Consumed (+)");
+    EXPECT_EQ(FactoryNodeEditor::formatSplitSignRowLabel(powerMetric->negative_label, "Generated", "-"),
+              "Generated (-)");
+    EXPECT_EQ(FactoryNodeEditor::formatSplitSignRowLabel(pollMetric->positive_label, "Consumed", "+"),
+              "Emitted (+)");
+    EXPECT_EQ(FactoryNodeEditor::formatSplitSignRowLabel(pollMetric->negative_label, "Generated", "-"),
+              "Absorbed (-)");
+
+    // 4. Option tooltip helpers for closed enum combos and slot chips (notes never leak).
+    const auto* modeParam = graph->getGameData().findParameter("mode");
+    const auto* slotsParam = graph->getGameData().findParameter("slots");
+    const auto* modSet = graph->getGameData().findOptionSet("modules");
+    ASSERT_NE(modeParam, nullptr);
+    ASSERT_NE(slotsParam, nullptr);
+    ASSERT_NE(modSet, nullptr);
+
+    EXPECT_EQ(FactoryNodeEditor::buildEnumComboTooltipText(*modeParam, modSet, std::string("prod-3")),
+              "Select operating mode\n\nProductivity 3\n+10% Productivity\n-15% Speed\n+80% Energy");
+    EXPECT_EQ(FactoryNodeEditor::buildEnumComboTooltipText(*modeParam, modSet, std::string("no-tip")),
+              "Select operating mode");
+    EXPECT_EQ(FactoryNodeEditor::buildEnumComboTooltipText(*modeParam, modSet, std::nullopt),
+              "Select operating mode");
+
+    gamedata::ParameterDef noParamTipMode = *modeParam;
+    noParamTipMode.tooltip.clear();
+    EXPECT_EQ(FactoryNodeEditor::buildEnumComboTooltipText(noParamTipMode, modSet, std::string("prod-3")),
+              "Productivity 3\n+10% Productivity\n-15% Speed\n+80% Energy");
+    EXPECT_EQ(FactoryNodeEditor::buildEnumComboTooltipText(noParamTipMode, modSet, std::string("no-tip")),
+              "");
+
+    EXPECT_EQ(FactoryNodeEditor::buildSlotChipTooltipText(*slotsParam, modSet, std::string("prod-3")),
+              "Productivity 3\n+10% Productivity\n-15% Speed\n+80% Energy");
+    EXPECT_EQ(FactoryNodeEditor::buildSlotChipTooltipText(*slotsParam, modSet, std::string("no-tip")),
+              "Installed module slots");
+    EXPECT_EQ(FactoryNodeEditor::buildSlotChipTooltipText(*slotsParam, modSet, std::nullopt),
+              "Installed module slots");
+
+    // 5. Render full UI frame with node selected (side panel Totals + Node Properties + body slot row).
+    renderEditorFrame(editor);
+    ax::NodeEditor::SetCurrentEditor(editor.getContext());
+    ax::NodeEditor::SelectNode(IdUtils::toNodeId(reactorId));
+    ax::NodeEditor::SetCurrentEditor(nullptr);
+    renderEditorFrame(editor);
+
+    // Open enum dropdown and slot picker popup to exercise dropdown tooltip paths cleanly.
+    ImGuiWindow* sidePanel = findEditorWindowContaining("##EditorSidePanel");
+    ASSERT_NE(sidePanel, nullptr);
+    const ImGuiID nodePropsRoot = ImHashStr("##props_node", 0, sidePanel->ID);
+    const ImGuiID modeComboId = ImHashStr("##val", 0, ImHashStr("mode", 0, nodePropsRoot));
+    ImGui::ActivateItemByID(modeComboId);
+    renderEditorFrame(editor);
+    ASSERT_NE(findOpenPopupWindow("##Combo"), nullptr);
+    io.AddKeyEvent(ImGuiKey_Escape, true);
+    renderEditorFrame(editor);
+    io.AddKeyEvent(ImGuiKey_Escape, false);
+    renderEditorFrame(editor);
+
+    const int slotIdx0 = 0;
+    const ImGuiID slot0Scope = ImHashData(&slotIdx0, sizeof(slotIdx0), ImHashStr("slots", 0, nodePropsRoot));
+    const ImGuiID slot0BtnId = ImHashStr("[Productivity 3]##slot", 0, slot0Scope);
+    ImGui::ActivateItemByID(slot0BtnId);
+    renderEditorFrame(editor);
+    ASSERT_NE(findOpenPopupWindow(), nullptr);
+    io.AddKeyEvent(ImGuiKey_Escape, true);
+    renderEditorFrame(editor);
+    io.AddKeyEvent(ImGuiKey_Escape, false);
+    renderEditorFrame(editor);
+}
+
 

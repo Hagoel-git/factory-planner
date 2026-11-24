@@ -1972,7 +1972,11 @@ void FactoryNodeEditor::handlePopups() {
 
             const std::string rateSuffix = m_graph->formatResourceRateSuffix(port->resource_key);
             const std::string spacedRateSuffix = m_graph->formatResourceRateSpacedSuffix(port->resource_key);
-            ImGui::Text("Flow Rate Limit (%s):", rateSuffix.c_str());
+            if (rateSuffix.empty()) {
+                ImGui::TextUnformatted("Flow Rate Limit:");
+            } else {
+                ImGui::Text("Flow Rate Limit (%s):", rateSuffix.c_str());
+            }
             ImGui::PushItemWidth(-1);
 
             bool hugeGraph = m_graph->getNodes().size() >= 1000;
@@ -2466,20 +2470,27 @@ void FactoryNodeEditor::resetProjectGlobals() {
 
 namespace {
 
-void handleHoverParamTooltip(
-    const gamedata::ParameterDef& pdef,
+void handleHoverTooltipText(
+    const std::string& tooltip,
     std::string* hoveredTooltipOut,
     bool inNodeBody) {
-    if (!ImGui::IsItemHovered() || pdef.tooltip.empty()) {
+    if (!ImGui::IsItemHovered() || tooltip.empty()) {
         return;
     }
     if (inNodeBody) {
         if (hoveredTooltipOut) {
-            *hoveredTooltipOut = pdef.tooltip;
+            *hoveredTooltipOut = tooltip;
         }
     } else {
-        ImGui::SetTooltip("%s", pdef.tooltip.c_str());
+        ImGui::SetTooltip("%s", tooltip.c_str());
     }
+}
+
+void handleHoverParamTooltip(
+    const gamedata::ParameterDef& pdef,
+    std::string* hoveredTooltipOut,
+    bool inNodeBody) {
+    handleHoverTooltipText(pdef.tooltip, hoveredTooltipOut, inNodeBody);
 }
 
 template <typename OnSelectFn>
@@ -2536,10 +2547,12 @@ void renderChoiceListItems(
                 bool selected = curKey.has_value() && (*curKey == key);
                 std::string disp = getOptionDisplayLabel(os, key);
                 ImGui::PushID(key.c_str());
+                bool rowHovered = false;
                 if (ImTextureID optTex = IconCache::instance().getOptionIconIfReady(
                         iconPackageId, pdef.option_set, key);
                     optTex != 0) {
                     ImGui::Image(optTex, ImVec2(iconSz, iconSz));
+                    rowHovered |= ImGui::IsItemHovered();
                     ImGui::SameLine();
                 }
                 if (ImGui::Selectable(disp.c_str(), selected)) {
@@ -2550,9 +2563,10 @@ void renderChoiceListItems(
                         ImGui::CloseCurrentPopup();
                     }
                 }
-                if (os) {
-                    if (const auto* optDef = os->findOption(key); optDef && !optDef->notes.empty() && ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip("%s", optDef->notes.c_str());
+                rowHovered |= ImGui::IsItemHovered();
+                if (rowHovered && os) {
+                    if (const auto* optDef = os->findOption(key); optDef && !optDef->tooltip.empty()) {
+                        ImGui::SetTooltip("%s", optDef->tooltip.c_str());
                     }
                 }
                 if (selected) {
@@ -2665,10 +2679,12 @@ void renderSlotListItems(
             bool selected = curKey.has_value() && (*curKey == key);
             std::string disp = getOptionDisplayLabel(os, key);
             ImGui::PushID(key.c_str());
+            bool rowHovered = false;
             if (ImTextureID optTex = IconCache::instance().getOptionIconIfReady(
                     iconPackageId, pdef.option_set, key);
                 optTex != 0) {
                 ImGui::Image(optTex, ImVec2(iconSz, iconSz));
+                rowHovered |= ImGui::IsItemHovered();
                 ImGui::SameLine();
             }
             if (ImGui::Selectable(disp.c_str(), selected)) {
@@ -2679,9 +2695,10 @@ void renderSlotListItems(
                 }
                 ImGui::CloseCurrentPopup();
             }
-            if (os) {
-                if (const auto* optDef = os->findOption(key); optDef && !optDef->notes.empty() && ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("%s", optDef->notes.c_str());
+            rowHovered |= ImGui::IsItemHovered();
+            if (rowHovered && os) {
+                if (const auto* optDef = os->findOption(key); optDef && !optDef->tooltip.empty()) {
+                    ImGui::SetTooltip("%s", optDef->tooltip.c_str());
                 }
             }
             if (selected) {
@@ -3118,11 +3135,22 @@ void FactoryNodeEditor::drawParameterWidget(
             const float frameH = ImGui::GetFrameHeight();
             const float spacing = ImGui::GetStyle().ItemSpacing.x;
 
+            const gamedata::OptionSet* enumOptionSet = (pdef.type == gamedata::ParameterType::Enum)
+                ? gameData.findOptionSet(pdef.option_set)
+                : nullptr;
+            auto handleEnumComboHover = [&]() {
+                if (ImGui::IsItemHovered()) {
+                    handleHoverTooltipText(
+                        buildEnumComboTooltipText(pdef, enumOptionSet, curKey),
+                        hoveredTooltipOut, inNodeBody);
+                }
+            };
+
             if (inNodeBody && !isGlobal) {
                 float btnWidth = (itemWidth > 0.0f ? itemWidth : 120.0f);
                 if (selectedTex != 0) {
                     ImGui::Image(selectedTex, ImVec2(frameH, frameH));
-                    handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
+                    handleEnumComboHover();
                     ImGui::SameLine();
                     btnWidth = std::max(40.0f, btnWidth - (frameH + spacing));
                 }
@@ -3132,12 +3160,12 @@ void FactoryNodeEditor::drawParameterWidget(
                     m_pendingBodyParamPopup = PendingParamPopup{
                         true, nodeId, pdef.id, -1, ed::CanvasToScreen(bl)};
                 }
-                handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
+                handleEnumComboHover();
             } else {
                 float comboWidth = itemWidth;
                 if (selectedTex != 0) {
                     ImGui::Image(selectedTex, ImVec2(frameH, frameH));
-                    handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
+                    handleEnumComboHover();
                     ImGui::SameLine();
                     if (comboWidth > 0.0f) {
                         comboWidth = std::max(40.0f, comboWidth - (frameH + spacing));
@@ -3152,7 +3180,7 @@ void FactoryNodeEditor::drawParameterWidget(
                         });
                     ImGui::EndCombo();
                 }
-                handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
+                handleEnumComboHover();
             }
             break;
         }
@@ -3200,9 +3228,17 @@ void FactoryNodeEditor::drawParameterWidget(
                     lineUsedW = itemW;
                 }
 
+                auto handleSlotChipHover = [&]() {
+                    if (ImGui::IsItemHovered()) {
+                        handleHoverTooltipText(
+                            buildSlotChipTooltipText(pdef, os, curSlots[i]),
+                            hoveredTooltipOut, inNodeBody);
+                    }
+                };
+
                 if (slotTex != 0) {
                     ImGui::Image(slotTex, ImVec2(frameH, frameH));
-                    handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
+                    handleSlotChipHover();
                     ImGui::SameLine();
                 }
 
@@ -3216,7 +3252,7 @@ void FactoryNodeEditor::drawParameterWidget(
                         ImGui::OpenPopup("##slot_picker");
                     }
                 }
-                handleHoverParamTooltip(pdef, hoveredTooltipOut, inNodeBody);
+                handleSlotChipHover();
 
                 if (!inNodeBody && ImGui::IsPopupOpen("##slot_picker")) {
                     ImGui::SetNextWindowSizeConstraints(ImVec2(180.0f, 0.0f), ImVec2(420.0f, 360.0f));
@@ -3448,6 +3484,52 @@ std::string FactoryNodeEditor::buildNodeTooltipText(
     return tip;
 }
 
+std::string FactoryNodeEditor::formatSplitSignRowLabel(
+    std::string_view customLabel,
+    std::string_view defaultLabel,
+    std::string_view signTag) {
+    const std::string_view base = customLabel.empty() ? defaultLabel : customLabel;
+    std::string out;
+    out.reserve(base.size() + signTag.size() + 3);
+    out.append(base);
+    out.append(" (");
+    out.append(signTag);
+    out.push_back(')');
+    return out;
+}
+
+std::string FactoryNodeEditor::buildEnumComboTooltipText(
+    const gamedata::ParameterDef& pdef,
+    const gamedata::OptionSet* optionSet,
+    const std::optional<std::string>& selectedKey) {
+    std::string tip = pdef.tooltip;
+    if (optionSet && selectedKey.has_value() && !selectedKey->empty()) {
+        if (const auto* optDef = optionSet->findOption(*selectedKey); optDef && !optDef->tooltip.empty()) {
+            const std::string disp = optDef->label.empty() ? optDef->key : optDef->label;
+            if (!tip.empty()) {
+                tip += "\n\n";
+            }
+            tip += disp;
+            tip += '\n';
+            tip += optDef->tooltip;
+        }
+    }
+    return tip;
+}
+
+std::string FactoryNodeEditor::buildSlotChipTooltipText(
+    const gamedata::ParameterDef& pdef,
+    const gamedata::OptionSet* optionSet,
+    const std::optional<std::string>& slotKey) {
+    if (optionSet && slotKey.has_value() && !slotKey->empty()) {
+        if (const auto* optDef = optionSet->findOption(*slotKey); optDef && !optDef->tooltip.empty()) {
+            const std::string disp = optDef->label.empty() ? optDef->key : optDef->label;
+            return disp + "\n" + optDef->tooltip;
+        }
+    }
+    return pdef.tooltip;
+}
+
 void FactoryNodeEditor::drawGraphTotalsSection() {
     const auto& gameData = m_graph->getGameData();
     const auto& totals = m_solver->getTotals();
@@ -3471,9 +3553,11 @@ void FactoryNodeEditor::drawGraphTotalsSection() {
             std::string posStr = formatMetricValueString(*mdef, tot.positive_sum, *m_graph);
             std::string negStr = formatMetricValueString(*mdef, tot.negative_sum, *m_graph);
             std::string netStr = formatMetricValueString(*mdef, tot.net_sum, *m_graph);
+            const std::string posLabel = formatSplitSignRowLabel(mdef->positive_label, "Consumed", "+");
+            const std::string negLabel = formatSplitSignRowLabel(mdef->negative_label, "Generated", "-");
             ImGui::Indent(10.0f);
-            ImGui::Text("Consumed (+): %s", posStr.c_str());
-            ImGui::Text("Generated (-): %s", negStr.c_str());
+            ImGui::Text("%s: %s", posLabel.c_str(), posStr.c_str());
+            ImGui::Text("%s: %s", negLabel.c_str(), negStr.c_str());
             ImGui::Text("Net: %s", netStr.c_str());
             ImGui::Unindent(10.0f);
         } else {
