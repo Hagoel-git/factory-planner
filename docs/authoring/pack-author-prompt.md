@@ -10,9 +10,14 @@ GROUNDING & ANTI-HALLUCINATION (NON-NEGOTIABLE)
    or edge cases. Game versions and modpacks change equations frequently; memory-sourced math is
    forbidden.
 2. Treat the user's raw dump (`raw/`) and user-provided authoritative references as the ONLY
-   sources of truth. Beware stale web search results (unofficial/legacy wikis like Fandom or older
-   patch notes) even when filtering by domain: verify the exact patch/version of every web citation
-   and cross-check constants against raw dump fields whenever possible.
+   sources of truth — ALWAYS inspect local primary files (`raw/` dump, local API/schema docs,
+   game/mod source) BEFORE web searching, and use web search only for engine formulas genuinely
+   absent from local files. Beware stale or conflated AI web search summaries (which frequently
+   mix up similar entities or older patches even when domain-filtered): verify the exact
+   patch/version of every web citation and cross-check constants against raw dump fields whenever
+   possible. If a web lookup conflicts with `raw/` or stays ambiguous after one targeted check,
+   STOP re-searching — trust `raw/` constants and flag the exact discrepancy as
+   `UNVERIFIED — please confirm in-game` on a Decision Card.
 3. In Phase 1, ALWAYS ask the user for:
    - the exact target game / modpack edition and exact version (e.g. `1.1.0.4`, `2.0.28`, `2.7.2`),
    - authoritative references for mechanics and formulas: official wiki URLs, game/mod source
@@ -47,8 +52,9 @@ HARD RULES
      sorted inputs + outputs + differentiating attributes.
    - PRESERVE raw `in`/`out` port order (slot index is identity in `.fpp` project files).
    - Resolve ID collisions deterministically and log every collision in `report.json`.
-   - Same input must produce byte-identical JSON: sorted object keys/entity arrays (except port
-     order), fixed float formatting, strict JSON (`allow_nan=False`), no timestamps or host paths.
+   - Same input must produce byte-identical JSON: sorted object keys/entity arrays (except recipe
+     port order and intentional multi-machine preference order), fixed float formatting, strict
+     JSON (`allow_nan=False`), no timestamps or host paths.
 4. Pure data in recipes: formulas live ONLY in `converters/<game>/template/game.json` profiles.
    Emit compact short-form tuple ports `[res, amount]` / `[res, amount, chance]` whenever possible,
    and shard large recipe sets by category or recipe map.
@@ -60,7 +66,10 @@ HARD RULES
    no `sudo`, no global npm/cargo.
 6. Context hygiene (50k-recipe ready):
    - Sample `raw/` with tiny commands (file list, sizes, record counts, keys, 2–3 representative
-     records per type). Never dump large files into context.
+     records per type). Never dump large files into context. For multi-line `raw/` inspection
+     queries, use a heredoc (`python3 - <<'EOF'`) or a small scratch script rather than
+     shell-escaped `python3 -c` one-liners to avoid quote-escaping syntax errors and repeated
+     full-dump reloads.
    - Always run `gamedata_tool validate <pkg> --no-icons --json` and inspect ONLY `counts`,
      `cascades`, and `groups` (never `--all` on a broken large pack). Fix cascades and template
      errors first before recipe-level errors.
@@ -76,10 +85,13 @@ HARD RULES
        - Trade-off: ...
        - Recommended: (A) — <1-line why>
        - Source: <citation or UNVERIFIED>
-     NEVER cram 3+ unrelated mechanics into one giant paragraph card — users miss buried options.
-     Put routine/uncontroversial defaults (units, sharding, ID conventions, clean-canvas defaults)
-     into a compact **"Standard Defaults (confirm unless overriding)"** summary block so Decision
-     Cards stay focused on genuine semantic and UX trade-offs.
+     NEVER cram 3+ unrelated mechanics into one giant paragraph card, and NEVER bury extra choices
+     in parenthetical notes or closing sentences — every question needing a user decision must be
+     its own numbered `D<N>` card (or an explicit Standard Default), because users reliably miss
+     unnumbered sub-questions. Put routine/uncontroversial defaults (units, sharding, ID
+     conventions, clean-canvas defaults) into a compact **"Standard Defaults (confirm unless
+     overriding)"** summary block so Decision Cards stay focused on genuine semantic and UX
+     trade-offs.
    - STOP and wait for user approval at Phase 1, at **Stage 2A** (Planning Roadmap), after **every
      Stage 2B thematic round**, at **Stage 2C** (Consolidated Blueprint sign-off BEFORE writing
      `template/game.json`), and at Phase 3. If the user introduces new mechanics, filters, or
@@ -94,7 +106,8 @@ HARD RULES
    or workaround, and log it in `PACK_NOTES.md`.
 9. Verify every change: every converter or template edit ends with:
    `convert` -> `gamedata_tool validate <pkg> --no-icons --werror --json` -> `eval --cases`
-   (avoid re-running unchanged checks redundantly).
+   (avoid re-running unchanged checks redundantly). Record verification counts and PASS results in
+   `PACK_NOTES.md` only AFTER executing the commands (never pre-fill results before running them).
 10. Keep `converters/<game>/PACK_NOTES.md` fully in sync across every section (status, decisions,
     entity/case counts, rerun command comments, coverage, icon provenance) — including after
     post-handover refinements — so any fresh session can resume cleanly without stale numbers.
@@ -144,10 +157,12 @@ Phase 1 — Discovery  [STOP — wait for user confirmation]
   1. Target game/modpack name, **exact version**, `<game>` slug, and `<pkg>` version folder.
   2. **Authoritative references** for game mechanics and formulas (wiki URLs, mod/game source repos
      + version/tag/commit, or `raw/NOTES.md`) — explain that no formulas will be assumed from memory.
-  3. Scope & exclusions (creative/debug/hidden/seasonal recipes, planets/DLCs/mods — noting that
-     scoped content can be hard-excluded OR hidden behind a Project Global picker filter via
-     `visible_if`/`recipe_visible_if` — extractors/generators/sinks, and icons vs no-icons mode,
-     each with a `Recommended:` default).
+  3. High-level scope & exclusions ONLY (obvious debug/creative/hidden/parameter/seasonal junk,
+     DLC/mod/edition boundaries actually verified in `raw/`, and icons vs no-icons mode — each
+     with a `Recommended:` default). Defer fine-grained subsystem v1 vs Deferred (v2+) choices
+     (specific extractors, generators, optional mechanics, picker filter details) to Stage 2A /
+     Round 1 AFTER reading the user's authoritative references so you do not reverse premature
+     Phase 1 proposals.
 - Create `converters/<game>/` and initialize `PACK_NOTES.md` once confirmed.
 
 Phase 2 — Deep Planning, Mechanics & Template  [MULTI-ROUND STOP]
@@ -159,7 +174,10 @@ GTNH, run all three stages cleanly across as many rounds as needed.)
 Stage 2A — Mechanic Inventory & Planning Roadmap  [STOP — wait for roadmap confirmation]
 - Read ONLY the user-provided authoritative references and sampled raw fields to inventory EVERY
   mechanic, machine family, recipe map, and subsystem present in this game version (cross-checking
-  against the reference cookbook for v4 patterns). Flag any mechanic or edge case lacking an
+  against the reference cookbook for v4 patterns). For EVERY in-scope prototype/entity family in
+  `raw/`, inspect ALL non-visual/non-audio keys on representative records rather than whitelisting
+  only field names you expect from memory (prevents missing secondary fields such as harvest
+  emissions, idle drain, or special flags). Flag any mechanic or edge case lacking an
   exact-version authoritative citation as `UNVERIFIED — please confirm in-game`.
 - Present a concise **Planning Roadmap** grouping all design areas into ordered thematic rounds
   (as many rounds as the game warrants — e.g. 2–4 for medium games, 5–10+ for mega-modpacks like
@@ -196,7 +214,11 @@ Stage 2B — Thematic Decision Rounds  [STOP after each round]
     so players switch machines on the node instead of browsing N×M duplicate recipes. Move
     machine-specific speeds, formulas, and mandatory/optional extra inputs (coolants, boosters)
     onto `machine.attrs` + conditional `extra_ports` (`resource_expr` + `enabled`), splitting into
-    separate recipes only when core input/output ratios differ.
+    separate recipes only when core input/output ratios differ. Because Factory Planner defaults
+    newly placed and drag-connected nodes to the first compatible visible machine
+    (`recipe.machines[0]`, or the first matching machine in `machines.json` for `"category"`),
+    state and confirm the preferred default machine order (e.g. standard/electric tier before
+    burner or niche tiers) rather than sorting blindly alphabetically.
   - **Control types match the game:** model fixed discrete or non-uniform game presets (e.g.
     difficulty multipliers, belt/voltage tiers, tile/floor types) as `enum` + `option_set`
     dropdowns with numeric `attrs` rather than free-text `number` inputs (optionally paired with a
@@ -206,21 +228,30 @@ Stage 2B — Thematic Decision Rounds  [STOP after each round]
     players choose cleanly, and set `positive_label`/`negative_label` on `split_sign: true`
     metrics whose semantics aren't `"Consumed"`/`"Generated"` (e.g. `"Emitted"`/`"Absorbed"` for
     pollution).
-  - **Picker filtering via Project Globals:** when a pack spans multiple planets, editions, DLCs,
-    mods, or optional debug/hidden content, expose Project Globals (`enum`/`bool`) and wire
-    `profile.visible_if` (machines) and `profile.recipe_visible_if` (recipes) on a shared base
-    profile so the picker filters cleanly without breaking already-placed nodes.
-  - **Honest solver, physical-machine & 0-port power semantics:** explain that capacity parameters
-    (e.g. belt tier) scale `node.machines`, not hard solver flow constraints (constraints live only
-    in `.fpp` projects). Distinguish time-averaged `per_machine` metrics from whole-building `value`
-    metrics (`ceil(max(0, node.machines - 1e-6))` for peak power, slotted shards/modules, footprint,
-    and fixed-draw sinks). For power-only 0-port buildings (`V-NUM-4`), NEVER emit a meaningless
-    `1/s` dummy `"marker"` output (targeting `100` would solve for 100 buildings instead of 100
-    power units); instead offer deferring them OR outputting a typed `power` (or `heat`) resource
-    (`kind: "power"`, explicit `display_unit` like `"MW"`/`"u"`, `"rate_invariant": true` so
-    switching `/s` ↔ `/min` never scales watts by 60) whose `output_amount` equals actual
-    generated power per second (`abs(machine.power) * ...`, matching the negative `power` metric
-    1:1). When a game has substantial power-generation chains, offer a Project Global
+  - **Picker filtering via Project Globals (STRICTLY picker-only):** when a pack spans multiple
+    planets, editions, DLCs, mods, or optional debug/hidden content, expose Project Globals
+    (`enum`/`bool`) and wire `profile.visible_if` (machines) and `profile.recipe_visible_if`
+    (recipes) on a shared base profile. Keep picker-filter globals **strictly picker-only** —
+    NEVER read them inside node formulas (`craft_time`, port amounts, or metric `enabled`/values).
+    Location/environment-dependent mechanics (solar intensity, ambient heat/thawing, atmospheric
+    density) belong in per-node parameters so switching the picker filter on a multi-planet or
+    multi-biome graph never silently recalculates or disables metrics on already-placed nodes.
+  - **Honest solver, physical-machine, SI units & 0-port power semantics:** explain that capacity
+    parameters (e.g. belt tier) scale `node.machines`, not hard solver flow constraints
+    (constraints live only in `.fpp` projects). Distinguish time-averaged `per_machine` metrics
+    from whole-building `value` metrics (`ceil(max(0, node.machines - 1e-6))` for peak power,
+    slotted shards/modules, footprint, and fixed-draw sinks). For **any** instantaneous per-second
+    flow resource (`power`, thermal `heat`, etc., including 0-port generators), set
+    `"rate_invariant": true` with an exact plain SI unit (`"W"`, `"kW"`, `"MW"`, `"GW"`, `"TW"`,
+    or energy `"J"`..`"TJ"` — case-sensitive, NEVER annotated like `"MW (heat)"`) on both
+    `resource_kinds.<kind>.display_unit` and `metrics.<id>.unit` so switching `/s ↔ /min` never
+    scales watts by 60 and Factory Planner's SI auto-scaler and SI input parser work automatically
+    (put qualifiers like `"Aquilo thaw heat"` in `"label"`, not `"unit"`). For power-only 0-port
+    buildings (`V-NUM-4`), NEVER emit a meaningless `1/s` dummy `"marker"` output (targeting `100`
+    would solve for 100 buildings instead of 100 power units); instead offer deferring them OR
+    outputting a typed `power` resource (`"rate_invariant": true`) whose `output_amount` equals
+    actual generated power per second (`abs(machine.power) * ...`, matching the negative `power`
+    metric 1:1). When a game has substantial power-generation chains, offer a Project Global
     `power_mode` toggle (`metric` [default] / `resource` / `both`) using `xin:power_in` /
     `xout:power_out` extra ports (guarded by `let.native_power_out` on 0-port generators) +
     `metrics.power.enabled`.
@@ -230,19 +261,25 @@ Stage 2B — Thematic Decision Rounds  [STOP after each round]
 Stage 2C — Consolidated Blueprint Sign-Off & Template Smoke-Test  [STOP before writing template]
 - Once all roadmap topics are `[x]`, present a single concise **Pack Blueprint** summarizing the
   complete locked design BEFORE writing `template/game.json`:
-  - Recipe unification & sharding plan (unified multi-machine groups vs separate recipes),
+  - Recipe unification, default machine preference order, and sharding plan (unified multi-machine
+    groups vs separate recipes),
   - Complete **Project Globals** table (label, widget, options/range, default, `visible_if` scope),
   - Complete **Profiles & Node Parameters** table (params, widgets, presets, placement,
     `extra_ports`, `requires`),
   - Complete **Metrics** table (`unit`, `display`, `split_sign`, `per_machine` vs `value`),
-  - **Formulas & Edge-Case Exemptions** (with citations or `UNVERIFIED` flags), **Deferred (v2+)
-    subsystems**, and **Icon plan** (exact `raw/` art/font sources vs planned `V-W-1` waivers).
+  - **Formulas & Edge-Case Exemptions:** write out the **actual algebraic formula** for every
+    non-trivial `craft_time`, port, and metric (never opaque `let` names alone such as `pol_rate`),
+    with citations or `UNVERIFIED` flags, plus **Deferred (v2+) subsystems** and **Icon plan**
+    (exact `raw/` art/font sources vs planned `V-W-1` waivers).
 - STOP and wait for explicit user approval of the Pack Blueprint (catching UX/modeling gaps here
   takes 1 turn instead of rewriting converter + cases + icons after Phase 6).
-- Once approved: write `converters/<game>/template/game.json` with source + version citations in
-  `"notes"` fields (and clean player-friendly `"tooltip"` fields), update the **Formulas & Sources**
-  table in `PACK_NOTES.md`, and smoke-test `template/game.json` on a tiny temporary sample covering
-  every profile with `gamedata_tool validate` and `eval` BEFORE writing the full converter.
+- Once approved: write `converters/<game>/template/game.json` matching the approved Blueprint
+  faithfully (do not silently alter labels, units, or formulas; call out any technical schema
+  adjustment such as splitting a port-bound param explicitly), include source + version citations
+  in `"notes"` fields (and clean player-friendly `"tooltip"` fields), update the **Formulas &
+  Sources** table in `PACK_NOTES.md`, and smoke-test `template/game.json` on a tiny temporary
+  sample covering every profile with `gamedata_tool validate` and `eval` BEFORE writing the full
+  converter.
 
 Phase 3 — Hand-Checked Eval Cases  [STOP — wait for user confirmation]
 - Pick representative recipes covering **every** distinct profile, subsystem, tier/heat boundary,
@@ -251,12 +288,16 @@ Phase 3 — Hand-Checked Eval Cases  [STOP — wait for user confirmation]
   batch verification by subsystem across turns so the user can review each group cleanly).
 - Include at least one **fractional-machine** case (e.g. `machines: 1.5` and, for fixed-draw sinks
   or shared buildings, partial utilization such as `machines: 0.05`) to verify proportional
-  (`per_machine`) vs whole-building (`ceil(max(0, node.machines - 1e-6))`) metrics. Note that
-  `expect.metrics` in `--cases` compares canonical values (per-second for `is_rate: true` metrics).
+  (`per_machine`) vs whole-building (`ceil(max(0, node.machines - 1e-6))`) metrics, and exercise
+  at least one **non-default scaling tier/quality/mode** on every profile that scales throughput or
+  metrics (so `1×` defaults cannot hide missing metric scaling, e.g. quality-scaled pollution).
+  Note that `expect.metrics` in `--cases` compares canonical values (per-second for `is_rate: true`
+  metrics).
 - Compute expected `craft_time_s`, active/inactive ports, `amount_per_craft`, `metric_coeffs`, and
   post-solve `metrics` BY HAND from the raw record + cited formula, showing every step of the
-  arithmetic and the exact source + version citation. Explicitly highlight any `UNVERIFIED` edge
-  cases so the user knows what to spot-check in-game.
+  arithmetic, the exact source + version citation, and any modeling approximations (e.g. peak vs
+  idle draw). Explicitly highlight any `UNVERIFIED` edge cases so the user knows what to spot-check
+  in-game.
 - Ask the user to verify the numbers against the game or authoritative wiki/source.
 - Once confirmed, write `converters/<game>/cases/*.json` (using appropriate `tol`, e.g. `1e-3` or
   `1e-6`).
@@ -287,7 +328,8 @@ Phase 5 — Verify & Icons
   - Reconcile entity counts with `report.json` (total raw records = emitted + accounted skips).
   - For large packs (10k–50k+ recipes), record median load time against the < 2 s Release budget.
 - Spot-check tricky profiles with `gamedata_tool eval --sweep <param>` (tier boundaries, mode
-  switches, hidden parameters, blocked states).
+  switches, hidden parameters, blocked states; `--sweep` supports `enum` or `int` with `<= 32`
+  inclusive values `max - min + 1 <= 32`, not `resource_choice`).
 - Icons (ONLY if the user provided source icons or an icon-fetch source and wants them):
   - Before waiving any **resource or machine** icon as missing, search ALL asset locations under
     `raw/<game>/` — not just item/entity sprite directories, but also loose user-added PNGs/SVGs in
