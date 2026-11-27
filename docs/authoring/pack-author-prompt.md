@@ -70,6 +70,11 @@ HARD RULES
      queries, use a heredoc (`python3 - <<'EOF'`) or a small scratch script rather than
      shell-escaped `python3 -c` one-liners to avoid quote-escaping syntax errors and repeated
      full-dump reloads.
+   - Game/mod source trees: locate symbols with `grep -n` / `rg -n` first, then read only windows
+     of <= ~150 lines around the hit. NEVER read whole source files, and NEVER batch several
+     large file reads in one turn. Cap every command's output (e.g. `| head -n 80`).
+   - Context is a budget: every file you read stays in the conversation and is re-sent each turn.
+     Persist what you learned (see rule 11), then move on instead of re-reading.
    - Always run `gamedata_tool validate <pkg> --no-icons --json` and inspect ONLY `counts`,
      `cascades`, and `groups` (never `--all` on a broken large pack). Fix cascades and template
      errors first before recipe-level errors.
@@ -111,6 +116,27 @@ HARD RULES
 10. Keep `converters/<game>/PACK_NOTES.md` fully in sync across every section (status, decisions,
     entity/case counts, rerun command comments, coverage, icon provenance) — including after
     post-handover refinements — so any fresh session can resume cleanly without stale numbers.
+11. Disk is the only memory. Chat context is temporary: a compaction, quota stop, crash, or new
+    session loses everything that is not on disk. Recording decisions alone is not enough:
+    - Save every verified formula, constant, table, and edge case with its exact citation
+      (file path + line, or URL + version) AS SOON AS you verify it, in
+      `converters/<game>/research/<topic>.md` (one file per roadmap round or subsystem). Roll the
+      results into the PACK_NOTES.md **Formulas & Sources** table at every round checkpoint. Never
+      leave it for Stage 2C.
+    - Write the Stage 2C Pack Blueprint to `converters/<game>/BLUEPRINT.md` BEFORE presenting it.
+      When the user approves it, mark it `Approved <date>` and update PACK_NOTES.md Status FIRST,
+      before doing anything else.
+    - Before ending ANY turn that stops for the user, update PACK_NOTES.md Status with a
+      **Next action** line: the exact next step, the files to read, and any open questions.
+    - On resume, trust the persisted research files, Formulas & Sources table, and Blueprint.
+      Re-open source code only to fill a specific, named gap. NEVER redo broad research for
+      rounds that are already settled.
+12. Stay on the prompt after long context. Whenever you see a compaction / "resuming" summary, or
+    you start a new Stage or Phase, re-run `gamedata_tool guide prompt` BEFORE your next message
+    to the user. Do NOT re-read the full reference each time: save `gamedata_tool guide reference`
+    to a scratch file once and read only the sections you need. Before sending a Decision Round,
+    check every card against the card template in rule 7: one choice, options of 1–2 lines each,
+    and Trade-off, Recommended, and Source lines present. Fix any card that fails before sending.
 
 WORKSPACE LAYOUT
 ```text
@@ -126,6 +152,8 @@ WORKSPACE LAYOUT
     cases/*.json                    hand-verified eval regression cases
     report.json                     generated counts, skipped records + reasons, ID collisions
     PACK_NOTES.md                   living log: status, sources, decisions, formulas, rerun cmds
+    research/<topic>.md             verified formulas/constants + exact citations, per subsystem
+    BLUEPRINT.md                    Stage 2C Pack Blueprint (approval status recorded inside)
   packs/<game>/<pkg>/               generated GameData v4 JSON (committed; NO loose icons)
   .tmp_icons/                       optional icon resize scratch (gitignored)
 ```
@@ -134,12 +162,18 @@ PHASES
 
 Phase 0 — Setup / Resume
 - Run `gamedata_tool --version` to verify the tool is available and targets `schema_version 4`.
-- Ensure you have read the full output of `gamedata_tool guide reference`.
+  If it is missing or fails to run, report the exact error and ask the user. Do not guess other
+  launchers or install paths.
+- Ensure you have read the full output of `gamedata_tool guide reference` (new pack), or the
+  sections relevant to the current phase (resume; see HARD RULE 12).
 - Check whether `converters/<game>/PACK_NOTES.md` already exists:
-  - If YES: read it, summarize status (including settled `[x]` vs remaining `[ ]` Phase 2 planning
-    topics), recorded decisions, and next step in <= 10 lines, confirm with the user, and resume
-    directly from the recorded phase/round without re-asking settled questions.
+  - If YES: read it, plus `BLUEPRINT.md` and only the `research/` files named in its **Next
+    action**. Summarize status (including settled `[x]` vs remaining `[ ]` Phase 2 planning
+    topics), recorded decisions, and next step in <= 10 lines. Confirm with the user (skip this if
+    the user already named the stage to start from), then resume directly from the recorded
+    phase/round without re-asking settled questions or re-researching settled formulas.
   - If NO: inspect the workspace root (`raw/`, `common/`, `packs/`) and proceed to Phase 1.
+- Mega-packs: read the LARGE PACKS section below and follow its session plan.
 
 Phase 1 — Discovery  [STOP — wait for user confirmation]
 - Inventory `raw/` by sampling ONLY (file names, sizes, formats, record types, approximate counts,
@@ -256,7 +290,9 @@ Stage 2B — Thematic Decision Rounds  [STOP after each round]
     `xout:power_out` extra ports (guarded by `let.native_power_out` on 0-port generators) +
     `metrics.power.enabled`.
 - **Checkpoint after EVERY round:** record answered Decision Cards and mark completed roadmap topics
-  `[x]` in `PACK_NOTES.md` before moving to the next round.
+  `[x]` in `PACK_NOTES.md`. Make sure every formula and constant verified in this round is in
+  `research/<topic>.md` and the Formulas & Sources table (HARD RULE 11). Then move to the next
+  round.
 
 Stage 2C — Consolidated Blueprint Sign-Off & Template Smoke-Test  [STOP before writing template]
 - Once all roadmap topics are `[x]`, present a single concise **Pack Blueprint** summarizing the
@@ -271,8 +307,12 @@ Stage 2C — Consolidated Blueprint Sign-Off & Template Smoke-Test  [STOP before
     non-trivial `craft_time`, port, and metric (never opaque `let` names alone such as `pol_rate`),
     with citations or `UNVERIFIED` flags, plus **Deferred (v2+) subsystems** and **Icon plan**
     (exact `raw/` art/font sources vs planned `V-W-1` waivers).
+- Write the full Blueprint to `converters/<game>/BLUEPRINT.md` first (formulas cite the
+  `research/` files). The chat message may be a condensed version that links to it.
 - STOP and wait for explicit user approval of the Pack Blueprint (catching UX/modeling gaps here
   takes 1 turn instead of rewriting converter + cases + icons after Phase 6).
+- On approval, mark `BLUEPRINT.md` approved and update PACK_NOTES.md Status first. For mega-packs,
+  this is a session breakpoint (see LARGE PACKS).
 - Once approved: write `converters/<game>/template/game.json` matching the approved Blueprint
   faithfully (do not silently alter labels, units, or formulas; call out any technical schema
   adjustment such as splitting a port-bound param explicitly), include source + version citations
@@ -369,12 +409,53 @@ Phase 6 — Handover
   - Ask the user to test the pack in Factory Planner and say what they want refined (refinements
     return cleanly to Phase 2 or Phase 4).
 
+LARGE PACKS: SESSIONS & DELEGATION
+Applies to mega-packs (e.g. GTNH, Pyanodons): more than ~5 planning rounds, large source trees, or
+10k+ recipes. One chat cannot hold the whole project. Plan for several sessions that continue from
+disk (HARD RULE 11).
+- Session plan: one session is about one milestone. Recommended breakpoints: after Phase 1; every
+  2–3 Stage 2B rounds; after Stage 2C approval; after each Phase 3 subsystem batch; after Phase 4
+  turns green; and Phases 5–6. At a breakpoint, or right after any compaction, finish the
+  checkpoint and end your message with a ready-to-paste resume prompt, for example:
+  ```text
+  Continue the <game> <version> GameData v4 pack. Run `gamedata_tool guide prompt` and follow it.
+  Resume from converters/<game>/PACK_NOTES.md (Next action: <step>). Settled decisions and
+  research/ files are final; do not re-research them.
+  ```
+- Template authoring in batches: write `template/game.json` incrementally. Start with the shared
+  base (units, kinds, attributes, option sets, globals, metrics, base profile), then add one profile
+  group at a time. Smoke-test each group and checkpoint it as `[x]` in a PACK_NOTES.md Phase 3
+  checklist. A mega-pack template MAY be split into `template/parts/*.json` that the converter
+  merges in a fixed order; record the choice in PACK_NOTES.md.
+- Delegation (only if your environment provides subagents/helpers). Helpers multiply token and
+  quota use, so delegate narrowly:
+  - You own the user dialogue, Decision Cards, and all writes to the template and PACK_NOTES.md.
+    Helpers gather facts only; they never make design decisions.
+  - Check `research/` and Formulas & Sources first. Delegate only real gaps.
+  - One helper gets one subsystem, at most ~6 concrete questions, named entry files/classes, and
+    an output path `converters/<game>/research/<topic>.md`.
+  - Put the budget in the brief: grep first, read windows of <= ~150 lines, at most ~30 reads, no
+    whole-file reads, no web search unless you allow it, stay inside the workspace, and flag
+    `UNVERIFIED` instead of hunting.
+  - Results must survive failures. A helper that can write files appends each answered question
+    to its research file immediately. A read-only helper must have a task small enough to return
+    in one compact report (<= ~150 lines), and you write that report to disk as soon as it arrives.
+  - Run at most 2 helpers at once. Launch more only after those return.
+  - After launching helpers, end the turn with a short status: each helper's topic and the file
+    its results go to.
+  - If a helper fails (quota/rate limit, error, no report), do NOT relaunch it automatically.
+    Save any partial results, tell the user which topic failed and the exact error, and stop.
+    Alternatively, continue that topic yourself in narrow steps if budget allows.
+
 PACK_NOTES.md REQUIRED SECTIONS
-1. Status (current phase/round, Phase 2 Planning Roadmap `[x]`/`[ ]` checklist, last verified date/command results)
+1. Status (current phase/round, Phase 2 Planning Roadmap `[x]`/`[ ]` checklist, Blueprint approval,
+   template/Phase 3 batch checklist for mega-packs, last verified date/command results, and a
+   **Next action** line: exact next step + files to read)
 2. Package Metadata (game, edition, exact version, package path, how raw dump was obtained)
 3. Authoritative References (URLs, repo commits/tags, local `raw/NOTES.md`)
 4. Decision Log (all answered Decision Cards, grouped by planning round/topic)
-5. Formulas & Sources Table (profile/metric/table -> formula -> exact source + version)
+5. Formulas & Sources Table (profile/metric/table -> formula -> exact source + version; filled in
+   round by round from `research/`, never deferred)
 6. Dependencies (stdlib only, or approved `.venv` + pinned `requirements.txt`)
 7. Rerun Commands (exact copy-paste commands for convert, validate, eval, stats, icons)
 8. Coverage, Skipped Records, Deferred Subsystems (v2+) & Open Issues
